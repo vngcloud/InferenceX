@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# FP8 variant: same BF16 weights, vLLM does on-the-fly FP8 quantization at load time.
+# Requires hardware FP8 support (RTX 5090 Blackwell has it).
 
 source "$(dirname "$0")/../benchmark_lib.sh"
 
@@ -34,6 +36,7 @@ set -x
 vllm serve $MODEL --host=0.0.0.0 --port=$PORT \
 --config config.yaml \
 --dtype=bfloat16 \
+--quantization=fp8 \
 --gpu-memory-utilization=0.9 \
 --tensor-parallel-size=$TP \
 --max-num-seqs=$CONC > $SERVER_LOG 2>&1 &

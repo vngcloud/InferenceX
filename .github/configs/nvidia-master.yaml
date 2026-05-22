@@ -4528,6 +4528,14 @@ gptoss-fp4-h100-1x-vllm:
       osl: 1024
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    agentic-coding:
+    - duration: 1800
+      search-space:
+      - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
@@ -4543,6 +4551,37 @@ dsr1qwen3-bf16-rtx5090-1x-vllm:
       osl: 1024
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    agentic-coding:
+    - duration: 1800
+      search-space:
+      - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+
+dsr1qwen3-fp8-rtx5090-1x-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
+  model-prefix: dsr1qwen3
+  runner: rtx5090-1x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    agentic-coding:
+    - duration: 1800
+      search-space:
+      - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
