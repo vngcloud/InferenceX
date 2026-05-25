@@ -4587,6 +4587,49 @@ gemma4-fp8-h100-2x-vllm-bench:
       - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
       - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
 
+# N=4 variant. Script reads num_speculative_tokens from MODEL_PREFIX
+# (gemma4n4 → 4). Filename `gemma4n4_fp8_h100.sh` is a symlink to
+# `gemma4_fp8_h100.sh`. No baseline rows — baseline doesn't depend on N
+# (compare against the bench config above).
+gemma4-fp8-h100-2x-vllm-bench-n4:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4n4
+  runner: h100-2x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+
+# N=6 variant (gemma4n6 → 6).
+gemma4-fp8-h100-2x-vllm-bench-n6:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4n6
+  runner: h100-2x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B

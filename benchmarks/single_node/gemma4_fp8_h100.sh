@@ -56,11 +56,23 @@ export PYTHONNOUSERSITE=1
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
+# Derive num_speculative_tokens from MODEL_PREFIX (validator forbids
+# extra fields on single-node search-space, so each N variant gets its
+# own config key + distinct model-prefix + symlinked script filename):
+#   gemma4   → N=2 (default)
+#   gemma4n4 → N=4
+#   gemma4n6 → N=6
+case "$MODEL_PREFIX" in
+    gemma4n4)  NUM_SPEC_TOKENS=4 ;;
+    gemma4n6)  NUM_SPEC_TOKENS=6 ;;
+    *)         NUM_SPEC_TOKENS=2 ;;
+esac
+
 # Build spec-decode flag set as an array — safest way to thread JSON
 # containing both single and double quotes through bash word-splitting.
 SPEC_ARGS=()
 if [ "$SPEC_DECODING" = "mtp" ]; then
-    SPEC_JSON="{\"model\":\"${ASSISTANT_MODEL}\",\"num_speculative_tokens\":2}"
+    SPEC_JSON="{\"model\":\"${ASSISTANT_MODEL}\",\"num_speculative_tokens\":${NUM_SPEC_TOKENS}}"
     SPEC_ARGS=(--speculative-config "$SPEC_JSON")
 fi
 
@@ -95,11 +107,10 @@ run_benchmark_serving \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
 
-# Capture vLLM's spec-decode acceptance metrics for later analysis. These
-# only exist when SPEC_DECODING=mtp; harmless to call either way.
-curl -s "http://127.0.0.1:${PORT}/metrics" \
-    | grep -E "spec_decode|speculative" \
-    > /workspace/spec_metrics_${RESULT_FILENAME}.txt 2>/dev/null || true
+# Acceptance-rate metrics already land in server.log (vLLM logs
+# `SpecDecoding metrics: ...` every ~10 s during inference) which is
+# uploaded by the workflow's existing Upload server logs step. No
+# extra curl needed.
 
 if [ "${RUN_EVAL}" = "true" ]; then
     run_eval --framework lm-eval --port "$PORT"
