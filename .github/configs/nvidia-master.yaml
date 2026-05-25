@@ -4566,7 +4566,7 @@ gptoss-fp4-h100-2x-vllm:
 # v0.21.0 (tagged 2026-05-15) is the first stable release post-PR; after this,
 # vLLM only ships nightlies. Bump tag if issue #42261 (frequent crashes) gets
 # a known-stable patch in a later release.
-gemma4-fp8-h100-2x-vllm-mtp:
+gemma4-fp8-h100-2x-vllm-bench:
   image: vllm/vllm-openai:v0.21.0
   model: google/gemma-4-31B-it
   model-prefix: gemma4
@@ -4579,10 +4579,12 @@ gemma4-fp8-h100-2x-vllm-mtp:
     - isl: 1024
       osl: 1024
       search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
       - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
     - isl: 8192
       osl: 1024
       search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
       - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
 
 dsr1qwen3-bf16-rtx5090-1x-vllm:
