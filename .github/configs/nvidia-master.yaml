@@ -4532,10 +4532,11 @@ gptoss-fp4-h100-1x-vllm:
       osl: 1024
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16 }
-    agentic-coding:
-    - duration: 1800
-      search-space:
-      - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # (aiperf trace-replay SystemController times out at startup).
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
 gptoss-fp4-h100-2x-vllm:
   image: vllm/vllm-openai:v0.21.0
@@ -4555,10 +4556,10 @@ gptoss-fp4-h100-2x-vllm:
       osl: 1024
       search-space:
       - { tp: 2, conc-start: 4, conc-end: 16 }
-    agentic-coding:
-    - duration: 1800
-      search-space:
-      - { tp: 2, offloading: none, conc-list: [1, 2, 4, 8] }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 2, offloading: none, conc-list: [1, 2, 4, 8] }
 
 # Lab test for MEP-0006 (maas-project): Gemma 4 31B FP8 + native MTP assistant
 # via vLLM v1 speculative-config (PR vllm-project/vllm#41745, merged 2026-05-06).
@@ -4602,10 +4603,10 @@ dsr1qwen3-bf16-rtx5090-1x-vllm:
       osl: 1024
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16 }
-    agentic-coding:
-    - duration: 1800
-      search-space:
-      - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
 dsr1qwen3-fp8-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
@@ -4625,10 +4626,10 @@ dsr1qwen3-fp8-rtx5090-1x-vllm:
       osl: 1024
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16 }
-    agentic-coding:
-    - duration: 1800
-      search-space:
-      - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
