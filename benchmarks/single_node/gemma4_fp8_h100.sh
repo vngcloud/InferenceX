@@ -45,7 +45,11 @@ fi
 
 cat > config.yaml << EOF
 max-model-len: $MAX_MODEL_LEN
-max-num-batched-tokens: 2048
+# Gemma 4 is multimodal — its vision encoder emits 2496 tokens per image
+# (max_tokens_per_mm_item). vLLM refuses to start if max-num-batched-tokens
+# is smaller than that, so 2048 (a reasonable text-only default) fails.
+# 8192 fits MM items and matches our 8k1k workload.
+max-num-batched-tokens: 8192
 EOF
 
 export PYTHONNOUSERSITE=1
