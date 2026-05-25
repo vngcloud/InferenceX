@@ -4561,11 +4561,12 @@ gptoss-fp4-h100-2x-vllm:
       - { tp: 2, offloading: none, conc-list: [1, 2, 4, 8] }
 
 # Lab test for MEP-0006 (maas-project): Gemma 4 31B FP8 + native MTP assistant
-# via vLLM v1 speculative-config (PR vllm-project/vllm#41745, merged 2026-05-08).
-# Image MUST be ≥ v0.22.0 — v0.21 predates the PR. Pinning v0.22.0 here; bump
-# if a known-stable patch addresses issue #42261 (frequent crashes).
+# via vLLM v1 speculative-config (PR vllm-project/vllm#41745, merged 2026-05-06).
+# v0.21.0 (tagged 2026-05-15) is the first stable release post-PR; after this,
+# vLLM only ships nightlies. Bump tag if issue #42261 (frequent crashes) gets
+# a known-stable patch in a later release.
 gemma4-fp8-h100-2x-vllm-mtp:
-  image: vllm/vllm-openai:v0.22.0
+  image: vllm/vllm-openai:v0.21.0
   model: google/gemma-4-31B-it
   model-prefix: gemma4
   runner: h100-2x
