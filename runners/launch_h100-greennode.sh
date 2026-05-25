@@ -41,4 +41,3 @@ docker run --rm \
   --entrypoint bash \
   "$IMAGE" \
   "benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h100.sh"
-c
