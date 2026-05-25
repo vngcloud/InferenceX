@@ -4560,6 +4560,29 @@ gptoss-fp4-h100-2x-vllm:
       search-space:
       - { tp: 2, offloading: none, conc-list: [1, 2, 4, 8] }
 
+# Lab test for MEP-0006 (maas-project): Gemma 4 31B FP8 + native MTP assistant
+# via vLLM v1 speculative-config (PR vllm-project/vllm#41745, merged 2026-05-08).
+# Image MUST be ≥ v0.22.0 — v0.21 predates the PR. Pinning v0.22.0 here; bump
+# if a known-stable patch addresses issue #42261 (frequent crashes).
+gemma4-fp8-h100-2x-vllm-mtp:
+  image: vllm/vllm-openai:v0.22.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4
+  runner: h100-2x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
