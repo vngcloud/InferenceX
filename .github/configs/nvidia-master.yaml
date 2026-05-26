@@ -4566,6 +4566,12 @@ gptoss-fp4-h100-2x-vllm:
 # v0.21.0 (tagged 2026-05-15) is the first stable release post-PR; after this,
 # vLLM only ships nightlies. Bump tag if issue #42261 (frequent crashes) gets
 # a known-stable patch in a later release.
+#
+# N=2/4/6 MTP rows previously lived in separate config keys
+# (gemma4-fp8-h100-2x-vllm-bench-n4 / -n6) that smuggled the value via
+# model-prefix. Now `num-speculative-tokens` is a first-class search-space
+# field, so all variants collapse into this one key. Baseline (spec-decoding:
+# none) does not depend on N so it omits the field.
 gemma4-fp8-h100-2x-vllm-bench:
   image: vllm/vllm-openai:v0.21.0
   model: google/gemma-4-31B-it
@@ -4580,22 +4586,29 @@ gemma4-fp8-h100-2x-vllm-bench:
       osl: 1024
       search-space:
       - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
-      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 2 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 4 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 6 }
     - isl: 8192
       osl: 1024
       search-space:
       - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
-      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 2 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 4 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 6 }
 
-# N=4 variant. Script reads num_speculative_tokens from MODEL_PREFIX
-# (gemma4n4 → 4). Filename `gemma4n4_fp8_h100.sh` is a symlink to
-# `gemma4_fp8_h100.sh`. No baseline rows — baseline doesn't depend on N
-# (compare against the bench config above).
-gemma4-fp8-h100-2x-vllm-bench-n4:
+# Continuous-batching characterization on 1x H100. Same target model,
+# TP=1, no spec-decoding. Varies `max-num-batched-tokens` (the
+# chunked-prefill ceiling) to measure how the batched-tokens cap shifts
+# the throughput/latency curve. Gemma 4's vision encoder emits 2496
+# tokens per image so values below ~4096 are not safe — values picked
+# are: 4096 (tight), 8192 (script default, used by the 2x bench above),
+# 16384 (loose).
+gemma4-fp8-h100-1x-vllm-bench:
   image: vllm/vllm-openai:v0.21.0
   model: google/gemma-4-31B-it
-  model-prefix: gemma4n4
-  runner: h100-2x
+  model-prefix: gemma4
+  runner: h100-1x
   precision: fp8
   framework: vllm
   multinode: false
@@ -4604,31 +4617,15 @@ gemma4-fp8-h100-2x-vllm-bench-n4:
     - isl: 1024
       osl: 1024
       search-space:
-      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
-
-# N=6 variant (gemma4n6 → 6).
-gemma4-fp8-h100-2x-vllm-bench-n6:
-  image: vllm/vllm-openai:v0.21.0
-  model: google/gemma-4-31B-it
-  model-prefix: gemma4n6
-  runner: h100-2x
-  precision: fp8
-  framework: vllm
-  multinode: false
-  scenarios:
-    fixed-seq-len:
-    - isl: 1024
-      osl: 1024
-      search-space:
-      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
-    - isl: 8192
-      osl: 1024
-      search-space:
-      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
 
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0

@@ -302,6 +302,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     ep = bmk.get(Fields.EP.value)
                     dp_attn = bmk.get(Fields.DP_ATTN.value)
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
+                    num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
+                    max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
 
                     # Apply max-tp filter if specified
                     if args.max_tp is not None:
@@ -356,9 +358,11 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.TP.value: tp,
                                 Fields.CONC.value: conc,
                                 Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
                                 Fields.EP.value: 1,  # Default
                                 Fields.DP_ATTN.value: False,  # Default
                                 Fields.SPEC_DECODING.value: spec_decoding,
+                                Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
                                 Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
                                 Fields.DISAGG.value: disagg,
                                 Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
@@ -604,6 +608,8 @@ def generate_runner_model_sweep_config(args, all_config_data, runner_data):
             ep = highest_tp_bmk.get(Fields.EP.value)
             dp_attn = highest_tp_bmk.get(Fields.DP_ATTN.value)
             spec_decoding = highest_tp_bmk.get(Fields.SPEC_DECODING.value, "none")
+            num_speculative_tokens = highest_tp_bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
+            max_num_batched_tokens = highest_tp_bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
 
             for node in runner_nodes:
                 entry = {
@@ -619,8 +625,10 @@ def generate_runner_model_sweep_config(args, all_config_data, runner_data):
                     Fields.EP.value: ep if ep is not None else 1,
                     Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
                     Fields.SPEC_DECODING.value: spec_decoding,
+                    Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
                     Fields.CONC.value: conc_value,
                     Fields.MAX_MODEL_LEN.value: 2048,
+                    Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
                     Fields.EXP_NAME.value: f"{model_code}_test",
                     Fields.DISAGG.value: disagg,
                     Fields.RUN_EVAL.value: False,
@@ -747,6 +755,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                     ep = bmk.get(Fields.EP.value)
                     dp_attn = bmk.get(Fields.DP_ATTN.value)
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
+                    num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
+                    max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
 
                     # Get concurrency values
                     if Fields.CONC_LIST.value in bmk:
@@ -785,9 +795,11 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.TP.value: tp,
                                 Fields.CONC.value: conc,
                                 Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
                                 Fields.EP.value: ep if ep is not None else 1,
                                 Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
                                 Fields.SPEC_DECODING.value: spec_decoding,
+                                Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
                                 Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
                                 Fields.DISAGG.value: disagg,
                                 Fields.RUN_EVAL.value: False,

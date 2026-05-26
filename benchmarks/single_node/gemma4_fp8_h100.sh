@@ -38,6 +38,13 @@ fi
 # whatever the matrix passes via $MAX_MODEL_LEN (workflow computes ISL+OSL+256).
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$(( ISL + OSL + 256 ))}"
 
+# Gemma 4 is multimodal — its vision encoder emits 2496 tokens per image
+# (max_tokens_per_mm_item). vLLM refuses to start if max-num-batched-tokens
+# is smaller than that, so 2048 (a reasonable text-only default) fails.
+# 8192 fits MM items and matches our 8k1k workload — used as the fallback
+# when the matrix doesn't pin a value via $MAX_NUM_BATCHED_TOKENS.
+MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-8192}"
+
 if [ "${EVAL_ONLY}" = "true" ]; then
     setup_eval_context
     MAX_MODEL_LEN="$EVAL_MAX_MODEL_LEN"
@@ -45,28 +52,17 @@ fi
 
 cat > config.yaml << EOF
 max-model-len: $MAX_MODEL_LEN
-# Gemma 4 is multimodal — its vision encoder emits 2496 tokens per image
-# (max_tokens_per_mm_item). vLLM refuses to start if max-num-batched-tokens
-# is smaller than that, so 2048 (a reasonable text-only default) fails.
-# 8192 fits MM items and matches our 8k1k workload.
-max-num-batched-tokens: 8192
+max-num-batched-tokens: $MAX_NUM_BATCHED_TOKENS
 EOF
 
 export PYTHONNOUSERSITE=1
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
-# Derive num_speculative_tokens from MODEL_PREFIX (validator forbids
-# extra fields on single-node search-space, so each N variant gets its
-# own config key + distinct model-prefix + symlinked script filename):
-#   gemma4   → N=2 (default)
-#   gemma4n4 → N=4
-#   gemma4n6 → N=6
-case "$MODEL_PREFIX" in
-    gemma4n4)  NUM_SPEC_TOKENS=4 ;;
-    gemma4n6)  NUM_SPEC_TOKENS=6 ;;
-    *)         NUM_SPEC_TOKENS=2 ;;
-esac
+# num_speculative_tokens (N) comes from the matrix via $NUM_SPECULATIVE_TOKENS.
+# Falls back to N=2 to match Gemma 4's native MTP drafter depth — kept for
+# backwards-compat with configs that don't pin a value.
+NUM_SPEC_TOKENS="${NUM_SPECULATIVE_TOKENS:-2}"
 
 # Build spec-decode flag set as an array — safest way to thread JSON
 # containing both single and double quotes through bash word-splitting.

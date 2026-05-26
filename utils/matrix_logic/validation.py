@@ -39,6 +39,8 @@ class Fields(Enum):
     CONC_LIST = 'conc-list'
     EP = 'ep'
     DP_ATTN = 'dp-attn'
+    MAX_NUM_BATCHED_TOKENS = 'max-num-batched-tokens'
+    NUM_SPECULATIVE_TOKENS = 'num-speculative-tokens'
 
     # Multinode-specific fields (when MULTINODE = true)
     SPEC_DECODING = 'spec-decoding'
@@ -89,6 +91,9 @@ class SingleNodeMatrixEntry(BaseModel):
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
+    num_speculative_tokens: Optional[int] = Field(
+        default=None, alias=Fields.NUM_SPECULATIVE_TOKENS.value
+    )
     runner: str
     isl: int
     osl: int
@@ -97,6 +102,9 @@ class SingleNodeMatrixEntry(BaseModel):
     dp_attn: bool = Field(alias=Fields.DP_ATTN.value)
     conc: Union[int, List[int]]
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
+    max_num_batched_tokens: Optional[int] = Field(
+        default=None, alias=Fields.MAX_NUM_BATCHED_TOKENS.value
+    )
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     run_eval: bool = Field(alias=Fields.RUN_EVAL.value)
@@ -273,8 +281,16 @@ class SingleNodeSearchSpaceEntry(BaseModel):
     ep: Optional[int] = None
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         default="none", alias=Fields.SPEC_DECODING.value)
+    # N for speculative decoding (num_speculative_tokens / drafter depth).
+    # Only meaningful when spec_decoding != "none". None means the bench
+    # script picks its own default (typically the model's native MTP depth).
+    num_speculative_tokens: Optional[int] = Field(
+        default=None, alias=Fields.NUM_SPECULATIVE_TOKENS.value)
     dp_attn: Optional[bool] = Field(
         default=None, alias=Fields.DP_ATTN.value)
+    # Chunked-prefill ceiling. None means the engine default is used.
+    max_num_batched_tokens: Optional[int] = Field(
+        default=None, alias=Fields.MAX_NUM_BATCHED_TOKENS.value)
     conc_start: Optional[int] = Field(
         default=None, alias=Fields.CONC_START.value)
     conc_end: Optional[int] = Field(
@@ -285,6 +301,15 @@ class SingleNodeSearchSpaceEntry(BaseModel):
     @model_validator(mode='after')
     def validate_conc_fields(self):
         return _validate_conc_fields(self)
+
+    @model_validator(mode='after')
+    def validate_spec_consistency(self):
+        if self.num_speculative_tokens is not None and self.spec_decoding == "none":
+            raise ValueError(
+                f"'{Fields.NUM_SPECULATIVE_TOKENS.value}' is only meaningful "
+                f"when '{Fields.SPEC_DECODING.value}' is not 'none'."
+            )
+        return self
 
 
 class MultiNodeSearchSpaceEntry(BaseModel):

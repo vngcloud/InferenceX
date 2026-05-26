@@ -39,6 +39,16 @@ isl = base_env['ISL']
 osl = base_env['OSL']
 image = base_env['IMAGE']
 
+
+def _opt_int(env_name):
+    """Read an optional env var as int; '' or unset → None (engine default)."""
+    raw = os.environ.get(env_name, '')
+    return int(raw) if raw not in ('', '0') else None
+
+
+num_speculative_tokens = _opt_int('NUM_SPECULATIVE_TOKENS')
+max_num_batched_tokens = _opt_int('MAX_NUM_BATCHED_TOKENS')
+
 with open(f'{result_filename}.json') as f:
     bmk_result = json.load(f)
 
@@ -51,6 +61,8 @@ data = {
     'framework': framework,
     'precision': precision,
     'spec_decoding': spec_decoding,
+    'num_speculative_tokens': num_speculative_tokens,
+    'max_num_batched_tokens': max_num_batched_tokens,
     'disagg': disagg,
     'isl': int(isl),
     'osl': int(osl),
