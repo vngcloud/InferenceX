@@ -87,6 +87,29 @@ check_env_vars() {
     fi
 }
 
+# Persist $HF_TOKEN to the HF Hub on-disk cache so vLLM/SGLang worker
+# subprocesses see it. Env-var propagation through multiprocessing.spawn
+# is unreliable — the engine spawns fresh interpreters that re-import
+# huggingface_hub and call get_token(), which reads the env *or* the
+# file cache. Caching to disk makes the token visible regardless of how
+# subprocesses are launched and silences the recurring
+# "You are sending unauthenticated requests to the HF Hub" warning that
+# fires from APIServer / EngineCore even when the parent shell has
+# HF_TOKEN set. No-op when HF_TOKEN is unset (e.g. local smoke runs).
+setup_hf_auth() {
+    if [[ -z "${HF_TOKEN:-}" ]]; then
+        echo "[hf-auth] HF_TOKEN not set; skipping token cache write."
+        return 0
+    fi
+    # Length-only log (safe — does not leak token value).
+    echo "[hf-auth] HF_TOKEN present (length=${#HF_TOKEN}); writing to ~/.cache/huggingface/token"
+    mkdir -p "$HOME/.cache/huggingface"
+    printf '%s' "$HF_TOKEN" > "$HOME/.cache/huggingface/token"
+    chmod 600 "$HOME/.cache/huggingface/token"
+    # Also export the legacy alias for older library code paths.
+    export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
+}
+
 # Wait for server to be ready by polling the health endpoint
 # All parameters are required
 # Parameters:
@@ -1036,3 +1059,8 @@ write_agentic_result_json() {
     # missing in a stripped-down image). The agg JSON is the success gate.
     python3 "$INFMAX_CONTAINER_WORKSPACE/utils/generate_aiperf_plots.py" "$result_dir" 2>&1 || true
 }
+
+# Run at source time so every bench script that does
+# `source "$(dirname "$0")/../benchmark_lib.sh"` gets HF auth wired up
+# without needing to remember to call setup_hf_auth.
+setup_hf_auth
