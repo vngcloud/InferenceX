@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Gemma 4 31B FP8 on 2x H100 via SGLang (baseline, no speculative decoding).
 #
-# Counterpart to the vLLM gemma4_fp8_h100.sh so the two engines can be
-# compared apples-to-apples on the same model/hardware. google/gemma-4-31B-it
-# ships as a bf16 checkpoint; --quantization fp8 does on-the-fly fp8 (matching
-# the vLLM bench's --quantization=fp8), and --kv-cache-dtype fp8_e4m3 mirrors
-# the vLLM KV-cache choice.
+# Counterpart to the vLLM gemma4_fp8_h100.sh for an engine-to-engine compare.
+# Expects a pre-quantized compressed-tensors fp8 checkpoint (e.g.
+# RedHatAI/gemma-4-31B-it-FP8-dynamic) whose quantization_config ignores the
+# vision tower (ignore: re:.*vision.*). We deliberately do NOT pass
+# --quantization: SGLang auto-detects compressed-tensors from the checkpoint
+# and honours that ignore list, keeping the vision encoder in bf16. Passing
+# --quantization fp8 (on-the-fly) instead quantizes the vision tower too and
+# crashes in triton_scaled_mm (gemma4_vision.py scale_b shape assertion).
+# --kv-cache-dtype fp8_e4m3 mirrors the vLLM bench's KV-cache choice.
 #
 # Selected by runners/launch_h100-greennode.sh for framework=sglang configs
 # whose model-prefix is gemma4 (e.g. gemma4-fp8-h100-2x-sglang).
@@ -43,7 +47,6 @@ python3 -m sglang.launch_server \
   --host 0.0.0.0 \
   --port "$PORT" \
   --tp "$TP" \
-  --quantization fp8 \
   --kv-cache-dtype fp8_e4m3 \
   --mem-fraction-static 0.85 \
   --chunked-prefill-size 8192 \
