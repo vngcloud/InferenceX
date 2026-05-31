@@ -169,6 +169,22 @@ gh run view <run-id> --repo vngcloud/InferenceX --json status,jobs \
     -q '.jobs[] | select(.databaseId==<job-id>) | .steps[] | "\(.number) \(.conclusion // .status) \(.name)"'
   ```
 
+## Known engine gotchas
+
+- **SGLang + multimodal + on-the-fly fp8 crashes in the vision tower.** For a
+  VLM (e.g. Gemma 4, arch `Gemma4ForConditionalGeneration`), `--quantization fp8`
+  quantizes the vision encoder too and dies in `triton_scaled_mm` (a `scale_b`
+  shape `AssertionError` in `gemma4_vision.py`) — the scheduler throws and the
+  server never becomes healthy (~6 min in, not a fast fail). Fix: serve a
+  **pre-quantized compressed-tensors checkpoint** whose `quantization_config.ignore`
+  excludes the vision tower (e.g. `RedHatAI/gemma-4-31B-it-FP8-dynamic`,
+  `ignore: ['re:.*vision.*', 'lm_head', 're:.*embed_tokens.*']`) and pass **no**
+  `--quantization` flag — SGLang auto-detects compressed-tensors and honours the
+  ignore list (LLM fp8, vision bf16). SGLang *does* support the Gemma 4 arch.
+- **Pre-quantized fp8 checkpoints**: never pass `--quantization` — both vLLM and
+  SGLang read `quantization_config` from the checkpoint. Forcing it can mismatch
+  the on-disk scheme.
+
 ## Notes
 
 - New sweepable knobs should be added as **typed search-space fields** in the
