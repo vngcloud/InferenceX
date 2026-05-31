@@ -4627,6 +4627,34 @@ gemma4-fp8-h100-1x-vllm-bench:
       - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
       - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
 
+# Qwen3.5-27B (dense) FP8 on a single H100 (GreenNode h100-1x). Mirrors the
+# gemma4-fp8-h100-1x-vllm-bench sweep: 1k1k + 8k1k * conc {4..16}, sweeping
+# max-num-batched-tokens 4k/8k/16k. Distinct model-prefix (qwen3.5-27b) so the
+# dashboard doesn't conflate this dense model with the qwen3.5-397B-A17B MoE.
+# NOTE: confirm Qwen/Qwen3.5-27B-FP8 is the actual HF slug before dispatch.
+qwen3.5-27b-fp8-h100-1x-vllm-bench:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B-FP8
+  model-prefix: qwen3.5-27b
+  runner: h100-1x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
+
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
