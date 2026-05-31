@@ -30,6 +30,17 @@ for v in "${RUN_ENV[@]}"; do
   ENV_ARGS+=(-e "$v")
 done
 
+# Prefer a framework-tagged script (e.g. gemma4_fp8_h100_sglang.sh) so the
+# same model can be benchmarked on multiple engines side by side; fall back
+# to the historical engine-less name (e.g. gemma4_fp8_h100.sh) when no tagged
+# script exists. No spec suffix here on purpose: scripts that support MTP
+# (e.g. gemma4_fp8_h100.sh) branch internally on $SPEC_DECODING.
+BENCH_BASE="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h100"
+BENCH_SCRIPT="${BENCH_BASE}_${FRAMEWORK}.sh"
+if [[ ! -f "$BENCH_SCRIPT" ]]; then
+  BENCH_SCRIPT="${BENCH_BASE}.sh"
+fi
+
 docker run --rm \
   --gpus all \
   --ipc=host \
@@ -41,4 +52,4 @@ docker run --rm \
   "${ENV_ARGS[@]}" \
   --entrypoint bash \
   "$IMAGE" \
-  "benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h100.sh"
+  "$BENCH_SCRIPT"
