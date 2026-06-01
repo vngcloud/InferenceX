@@ -69,3 +69,21 @@ gh run view <run-id> --repo vngcloud/InferenceX --json status,jobs \
 ## Engine gotchas
 - **SGLang + multimodal + on-the-fly fp8** crashes in the vision tower (`triton_scaled_mm` `scale_b` assert in `gemma4_vision.py`; server never healthy). Fix: serve a pre-quantized compressed-tensors checkpoint whose `quantization_config.ignore` excludes vision (e.g. `RedHatAI/gemma-4-31B-it-FP8-dynamic`) and pass **no** `--quantization`. SGLang *does* support the Gemma 4 arch.
 - **Pre-quantized fp8 checkpoint** → never pass `--quantization`; vLLM/SGLang auto-detect from `quantization_config`.
+
+## Publishing results to the dashboard (inferencex.com)
+The dashboard does **not** auto-ingest every run — only ones you mark ready. The
+`vngcloud/InferenceX-app` `auto-ingest.yml` workflow polls `vngcloud/InferenceX`
+every 15 min and ingests successful runs whose **name starts with `[ingest]`**.
+
+- **Confident in a tuning, want it visible to everyone** → prefix your commit
+  message (which becomes the Run Sweep run name) with `[ingest]`.
+  Caveat: the scanner currently matches run-name `startswith("[ingest]")`, but the
+  bench workflows prepend text (`Run Sweep - …`, `e2e Test - …`), so this won't
+  fire until the scanner is widened to `contains`. Until then, force-ingest:
+- **Force-ingest a specific run now** (bypasses the prefix filter, works today):
+  ```bash
+  gh workflow run auto-ingest.yml -R vngcloud/InferenceX-app \
+    -f run_url=https://github.com/vngcloud/InferenceX/actions/runs/<run-id>
+  ```
+  One dispatch per run id; they serialize (concurrency group `auto-ingest`) and
+  write to the prod dashboard DB on the self-hosted runner.
