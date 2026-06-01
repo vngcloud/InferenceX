@@ -85,5 +85,8 @@ every 15 min and ingests successful runs whose **name starts with `[ingest]`**.
   gh workflow run auto-ingest.yml -R vngcloud/InferenceX-app \
     -f run_url=https://github.com/vngcloud/InferenceX/actions/runs/<run-id>
   ```
-  One dispatch per run id; they serialize (concurrency group `auto-ingest`) and
-  write to the prod dashboard DB on the self-hosted runner.
+  One dispatch per run id, writing to the prod dashboard DB on the self-hosted
+  runner. **Dispatch them one at a time** (wait for each to finish): the
+  `auto-ingest` concurrency group (cancel-in-progress: false) keeps only one
+  running + one pending, so firing several at once gets the middle ones
+  **cancelled**.
