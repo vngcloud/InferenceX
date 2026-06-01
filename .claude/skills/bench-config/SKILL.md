@@ -80,6 +80,14 @@ every 15 min and ingests successful runs whose **name starts with `[ingest]`**.
   Caveat: the scanner currently matches run-name `startswith("[ingest]")`, but the
   bench workflows prepend text (`Run Sweep - …`, `e2e Test - …`), so this won't
   fire until the scanner is widened to `contains`. Until then, force-ingest:
+- **A new `model-prefix` must be declared in the dashboard or its rows are
+  silently skipped** (the ingest job still goes green; the log shows
+  `Skipped: N rows / <prefix>`). Declare it in `vngcloud/InferenceX-app`:
+  `packages/constants/src/models.ts` `DB_MODEL_TO_DISPLAY` (source of truth),
+  `packages/app/src/lib/data-mappings.ts` (new `Model` enum member +
+  `MODEL_CONFIG` entry), and `packages/db/src/etl/normalizers.ts` `MODEL_TO_KEY`
+  (HF-path fallback). `model` is free-form lowercase text — no migration. Then
+  deploy and re-ingest. (Example: PR vngcloud/InferenceX-app#14 for `qwen3.5-27b`.)
 - **Force-ingest a specific run now** (bypasses the prefix filter, works today):
   ```bash
   gh workflow run auto-ingest.yml -R vngcloud/InferenceX-app \
