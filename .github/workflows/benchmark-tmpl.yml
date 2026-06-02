@@ -20,6 +20,10 @@ on:
       framework:
         required: true
         type: string
+      benchmark-client:
+        required: false
+        type: string
+        default: 'inferencex_native'
       exp-name:
         required: true
         type: string
@@ -109,6 +113,7 @@ env:
   MAX_MODEL_LEN: ${{ inputs.max-model-len }}
   IMAGE: ${{ inputs.image }}
   FRAMEWORK: ${{ inputs.framework }}
+  BENCHMARK_CLIENT: ${{ inputs.benchmark-client }}
   PRECISION: ${{ inputs.precision }}
   TP: ${{ inputs.tp }}
   EP_SIZE: ${{ inputs.ep }}
@@ -188,12 +193,12 @@ jobs:
         env:
           RUNNER_NAME: ${{ runner.name }}
           RUNNER_TYPE: ${{ inputs.runner }}
-          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}_tp{}-ep{}-dpa{}_disagg-{}_spec-{}_n{}_mnbt{}_conc{}_{runner}
+          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}[_CLIENT]_tp{}-ep{}-dpa{}_disagg-{}_spec-{}_n{}_mnbt{}_conc{}_{runner}
           # n / mnbt segments hold the values of NUM_SPECULATIVE_TOKENS and
           # MAX_NUM_BATCHED_TOKENS (see benchmark-tmpl.yml inputs); when those
           # inputs are unset, the segments resolve to 'n' / 'mnbt' with no
           # numeric value, which is intentional and stable across runs.
-          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
+          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}${{ inputs.benchmark-client != 'inferencex_native' && format('_{0}', inputs.benchmark-client) || '' }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
           # Suppress per-job eval markdown from being appended to the step summary.
           # We'll publish a single combined eval table in the collection job instead.
           GITHUB_STEP_SUMMARY: ''

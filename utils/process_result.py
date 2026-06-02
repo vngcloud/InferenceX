@@ -38,6 +38,7 @@ result_filename = base_env['RESULT_FILENAME']
 isl = base_env['ISL']
 osl = base_env['OSL']
 image = base_env['IMAGE']
+benchmark_client = os.environ.get('BENCHMARK_CLIENT', 'inferencex_native')
 
 
 def _opt_int(env_name):
@@ -59,6 +60,7 @@ data = {
     'model': bmk_result['model_id'],
     'infmax_model_prefix': model_prefix,
     'framework': framework,
+    'benchmark_client': benchmark_client,
     'precision': precision,
     'spec_decoding': spec_decoding,
     'num_speculative_tokens': num_speculative_tokens,

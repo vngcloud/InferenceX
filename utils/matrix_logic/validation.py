@@ -19,6 +19,7 @@ class Fields(Enum):
     MODEL_PREFIX = 'model-prefix'
     PRECISION = 'precision'
     FRAMEWORK = 'framework'
+    BENCHMARK_CLIENT = 'benchmark-client'
     RUNNER = 'runner'
     SCENARIOS = 'scenarios'
     MULTINODE = 'multinode'
@@ -88,6 +89,9 @@ class SingleNodeMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
@@ -133,6 +137,9 @@ class MultiNodeMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
@@ -159,6 +166,9 @@ class SingleNodeAgenticMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     runner: str
     tp: int
     ep: int
@@ -179,6 +189,9 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
@@ -338,6 +351,8 @@ class SingleNodeSeqLenConfig(BaseModel):
 
     isl: int
     osl: int
+    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
+        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
     search_space: List[SingleNodeSearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 
@@ -348,6 +363,8 @@ class MultiNodeSeqLenConfig(BaseModel):
 
     isl: int
     osl: int
+    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
+        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
     search_space: List[MultiNodeSearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 
@@ -391,6 +408,8 @@ class AgenticCodingConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
 
     search_space: List[AgenticCodingSearchSpaceEntry] = Field(alias=Fields.SEARCH_SPACE.value)
+    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
+        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
 
 

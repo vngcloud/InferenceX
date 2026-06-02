@@ -174,6 +174,7 @@ class TestProcessResultScript:
         # Verify base fields
         assert output_data["hw"] == "mi300x"
         assert output_data["framework"] == "sglang"
+        assert output_data["benchmark_client"] == "inferencex_native"
         assert output_data["precision"] == "fp8"
         assert output_data["spec_decoding"] == "none"
         assert output_data["model"] == "deepseek-ai/DeepSeek-R1-0528"
@@ -206,6 +207,17 @@ class TestProcessResultScript:
         # Verify output file created
         output_file = tmp_path / "agg_benchmark_result.json"
         assert output_file.exists()
+
+    def test_benchmark_client_from_env(self, tmp_path, sample_benchmark_result, single_node_env_vars):
+        """BENCHMARK_CLIENT should be passed through to processed output."""
+        env = single_node_env_vars.copy()
+        env["BENCHMARK_CLIENT"] = "aiperf"
+
+        result = run_script(tmp_path, env, sample_benchmark_result)
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+
+        output_data = json.loads(result.stdout)
+        assert output_data["benchmark_client"] == "aiperf"
 
     def test_multinode_processing(self, tmp_path, sample_benchmark_result, multinode_env_vars):
         """Test multinode result processing."""

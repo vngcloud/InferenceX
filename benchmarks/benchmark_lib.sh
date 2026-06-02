@@ -444,6 +444,268 @@ run_benchmark_serving() {
 }
 
 
+# Ensure the `aiperf` CLI is available, then put it on PATH.
+#
+# aiperf is a pure HTTP benchmark client and needs nothing from the serving
+# environment. We install it into an ISOLATED venv so its dependency tree never
+# mutates the serving image's global site-packages — vLLM/SGLang/TRT each pin
+# their own numpy/protobuf/etc., and a global install triggers resolver
+# conflicts (observed installing aiperf==0.9.0 into vllm-openai:v0.21.0). The
+# venv keeps the single-container CI model while decoupling client deps.
+#
+# Source resolution (whichever is installed into the venv):
+#   1. Already on PATH (serving image ships it)  -> use as-is, no venv
+#   2. AIPERF_SOURCE_DIR is a Python project     -> install from that source
+#      (local dev / offline override; e.g. the utils/aiperf submodule mounted in)
+#   3. Otherwise                                 -> pip install a pinned PyPI release
+# Override the PyPI version with AIPERF_VERSION, the venv path with AIPERF_VENV_DIR.
+# The venv lives under /tmp (ephemeral, per-job) to honor the "no new dirs in
+# /workspace" rule. If `python3 -m venv` is unavailable, fall back to a global
+# install with --ignore-installed (mirrors install_agentic_deps).
+ensure_aiperf() {
+    if command -v aiperf >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local venv_dir="${AIPERF_VENV_DIR:-/tmp/aiperf-venv}"
+    local pip_install
+
+    if [[ ! -x "${venv_dir}/bin/aiperf" ]]; then
+        if python3 -m venv "${venv_dir}" 2>/dev/null; then
+            pip_install=("${venv_dir}/bin/python" -m pip install -q --root-user-action=ignore)
+        else
+            echo "[aiperf] python venv unavailable; falling back to global install" >&2
+            venv_dir=""
+            pip_install=(python3 -m pip install -q --ignore-installed --root-user-action=ignore)
+        fi
+
+        if [[ -n "${AIPERF_SOURCE_DIR:-}" && -f "${AIPERF_SOURCE_DIR}/pyproject.toml" ]]; then
+            echo "[aiperf] CLI missing; installing from source: ${AIPERF_SOURCE_DIR}"
+            "${pip_install[@]}" "${AIPERF_SOURCE_DIR}"
+        else
+            local version="${AIPERF_VERSION:-0.9.0}"
+            echo "[aiperf] CLI missing; installing aiperf==${version} from PyPI"
+            "${pip_install[@]}" "aiperf==${version}"
+        fi
+    fi
+
+    if [[ -n "${venv_dir}" && -x "${venv_dir}/bin/aiperf" ]]; then
+        export PATH="${venv_dir}/bin:${PATH}"
+    fi
+
+    if ! command -v aiperf >/dev/null 2>&1; then
+        echo "Error: aiperf is still not available after install attempt." >&2
+        echo "Set AIPERF_SOURCE_DIR to a local aiperf checkout, or AIPERF_VERSION to an installable release." >&2
+        return 1
+    fi
+}
+
+# Run AIPerf and adapt its artifact to the standard InferenceX result schema.
+run_aiperf_benchmark() {
+    if [ "${EVAL_ONLY}" = "true" ]; then
+        echo "EVAL_ONLY mode: skipping throughput benchmark"
+        return 0
+    fi
+
+    ensure_aiperf || return 1
+
+    set +x
+    local model=""
+    local url=""
+    local concurrency=""
+    local request_count=""
+    local result_filename=""
+    local result_dir=""
+    local bench_serving_dir=""
+    local endpoint_type="chat"
+    local warmup_request_count=""
+    local server_metrics_url=""
+    local gpu_telemetry_url=""
+    local public_dataset=""
+    local input_file=""
+    local custom_dataset_type=""
+    local isl=""
+    local osl=""
+    local random_seed=""
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --model) model="$2"; shift 2 ;;
+            --url) url="$2"; shift 2 ;;
+            --concurrency) concurrency="$2"; shift 2 ;;
+            --request-count) request_count="$2"; shift 2 ;;
+            --result-filename) result_filename="$2"; shift 2 ;;
+            --result-dir) result_dir="$2"; shift 2 ;;
+            --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
+            --endpoint-type) endpoint_type="$2"; shift 2 ;;
+            --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
+            --server-metrics-url) server_metrics_url="$2"; shift 2 ;;
+            --gpu-telemetry-url) gpu_telemetry_url="$2"; shift 2 ;;
+            --public-dataset) public_dataset="$2"; shift 2 ;;
+            --input-file) input_file="$2"; shift 2 ;;
+            --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --isl) isl="$2"; shift 2 ;;
+            --osl) osl="$2"; shift 2 ;;
+            --random-seed) random_seed="$2"; shift 2 ;;
+            *) echo "Unknown parameter: $1"; return 1 ;;
+        esac
+    done
+
+    if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
+    if [[ -z "$url" ]]; then echo "Error: --url is required"; return 1; fi
+    if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
+    if [[ -z "$request_count" ]]; then echo "Error: --request-count is required"; return 1; fi
+    if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
+    if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
+    if [[ -z "$bench_serving_dir" ]]; then echo "Error: --bench-serving-dir is required"; return 1; fi
+    if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
+    if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
+    if (( request_count < concurrency )); then
+        echo "Error: --request-count must be greater than or equal to --concurrency"
+        return 1
+    fi
+
+    local benchmark_cmd=(
+        python3 "$bench_serving_dir/utils/bench_serving/aiperf_adapter.py"
+        --model "$model"
+        --url "$url"
+        --endpoint-type "$endpoint_type"
+        --concurrency "$concurrency"
+        --request-count "$request_count"
+        --result-filename "$result_filename"
+        --result-dir "$result_dir"
+    )
+
+    if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
+    if [[ -n "$server_metrics_url" ]]; then benchmark_cmd+=(--server-metrics-url "$server_metrics_url"); fi
+    if [[ -n "$gpu_telemetry_url" ]]; then benchmark_cmd+=(--gpu-telemetry-url "$gpu_telemetry_url"); fi
+    if [[ -n "$public_dataset" ]]; then benchmark_cmd+=(--public-dataset "$public_dataset"); fi
+    if [[ -n "$input_file" ]]; then benchmark_cmd+=(--input-file "$input_file"); fi
+    if [[ -n "$custom_dataset_type" ]]; then benchmark_cmd+=(--custom-dataset-type "$custom_dataset_type"); fi
+    if [[ -n "$isl" ]]; then benchmark_cmd+=(--isl "$isl"); fi
+    if [[ -n "$osl" ]]; then benchmark_cmd+=(--osl "$osl"); fi
+    if [[ -n "$random_seed" ]]; then benchmark_cmd+=(--random-seed "$random_seed"); fi
+
+    set -x
+    "${benchmark_cmd[@]}"
+    local benchmark_exit_code=$?
+    set +x
+
+    return $benchmark_exit_code
+}
+
+# Route a benchmark run to the selected benchmark client using a common argument
+# vocabulary shared by benchmark scripts.
+run_client_benchmark() {
+    set +x
+    local model=""
+    local port=""
+    local backend=""
+    local endpoint_type="chat"
+    local isl=""
+    local osl=""
+    local random_range_ratio=""
+    local concurrency=""
+    local result_filename=""
+    local result_dir=""
+    local bench_serving_dir=""
+    local server_pid=""
+    local random_seed=""
+    local use_chat_template=false
+    local dsv4=false
+    local trust_remote_code=false
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --model) model="$2"; shift 2 ;;
+            --port) port="$2"; shift 2 ;;
+            --backend) backend="$2"; shift 2 ;;
+            --endpoint-type) endpoint_type="$2"; shift 2 ;;
+            --isl) isl="$2"; shift 2 ;;
+            --osl) osl="$2"; shift 2 ;;
+            --random-range-ratio) random_range_ratio="$2"; shift 2 ;;
+            --concurrency) concurrency="$2"; shift 2 ;;
+            --result-filename) result_filename="$2"; shift 2 ;;
+            --result-dir) result_dir="$2"; shift 2 ;;
+            --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
+            --server-pid) server_pid="$2"; shift 2 ;;
+            --random-seed) random_seed="$2"; shift 2 ;;
+            --use-chat-template) use_chat_template=true; shift ;;
+            --dsv4) dsv4=true; use_chat_template=true; shift ;;
+            --trust-remote-code) trust_remote_code=true; shift ;;
+            *) echo "Unknown parameter: $1"; return 1 ;;
+        esac
+    done
+
+    if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
+    if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
+    if [[ -z "$backend" ]]; then echo "Error: --backend is required"; return 1; fi
+    if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
+    if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
+    if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
+    if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
+    if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
+    if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
+    if [[ -z "$bench_serving_dir" ]]; then bench_serving_dir=$(pwd); fi
+    if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
+
+    local benchmark_client="${BENCHMARK_CLIENT:-inferencex_native}"
+
+    case "$benchmark_client" in
+        aiperf)
+            local aiperf_args=(
+                --model "$model"
+                --url "http://0.0.0.0:$port"
+                --endpoint-type "$endpoint_type"
+                --concurrency "$concurrency"
+                --request-count "$((concurrency * 10))"
+                --warmup-request-count "$((concurrency * 2))"
+                --isl "$isl"
+                --osl "$osl"
+                --result-filename "$result_filename"
+                --result-dir "$result_dir"
+                --bench-serving-dir "$bench_serving_dir"
+            )
+            if [[ -n "$random_seed" ]]; then
+                aiperf_args+=(--random-seed "$random_seed")
+            fi
+            run_aiperf_benchmark "${aiperf_args[@]}"
+            ;;
+        inferencex_native)
+            local native_args=(
+                --model "$model"
+                --port "$port"
+                --backend "$backend"
+                --input-len "$isl"
+                --output-len "$osl"
+                --random-range-ratio "$random_range_ratio"
+                --num-prompts "$((concurrency * 10))"
+                --max-concurrency "$concurrency"
+                --result-filename "$result_filename"
+                --result-dir "$result_dir"
+                --bench-serving-dir "$bench_serving_dir"
+            )
+            if [[ -n "$server_pid" ]]; then
+                native_args+=(--server-pid "$server_pid")
+            fi
+            if [[ "$use_chat_template" == true ]]; then
+                native_args+=(--use-chat-template)
+            fi
+            if [[ "$dsv4" == true ]]; then
+                native_args+=(--dsv4)
+            fi
+            if [[ "$trust_remote_code" == true ]]; then
+                native_args+=(--trust-remote-code)
+            fi
+            run_benchmark_serving "${native_args[@]}"
+            ;;
+        *)
+            echo "Error: unsupported BENCHMARK_CLIENT '$benchmark_client'"
+            return 1
+            ;;
+    esac
+}
+
 # --------------------------------
 # Profiling trace helpers
 # --------------------------------
