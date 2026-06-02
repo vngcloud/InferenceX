@@ -1,12 +1,10 @@
 # AIPerf Benchmark Client Integration
 
 This document covers the fixed-sequence AIPerf integration in InferenceX: current
-status, how it is wired, and how to run it locally or in GitHub Actions.
+status, how it is wired, and how to run it in GitHub Actions.
 
 For agentic replay decisions, see
 [`docs/adr/0001-agentic-on-official-aiperf.md`](adr/0001-agentic-on-official-aiperf.md).
-For local H100 command details, see
-[`runners/LOCAL_H100_RUNBOOK.md`](../runners/LOCAL_H100_RUNBOOK.md).
 
 ## Status
 
@@ -26,7 +24,7 @@ The current GreenNode config is `gemma4-bf16-h100-vllm` in
 
 Validated so far:
 
-- Local H100 path works through `runners/launch_h100-local.sh`.
+- H100 smoke runs were validated on the `h100-2x` runner hardware.
 - A GitHub Actions smoke run
   ([26810883421](https://github.com/vngcloud/InferenceX/actions/runs/26810883421))
   on `h100-2x` passed 4/4 benchmark jobs for native and AIPerf at `1k1k`,
@@ -88,8 +86,6 @@ Useful overrides:
 - `AIPERF_VERSION=0.9.0` changes the PyPI version.
 - `AIPERF_SOURCE_DIR=/path/to/aiperf` uses a local checkout.
 - `AIPERF_VENV_DIR=/tmp/custom-aiperf-venv` changes the venv path.
-- `AIPERF_FORCE_PYPI=1` is supported by `runners/launch_h100-local.sh` to skip
-  local source auto-mounting and exercise the PyPI path.
 
 ## Config Usage
 
@@ -130,38 +126,14 @@ Expected grouping for the current config:
 4 h100-2x aiperf 8192 1024 4,8,16,32
 ```
 
-## Local H100 Usage
+## H100 Runner Notes
 
 Use `h100-2x` for TP=2 jobs. The broad `h100` label also includes
 `h100-greennode_00`, which is `h100-1x` and only exposes one GPU.
 
-```bash
-ssh h100
-newgrp benchteam
-cd /mnt/users/thanglq5/InferenceX
-```
-
-Run AIPerf from PyPI:
-
-```bash
-BENCHMARK_CLIENT=aiperf \
-AIPERF_FORCE_PYPI=1 \
-bash runners/launch_h100-local.sh
-```
-
-Run AIPerf from a local source checkout:
-
-```bash
-BENCHMARK_CLIENT=aiperf \
-AIPERF_SOURCE_DIR=/mnt/users/thanglq5/aiperf \
-bash runners/launch_h100-local.sh
-```
-
-For a native-client comparison run:
-
-```bash
-BENCHMARK_CLIENT=inferencex_native bash runners/launch_h100-local.sh
-```
+Ad-hoc validation should use the GitHub Actions `e2e-tests.yml` workflow with
+`--runner-type h100-2x`, so the run follows the same launcher and artifact path
+as CI.
 
 ## GitHub Actions Usage
 
