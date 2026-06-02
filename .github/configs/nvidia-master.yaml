@@ -4780,9 +4780,14 @@ gemma4-bf16-h100-vllm:
     fixed-seq-len:
     - isl: 1024
       osl: 1024
-      benchmark-client: [inferencex_native, aiperf]
+      benchmark-client: [aiperf]
       search-space:
-      - { tp: 2, conc-start: 2, conc-end: 4 }
+      - { tp: 2, conc-start: 4, conc-end: 32 }
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 32 }
 
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
