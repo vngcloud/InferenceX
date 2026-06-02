@@ -5,6 +5,9 @@ job would, **before** opening or labeling a PR. Covers both the native
 InferenceX benchmark client and the AIPerf client, for Gemma4 31B BF16 on
 2× H100.
 
+For the broader AIPerf integration status and CI usage, see
+[`docs/AIPERF_INTEGRATION.md`](../docs/AIPERF_INTEGRATION.md).
+
 Goal: mirror `benchmark-tmpl.yml -> runners/launch_<runner>.sh` as closely as
 practical without registering a self-hosted runner. `runners/launch_h100-local.sh`
 is the local stand-in for the CI launcher.
@@ -147,10 +150,10 @@ The Gemma4 config key (`gemma4-bf16-h100-vllm`) exists in
 `.github/configs/nvidia-master.yaml`. Generate its matrix locally:
 
 ```bash
-python utils/matrix_logic/generate_sweep_configs.py test-config \
+uv run python utils/matrix_logic/generate_sweep_configs.py test-config \
   --config-files .github/configs/nvidia-master.yaml \
   --config-keys gemma4-bf16-h100-vllm
-# -> 16 entries: benchmark-client {inferencex_native, aiperf}
+# -> 8 entries: benchmark-client {aiperf}
 #    x isl/osl {1k1k, 8k1k} x conc {4, 8, 16, 32}, tp=2
 ```
 
@@ -170,8 +173,9 @@ vLLM/SGLang/Triton/TRT-LLM because the venv isolates client deps.
 
 `benchmark-client` is plumbed through the fixed-seq single-node CI path
 (scenario config → generator → run-sweep/e2e → benchmark-tmpl → launcher env).
-The Gemma4 config opts into both native and AIPerf clients so PR sweeps run the
-same serving setup with both load generators.
+The current Gemma4 H100 config is AIPerf-only. Temporarily set
+`benchmark-client: [inferencex_native, aiperf]` only when the goal is to compare
+load generators against the same serving setup.
 
 **Why not the alternatives:**
 - Backend-specific images with AIPerf preinstalled — N backends × M versions, does not scale.
