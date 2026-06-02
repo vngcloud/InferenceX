@@ -4765,14 +4765,14 @@ dsr1qwen3-fp8-rtx5090-1x-vllm:
     #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
 # GreenNode-scoped Gemma4 31B BF16 on 2x H100 (matches the validated local
-# launch_h100-local.sh config: TP=2, bf16). Narrow single-TP search space —
-# this hardware has 2 H100s, unlike the 8x NVIDIA h100 runner the other entries
-# target.
+# launch_h100-local.sh config: TP=2, bf16). Use h100-2x so TP=2 lands on
+# h100-greennode_01; h100-greennode_00 is the h100-1x runner and only exposes
+# one GPU to jobs.
 gemma4-bf16-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: google/gemma-4-31B-it
   model-prefix: gemma4
-  runner: h100
+  runner: h100-2x
   precision: bf16
   framework: vllm
   multinode: false

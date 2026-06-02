@@ -14,6 +14,10 @@ is the local stand-in for the CI launcher.
 ## 0. Prerequisites (one time)
 
 - SSH access: `ssh h100` (2× H100 80GB).
+- CI mapping: `ssh h100` is the `h100-greennode_01` runner, grouped as
+  `h100-2x` in `.github/configs/runners.yaml`. Do not run TP=2 Gemma4 jobs on
+  the broad `h100` label because `h100-greennode_00` is `h100-1x` and exposes
+  only one GPU to jobs.
 - Models under `/mnt/models` (e.g. `/mnt/models/google/gemma-4-31B-it`); requires
   `newgrp benchteam`.
 - A local AIPerf checkout on the host for the source/offline path, e.g.
