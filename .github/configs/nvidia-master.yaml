@@ -4805,11 +4805,14 @@ qwen3-4b-2507-bf16-h100-vllm:
       search-space:
       - { tp: 1, conc-list: [2] }
     # 64k agentic-coding trace (committed in-repo), first 2000 records replayed
-    # at concurrency 32. max-model-len 40960 covers the dataset's real max
-    # input+output of 38,613 (the "64k" label is the generation target).
+    # at concurrency 32. AIPerf threads each mooncake session (session_id), so
+    # context ACCUMULATES across turns: the realized per-request total reaches
+    # ~65,847 tokens (the "64k" target), NOT the per-record input_length max of
+    # 37,818. max-model-len 73728 covers that with headroom; 40960 rejected ~55%
+    # of requests with HTTP 400 (input+output > context window).
     - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#2000
       custom-dataset-type: mooncake_trace
-      max-model-len: 40960
+      max-model-len: 73728
       benchmark-client: [aiperf]
       search-space:
       - { tp: 1, conc-list: [32] }
