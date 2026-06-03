@@ -6,15 +6,18 @@ from validation import (
     MultiNodeMatrixEntry,
     SingleNodeAgenticMatrixEntry,
     MultiNodeAgenticMatrixEntry,
+    SingleNodeAgenticReplayMatrixEntry,
     WorkerConfig,
     SingleNodeSearchSpaceEntry,
     MultiNodeSearchSpaceEntry,
     SingleNodeSeqLenConfig,
     MultiNodeSeqLenConfig,
     AgenticCodingConfig,
+    AgenticReplayConfig,
     SingleNodeMasterConfigEntry,
     MultiNodeMasterConfigEntry,
     validate_matrix_entry,
+    validate_agentic_replay_matrix_entry,
     validate_master_config,
     validate_runner_config,
     load_config_files,
@@ -527,6 +530,96 @@ class TestAgenticMatrixEntries:
                 "disagg": True,
                 "scenario-type": "agentic-coding",
             })
+
+# =============================================================================
+# Test Agentic-Replay Entries
+# =============================================================================
+
+class TestAgenticReplayMatrixEntries:
+    """Tests for the single-node agentic-replay matrix entry and validator."""
+
+    def _entry(self, **overrides):
+        entry = {
+            "image": "vllm/vllm-openai:v0.21.0",
+            "model": "Qwen/Qwen3.5-4B",
+            "model-prefix": "qwen3.5-4b",
+            "precision": "bf16",
+            "framework": "vllm",
+            "benchmark-client": "aiperf",
+            "runner": "h100-2x",
+            "tp": 1,
+            "ep": 1,
+            "dp-attn": False,
+            "conc": 2,
+            "isl": 4096,
+            "osl": 512,
+            "max-model-len": 8192,
+            "input-file": "benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl",
+            "custom-dataset-type": "mooncake_trace",
+            "exp-name": "qwen3.5-4b_tp1_conc2",
+            "disagg": False,
+            "scenario-type": "agentic-replay",
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_valid_entry(self):
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry())
+        assert entry.benchmark_client == "aiperf"
+        assert entry.input_file.endswith("qwen3.5-4b-smoke.jsonl")
+        assert entry.custom_dataset_type == "mooncake_trace"
+        assert entry.duration == 1800  # default
+
+    def test_validator_passes(self):
+        # validator returns the original dict on success
+        e = self._entry()
+        assert validate_agentic_replay_matrix_entry(e) is e
+
+    def test_missing_input_file_rejected(self):
+        bad = self._entry()
+        del bad["input-file"]
+        with pytest.raises(ValueError):
+            validate_agentic_replay_matrix_entry(bad)
+
+    def test_extra_field_rejected(self):
+        with pytest.raises(Exception):
+            SingleNodeAgenticReplayMatrixEntry(**self._entry(offloading="none"))
+
+    def test_invalid_benchmark_client_rejected(self):
+        with pytest.raises(Exception):
+            SingleNodeAgenticReplayMatrixEntry(**self._entry(**{"benchmark-client": "foo"}))
+
+
+class TestAgenticReplayConfig:
+    """Tests for the input-side agentic-replay scenario config."""
+
+    def _config(self, **overrides):
+        cfg = {
+            "input-file": "benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl",
+            "custom-dataset-type": "mooncake_trace",
+            "max-model-len": 8192,
+            "benchmark-client": ["aiperf"],
+            "search-space": [{"tp": 1, "conc-list": [2]}],
+        }
+        cfg.update(overrides)
+        return cfg
+
+    def test_valid_config(self):
+        cfg = AgenticReplayConfig(**self._config())
+        assert cfg.custom_dataset_type == "mooncake_trace"
+        assert cfg.max_model_len == 8192
+        assert cfg.benchmark_client == ["aiperf"]
+
+    def test_requires_input_file(self):
+        bad = self._config()
+        del bad["input-file"]
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**bad)
+
+    def test_conc_range_or_list_required(self):
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**self._config(**{"search-space": [{"tp": 1}]}))
+
 
 # =============================================================================
 # Test SingleNodeSearchSpaceEntry

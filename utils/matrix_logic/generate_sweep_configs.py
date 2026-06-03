@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validation import (
     validate_matrix_entry,
     validate_agentic_matrix_entry,
+    validate_agentic_replay_matrix_entry,
     load_config_files,
     load_runner_file,
     Fields
@@ -124,7 +125,7 @@ def mark_eval_entries(matrix_values: list[dict]) -> list[dict]:
 
     # Mark the selected entries (skip agentic entries which don't support evals)
     for i, entry in enumerate(matrix_values):
-        if entry.get(Fields.SCENARIO_TYPE.value) == 'agentic-coding':
+        if entry.get(Fields.SCENARIO_TYPE.value) in ('agentic-coding', 'agentic-replay'):
             continue
         entry[Fields.RUN_EVAL.value] = i in eval_indices
         if i in mn_eval_conc:
@@ -479,6 +480,83 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 }
 
                             validate_agentic_matrix_entry(entry)
+                            matrix_values.append(entry)
+
+        # ---- Agentic-replay scenarios (single-node only) ----
+        agentic_replay_configs = scenarios.get(Fields.AGENTIC_REPLAY.value, []) if (
+            scenario_filter is None or 'agentic-replay' in scenario_filter) else []
+
+        for replay_config in agentic_replay_configs:
+            # agentic-replay is single-node only; skip if this config is multinode
+            if is_multinode:
+                continue
+
+            bmk_space = replay_config[Fields.SEARCH_SPACE.value]
+            duration = replay_config.get(Fields.DURATION.value, 1800)
+            input_file = replay_config[Fields.INPUT_FILE.value]
+            custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
+            benchmark_clients = replay_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
+
+            for bmk in bmk_space:
+                tp = bmk[Fields.TP.value]
+                ep = bmk.get(Fields.EP.value)
+                dp_attn = bmk.get(Fields.DP_ATTN.value)
+
+                conc_list = bmk.get(Fields.CONC_LIST.value)
+                if conc_list:
+                    conc_values = conc_list
+                else:
+                    conc_start = bmk[Fields.CONC_START.value]
+                    conc_end = bmk[Fields.CONC_END.value]
+                    conc_values = []
+                    conc = conc_start
+                    while conc <= conc_end:
+                        conc_values.append(conc)
+                        if conc == conc_end:
+                            break
+                        conc *= args.step_size
+                        if conc > conc_end:
+                            conc = conc_end
+
+                if args.min_conc is not None:
+                    conc_values = [c for c in conc_values if c >= args.min_conc]
+                if args.max_conc is not None:
+                    conc_values = [c for c in conc_values if c <= args.max_conc]
+                if not conc_values:
+                    continue
+
+                runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
+
+                for benchmark_client in benchmark_clients:
+                    for conc in conc_values:
+                        for runner_value in runners_for_entry:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner_value,
+                                Fields.TP.value: tp,
+                                Fields.EP.value: ep if ep is not None else 1,
+                                Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                Fields.CONC.value: conc,
+                                # ISL/OSL are placeholders to satisfy downstream
+                                # env checks; the trace defines real lengths.
+                                Fields.ISL.value: 4096,
+                                Fields.OSL.value: 512,
+                                Fields.MAX_MODEL_LEN.value: replay_max_model_len,
+                                Fields.INPUT_FILE.value: input_file,
+                                Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.DURATION.value: duration,
+                                Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
+                                Fields.DISAGG.value: disagg,
+                                Fields.SCENARIO_TYPE.value: "agentic-replay",
+                            }
+                            validate_agentic_replay_matrix_entry(entry)
                             matrix_values.append(entry)
 
     return matrix_values
@@ -912,6 +990,76 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                             }
                         matrix_values.append(validate_agentic_matrix_entry(entry))
 
+        # ---- Agentic-replay scenarios (single-node only) ----
+        agentic_replay_configs = val[Fields.SCENARIOS.value].get(Fields.AGENTIC_REPLAY.value, []) if (
+            scenario_filter is None or 'agentic-replay' in scenario_filter) else []
+        for replay_config in agentic_replay_configs:
+            # agentic-replay is single-node only; skip if this config is multinode
+            if is_multinode:
+                continue
+
+            duration = replay_config.get(Fields.DURATION.value, 1800)
+            input_file = replay_config[Fields.INPUT_FILE.value]
+            custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
+            benchmark_clients = replay_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
+
+            for bmk in replay_config[Fields.SEARCH_SPACE.value]:
+                tp = bmk[Fields.TP.value]
+                ep = bmk.get(Fields.EP.value)
+                dp_attn = bmk.get(Fields.DP_ATTN.value)
+
+                conc_list = bmk.get(Fields.CONC_LIST.value)
+                if conc_list:
+                    conc_values = conc_list
+                else:
+                    conc_start = bmk[Fields.CONC_START.value]
+                    conc_end = bmk[Fields.CONC_END.value]
+                    conc_values = []
+                    conc = conc_start
+                    while conc <= conc_end:
+                        conc_values.append(conc)
+                        if conc == conc_end:
+                            break
+                        conc *= 2
+                        if conc > conc_end:
+                            conc = conc_end
+
+                if getattr(args, 'conc', None):
+                    conc_values = [c for c in conc_values if c in args.conc]
+                if not conc_values:
+                    continue
+
+                for benchmark_client in benchmark_clients:
+                    for conc in conc_values:
+                        for runner_value in runners_for_entry:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner_value,
+                                Fields.TP.value: tp,
+                                Fields.EP.value: ep if ep is not None else 1,
+                                Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                Fields.CONC.value: conc,
+                                # ISL/OSL are placeholders to satisfy downstream
+                                # env checks; the trace defines real lengths.
+                                Fields.ISL.value: 4096,
+                                Fields.OSL.value: 512,
+                                Fields.MAX_MODEL_LEN.value: replay_max_model_len,
+                                Fields.INPUT_FILE.value: input_file,
+                                Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.DURATION.value: duration,
+                                Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
+                                Fields.DISAGG.value: disagg,
+                                Fields.SCENARIO_TYPE.value: "agentic-replay",
+                            }
+                            matrix_values.append(validate_agentic_replay_matrix_entry(entry))
+
     return matrix_values
 
 
@@ -988,7 +1136,7 @@ def main():
     parent_parser.add_argument(
         '--scenario-type',
         nargs='+',
-        choices=['fixed-seq-len', 'agentic-coding'],
+        choices=['fixed-seq-len', 'agentic-coding', 'agentic-replay'],
         required=False,
         help='Scenario type(s) to include. If not specified, all scenario types are generated.'
     )

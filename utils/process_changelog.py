@@ -212,6 +212,10 @@ def main():
                 final_results["multi_node"]["agentic"].append(result)
             else:
                 final_results["single_node"]["agentic"].append(result)
+        elif result.get("scenario-type") == "agentic-replay":
+            # agentic-replay is single-node only and rides the standard bmk_*
+            # aggregation; it gets its own dispatch bucket/job.
+            final_results["single_node"]["agentic-replay"].append(result)
         elif "prefill" in result and result["prefill"] is not None:
             seq_len_str = seq_len_to_str(result["isl"], result["osl"])
             final_results["multi_node"][seq_len_str].append(result)

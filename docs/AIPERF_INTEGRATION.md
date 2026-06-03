@@ -68,6 +68,78 @@ The value flows through:
 `utils/process_result.py` then includes the selected client in aggregated output
 as `benchmark_client`.
 
+## Agentic Replay (mooncake_trace)
+
+The `agentic-replay` scenario-type replays a recorded **mooncake_trace** JSONL
+(`session_id`, `input_length`, `output_length`, `hash_ids`, `delay`) through
+official AIPerf, riding the same `aiperf` client and the **standard** `bmk_*`
+aggregation (`process_result.py`) — fully off the retired `cquil11/aiperf` fork
+pipeline. See [`docs/adr/0001-agentic-on-official-aiperf.md`](adr/0001-agentic-on-official-aiperf.md).
+
+The first committed config is `qwen3.5-4b-bf16-h100-vllm`:
+
+```yaml
+qwen3.5-4b-bf16-h100-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-4B
+  model-prefix: qwen3.5-4b
+  runner: h100-2x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 8192
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-list: [2] }
+```
+
+How it differs from the fixed-sequence path:
+
+- The trace is replayed **once**. `--request-count` equals the dataset record
+  count (`grep -c .` on the JSONL — 12 for the smoke set), and `isl`/`osl` are
+  **not** passed to AIPerf (the trace defines per-request lengths). The matrix
+  entry still carries placeholder `isl=4096`/`osl=512` purely to satisfy
+  downstream env checks in `process_result.py`.
+- Wiring: a dedicated `single_node['agentic-replay']` bucket
+  (`process_changelog.py`) feeds the `sweep-single-node-agentic-replay` job in
+  `run-sweep.yml`, which uses `benchmark-tmpl.yml` with two new inputs
+  (`input-file`, `custom-dataset-type`). Because the artifact gates key on
+  `scenario-type != 'agentic-coding'`, results flow through `process_result.py`
+  → `bmk_*` automatically. `SCENARIO_SUBDIR` stays empty, so the launcher
+  resolves `benchmarks/single_node/qwen3.5-4b_bf16_h100_vllm.sh`.
+- The launcher starts vLLM (`Qwen/Qwen3.5-4B`, TP=1, bf16,
+  `--max-model-len 8192`) and calls `run_client_benchmark --input-file ...
+  --custom-dataset-type mooncake_trace --request-count <records>` with **no**
+  `--isl/--osl`.
+
+**Known limitation (multi-turn).** In AIPerf, `is_multi_turn` is true only for
+`MULTI_TURN`/`BAILIAN_TRACE` dataset types; `mooncake_trace` is **not**
+multi-turn. The records replay as independent flat requests — prefix-cache reuse
+comes from `hash_ids` block overlap (block_size 512), not FORK-mode
+assistant-turn threading. `request-count = record_count` is unambiguous because
+mooncake_trace sessions count 1:1 with records. True multi-turn threading would
+require a `dag_jsonl`/`multi_turn` dataset — a future item.
+
+Local dry-run against a running vLLM server (no CI):
+
+```bash
+source .venv/bin/activate
+uv run python utils/bench_serving/aiperf_adapter.py \
+  --model Qwen/Qwen3.5-4B --url http://0.0.0.0:8000 --endpoint-type chat \
+  --concurrency 2 --request-count 12 \
+  --input-file benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl \
+  --custom-dataset-type mooncake_trace \
+  --result-filename qwen-smoke --result-dir /tmp/qwen-smoke
+```
+
+To run the smoke in CI, append a `perf-changelog.yaml` entry for
+`qwen3.5-4b-bf16-h100-vllm` (with `scenario-type: [agentic-replay]`) and open a
+PR to `dev` with the `sweep-enabled` label.
+
 ## AIPerf Installation
 
 Serving images do not need to include AIPerf. `ensure_aiperf` in

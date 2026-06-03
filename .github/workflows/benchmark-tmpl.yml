@@ -101,6 +101,16 @@ on:
         required: false
         type: string
         default: '1800'
+      input-file:
+        description: "Repo-relative trace JSONL for agentic-replay (mooncake_trace)"
+        required: false
+        type: string
+        default: ''
+      custom-dataset-type:
+        description: "AIPerf --custom-dataset-type for agentic-replay (e.g. mooncake_trace)"
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -131,6 +141,8 @@ env:
   OFFLOADING: ${{ inputs.offloading }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
+  INPUT_FILE: ${{ inputs.input-file }}
+  CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache

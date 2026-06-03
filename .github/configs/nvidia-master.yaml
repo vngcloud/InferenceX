@@ -4784,6 +4784,23 @@ gemma4-bf16-h100-vllm:
       search-space:
       - { tp: 2, conc-start: 1, conc-end: 1, max-num-batched-tokens: 4096 }
 
+qwen3.5-4b-bf16-h100-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-4B
+  model-prefix: qwen3.5-4b
+  runner: h100-2x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 8192
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-list: [2] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5

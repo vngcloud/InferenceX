@@ -614,6 +614,12 @@ run_client_benchmark() {
     local use_chat_template=false
     local dsv4=false
     local trust_remote_code=false
+    # Agentic-replay (trace) path: when --input-file is set, the benchmark
+    # replays a recorded mooncake_trace JSONL through AIPerf instead of a
+    # synthetic isl/osl workload. Only the aiperf client supports this.
+    local input_file=""
+    local custom_dataset_type=""
+    local request_count=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -630,6 +636,9 @@ run_client_benchmark() {
             --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
             --server-pid) server_pid="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
+            --input-file) input_file="$2"; shift 2 ;;
+            --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --request-count) request_count="$2"; shift 2 ;;
             --use-chat-template) use_chat_template=true; shift ;;
             --dsv4) dsv4=true; use_chat_template=true; shift ;;
             --trust-remote-code) trust_remote_code=true; shift ;;
@@ -640,9 +649,13 @@ run_client_benchmark() {
     if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
     if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
     if [[ -z "$backend" ]]; then echo "Error: --backend is required"; return 1; fi
-    if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
-    if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
-    if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
+    # isl/osl/random-range-ratio describe a synthetic workload; they are not
+    # required when replaying a recorded trace via --input-file.
+    if [[ -z "$input_file" ]]; then
+        if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
+        if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
+        if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
+    fi
     if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
     if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
@@ -658,20 +671,42 @@ run_client_benchmark() {
                 --url "http://0.0.0.0:$port"
                 --endpoint-type "$endpoint_type"
                 --concurrency "$concurrency"
-                --request-count "$((concurrency * 10))"
-                --warmup-request-count "$((concurrency * 2))"
-                --isl "$isl"
-                --osl "$osl"
                 --result-filename "$result_filename"
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
+            if [[ -n "$input_file" ]]; then
+                # Trace replay: replay the recorded dataset once. request-count
+                # equals the dataset record count; isl/osl and warmup do not
+                # apply (the trace defines per-request lengths).
+                if [[ -z "$request_count" ]]; then
+                    echo "Error: --request-count is required when --input-file is set"; return 1
+                fi
+                aiperf_args+=(
+                    --request-count "$request_count"
+                    --input-file "$input_file"
+                )
+                if [[ -n "$custom_dataset_type" ]]; then
+                    aiperf_args+=(--custom-dataset-type "$custom_dataset_type")
+                fi
+            else
+                aiperf_args+=(
+                    --request-count "$((concurrency * 10))"
+                    --warmup-request-count "$((concurrency * 2))"
+                    --isl "$isl"
+                    --osl "$osl"
+                )
+            fi
             if [[ -n "$random_seed" ]]; then
                 aiperf_args+=(--random-seed "$random_seed")
             fi
             run_aiperf_benchmark "${aiperf_args[@]}"
             ;;
         inferencex_native)
+            if [[ -n "$input_file" ]]; then
+                echo "Error: --input-file (trace replay) is only supported with BENCHMARK_CLIENT=aiperf"
+                return 1
+            fi
             local native_args=(
                 --model "$model"
                 --port "$port"
