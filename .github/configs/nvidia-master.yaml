@@ -4804,12 +4804,6 @@ gemma4-agentic-fp8-h100-2x-vllm:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
-      custom-dataset-type: mooncake_trace
-      max-model-len: 8192
-      benchmark-client: [aiperf]
-      search-space:
-      - { tp: 2, conc-list: [2] }
     - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#1000
       custom-dataset-type: mooncake_trace
       max-model-len: 73728
@@ -4827,12 +4821,6 @@ gemma4-agentic-fp8-h100-2x-sglang:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
-      custom-dataset-type: mooncake_trace
-      max-model-len: 8192
-      benchmark-client: [aiperf]
-      search-space:
-      - { tp: 2, conc-list: [2] }
     - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#1000
       custom-dataset-type: mooncake_trace
       max-model-len: 73728
