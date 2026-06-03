@@ -19,6 +19,9 @@ nvidia-smi
 
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-google/gemma-4-31B-it}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
+# Gemma4 MM encoder needs max_tokens_per_mm_item=2496; floor ensures
+# max_num_batched_tokens >= that even when max_model_len is computed small.
+MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-$MAX_MODEL_LEN}"
 
 if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 
@@ -39,6 +42,7 @@ vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
 --dtype bfloat16 \
 --gpu-memory-utilization 0.85 \
 --max-model-len "$MAX_MODEL_LEN" \
+--max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
 --max-num-seqs "$CONC" \
 --trust-remote-code > "$SERVER_LOG" 2>&1 &
 
