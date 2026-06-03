@@ -534,6 +534,7 @@ jobs:
             always() &&
             github.event_name == 'pull_request' &&
             needs.collect-results.result == 'success'
+        continue-on-error: true
         runs-on: ubuntu-latest
 
         env:
