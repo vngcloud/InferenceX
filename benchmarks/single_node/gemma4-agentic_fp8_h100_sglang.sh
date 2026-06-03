@@ -13,6 +13,13 @@
 # fp8_e4m3 KV cache matches the vLLM sibling. RadixAttention prefix caching is
 # default-ON (we do NOT pass --disable-radix-cache) — the "cache ON" requirement.
 # AIPerf is engine-agnostic on the client path; --backend sglang is cosmetic.
+#
+# --attention-backend fa3: SGLang otherwise auto-selects the slow `triton` backend
+# for the Gemma multimodal family (bidirectional image-token attention is triton-
+# only), which made SGLang ~3-4x slower than vLLM/FlashInfer on the first run. This
+# trace is TEXT-ONLY (no image tokens), so the bidirectional path is never needed
+# and FA3 (the Hopper default, supports Gemma SWA) is both correct and fast. See
+# docs/AIPERF_INTEGRATION.md "Backend-fairness trap".
 
 source "$(dirname "$0")/../benchmark_lib.sh"
 
@@ -68,6 +75,7 @@ python3 -m sglang.launch_server \
   --port "$PORT" \
   --served-model-name "$SERVED_MODEL_NAME" \
   --tp "$TP" \
+  --attention-backend fa3 \
   --kv-cache-dtype fp8_e4m3 \
   --mem-fraction-static 0.85 \
   --chunked-prefill-size 8192 \

@@ -123,7 +123,8 @@ How it differs from the fixed-sequence path:
 **Critical:** the mooncake_trace records of one `session_id` are replayed as a
 **multi-turn conversation** — context **accumulates** across turns (each turn
 carries the prior turns + their responses as prefix; this is exactly why prefix
-caching matters here and why the cache-hit rate is ~95%). So the prompt size that
+caching matters here and drives a **high** cache-hit rate on warm late-turn
+requests). So the prompt size that
 hits the server is **not** a record's `input_length` — it is the running
 `sum(input_length + output_length)` over the session up to that turn. Size
 `max-model-len` from that **session-cumulative max**, not the per-record max.
@@ -167,6 +168,100 @@ uv run python utils/bench_serving/aiperf_adapter.py \
 To run the smoke in CI, append a `perf-changelog.yaml` entry for
 `qwen3-4b-2507-bf16-h100-vllm` (with `scenario-type: [agentic-replay]`) and open a
 PR to `dev` with the `sweep-enabled` label.
+
+## Verifying a run is valid (green CI ≠ valid run)
+
+AIPerf emits metrics from whatever requests survive and exits 0, so a green job can
+still hide an invalid run. **Always** check the server log, per engine, before
+trusting numbers:
+
+1. **HTTP 200/400 ratio** — every request must return 200; any 400 means
+   over-context rejection (silent truncation, see above). Health/`/metrics` probes
+   (`GET /health` 503, `/metrics` 404) during startup are normal and not request
+   failures — filter to `POST /v1/chat/completions`.
+   ```bash
+   grep -oE '"POST /v1/chat/completions HTTP/1.1" [0-9]+' server.log | awk '{print $NF}' | sort | uniq -c
+   ```
+2. **Cache actually engaged** — confirm prefix/radix caching is ON *and hitting*:
+   - vLLM logs a cumulative `Prefix cache hit rate: NN%`.
+   - SGLang logs per prefill-batch `#new-token: A, #cached-token: B`; token-weighted
+     hit = `B/(A+B)`.
+3. **KV pressure / preemptions** — grep `preempt` and watch peak `GPU KV cache
+   usage` (vLLM) / `full token usage` (SGLang). Preemptions are a valid stress
+   signal; if heavy, lower concurrency rather than the context window.
+
+**Measured reality of the ~95% cache claim.** The hit rate is *not* a fixed
+property — it depends on KV pressure and model architecture:
+
+| Run | Engine | Peak KV | Realized prefix/radix hit |
+|---|---|---|---|
+| qwen3-4b-2507 64k `#2000` conc=32 (1×H100) | vLLM | **99.8%** | ~49% avg (evicts prefixes between turns under pressure; warm batches still hit 90%+) |
+| gemma4-31B 64k `#1000` conc=16 (2×H100) | vLLM | 26% | **~94%** avg (low KV → prefixes retained) |
+| gemma4-31B 64k `#1000` conc=16 (2×H100) | SGLang | ~21% | ~65% token-weighted (Gemma SWA layers only cache a window; global layers ~97%) |
+
+The earlier "~95%" figure came from a *truncated* run whose survivor set was biased
+to short, high-overlap early turns. A correctly-sized, KV-unpressured run lands
+~94% (vLLM, dense/SWA); under KV pressure the realized hit drops sharply.
+
+## Engine-vs-engine comparison (vLLM vs SGLang on one trace)
+
+AIPerf is **engine-agnostic on the client path**: `run_client_benchmark`'s `aiperf`
+branch builds `--url http://0.0.0.0:$port --endpoint-type chat ...` and **never
+passes `--backend`** to AIPerf (it's consumed only by the `inferencex_native`
+path). So the identical client drives both engines — to compare, add a parallel
+config key per engine and dispatch both together.
+
+**Setup (see the committed `gemma4-agentic-fp8-h100-2x-{vllm,sglang}` pair):**
+
+- **Distinct `model-prefix`.** The launcher resolves the per-engine script from
+  `benchmarks/single_node/${model-prefix}_${precision}_h100_${framework}.sh`
+  (`SCENARIO_SUBDIR` is empty for agentic-replay). If a fixed-seq-len `gemma4_*.sh`
+  already exists, reusing `model-prefix: gemma4` would resolve to it and fail
+  (no `INPUT_FILE` handling). Use a dedicated prefix (e.g. `gemma4-agentic`) and
+  dedicated trace-replay scripts.
+- **Equivalent serving config**, cache ON for both: vLLM prefix caching is
+  default-ON (don't pass `--no-enable-prefix-caching`); SGLang RadixAttention is
+  default-ON (don't pass `--disable-radix-cache`). Match KV dtype and mem fraction.
+- **Dispatch both keys in one run.** `--config-keys` is `nargs='+'` (also accepts
+  globs), and each `(key × scenario × search-space point)` becomes a parallel
+  matrix job. They share the runner pool, so on a single `h100-2x` runner they
+  **serialize** (same wall-clock as two dispatches, grouped under one run).
+  ```bash
+  gh api -X POST /repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
+    -f ref='feature/aiperf' \
+    -f 'inputs[ref]=feature/aiperf' \
+    -f 'inputs[generate-cli-command]=test-config --config-keys gemma4-agentic-fp8-h100-2x-vllm gemma4-agentic-fp8-h100-2x-sglang --config-files .github/configs/nvidia-master.yaml --no-evals --scenario-type agentic-replay'
+  ```
+  > ⚠️ **Workflow ref must be `feature/aiperf`, not `main`.** The agentic-replay
+  > job/routing lives only on `feature/aiperf`; dispatching with the top-level
+  > `ref='main'` routes the entries into the `single-node` bucket (which never sets
+  > `INPUT_FILE`/`CUSTOM_DATASET_TYPE`) and every job fails instantly with
+  > "required environment variables are not set". Job names show the routing:
+  > `agentic-replay /...` (correct) vs `single-node /...` (wrong ref).
+
+### ⚠️ Backend-fairness trap — check the attention backend each engine used
+
+Equivalent *config* does not guarantee equivalent *engine optimization*. Before
+comparing, grep each server log for the attention backend actually selected — an
+engine on a slow fallback backend is not a fair datapoint.
+
+**Observed: SGLang forces the `triton` backend for the Gemma family.** Gemma-3/4
+are multimodal and use bidirectional attention between image tokens during
+prefill, which SGLang implements **only in the triton backend** — so it logs
+`Use triton as default attention backend for Gemma4` and runs its slowest path,
+while vLLM uses FlashInfer. On the gemma4-31B 64k `#1000` conc=16 run this made
+SGLang **~3–4× slower** on throughput/TPOT and **~15× slower on TTFT** — a backend
+artifact, *not* a genuine engine verdict. Bumping the SGLang version does **not**
+fix it (it's an architecture decision, not a version bug).
+
+**Fix for text-only agentic traces:** the bidirectional path is for *image*
+tokens; an agentic-coding trace has none, so force the fast backend:
+`--attention-backend fa3` (FA3 is the Hopper default and supports Gemma's sliding-
+window attention; CUDA Graph + chunked prefill also become usable). The
+`gemma4-agentic_fp8_h100_sglang.sh` script pins `fa3` for this reason. If SGLang
+rejects `fa3` for the multimodal arch, *that* is the citable finding (SGLang Gemma
+is triton-only). The clean, uncontaminated engine comparison remains a **dense,
+non-multimodal** model (e.g. Qwen3-4B), where both engines run optimized backends.
 
 ## Energy Efficiency (tokens/Watt)
 
