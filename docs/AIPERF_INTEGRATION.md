@@ -140,6 +140,57 @@ To run the smoke in CI, append a `perf-changelog.yaml` entry for
 `qwen3.5-4b-bf16-h100-vllm` (with `scenario-type: [agentic-replay]`) and open a
 PR to `dev` with the `sweep-enabled` label.
 
+## Energy Efficiency (tokens/Watt)
+
+Every benchmark run reports an energy-efficiency metric in the published
+results table:
+
+```text
+tok/W = total_token_throughput (tok/s) / mean total GPU power (W)
+```
+
+This is the GTC-2026 "AI Factory" efficiency KPI (tokens per watt). The ratio is
+GPU-count-invariant — per-GPU and whole-node both give the same number — so it is
+reported as a single whole-system value, not divided per GPU.
+
+**Power source — no DCGM required.** Power comes from the `power.draw` column
+that `start_gpu_monitor` (in `benchmarks/benchmark_lib.sh`) already logs to
+`gpu_metrics.csv` via `nvidia-smi` on every run. This works for both the
+`inferencex_native` and `aiperf` clients and for all serving frameworks, and is
+independent of AIPerf's own GPU-telemetry subsystem (which, for the `aiperf`
+client, additionally supports DCGM/pynvml — see `aiperf --gpu-telemetry`). When
+AIPerf logs `DCGM telemetry skipped: no DCGM endpoints reachable`, the
+`nvidia-smi` CSV is still captured and the metric is still computed.
+
+**How it flows** (`utils/process_result.py`):
+
+1. `mean_total_power_w()` parses `gpu_metrics.csv` and computes the per-GPU mean
+   `power.draw`.
+2. It sums only the **N busiest GPUs** — `N = TP` for single-node, `total_gpus`
+   for multi-node — so an idle second card on a shared host (e.g. a TP=1 job on
+   `h100-2x`) does not inflate power and understate efficiency.
+3. Samples are clipped to the **last `duration` seconds** so model-load and
+   warmup power (the monitor starts before the server) is excluded. The `aiperf`
+   client supplies `duration` via AIPerf's `benchmark_duration` metric
+   (`aiperf_adapter.py`); the native client already emits it.
+4. The aggregated result JSON gains two fields, surfaced as the
+   `Token/Watt (tok/s/W)` and `Power Mean (W)` columns in `utils/summarize.py`:
+
+   ```json
+   { "tok_per_watt": 6.7093, "mean_power_w": 355.0 }
+   ```
+
+Power telemetry is **best-effort**: a missing or empty `gpu_metrics.csv` (e.g. a
+script that does not call `start_gpu_monitor`) leaves both fields `null`, which
+renders as `0` in the table and never fails a run. Override the CSV path with the
+`GPU_METRICS_CSV` environment variable if needed (default `gpu_metrics.csv`,
+relative to the `process_result.py` working directory).
+
+> Caveat: `nvidia-smi power.draw` is an instantaneous 1 Hz board-power gauge.
+> For a more precise energy figure, AIPerf's `energy_consumption` hardware
+> accumulator (DCGM/pynvml only) integrates power internally; it is not yet wired
+> into the InferenceX result pipeline.
+
 ## AIPerf Installation
 
 Serving images do not need to include AIPerf. `ensure_aiperf` in
@@ -245,7 +296,9 @@ gpu_metrics.csv
 
 `<RESULT_FILENAME>.json` is the adapted InferenceX result consumed by
 `utils/process_result.py`. The `_aiperf` directory contains the raw AIPerf
-artifact for debugging.
+artifact for debugging. `gpu_metrics.csv` is the `nvidia-smi` power/utilization
+log; `process_result.py` reads its `power.draw` column to compute the
+tokens/Watt metric (see [Energy Efficiency](#energy-efficiency-tokenswatt)).
 
 ## Troubleshooting
 
