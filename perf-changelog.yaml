@@ -3095,3 +3095,9 @@
   description:
     - "Enable native and AIPerf benchmark-client runs for Gemma4 BF16 H100 vLLM fixed-seq sweeps"
   pr-link: https://github.com/vngcloud/InferenceX/pull/3
+
+- config-keys:
+    - gemma4-bf16-h100-vllm
+  description:
+    - "Narrow sweep to 1k1k only at conc=1 to smoke-test AIPerf benchmark client"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/4
