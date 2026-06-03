@@ -28,10 +28,24 @@ MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 
 if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 
+# An optional "#N" suffix on the input-file path replays only the first N
+# records (a low-resource subset of a large committed trace).
+trace_limit=""
+if [[ "$INPUT_FILE" == *"#"* ]]; then
+    trace_limit="${INPUT_FILE##*#}"
+    INPUT_FILE="${INPUT_FILE%#*}"
+fi
+
 # The trace JSONL path is repo-relative; the container runs with cwd=/workspace.
 if [[ ! -f "$INPUT_FILE" ]]; then
     echo "Error: trace input file not found: $INPUT_FILE (cwd=$(pwd))" >&2
     exit 1
+fi
+
+if [[ -n "$trace_limit" ]]; then
+    head -n "$trace_limit" "$INPUT_FILE" > /workspace/_trace_subset.jsonl
+    INPUT_FILE=/workspace/_trace_subset.jsonl
+    echo "Subset trace to first $trace_limit records -> $INPUT_FILE"
 fi
 
 SERVER_LOG=/workspace/server.log

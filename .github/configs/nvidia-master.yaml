@@ -4800,6 +4800,15 @@ qwen3.5-4b-bf16-h100-vllm:
       benchmark-client: [aiperf]
       search-space:
       - { tp: 1, conc-list: [2] }
+    # 64k agentic-coding trace (committed in-repo), first 2000 records replayed
+    # at concurrency 32. max-model-len 40960 covers the dataset's real max
+    # input+output of 38,613 (the "64k" label is the generation target).
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#2000
+      custom-dataset-type: mooncake_trace
+      max-model-len: 40960
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-list: [32] }
 
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
