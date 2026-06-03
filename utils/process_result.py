@@ -221,10 +221,16 @@ gpu_metrics_csv = os.environ.get('GPU_METRICS_CSV', 'gpu_metrics.csv')
 window_s = bmk_result.get('duration')
 mean_power = mean_total_power_w(gpu_metrics_csv, num_gpus_used, window_s)
 data['mean_power_w'] = round(mean_power, 2) if mean_power else None
-data['tok_per_watt'] = (
-    round(float(bmk_result['total_token_throughput']) / mean_power, 4)
-    if mean_power else None
-)
+# Two tokens/Watt conventions, both emitted so reports aren't ambiguous:
+#   - total  = (input + output) tokens / W. Dominated by prefill on input-heavy
+#     or no-prefix-cache workloads, so it reads high.
+#   - output = decoded tokens only / W. The stricter "useful work per Watt".
+# `tok_per_watt` is kept as an alias of the total for backward compatibility.
+total_tput = float(bmk_result['total_token_throughput'])
+output_tput = float(bmk_result['output_throughput'])
+data['tok_per_watt_total'] = round(total_tput / mean_power, 4) if mean_power else None
+data['tok_per_watt_output'] = round(output_tput / mean_power, 4) if mean_power else None
+data['tok_per_watt'] = data['tok_per_watt_total']
 
 print(json.dumps(data, indent=2))
 

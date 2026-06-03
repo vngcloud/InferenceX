@@ -76,13 +76,15 @@ official AIPerf, riding the same `aiperf` client and the **standard** `bmk_*`
 aggregation (`process_result.py`) — fully off the retired `cquil11/aiperf` fork
 pipeline. See [`docs/adr/0001-agentic-on-official-aiperf.md`](adr/0001-agentic-on-official-aiperf.md).
 
-The first committed config is `qwen3.5-4b-bf16-h100-vllm`:
+The first committed config is `qwen3-4b-2507-bf16-h100-vllm` (a dense transformer
+chosen so vLLM keeps prefix caching ON; the original `Qwen/Qwen3.5-4B` was a
+hybrid-Mamba model for which vLLM auto-disables prefix caching):
 
 ```yaml
-qwen3.5-4b-bf16-h100-vllm:
+qwen3-4b-2507-bf16-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
-  model: Qwen/Qwen3.5-4B
-  model-prefix: qwen3.5-4b
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507
   runner: h100-2x
   precision: bf16
   framework: vllm
@@ -110,8 +112,8 @@ How it differs from the fixed-sequence path:
   (`input-file`, `custom-dataset-type`). Because the artifact gates key on
   `scenario-type != 'agentic-coding'`, results flow through `process_result.py`
   → `bmk_*` automatically. `SCENARIO_SUBDIR` stays empty, so the launcher
-  resolves `benchmarks/single_node/qwen3.5-4b_bf16_h100_vllm.sh`.
-- The launcher starts vLLM (`Qwen/Qwen3.5-4B`, TP=1, bf16,
+  resolves `benchmarks/single_node/qwen3-4b-2507_bf16_h100_vllm.sh`.
+- The launcher starts vLLM (`Qwen/Qwen3-4B-Instruct-2507`, TP=1, bf16,
   `--max-model-len 8192`) and calls `run_client_benchmark --input-file ...
   --custom-dataset-type mooncake_trace --request-count <records>` with **no**
   `--isl/--osl`.
@@ -129,7 +131,7 @@ Local dry-run against a running vLLM server (no CI):
 ```bash
 source .venv/bin/activate
 uv run python utils/bench_serving/aiperf_adapter.py \
-  --model Qwen/Qwen3.5-4B --url http://0.0.0.0:8000 --endpoint-type chat \
+  --model Qwen/Qwen3-4B-Instruct-2507 --url http://0.0.0.0:8000 --endpoint-type chat \
   --concurrency 2 --request-count 12 \
   --input-file benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl \
   --custom-dataset-type mooncake_trace \
@@ -137,21 +139,28 @@ uv run python utils/bench_serving/aiperf_adapter.py \
 ```
 
 To run the smoke in CI, append a `perf-changelog.yaml` entry for
-`qwen3.5-4b-bf16-h100-vllm` (with `scenario-type: [agentic-replay]`) and open a
+`qwen3-4b-2507-bf16-h100-vllm` (with `scenario-type: [agentic-replay]`) and open a
 PR to `dev` with the `sweep-enabled` label.
 
 ## Energy Efficiency (tokens/Watt)
 
-Every benchmark run reports an energy-efficiency metric in the published
-results table:
+Every benchmark run reports energy-efficiency metrics in the published
+results table, in **two conventions** so the number is never ambiguous:
 
 ```text
-tok/W = total_token_throughput (tok/s) / mean total GPU power (W)
+tok/W total  = total_token_throughput  (input+output tok/s) / mean total GPU power (W)
+tok/W output = output_token_throughput (decoded   tok/s) / mean total GPU power (W)
 ```
 
-This is the GTC-2026 "AI Factory" efficiency KPI (tokens per watt). The ratio is
-GPU-count-invariant — per-GPU and whole-node both give the same number — so it is
-reported as a single whole-system value, not divided per GPU.
+`tok/W total` is the GTC-2026 "AI Factory" efficiency KPI (tokens per watt). Both
+ratios are GPU-count-invariant — per-GPU and whole-node give the same number — so
+each is reported as a single whole-system value, not divided per GPU.
+
+**Why both?** On input-heavy workloads (e.g. agentic-trace replay) or any run
+where prefix caching is disabled, prefill tokens dominate the total, so
+`tok/W total` reads high while `tok/W output` (useful decoded work per watt) can
+be orders of magnitude lower. Always state which convention a reported figure
+uses.
 
 **Power source — no DCGM required.** Power comes from the `power.draw` column
 that `start_gpu_monitor` (in `benchmarks/benchmark_lib.sh`) already logs to
@@ -173,11 +182,13 @@ AIPerf logs `DCGM telemetry skipped: no DCGM endpoints reachable`, the
    warmup power (the monitor starts before the server) is excluded. The `aiperf`
    client supplies `duration` via AIPerf's `benchmark_duration` metric
    (`aiperf_adapter.py`); the native client already emits it.
-4. The aggregated result JSON gains two fields, surfaced as the
-   `Token/Watt (tok/s/W)` and `Power Mean (W)` columns in `utils/summarize.py`:
+4. The aggregated result JSON gains three fields, surfaced as the
+   `Token/Watt total (tok/s/W)`, `Token/Watt output (tok/s/W)` and
+   `Power Mean (W)` columns in `utils/summarize.py` (`tok_per_watt` is kept as an
+   alias of `tok_per_watt_total` for backward compatibility):
 
    ```json
-   { "tok_per_watt": 6.7093, "mean_power_w": 355.0 }
+   { "tok_per_watt_total": 6.7093, "tok_per_watt_output": 5.1230, "mean_power_w": 355.0 }
    ```
 
 Power telemetry is **best-effort**: a missing or empty `gpu_metrics.csv` (e.g. a

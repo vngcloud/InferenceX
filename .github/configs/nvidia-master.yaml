@@ -4784,14 +4784,18 @@ gemma4-bf16-h100-vllm:
       search-space:
       - { tp: 2, conc-start: 1, conc-end: 1, max-num-batched-tokens: 4096 }
 
-qwen3.5-4b-bf16-h100-vllm:
+qwen3-4b-2507-bf16-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
-  model: Qwen/Qwen3.5-4B
-  model-prefix: qwen3.5-4b
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507
   runner: h100-2x
   precision: bf16
   framework: vllm
   multinode: false
+  # Qwen3-4B-Instruct-2507 is a dense Qwen3ForCausalLM transformer (256K native
+  # context, no rope-scaling), so vLLM V1 keeps automatic prefix caching ON by
+  # default. It replaces the prior Qwen/Qwen3.5-4B, a hybrid-Mamba model for which
+  # vLLM auto-DISABLES prefix caching (observed 0% hit rate on the agentic trace).
   scenarios:
     agentic-replay:
     - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Agentic-replay smoke launcher: Qwen/Qwen3.5-4B (bf16, TP=1) on vLLM, driven by
+# Agentic-replay smoke launcher: Qwen/Qwen3-4B-Instruct-2507 (bf16, TP=1) on vLLM, driven by
 # a recorded mooncake_trace JSONL through official AIPerf. The trace is replayed
 # once; --request-count equals the dataset record count and isl/osl do not apply
 # (the trace defines per-request lengths). See docs/AIPERF_INTEGRATION.md and
@@ -23,7 +23,7 @@ fi
 
 nvidia-smi
 
-SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-Qwen/Qwen3.5-4B}"
+SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-Qwen/Qwen3-4B-Instruct-2507}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-8192}"
 
 if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi

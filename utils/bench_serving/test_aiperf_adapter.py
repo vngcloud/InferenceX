@@ -27,9 +27,15 @@ def _artifact(concurrency: int = 16) -> dict:
         },
         "total_token_throughput": {"avg": 1234.5},
         "output_token_throughput": {"avg": 987.6},
-        "time_to_first_token": {"avg": 101.0, "p99": 202.0},
-        "inter_token_latency": {"avg": 11.0, "p99": 22.0},
-        "request_latency": {"avg": 1111.0, "p99": 2222.0},
+        "time_to_first_token": {
+            "avg": 101.0, "p50": 150.0, "p75": 160.0, "p90": 180.0, "p95": 190.0, "p99": 202.0,
+        },
+        "inter_token_latency": {
+            "avg": 11.0, "p50": 12.0, "p75": 14.0, "p90": 16.0, "p95": 18.0, "p99": 22.0,
+        },
+        "request_latency": {
+            "avg": 1111.0, "p50": 1500.0, "p75": 1600.0, "p90": 1800.0, "p95": 1900.0, "p99": 2222.0,
+        },
     }
 
 
@@ -42,13 +48,17 @@ def test_build_result_maps_aiperf_profile_export():
         "total_token_throughput": 1234.5,
         "output_throughput": 987.6,
         "mean_ttft_ms": 101.0,
-        "p99_ttft_ms": 202.0,
+        "p50_ttft_ms": 150.0, "p75_ttft_ms": 160.0, "p90_ttft_ms": 180.0,
+        "p95_ttft_ms": 190.0, "p99_ttft_ms": 202.0,
         "mean_tpot_ms": 11.0,
-        "p99_tpot_ms": 22.0,
+        "p50_tpot_ms": 12.0, "p75_tpot_ms": 14.0, "p90_tpot_ms": 16.0,
+        "p95_tpot_ms": 18.0, "p99_tpot_ms": 22.0,
         "mean_itl_ms": 11.0,
-        "p99_itl_ms": 22.0,
+        "p50_itl_ms": 12.0, "p75_itl_ms": 14.0, "p90_itl_ms": 16.0,
+        "p95_itl_ms": 18.0, "p99_itl_ms": 22.0,
         "mean_e2el_ms": 1111.0,
-        "p99_e2el_ms": 2222.0,
+        "p50_e2el_ms": 1500.0, "p75_e2el_ms": 1600.0, "p90_e2el_ms": 1800.0,
+        "p95_e2el_ms": 1900.0, "p99_e2el_ms": 2222.0,
     }
 
 

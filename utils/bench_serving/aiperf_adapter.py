@@ -12,6 +12,25 @@ from pathlib import Path
 PROFILE_EXPORT = "profile_export_aiperf.json"
 SEARCH_HISTORY = "search_history.json"
 
+# Percentiles surfaced from AIPerf for every latency metric. AIPerf computes the
+# full distribution (avg/min/max/p1..p99); InferenceX summary tables use the mean
+# plus this set. p50 (median) and p99 (tail) round out the p75/p90/p95 the
+# summary already renders.
+_PCTL_KEYS = ("p50", "p75", "p90", "p95", "p99")
+
+
+def _latency_stats(metric: dict, name: str) -> dict:
+    """Map one AIPerf metric block to InferenceX <stat>_<name>_ms keys.
+
+    process_result.py strips the `_ms` suffix and converts to seconds, and for
+    `tpot` keys also derives the matching `intvty` (1000/value), so adding a
+    percentile here automatically flows through to the aggregate JSON.
+    """
+    stats = {f"mean_{name}_ms": metric["avg"]}
+    for pctl in _PCTL_KEYS:
+        stats[f"{pctl}_{name}_ms"] = metric[pctl]
+    return stats
+
 
 def detect_mode(artifact_dir: Path) -> str:
     """Return the AIPerf artifact mode for a completed run."""
@@ -40,19 +59,18 @@ def extract_max_concurrency(artifact: dict, search_history: dict | None, mode: s
 
 def build_result(artifact: dict, max_concurrency: int) -> dict:
     """Build the intermediate schema consumed by utils/process_result.py."""
+    # AIPerf reports a single inter-token-latency block; InferenceX records it as
+    # both tpot and itl (process_result derives interactivity from the tpot keys).
+    itl = artifact["inter_token_latency"]
     result = {
         "model_id": artifact["input_config"]["models"]["items"][0]["name"],
         "max_concurrency": max_concurrency,
         "total_token_throughput": artifact["total_token_throughput"]["avg"],
         "output_throughput": artifact["output_token_throughput"]["avg"],
-        "mean_ttft_ms": artifact["time_to_first_token"]["avg"],
-        "p99_ttft_ms": artifact["time_to_first_token"]["p99"],
-        "mean_tpot_ms": artifact["inter_token_latency"]["avg"],
-        "p99_tpot_ms": artifact["inter_token_latency"]["p99"],
-        "mean_itl_ms": artifact["inter_token_latency"]["avg"],
-        "p99_itl_ms": artifact["inter_token_latency"]["p99"],
-        "mean_e2el_ms": artifact["request_latency"]["avg"],
-        "p99_e2el_ms": artifact["request_latency"]["p99"],
+        **_latency_stats(artifact["time_to_first_token"], "ttft"),
+        **_latency_stats(itl, "tpot"),
+        **_latency_stats(itl, "itl"),
+        **_latency_stats(artifact["request_latency"], "e2el"),
     }
 
     # Benchmark duration (seconds) lets process_result.py window the power log
