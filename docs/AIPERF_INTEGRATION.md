@@ -118,13 +118,39 @@ How it differs from the fixed-sequence path:
   --custom-dataset-type mooncake_trace --request-count <records>` with **no**
   `--isl/--osl`.
 
-**Known limitation (multi-turn).** In AIPerf, `is_multi_turn` is true only for
-`MULTI_TURN`/`BAILIAN_TRACE` dataset types; `mooncake_trace` is **not**
-multi-turn. The records replay as independent flat requests — prefix-cache reuse
-comes from `hash_ids` block overlap (block_size 512), not FORK-mode
-assistant-turn threading. `request-count = record_count` is unambiguous because
-mooncake_trace sessions count 1:1 with records. True multi-turn threading would
-require a `dag_jsonl`/`multi_turn` dataset — a future item.
+### Context-length requirements per dataset (size `max-model-len` from the *session-cumulative* max)
+
+**Critical:** the mooncake_trace records of one `session_id` are replayed as a
+**multi-turn conversation** — context **accumulates** across turns (each turn
+carries the prior turns + their responses as prefix; this is exactly why prefix
+caching matters here and why the cache-hit rate is ~95%). So the prompt size that
+hits the server is **not** a record's `input_length` — it is the running
+`sum(input_length + output_length)` over the session up to that turn. Size
+`max-model-len` from that **session-cumulative max**, not the per-record max.
+
+Empirically derived from the committed traces (per-record vs realized
+session-cumulative `input+output`):
+
+| Dataset | records | per-record max(in+out) | **session-cumulative max** | `max-model-len` to use |
+|---|---|---|---|---|
+| `qwen3.5-4b-smoke.jsonl` | 12 | 1,783 | 2,293 | **8192** (ample) |
+| `agentic-coding-64k.jsonl` (`#2000` and full) | 2,000 / 18,595 | 38,613 | **66,655** | **73728** |
+| `agentic-coding-128k.jsonl` (`#2000` and full) | 2,000 / 16,957 | 82,159 | **133,851** | **~147456** |
+
+(Recompute with the one-off script in the handoff if traces change: group by
+`session_id`, take the max running `sum(input_length+output_length)`.)
+
+**Why this matters — silent truncation.** Sizing from the per-record length is the
+trap that produced the 64k run [26874210796](https://github.com/vngcloud/InferenceX/actions/runs/26874210796):
+`max-model-len 40960` (chosen from the 37,818 per-record input max) rejected
+**1100/2000 (55%)** requests with HTTP 400 (`input+output > context window`, every
+failure landing at exactly `max_model_len + 1`). AIPerf still emits metrics from
+the survivors and the CI job goes **green**, so the failure is silent and the
+reported numbers are biased to short early-turn requests. **Always verify the
+server-log 200/400 ratio, not just job status.** Qwen3-4B-Instruct-2507 supports
+256K context, so these `max-model-len` values carry no model-side limit; the real
+constraint is KV pressure at high concurrency (expect preemptions for 128k at
+conc=32 — lower the concurrency rather than the window).
 
 Local dry-run against a running vLLM server (no CI):
 
