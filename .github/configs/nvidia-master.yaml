@@ -4784,6 +4784,62 @@ gemma4-bf16-h100-vllm:
       search-space:
       - { tp: 2, conc-start: 1, conc-end: 1, max-num-batched-tokens: 4096 }
 
+# Agentic-replay pair (vLLM vs SGLang) on google/gemma-4-31B-it, 2x H100 / TP=2 /
+# fp8, both cache-ON, driven by AIPerf over the committed 64k agentic-coding trace
+# (first 1000 records). Distinct model-prefix `gemma4-agentic` so the launcher
+# resolves dedicated trace-replay scripts (gemma4-agentic_<fw>...) rather than the
+# fixed-seq-len gemma4_*.sh. context-length 73728 covers the <=66,655 session-
+# cumulative max of the #1000 subset (AIPerf threads each mooncake session, so
+# context ACCUMULATES across turns; sizing from per-record input_length truncates).
+# The "xiu" (slight) inequivalence vs SGLang is the established gemma4 recipe: vLLM
+# does on-the-fly fp8 over google/gemma-4-31B-it; SGLang uses the pre-quantized
+# RedHatAI/gemma-4-31B-it-FP8-dynamic (its on-the-fly fp8 crashes on the vision tower).
+gemma4-agentic-fp8-h100-2x-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4-agentic
+  runner: h100-2x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 8192
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-list: [2] }
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#1000
+      custom-dataset-type: mooncake_trace
+      max-model-len: 73728
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-list: [16] }
+
+gemma4-agentic-fp8-h100-2x-sglang:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
+  model-prefix: gemma4-agentic
+  runner: h100-2x
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 8192
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-list: [2] }
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#1000
+      custom-dataset-type: mooncake_trace
+      max-model-len: 73728
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-list: [16] }
+
 qwen3-4b-2507-bf16-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: Qwen/Qwen3-4B-Instruct-2507
