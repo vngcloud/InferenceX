@@ -25,6 +25,7 @@ on:
             - main
             - dev
         types:
+            - opened
             - ready_for_review
             - synchronize
             - labeled
