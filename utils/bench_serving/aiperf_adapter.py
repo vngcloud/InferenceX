@@ -40,7 +40,7 @@ def extract_max_concurrency(artifact: dict, search_history: dict | None, mode: s
 
 def build_result(artifact: dict, max_concurrency: int) -> dict:
     """Build the intermediate schema consumed by utils/process_result.py."""
-    return {
+    result = {
         "model_id": artifact["input_config"]["models"]["items"][0]["name"],
         "max_concurrency": max_concurrency,
         "total_token_throughput": artifact["total_token_throughput"]["avg"],
@@ -54,6 +54,15 @@ def build_result(artifact: dict, max_concurrency: int) -> dict:
         "mean_e2el_ms": artifact["request_latency"]["avg"],
         "p99_e2el_ms": artifact["request_latency"]["p99"],
     }
+
+    # Benchmark duration (seconds) lets process_result.py window the power log
+    # to the load-generation interval. Best-effort: omitted if AIPerf didn't
+    # emit it (e.g. older artifacts).
+    duration = artifact.get("benchmark_duration", {}).get("avg")
+    if duration is not None:
+        result["duration"] = duration
+
+    return result
 
 
 def run_aiperf(args: argparse.Namespace) -> Path:

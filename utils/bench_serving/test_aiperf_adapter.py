@@ -52,6 +52,21 @@ def test_build_result_maps_aiperf_profile_export():
     }
 
 
+def test_build_result_maps_benchmark_duration_when_present():
+    artifact = _artifact(concurrency=32)
+    artifact["benchmark_duration"] = {"avg": 42.5}
+
+    result = build_result(artifact, max_concurrency=32)
+
+    assert result["duration"] == 42.5
+
+
+def test_build_result_omits_duration_when_absent():
+    result = build_result(_artifact(concurrency=32), max_concurrency=32)
+
+    assert "duration" not in result
+
+
 def test_detect_mode_fixed_without_search_history(tmp_path: Path):
     assert detect_mode(tmp_path) == "fixed"
 

@@ -33,6 +33,8 @@ E2EL_P95 = "E2EL P95 (s)"
 TPUT_PER_GPU = "TPUT per GPU"
 OUTPUT_TPUT_PER_GPU = "Output TPUT per GPU"
 INPUT_TPUT_PER_GPU = "Input TPUT per GPU"
+TOK_PER_WATT = "Token/Watt (tok/s/W)"
+POWER_MEAN = "Power Mean (W)"
 PREFILL_TP = "Prefill TP"
 PREFILL_EP = "Prefill EP"
 PREFILL_DP_ATTN = "Prefill DP Attn"
@@ -90,7 +92,8 @@ def main():
             TPOT_MEAN, TPOT_P75,
             INTVTY_MEAN, INTVTY_AT_P75_TPOT, INTVTY_AT_P90_TPOT, INTVTY_AT_P95_TPOT,
             E2EL_MEAN, E2EL_P75, E2EL_P90, E2EL_P95,
-            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU
+            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU,
+            TOK_PER_WATT, POWER_MEAN
         ]
 
         single_node_rows = [
@@ -123,6 +126,8 @@ def main():
                 f"{r['tput_per_gpu']:.4f}",
                 f"{r['output_tput_per_gpu']:.4f}",
                 f"{r['input_tput_per_gpu']:.4f}",
+                f"{r.get('tok_per_watt') or 0:.4f}",
+                f"{r.get('mean_power_w') or 0:.2f}",
             ]
             for r in single_node_results
         ]
@@ -145,7 +150,8 @@ def main():
             TPOT_MEAN, TPOT_P75,
             INTVTY_MEAN, INTVTY_AT_P75_TPOT, INTVTY_AT_P90_TPOT, INTVTY_AT_P95_TPOT,
             E2EL_MEAN, E2EL_P75, E2EL_P90, E2EL_P95,
-            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU
+            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU,
+            TOK_PER_WATT, POWER_MEAN
         ]
 
         multinode_rows = [
@@ -185,6 +191,8 @@ def main():
                 f"{r['tput_per_gpu']:.4f}",
                 f"{r['output_tput_per_gpu']:.4f}",
                 f"{r['input_tput_per_gpu']:.4f}",
+                f"{r.get('tok_per_watt') or 0:.4f}",
+                f"{r.get('mean_power_w') or 0:.2f}",
             ]
             for r in multinode_results
         ]
