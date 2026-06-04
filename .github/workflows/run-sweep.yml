@@ -293,6 +293,10 @@ jobs:
             max-model-len: ${{ matrix.config.max-model-len }}
             input-file: ${{ matrix.config.input-file }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
+            no-fixed-schedule: ${{ matrix.config.no-fixed-schedule }}
+            num-warmup-sessions: ${{ matrix.config.num-warmup-sessions }}
+            request-count: ${{ matrix.config.request-count }}
+            strip-trace-delays: ${{ matrix.config.strip-trace-delays }}
             duration: ${{ matrix.config.duration }}
             spec-decoding: 'none'
             disagg: ${{ 'false' }}

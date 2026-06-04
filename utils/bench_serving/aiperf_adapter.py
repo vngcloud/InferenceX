@@ -145,6 +145,16 @@ def run_aiperf(args: argparse.Namespace) -> Path:
 
     if args.warmup_request_count is not None:
         cmd.extend(["--warmup-request-count", str(args.warmup_request_count)])
+    if args.num_warmup_sessions is not None:
+        cmd.extend(["--num-warmup-sessions", str(args.num_warmup_sessions)])
+    # Mode 1 (capacity sweep): suppress AIPerf's automatic switch to
+    # fixed-schedule mode for trace datasets carrying timestamps, so the run
+    # is driven purely by --concurrency back-pressure. The trace's recorded
+    # inter-turn delays are stripped upstream in the launcher (aiperf 0.9.0 has
+    # no CLI flag to ignore mooncake_trace delays); this flag only governs the
+    # timing mode, not the per-turn think-time.
+    if args.no_fixed_schedule:
+        cmd.append("--no-fixed-schedule")
     if args.server_metrics_url:
         cmd.extend(["--server-metrics", args.server_metrics_url])
     if args.gpu_telemetry_url:
@@ -176,6 +186,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--result-dir", required=True, type=Path)
     parser.add_argument("--endpoint-type", default="chat")
     parser.add_argument("--warmup-request-count", type=int)
+    parser.add_argument("--num-warmup-sessions", type=int)
+    parser.add_argument("--no-fixed-schedule", action="store_true")
     parser.add_argument("--server-metrics-url")
     parser.add_argument("--gpu-telemetry-url")
     parser.add_argument("--public-dataset")

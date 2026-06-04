@@ -48,6 +48,26 @@ if [[ -n "$trace_limit" ]]; then
     echo "Subset trace to first $trace_limit records -> $INPUT_FILE"
 fi
 
+# Mode 1 (capacity sweep): strip the recorded per-turn `delay` field so the run
+# is driven purely by --concurrency back-pressure with zero think-time. AIPerf
+# 0.9.0 honors mooncake_trace inter-turn delays even under --no-fixed-schedule
+# (concurrency uses the request-rate strategy, which sleeps meta.delay_ms), and
+# has no CLI flag to ignore them — so we drop the field at the source.
+if [[ "${STRIP_TRACE_DELAYS:-}" == "true" || "${STRIP_TRACE_DELAYS:-}" == "1" ]]; then
+    python3 -c '
+import json, sys
+with open(sys.argv[1]) as fin, open(sys.argv[2], "w") as fout:
+    for line in fin:
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        rec.pop("delay", None)
+        fout.write(json.dumps(rec) + "\n")
+' "$INPUT_FILE" /workspace/_trace_nodelay.jsonl
+    INPUT_FILE=/workspace/_trace_nodelay.jsonl
+    echo "Stripped per-turn delays for capacity sweep -> $INPUT_FILE"
+fi
+
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
@@ -67,9 +87,22 @@ SERVER_PID=$!
 
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
-# Replay the trace exactly once: one request per dataset record.
-REQUEST_COUNT=$(grep -c . "$INPUT_FILE")
-echo "Replaying trace $INPUT_FILE: $REQUEST_COUNT records at concurrency $CONC"
+# Request count: an explicit env override (Mode 1 capacity sweep — AIPerf
+# resamples sessions to reach this fixed count) takes precedence; otherwise
+# replay the trace exactly once, one request per dataset record.
+if [[ -z "${REQUEST_COUNT:-}" ]]; then
+    REQUEST_COUNT=$(grep -c . "$INPUT_FILE")
+fi
+echo "Replaying trace $INPUT_FILE: request-count=$REQUEST_COUNT at concurrency $CONC"
+
+# Mode 1 capacity-sweep flags (default off → original single-replay behavior).
+MODE1_ARGS=()
+if [[ "${NO_FIXED_SCHEDULE:-}" == "true" || "${NO_FIXED_SCHEDULE:-}" == "1" ]]; then
+    MODE1_ARGS+=(--no-fixed-schedule)
+fi
+if [[ -n "${NUM_WARMUP_SESSIONS:-}" ]]; then
+    MODE1_ARGS+=(--num-warmup-sessions "$NUM_WARMUP_SESSIONS")
+fi
 
 run_client_benchmark \
     --model "$SERVED_MODEL_NAME" \
@@ -85,7 +118,8 @@ run_client_benchmark \
     --bench-serving-dir "${INFMAX_CONTAINER_WORKSPACE:-$(pwd)}" \
     --trust-remote-code \
     --server-pid "$SERVER_PID" \
-    --random-seed "${RANDOM_SEED:-0}"
+    --random-seed "${RANDOM_SEED:-0}" \
+    "${MODE1_ARGS[@]}"
 
 stop_gpu_monitor
 set +x

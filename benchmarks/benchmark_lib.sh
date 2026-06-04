@@ -519,6 +519,8 @@ run_aiperf_benchmark() {
     local bench_serving_dir=""
     local endpoint_type="chat"
     local warmup_request_count=""
+    local num_warmup_sessions=""
+    local no_fixed_schedule=false
     local server_metrics_url=""
     local gpu_telemetry_url=""
     local public_dataset=""
@@ -539,6 +541,8 @@ run_aiperf_benchmark() {
             --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
             --endpoint-type) endpoint_type="$2"; shift 2 ;;
             --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
+            --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
+            --no-fixed-schedule) no_fixed_schedule=true; shift ;;
             --server-metrics-url) server_metrics_url="$2"; shift 2 ;;
             --gpu-telemetry-url) gpu_telemetry_url="$2"; shift 2 ;;
             --public-dataset) public_dataset="$2"; shift 2 ;;
@@ -577,6 +581,8 @@ run_aiperf_benchmark() {
     )
 
     if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
+    if [[ -n "$num_warmup_sessions" ]]; then benchmark_cmd+=(--num-warmup-sessions "$num_warmup_sessions"); fi
+    if [[ "$no_fixed_schedule" == true ]]; then benchmark_cmd+=(--no-fixed-schedule); fi
     if [[ -n "$server_metrics_url" ]]; then benchmark_cmd+=(--server-metrics-url "$server_metrics_url"); fi
     if [[ -n "$gpu_telemetry_url" ]]; then benchmark_cmd+=(--gpu-telemetry-url "$gpu_telemetry_url"); fi
     if [[ -n "$public_dataset" ]]; then benchmark_cmd+=(--public-dataset "$public_dataset"); fi
@@ -620,6 +626,9 @@ run_client_benchmark() {
     local input_file=""
     local custom_dataset_type=""
     local request_count=""
+    # Mode 1 (capacity sweep) controls for the aiperf trace-replay path.
+    local num_warmup_sessions=""
+    local no_fixed_schedule=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -639,6 +648,8 @@ run_client_benchmark() {
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
             --request-count) request_count="$2"; shift 2 ;;
+            --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
+            --no-fixed-schedule) no_fixed_schedule=true; shift ;;
             --use-chat-template) use_chat_template=true; shift ;;
             --dsv4) dsv4=true; use_chat_template=true; shift ;;
             --trust-remote-code) trust_remote_code=true; shift ;;
@@ -688,6 +699,14 @@ run_client_benchmark() {
                 )
                 if [[ -n "$custom_dataset_type" ]]; then
                     aiperf_args+=(--custom-dataset-type "$custom_dataset_type")
+                fi
+                # Mode 1 capacity-sweep flags (default off → trace replays once
+                # under fixed-schedule, the original agentic-replay behavior).
+                if [[ -n "$num_warmup_sessions" ]]; then
+                    aiperf_args+=(--num-warmup-sessions "$num_warmup_sessions")
+                fi
+                if [[ "$no_fixed_schedule" == true ]]; then
+                    aiperf_args+=(--no-fixed-schedule)
                 fi
             else
                 aiperf_args+=(

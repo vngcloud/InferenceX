@@ -4861,6 +4861,34 @@ qwen3-4b-2507-bf16-h100-vllm:
       search-space:
       - { tp: 1, conc-list: [32] }
 
+# Mode 1 (capacity sweep) smoke for agentic-replay. Separate config key (same
+# model-prefix → reuses qwen3-4b-2507_bf16_h100_vllm.sh) so it can be dispatched
+# in isolation without pulling in the conc=2 single-replay smoke or the heavy
+# 64k leg above. Drives the 12-record smoke trace by --concurrency back-pressure:
+# delays stripped, fixed-schedule suppressed, request-count fixed at 50 (AIPerf
+# resamples the 5 sessions to reach it). Tiny values — validates Mode 1 plumbing,
+# not real capacity numbers. request-count 50 >= max conc 32 (AIPerf requires >=).
+qwen3-4b-2507-bf16-h100-vllm-mode1-smoke:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507
+  runner: h100-2x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 8192
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      request-count: 50
+      num-warmup-sessions: 1
+      search-space:
+      - { tp: 1, conc-list: [8, 16, 32] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5

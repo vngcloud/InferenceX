@@ -60,6 +60,11 @@ class Fields(Enum):
     # Agentic replay fields (mooncake_trace on official AIPerf)
     INPUT_FILE = 'input-file'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
+    # Agentic-replay Mode 1 (capacity sweep) fields
+    NO_FIXED_SCHEDULE = 'no-fixed-schedule'
+    NUM_WARMUP_SESSIONS = 'num-warmup-sessions'
+    REQUEST_COUNT = 'request-count'
+    STRIP_TRACE_DELAYS = 'strip-trace-delays'
 
     # Matrix entry fields
     CONC = 'conc'
@@ -241,6 +246,15 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     input_file: str = Field(alias=Fields.INPUT_FILE.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
+    # Mode 1 (capacity sweep) controls; defaults preserve single-replay behavior.
+    no_fixed_schedule: bool = Field(
+        default=False, alias=Fields.NO_FIXED_SCHEDULE.value)
+    num_warmup_sessions: Optional[int] = Field(
+        default=None, alias=Fields.NUM_WARMUP_SESSIONS.value)
+    request_count: Optional[int] = Field(
+        default=None, alias=Fields.REQUEST_COUNT.value)
+    strip_trace_delays: bool = Field(
+        default=False, alias=Fields.STRIP_TRACE_DELAYS.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
@@ -489,8 +503,38 @@ class AgenticReplayConfig(BaseModel):
     benchmark_client: List[Literal["aiperf"]] = Field(
         default=["aiperf"], alias=Fields.BENCHMARK_CLIENT.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
+    # Mode 1 (capacity sweep): drive the trace by --concurrency back-pressure
+    # rather than replaying it once on a fixed schedule. Defaults preserve the
+    # original single-replay behavior.
+    no_fixed_schedule: bool = Field(
+        default=False, alias=Fields.NO_FIXED_SCHEDULE.value)
+    num_warmup_sessions: Optional[int] = Field(
+        default=None, alias=Fields.NUM_WARMUP_SESSIONS.value)
+    request_count: Optional[int] = Field(
+        default=None, alias=Fields.REQUEST_COUNT.value)
+    strip_trace_delays: bool = Field(
+        default=False, alias=Fields.STRIP_TRACE_DELAYS.value)
     search_space: List[AgenticReplaySearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
+
+    @model_validator(mode='after')
+    def validate_request_count_vs_conc(self):
+        """AIPerf requires request-count >= concurrency. When an explicit
+        request-count is set, it must cover the largest swept concurrency."""
+        if self.request_count is None:
+            return self
+        max_conc = 0
+        for entry in self.search_space:
+            if entry.conc_list:
+                max_conc = max(max_conc, max(entry.conc_list))
+            if entry.conc_end is not None:
+                max_conc = max(max_conc, entry.conc_end)
+        if max_conc and self.request_count < max_conc:
+            raise ValueError(
+                f"request-count ({self.request_count}) must be >= the largest "
+                f"swept concurrency ({max_conc}); AIPerf rejects "
+                "request-count < concurrency.")
+        return self
 
 
 class SingleNodeScenarios(BaseModel):

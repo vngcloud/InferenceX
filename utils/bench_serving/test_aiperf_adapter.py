@@ -9,10 +9,14 @@ from pathlib import Path
 
 import pytest
 
+import argparse
+
+import aiperf_adapter
 from aiperf_adapter import (
     build_result,
     detect_mode,
     extract_max_concurrency,
+    run_aiperf,
     validate_request_counts,
 )
 
@@ -43,6 +47,69 @@ def _artifact(concurrency: int = 16, request_count: int = 160) -> dict:
         },
         "request_count": {"avg": float(request_count)},
     }
+
+
+def _run_aiperf_args(tmp_path: Path, **overrides) -> argparse.Namespace:
+    """Build a Namespace covering every attribute run_aiperf reads."""
+    defaults = dict(
+        model="Qwen/Qwen3-4B-Instruct-2507",
+        url="http://0.0.0.0:8888",
+        endpoint_type="chat",
+        concurrency=8,
+        request_count=50,
+        result_dir=tmp_path,
+        result_filename="bmk",
+        warmup_request_count=None,
+        num_warmup_sessions=None,
+        no_fixed_schedule=False,
+        server_metrics_url=None,
+        gpu_telemetry_url=None,
+        public_dataset=None,
+        input_file=None,
+        custom_dataset_type=None,
+        isl=None,
+        osl=None,
+        random_seed=None,
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def _capture_aiperf_cmd(monkeypatch, args) -> list[str]:
+    captured: dict = {}
+
+    def fake_run(cmd, check):  # noqa: ARG001 - mirror subprocess.run signature used
+        captured["cmd"] = cmd
+
+    monkeypatch.setattr(aiperf_adapter.subprocess, "run", fake_run)
+    run_aiperf(args)
+    return captured["cmd"]
+
+
+def test_run_aiperf_mode1_flags_present(tmp_path: Path, monkeypatch):
+    """Mode 1 capacity-sweep flags are forwarded to the aiperf CLI."""
+    args = _run_aiperf_args(
+        tmp_path,
+        no_fixed_schedule=True,
+        num_warmup_sessions=1,
+        input_file="trace.jsonl",
+        custom_dataset_type="mooncake_trace",
+    )
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    assert "--no-fixed-schedule" in cmd
+    assert ["--num-warmup-sessions", "1"] == cmd[cmd.index("--num-warmup-sessions"):cmd.index("--num-warmup-sessions") + 2]
+    assert cmd[cmd.index("--request-count") + 1] == "50"
+    assert cmd[cmd.index("--input-file") + 1] == "trace.jsonl"
+
+
+def test_run_aiperf_omits_mode1_flags_by_default(tmp_path: Path, monkeypatch):
+    """Without Mode 1 opt-in the flags are absent (single-replay behavior)."""
+    args = _run_aiperf_args(tmp_path, input_file="trace.jsonl")
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    assert "--no-fixed-schedule" not in cmd
+    assert "--num-warmup-sessions" not in cmd
 
 
 def test_build_result_maps_aiperf_profile_export():
