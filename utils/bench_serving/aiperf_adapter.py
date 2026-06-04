@@ -139,8 +139,6 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         str(args.concurrency),
         "--request-count",
         str(args.request_count),
-        "--failed-request-threshold",
-        "0",
         "--artifact-dir",
         str(artifact_dir),
     ]

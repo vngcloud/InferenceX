@@ -87,10 +87,11 @@ Configuration rules:
 
 Result validity is now fail-closed in the adapter:
 
-- `aiperf_adapter.py` passes `--failed-request-threshold 0` to AIPerf.
+- `aiperf_adapter.py` runs the standard `aiperf profile` CLI supported by
+  `aiperf==0.9.0`.
 - After the run, the adapter refuses to write the InferenceX result JSON unless
   AIPerf reports `request_count == expected_request_count` and
-  `error_request_count == 0`.
+  `error_request_count == 0` in `profile_export_aiperf.json`.
 - Still inspect server logs for cache hit rate, backend selection, and KV
   preemption. The adapter can tell that the request set was complete; it cannot
   tell whether the engine used the intended fast path.
