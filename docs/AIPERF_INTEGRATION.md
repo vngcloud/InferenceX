@@ -6,6 +6,9 @@ Actions usage.
 
 For agentic replay decisions, see
 [`docs/adr/0001-agentic-on-official-aiperf.md`](adr/0001-agentic-on-official-aiperf.md).
+For the **Mode 1 concurrency (CCU) capacity sweep** of the `agentic-replay` path
+— concurrency-driven, think-time stripped, the headline report result — see
+[`docs/AGENTIC_MODE1_CCU_SWEEP.md`](AGENTIC_MODE1_CCU_SWEEP.md).
 
 ## Status
 
@@ -81,9 +84,12 @@ Configuration rules:
   not the per-row `input_length`; see the sizing table below.
 - `conc` is still part of the matrix, but for trace datasets with `timestamp`
   fields AIPerf auto-enables fixed-schedule replay. In that mode, concurrency is
-  a ceiling while requests follow the trace timing. This scenario intentionally
-  does not expose `--no-fixed-schedule` / `--ignore-trace-delays`; add a separate
-  scenario if you want burst-throughput stress against the same trace content.
+  a ceiling while requests follow the trace timing. To instead drive the trace
+  purely by concurrency back-pressure (zero think-time) and sweep CCU for a
+  capacity/latency knee, use the **Mode 1** fields (`no-fixed-schedule`,
+  `strip-trace-delays`, `request-count`, `num-warmup-sessions`) documented in
+  [`AGENTIC_MODE1_CCU_SWEEP.md`](AGENTIC_MODE1_CCU_SWEEP.md). They are optional and
+  default-off, so this fixed-schedule single-replay behavior is unchanged.
 
 Result validity is now fail-closed in the adapter:
 
