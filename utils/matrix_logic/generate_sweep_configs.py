@@ -497,7 +497,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
-                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
+                Fields.BENCHMARK_CLIENT.value, ["aiperf"])
 
             for bmk in bmk_space:
                 tp = bmk[Fields.TP.value]
@@ -1003,7 +1003,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
-                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
+                Fields.BENCHMARK_CLIENT.value, ["aiperf"])
 
             for bmk in replay_config[Fields.SEARCH_SPACE.value]:
                 tp = bmk[Fields.TP.value]

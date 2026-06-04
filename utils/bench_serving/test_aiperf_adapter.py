@@ -9,14 +9,19 @@ from pathlib import Path
 
 import pytest
 
-from aiperf_adapter import build_result, detect_mode, extract_max_concurrency
+from aiperf_adapter import (
+    build_result,
+    detect_mode,
+    extract_max_concurrency,
+    validate_request_counts,
+)
 
 
 ADAPTER = Path(__file__).resolve().parent / "aiperf_adapter.py"
 PROCESS_RESULT = Path(__file__).resolve().parents[1] / "process_result.py"
 
 
-def _artifact(concurrency: int = 16) -> dict:
+def _artifact(concurrency: int = 16, request_count: int = 160) -> dict:
     return {
         "input_config": {
             "models": {"items": [{"name": "meta-llama/Llama-3.1-8B-Instruct"}]},
@@ -36,6 +41,7 @@ def _artifact(concurrency: int = 16) -> dict:
         "request_latency": {
             "avg": 1111.0, "p50": 1500.0, "p75": 1600.0, "p90": 1800.0, "p95": 1900.0, "p99": 2222.0,
         },
+        "request_count": {"avg": float(request_count)},
     }
 
 
@@ -97,6 +103,27 @@ def test_extract_max_concurrency_search_reads_best_trial():
         ]
     }
     assert extract_max_concurrency(_artifact(), search_history, "search") == 128
+
+def test_validate_request_counts_accepts_complete_run():
+    validate_request_counts(_artifact(request_count=20), expected_request_count=20)
+
+def test_validate_request_counts_rejects_failed_requests():
+    artifact = _artifact(request_count=19)
+    artifact["error_request_count"] = {"avg": 1.0}
+
+    with pytest.raises(ValueError, match="failed requests"):
+        validate_request_counts(artifact, expected_request_count=20)
+
+def test_validate_request_counts_rejects_short_success_count():
+    with pytest.raises(ValueError, match="19/20"):
+        validate_request_counts(_artifact(request_count=19), expected_request_count=20)
+
+def test_validate_request_counts_rejects_missing_metric():
+    artifact = _artifact(request_count=20)
+    del artifact["request_count"]
+
+    with pytest.raises(ValueError, match="missing request_count"):
+        validate_request_counts(artifact, expected_request_count=20)
 
 
 @pytest.mark.integration

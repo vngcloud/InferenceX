@@ -570,6 +570,14 @@ class TestAgenticReplayMatrixEntries:
         assert entry.custom_dataset_type == "mooncake_trace"
         assert entry.duration == 1800  # default
 
+    def test_benchmark_client_defaults_to_aiperf(self):
+        raw = self._entry()
+        del raw["benchmark-client"]
+
+        entry = SingleNodeAgenticReplayMatrixEntry(**raw)
+
+        assert entry.benchmark_client == "aiperf"
+
     def test_validator_passes(self):
         # validator returns the original dict on success
         e = self._entry()
@@ -588,6 +596,10 @@ class TestAgenticReplayMatrixEntries:
     def test_invalid_benchmark_client_rejected(self):
         with pytest.raises(Exception):
             SingleNodeAgenticReplayMatrixEntry(**self._entry(**{"benchmark-client": "foo"}))
+
+    def test_native_benchmark_client_rejected(self):
+        with pytest.raises(Exception):
+            SingleNodeAgenticReplayMatrixEntry(**self._entry(**{"benchmark-client": "inferencex_native"}))
 
 
 class TestAgenticReplayConfig:
@@ -609,6 +621,18 @@ class TestAgenticReplayConfig:
         assert cfg.custom_dataset_type == "mooncake_trace"
         assert cfg.max_model_len == 8192
         assert cfg.benchmark_client == ["aiperf"]
+
+    def test_benchmark_client_defaults_to_aiperf(self):
+        raw = self._config()
+        del raw["benchmark-client"]
+
+        cfg = AgenticReplayConfig(**raw)
+
+        assert cfg.benchmark_client == ["aiperf"]
+
+    def test_native_benchmark_client_rejected(self):
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**self._config(**{"benchmark-client": ["inferencex_native"]}))
 
     def test_requires_input_file(self):
         bad = self._config()

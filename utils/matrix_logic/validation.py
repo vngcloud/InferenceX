@@ -227,8 +227,8 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
-    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
-        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    benchmark_client: Literal["aiperf"] = Field(
+        default="aiperf", alias=Fields.BENCHMARK_CLIENT.value
     )
     runner: str
     tp: int
@@ -486,8 +486,8 @@ class AgenticReplayConfig(BaseModel):
     input_file: str = Field(alias=Fields.INPUT_FILE.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
-    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
-        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
+    benchmark_client: List[Literal["aiperf"]] = Field(
+        default=["aiperf"], alias=Fields.BENCHMARK_CLIENT.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
     search_space: List[AgenticReplaySearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)

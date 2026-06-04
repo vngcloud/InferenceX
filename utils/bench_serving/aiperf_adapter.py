@@ -36,6 +36,45 @@ def detect_mode(artifact_dir: Path) -> str:
     """Return the AIPerf artifact mode for a completed run."""
     return "search" if (artifact_dir / SEARCH_HISTORY).exists() else "fixed"
 
+def _metric_avg(artifact: dict, metric_name: str) -> float | None:
+    metric = artifact.get(metric_name)
+    if not isinstance(metric, dict):
+        return None
+    value = metric.get("avg")
+    return float(value) if value is not None else None
+
+def _whole_count(value: float | None, metric_name: str) -> int | None:
+    if value is None:
+        return None
+    rounded = round(value)
+    if abs(value - rounded) > 1e-6:
+        raise ValueError(f"AIPerf metric {metric_name} is not an integer count: {value}")
+    return int(rounded)
+
+def validate_request_counts(artifact: dict, expected_request_count: int) -> None:
+    """Fail closed when AIPerf produced a partial or error-tainted run."""
+    successful = _whole_count(_metric_avg(artifact, "request_count"), "request_count")
+    errors = _whole_count(_metric_avg(artifact, "error_request_count"), "error_request_count") or 0
+
+    if successful is None:
+        raise ValueError(
+            "AIPerf artifact is missing request_count; refusing to aggregate an "
+            "unverifiable benchmark result."
+        )
+
+    if errors > 0:
+        raise ValueError(
+            f"AIPerf reported {errors} failed requests "
+            f"({successful} successful, expected {expected_request_count}); "
+            "refusing to aggregate partial results."
+        )
+
+    if successful != expected_request_count:
+        raise ValueError(
+            f"AIPerf completed {successful}/{expected_request_count} successful "
+            "requests; refusing to aggregate partial results."
+        )
+
 
 def extract_max_concurrency(artifact: dict, search_history: dict | None, mode: str) -> int:
     """Extract the concurrency value InferenceX should record."""
@@ -100,6 +139,8 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         str(args.concurrency),
         "--request-count",
         str(args.request_count),
+        "--failed-request-threshold",
+        "0",
         "--artifact-dir",
         str(artifact_dir),
     ]
@@ -159,6 +200,7 @@ def main() -> None:
     artifact_dir = run_aiperf(args)
 
     artifact = json.loads((artifact_dir / PROFILE_EXPORT).read_text())
+    validate_request_counts(artifact, args.request_count)
     mode = detect_mode(artifact_dir)
     search_history = None
     if mode == "search":
