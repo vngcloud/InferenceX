@@ -4872,6 +4872,34 @@ qwen3-4b-2507-bf16-h200-vllm-mode1-smoke:
       search-space:
       - { tp: 1, conc-list: [8, 16, 32] }
 
+# Mode 1 (capacity sweep) smoke for MiniMax-M2.5 FP8 (MoE 229B) on the GreenNode
+# H200 box (4x H200, TP=4). Dedicated model-prefix `minimaxm2.5-agentic` →
+# resolves minimaxm2.5-agentic_fp8_h100_vllm.sh (agentic-replay launcher), NOT
+# the fixed-seq-len minimaxm2.5_fp8_h100.sh. Smoke scope: 64k trace #500 subset,
+# request-count 100 (>= max conc 32), warmup 1 — validates the model loads on
+# 4x H200 and Mode 1 plumbing works, not real capacity numbers. Queues behind
+# the qwen3 H200 smoke on the same runner (no cancel-in-progress).
+minimaxm2.5-agentic-mode1-h200-smoke:
+  image: vllm/vllm-openai:v0.21.0
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-agentic
+  runner: h200-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#500
+      custom-dataset-type: mooncake_trace
+      max-model-len: 73728
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      request-count: 100
+      num-warmup-sessions: 1
+      search-space:
+      - { tp: 4, conc-list: [8, 16, 32] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
