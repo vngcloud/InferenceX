@@ -70,6 +70,7 @@ def _run_aiperf_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         isl=None,
         osl=None,
         random_seed=None,
+        extra_inputs=[],
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -110,6 +111,20 @@ def test_run_aiperf_omits_mode1_flags_by_default(tmp_path: Path, monkeypatch):
 
     assert "--no-fixed-schedule" not in cmd
     assert "--num-warmup-sessions" not in cmd
+
+def test_run_aiperf_forwards_extra_inputs(tmp_path: Path, monkeypatch):
+    args = _run_aiperf_args(
+        tmp_path,
+        extra_inputs=["ignore_eos:true", "min_tokens:512"],
+    )
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    extra_index = cmd.index("--extra-inputs")
+    assert cmd[extra_index:extra_index + 3] == [
+        "--extra-inputs",
+        "ignore_eos:true",
+        "min_tokens:512",
+    ]
 
 
 def test_build_result_maps_aiperf_profile_export():

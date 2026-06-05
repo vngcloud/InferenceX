@@ -124,6 +124,7 @@ run_client_benchmark \
     --trust-remote-code \
     --server-pid "$SERVER_PID" \
     --random-seed "${RANDOM_SEED:-0}" \
+    --extra-inputs ignore_eos:true \
     "${MODE1_ARGS[@]}"
 
 stop_gpu_monitor

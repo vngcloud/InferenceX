@@ -171,6 +171,9 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--osl", str(args.osl)])
     if args.random_seed is not None:
         cmd.extend(["--random-seed", str(args.random_seed)])
+    if args.extra_inputs:
+        cmd.append("--extra-inputs")
+        cmd.extend(args.extra_inputs)
 
     subprocess.run(cmd, check=True)
     return artifact_dir
@@ -196,6 +199,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--isl", type=int)
     parser.add_argument("--osl", type=int)
     parser.add_argument("--random-seed", type=int)
+    parser.add_argument(
+        "--extra-inputs",
+        action="append",
+        default=[],
+        help="Additional key:value inputs to pass through to aiperf profile.",
+    )
     args = parser.parse_args()
 
     if args.request_count < args.concurrency:

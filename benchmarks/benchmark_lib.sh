@@ -529,6 +529,7 @@ run_aiperf_benchmark() {
     local isl=""
     local osl=""
     local random_seed=""
+    local extra_inputs=()
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -551,6 +552,7 @@ run_aiperf_benchmark() {
             --isl) isl="$2"; shift 2 ;;
             --osl) osl="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
+            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -591,6 +593,9 @@ run_aiperf_benchmark() {
     if [[ -n "$isl" ]]; then benchmark_cmd+=(--isl "$isl"); fi
     if [[ -n "$osl" ]]; then benchmark_cmd+=(--osl "$osl"); fi
     if [[ -n "$random_seed" ]]; then benchmark_cmd+=(--random-seed "$random_seed"); fi
+    for extra_input in "${extra_inputs[@]}"; do
+        benchmark_cmd+=(--extra-inputs "$extra_input")
+    done
 
     set -x
     "${benchmark_cmd[@]}"
@@ -626,6 +631,7 @@ run_client_benchmark() {
     local input_file=""
     local custom_dataset_type=""
     local request_count=""
+    local extra_inputs=()
     # Mode 1 (capacity sweep) controls for the aiperf trace-replay path.
     local num_warmup_sessions=""
     local no_fixed_schedule=false
@@ -648,6 +654,7 @@ run_client_benchmark() {
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
             --request-count) request_count="$2"; shift 2 ;;
+            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
             --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
             --no-fixed-schedule) no_fixed_schedule=true; shift ;;
             --use-chat-template) use_chat_template=true; shift ;;
@@ -719,6 +726,9 @@ run_client_benchmark() {
             if [[ -n "$random_seed" ]]; then
                 aiperf_args+=(--random-seed "$random_seed")
             fi
+            for extra_input in "${extra_inputs[@]}"; do
+                aiperf_args+=(--extra-inputs "$extra_input")
+            done
             run_aiperf_benchmark "${aiperf_args[@]}"
             ;;
         inferencex_native)
