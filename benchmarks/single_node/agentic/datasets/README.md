@@ -16,6 +16,8 @@ benchmark client.
 | `agentic-coding-64k-5variants-top150-long-context.jsonl` | 4,238 | 150 | Complete-session top-150 subset by max session-cumulative context | 73728 |
 | `agentic-coding-128k-5variants-top150-long-context.jsonl` | 3,897 | 150 | Complete-session top-150 subset by max session-cumulative context | 147456 |
 | `agentic-coding-128k-5variants-config300s-seed42-20260605-120047.jsonl` | 5,167 | 300 | Full 300-session 128k config from `config_300s_seed42_20260605-120047` | 147456 |
+| `agentic-coding-64k-1l1variant-config150s-seed42-20260605-155033.jsonl` | 2,913 | 150 | Final agentic-coding 64k config with one L1 prefix variant | 147456 |
+| `agentic-coding-128k-1l1variant-config150s-seed42-20260605-155045.jsonl` | 2,732 | 150 | Final agentic-coding 128k config with one L1 prefix variant | 147456 |
 
 ## `agentic-coding-64k-5variants.jsonl`
 
@@ -82,3 +84,14 @@ full replay of the generated 300-session 128k workload from
 `aiperf-service-docs/workloads/agentic-coding-5-variants/128k/config_300s_seed42_20260605-120047`.
 Do not set `request-count` when replaying this file once; the launcher counts
 all 5,167 records and passes that to AIPerf.
+
+## 150-session one-L1-variant configs
+
+The `*-1l1variant-config150s-*` files are generated from
+`aiperf-service-docs/workloads/final_agentic_coding` with `num_sessions: 150`
+and `layer1_variants.num_variants: 1`. They are intended for CCU <= 32 replay
+jobs where the 5-variant traces are broader than needed.
+
+Do not set `request-count` when replaying these files once; the launcher counts
+all records and passes that value to AIPerf. The 64k file has 2,913 records and
+the 128k file has 2,732 records.
