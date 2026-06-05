@@ -4901,9 +4901,10 @@ minimaxm2.5-agentic-mode1-h200-smoke:
       - { tp: 4, conc-list: [8, 16] }
 
 # MiniMax-M2.5 FP8 on the GreenNode H200 box using SGLang TP8/EP8 and the
-# 128k five-variant agentic coding top-150 long-context trace. Uses the brother-provided SGLang
-# tuning flags in minimaxm2.5-agentic_fp8_h100_sglang.sh, but intentionally
-# omits --kv-cache-dtype fp8_e4m3 after prior SGLang/FlashInfer dtype failures.
+# 128k five-variant 300-session agentic coding trace. Uses the brother-provided
+# SGLang tuning flags in minimaxm2.5-agentic_fp8_h100_sglang.sh, but
+# intentionally omits --kv-cache-dtype fp8_e4m3 after prior SGLang/FlashInfer
+# dtype failures.
 minimaxm2.5-agentic-mode1-h200-sglang-8x-benchmark:
   image: lmsysorg/sglang:v0.5.12
   model: MiniMaxAI/MiniMax-M2.5
@@ -4914,13 +4915,12 @@ minimaxm2.5-agentic-mode1-h200-sglang-8x-benchmark:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-128k-5variants-top150-long-context.jsonl
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-128k-5variants-config300s-seed42-20260605-120047.jsonl
       custom-dataset-type: mooncake_trace
       max-model-len: 147456
       benchmark-client: [aiperf]
       no-fixed-schedule: true
       strip-trace-delays: true
-      request-count: 3897
       num-warmup-sessions: 1
       search-space:
       - { tp: 8, ep: 8, conc-list: [16, 24, 32] }

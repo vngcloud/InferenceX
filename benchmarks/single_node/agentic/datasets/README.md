@@ -15,6 +15,7 @@ benchmark client.
 | `agentic-coding-128k-5variants.jsonl` | 16,902 | 1,000 | Five L1 prefix variants, Zipf alpha 1.2 | 147456 |
 | `agentic-coding-64k-5variants-top150-long-context.jsonl` | 4,238 | 150 | Complete-session top-150 subset by max session-cumulative context | 73728 |
 | `agentic-coding-128k-5variants-top150-long-context.jsonl` | 3,897 | 150 | Complete-session top-150 subset by max session-cumulative context | 147456 |
+| `agentic-coding-128k-5variants-config300s-seed42-20260605-120047.jsonl` | 5,167 | 300 | Full 300-session 128k config from `config_300s_seed42_20260605-120047` | 147456 |
 
 ## `agentic-coding-64k-5variants.jsonl`
 
@@ -73,3 +74,11 @@ The 64k subset has 4,238 records. Its max session-cumulative request context is
 
 The 128k subset has 3,897 records. Its max session-cumulative request context is
 131,068 tokens, and 63 records cross 131,072 after adding output tokens.
+
+## 300-session 128k config
+
+`agentic-coding-128k-5variants-config300s-seed42-20260605-120047.jsonl` is a
+full replay of the generated 300-session 128k workload from
+`aiperf-service-docs/workloads/agentic-coding-5-variants/128k/config_300s_seed42_20260605-120047`.
+Do not set `request-count` when replaying this file once; the launcher counts
+all 5,167 records and passes that to AIPerf.
