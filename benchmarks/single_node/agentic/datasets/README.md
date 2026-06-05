@@ -13,6 +13,8 @@ benchmark client.
 | `agentic-coding-128k.jsonl` | 16,957 | 1,000 | Single L1 prefix baseline | 147456 |
 | `agentic-coding-64k-5variants.jsonl` | 18,554 | 1,000 | Five L1 prefix variants, Zipf alpha 1.2 | 73728 |
 | `agentic-coding-128k-5variants.jsonl` | 16,902 | 1,000 | Five L1 prefix variants, Zipf alpha 1.2 | 147456 |
+| `agentic-coding-64k-5variants-top150-long-context.jsonl` | 4,238 | 150 | Complete-session top-150 subset by max session-cumulative context | 73728 |
+| `agentic-coding-128k-5variants-top150-long-context.jsonl` | 3,897 | 150 | Complete-session top-150 subset by max session-cumulative context | 147456 |
 
 ## `agentic-coding-64k-5variants.jsonl`
 
@@ -58,3 +60,16 @@ Turn-0 variant distribution:
 For this dataset, the max per-row `input_length + output_length` is 82,784
 tokens and the max session-cumulative `input + output` is 133,413 tokens. Use
 `max-model-len: 147456` for 128k replay jobs.
+
+## Top-150 long-context subsets
+
+The `*-top150-long-context.jsonl` files preserve complete sessions from the
+corresponding 5-variant traces, selecting the 150 sessions with the highest max
+session-cumulative request context. Use `request-count` equal to the record count
+to replay each subset once without resampling.
+
+The 64k subset has 4,238 records. Its max session-cumulative request context is
+65,532 tokens, and 72 records cross 65,536 after adding output tokens.
+
+The 128k subset has 3,897 records. Its max session-cumulative request context is
+131,068 tokens, and 63 records cross 131,072 after adding output tokens.

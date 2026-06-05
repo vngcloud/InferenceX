@@ -87,7 +87,6 @@ python3 -m sglang.launch_server \
   --mem-fraction-static 0.85 \
   --page-size 64 \
   --chunked-prefill-size 16384 \
-  --enable-metrics \
   --hicache-size 1200 \
   --trust-remote-code > "$SERVER_LOG" 2>&1 &
 
