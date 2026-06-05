@@ -81,6 +81,12 @@ fi
 
 start_gpu_monitor
 
+# Engine tunings mirrored from the proven minimaxm2.5-fp8-h200-vllm-agentic
+# config (launcher benchmarks/single_node/agentic/minimaxm2.5_fp8_h100.sh):
+# H100/H200 = sm_90, no user site-packages, paged KV block 32 + FP8 KV cache.
+export TORCH_CUDA_ARCH_LIST="9.0"
+export PYTHONNOUSERSITE=1
+
 set -x
 vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
 --served-model-name "$SERVED_MODEL_NAME" \
@@ -88,6 +94,8 @@ vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
 "${EP_ARGS[@]}" \
 --gpu-memory-utilization 0.90 \
 --max-model-len "$MAX_MODEL_LEN" \
+--block-size=32 \
+--kv-cache-dtype fp8 \
 --max-num-seqs "$CONC" \
 --enable-auto-tool-choice \
 --tool-call-parser minimax_m2 \
