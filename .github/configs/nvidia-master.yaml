@@ -4915,7 +4915,7 @@ minimaxm2.5-agentic-mode1-h200-sglang-8x-benchmark:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config300s-seed42-20260605-120044.jsonl
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl
       custom-dataset-type: mooncake_trace
       max-model-len: 147456
       benchmark-client: [aiperf]
@@ -4938,7 +4938,7 @@ minimaxm2.5-agentic-mode1-h200-sglang-4x-128k-config300s-benchmark:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-128k-5variants-config300s-seed42-20260605-120047.jsonl
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-128k-5variants-config150s-seed42-20260605-131909.jsonl
       custom-dataset-type: mooncake_trace
       max-model-len: 147456
       benchmark-client: [aiperf]
@@ -4961,7 +4961,7 @@ minimaxm2.5-agentic-mode1-h200-sglang-4x-64k-config300s-benchmark:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config300s-seed42-20260605-120044.jsonl
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl
       custom-dataset-type: mooncake_trace
       max-model-len: 147456
       benchmark-client: [aiperf]
