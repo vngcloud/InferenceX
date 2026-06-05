@@ -21,6 +21,11 @@ on:
                 required: false
                 type: string
                 default: ""
+            skip-resource-cleanup:
+                description: "Skip Docker/Slurm resource cleanup before benchmark"
+                required: false
+                type: string
+                default: "false"
     workflow_call:
         inputs:
             generate-cli-command:
@@ -40,6 +45,11 @@ on:
                 required: false
                 type: string
                 default: ""
+            skip-resource-cleanup:
+                description: "Skip Docker/Slurm resource cleanup before benchmark"
+                required: false
+                type: string
+                default: "false"
 
 jobs:
     get-jobs:
@@ -309,6 +319,7 @@ jobs:
             disagg: 'false'
             run-eval: false
             scenario-type: agentic-replay
+            skip-resource-cleanup: ${{ inputs.skip-resource-cleanup }}
             ref: ${{ inputs.ref }}
 
     test-sweep-evals:

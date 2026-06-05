@@ -131,6 +131,11 @@ on:
         required: false
         type: string
         default: ''
+      skip-resource-cleanup:
+        description: "Skip Docker/Slurm resource cleanup before benchmark"
+        required: false
+        type: string
+        default: 'false'
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -181,6 +186,7 @@ jobs:
     name: "${{ inputs.exp-name }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework }} | tp=${{ inputs.tp }} ep=${{ inputs.ep }} dpa=${{ inputs.dp-attn }} | disagg-${{ inputs.disagg }} spec-${{ inputs.spec-decoding }} conc-${{ inputs.conc }}${{ inputs.eval-only && ' | eval-only' || (inputs.run-eval && ' | eval' || '') }}"
     steps:
       - name: Resource cleanup (pre-run)
+        if: ${{ inputs.skip-resource-cleanup != 'true' }}
         run: &resource-cleanup |
           # Cleanup Docker resources
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -366,5 +372,5 @@ jobs:
           rm -f sample*.jsonl || true
           
       - name: Resource cleanup (post-run)
-        if: always()
+        if: ${{ always() && inputs.skip-resource-cleanup != 'true' }}
         run: *resource-cleanup
