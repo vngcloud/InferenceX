@@ -4925,6 +4925,52 @@ minimaxm2.5-agentic-mode1-h200-sglang-8x-benchmark:
       search-space:
       - { tp: 8, ep: 8, conc-list: [16, 24, 32] }
 
+# MiniMax-M2.5 FP8 on the GreenNode H200 box using SGLang TP4/EP4 and the
+# 128k config300s agentic coding trace. Keep max-model-len aligned with the
+# 8x runs so the serving context cap is unchanged while using 4 GPUs.
+minimaxm2.5-agentic-mode1-h200-sglang-4x-128k-config300s-benchmark:
+  image: lmsysorg/sglang:v0.5.12
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-agentic
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-128k-5variants-config300s-seed42-20260605-120047.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 147456
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      num-warmup-sessions: 1
+      search-space:
+      - { tp: 4, ep: 4, conc-list: [16, 24, 32] }
+
+# MiniMax-M2.5 FP8 on the GreenNode H200 box using SGLang TP4/EP4 and the
+# 64k config300s agentic coding trace. Keep max-model-len at 147456 to match
+# the requested serving cap.
+minimaxm2.5-agentic-mode1-h200-sglang-4x-64k-config300s-benchmark:
+  image: lmsysorg/sglang:v0.5.12
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-agentic
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config300s-seed42-20260605-120044.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 147456
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      num-warmup-sessions: 1
+      search-space:
+      - { tp: 4, ep: 4, conc-list: [16, 24, 32] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
