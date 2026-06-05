@@ -2,8 +2,7 @@
 # Launch script for GreenNode H200 runners (plain Docker, no Slurm/enroot).
 # Selected by benchmark-tmpl.yml via: bash ./runners/launch_${RUNNER_NAME%%_*}.sh
 # where RUNNER_NAME like "h200-greennode_00" → this script.
-# Restrict this shared H200 runner to the first 4 GPUs; the `_h100` token below
-# is only a serving-script filename convention.
+# The `_h100` token below is only a serving-script filename convention.
 
 set -x
 
@@ -46,11 +45,10 @@ if [[ ! -f "$BENCH_SCRIPT" ]]; then
 fi
 
 docker run --rm \
-  --gpus '"device=0,1,2,3"' \
+  --gpus all \
   --ipc=host \
   --network host \
   --shm-size=32g \
-  -e CUDA_VISIBLE_DEVICES=0,1,2,3 \
   -v "$GITHUB_WORKSPACE:/workspace" \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
   -w /workspace \

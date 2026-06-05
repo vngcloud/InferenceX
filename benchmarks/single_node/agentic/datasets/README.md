@@ -12,6 +12,7 @@ benchmark client.
 | `agentic-coding-64k.jsonl` | 18,595 | 1,000 | Single L1 prefix baseline | 73728 |
 | `agentic-coding-128k.jsonl` | 16,957 | 1,000 | Single L1 prefix baseline | 147456 |
 | `agentic-coding-64k-5variants.jsonl` | 18,554 | 1,000 | Five L1 prefix variants, Zipf alpha 1.2 | 73728 |
+| `agentic-coding-128k-5variants.jsonl` | 16,902 | 1,000 | Five L1 prefix variants, Zipf alpha 1.2 | 147456 |
 
 ## `agentic-coding-64k-5variants.jsonl`
 
@@ -37,3 +38,23 @@ tokens. Use `max-model-len: 73728` for 64k replay jobs.
 For Mode 1 capacity smokes, keep the trace delay stripping enabled and set an
 explicit `request-count`; the `#N` suffix on `input-file` can be used to limit
 the loaded trace rows while AIPerf resamples sessions up to `request-count`.
+
+## `agentic-coding-128k-5variants.jsonl`
+
+Generated from the AIPerf agentic-code synthesizer with seed 42 using the
+same five L1 variant layout as the 64k 5-variant trace. This dataset targets
+long-context coding-agent sessions with `max_prompt_tokens: 131072`.
+
+Turn-0 variant distribution:
+
+| Variant | Sessions |
+|---:|---:|
+| 0 | 488 |
+| 1 | 209 |
+| 2 | 144 |
+| 3 | 86 |
+| 4 | 73 |
+
+For this dataset, the max per-row `input_length + output_length` is 82,784
+tokens and the max session-cumulative `input + output` is 133,413 tokens. Use
+`max-model-len: 147456` for 128k replay jobs.
