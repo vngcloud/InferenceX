@@ -324,12 +324,26 @@ jobs:
             results/trace_replay/gpu_telemetry_export.jsonl
             results/trace_replay/logs/aiperf.log
             results/trace_replay/logs/*.log
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_timeslices.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_timeslices.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_aggregate.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_aggregate.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_collated.json
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.json
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.parquet
+            ${{ env.RESULT_FILENAME }}_aiperf/gpu_telemetry_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/logs/aiperf.log
+            ${{ env.RESULT_FILENAME }}_aiperf/logs/*.log
           # Excluded by design (multi-GB debug artifacts, not consumed by
-          # post-processing): results/trace_replay/inputs.json (pre-formatted
-          # request bodies — the mmap'd binary equivalent is rebuilt from
-          # --public-dataset + --random-seed) and
-          # results/trace_replay/profile_export_raw.jsonl (full HTTP bodies
-          # per request — recoverable by re-running the same trace).
+          # post-processing): inputs.json (pre-formatted request bodies — the
+          # mmap'd binary equivalent is rebuilt from --public-dataset +
+          # --random-seed) and profile_export_raw.jsonl (full HTTP bodies per
+          # request — recoverable by re-running the same trace).
           if-no-files-found: ignore
 
       - name: Upload server logs
