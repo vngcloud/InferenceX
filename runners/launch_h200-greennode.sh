@@ -44,6 +44,21 @@ if [[ ! -f "$BENCH_SCRIPT" ]]; then
   BENCH_SCRIPT="${BENCH_BASE}.sh"
 fi
 
+# Dataset-scoped MiniMax agentic configs keep 64k/128k/1l1 in exp-name for
+# result traceability, but they reuse the same serving launcher.
+if [[ ! -f "$BENCH_SCRIPT" && "${EXP_NAME%%_*}" == minimaxm2.5-agentic-* ]]; then
+  BENCH_BASE="benchmarks/single_node/${SCENARIO_SUBDIR}minimaxm2.5-agentic_${PRECISION}_h100"
+  BENCH_SCRIPT="${BENCH_BASE}_${FRAMEWORK}.sh"
+  if [[ ! -f "$BENCH_SCRIPT" ]]; then
+    BENCH_SCRIPT="${BENCH_BASE}.sh"
+  fi
+fi
+
+if [[ ! -f "$BENCH_SCRIPT" ]]; then
+  echo "Benchmark script not found: $BENCH_SCRIPT" >&2
+  exit 1
+fi
+
 docker run --rm \
   --gpus all \
   --ipc=host \
