@@ -316,7 +316,7 @@ jobs:
             strip-trace-delays: ${{ matrix.config.strip-trace-delays }}
             duration: ${{ inputs.duration-override != '' && inputs.duration-override || matrix.config.duration }}
             spec-decoding: 'none'
-            disagg: 'false'
+            disagg: ${{ matrix.config.disagg }}
             run-eval: false
             scenario-type: agentic-replay
             skip-resource-cleanup: ${{ inputs.skip-resource-cleanup }}
