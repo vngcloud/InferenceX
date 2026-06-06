@@ -95,6 +95,20 @@ PREFILL_PID=""
 DECODE_PID=""
 ROUTER_PID=""
 
+# Only server.log (the router log) is collected as an artifact by the workflow,
+# so fold the prefill and decode worker logs into it for post-mortem of
+# server-side PD errors (KV transfer, OOM, bootstrap).
+dump_pd_logs() {
+    {
+        echo ""
+        echo "===================== PREFILL WORKER LOG ($PREFILL_LOG) ====================="
+        cat "$PREFILL_LOG" 2>/dev/null || echo "(no prefill log)"
+        echo ""
+        echo "===================== DECODE WORKER LOG ($DECODE_LOG) ====================="
+        cat "$DECODE_LOG" 2>/dev/null || echo "(no decode log)"
+    } >> "$ROUTER_LOG" 2>/dev/null || true
+}
+
 cleanup() {
     set +e
     stop_gpu_monitor
@@ -108,6 +122,7 @@ cleanup() {
             wait "$pid" 2>/dev/null || true
         fi
     done
+    dump_pd_logs
 }
 trap cleanup EXIT
 
