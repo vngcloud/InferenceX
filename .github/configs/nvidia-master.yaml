@@ -4995,6 +4995,26 @@ minimaxm2.5-agentic-mode1-h200-sglang-8x-64k-1l1-config150s-benchmark:
       search-space:
       - { tp: 8, ep: 8, conc-list: [16, 24, 32] }
 
+minimaxm2.5-agentic-mode1-h200-sglang-8x-167k-1l1-config150s-benchmark:
+  image: lmsysorg/sglang:v0.5.12
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-agentic-167k-1l1
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-167k-1l1variant-config150s-seed42-20260606-131503.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 184320
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      num-warmup-sessions: 1
+      search-space:
+      - { tp: 8, ep: 8, conc-list: [16, 24] }
+
 minimaxm2.5-agentic-mode1-h200-sglang-8x-64k-1l1-raw-smoke:
   image: lmsysorg/sglang:v0.5.12
   model: MiniMaxAI/MiniMax-M2.5
