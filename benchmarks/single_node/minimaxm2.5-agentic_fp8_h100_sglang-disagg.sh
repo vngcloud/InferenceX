@@ -46,7 +46,12 @@ PORT="${PORT:-8888}"                                  # router (client-facing)
 PREFILL_PORT="${PREFILL_PORT:-8889}"
 DECODE_PORT="${DECODE_PORT:-8890}"
 PREFILL_BOOTSTRAP_PORT="${PREFILL_BOOTSTRAP_PORT:-8998}"
-DISAGG_TRANSFER_BACKEND="${DISAGG_TRANSFER_BACKEND:-mooncake}"
+# Single-node KV transfer backend. This box has no InfiniBand HCA, so the
+# mooncake backend falls back to TCP and its KV transfers fail under load
+# ("TcpTransport ... Cannot assign requested address" -> ~68% of requests
+# error). NIXL (UCX) uses NVLink / CUDA-IPC for intra-node GPU-to-GPU KV
+# transfer and is SGLang's documented single-node PD backend.
+DISAGG_TRANSFER_BACKEND="${DISAGG_TRANSFER_BACKEND:-nixl}"
 
 if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 
