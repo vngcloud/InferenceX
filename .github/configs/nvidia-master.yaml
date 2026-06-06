@@ -5097,6 +5097,36 @@ minimaxm2.5-agentic-mode1-h200-sglang-4x-128k-1l1-config150s-benchmark:
       search-space:
       - { tp: 4, ep: 4, conc-list: [16, 24, 32] }
 
+# Single-node SGLang prefill/decode (PD) disaggregation smoke on the GreenNode
+# 8xH200 box. The disagg launcher splits the 8 visible GPUs into a 4-GPU prefill
+# worker (0-3) and a 4-GPU decode worker (4-7) fronted by the SGLang PD router,
+# then replays the 64k 5-variant config150s agentic trace through it. This is a
+# plumbing/smoke run only: CCU=2 and request-count=100 validate that PD
+# disaggregation comes up and serves end-to-end on H200 — NOT real capacity
+# numbers. framework: sglang-disagg + disagg: true resolve the *_sglang-disagg.sh
+# launcher; multinode stays false (both workers live on one node).
+minimaxm2.5-agentic-mode1-h200-sglang-disagg-4p4d-64k-5variants-smoke:
+  image: lmsysorg/sglang:v0.5.12
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-agentic-disagg-64k-5variants
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang-disagg
+  multinode: false
+  disagg: true
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 147456
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      request-count: 100
+      num-warmup-sessions: 1
+      search-space:
+      - { tp: 4, ep: 4, conc-list: [2] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
