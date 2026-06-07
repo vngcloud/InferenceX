@@ -19,6 +19,8 @@ benchmark client.
 | `agentic-coding-64k-1l1variant-config150s-seed42-20260605-155033.jsonl` | 2,913 | 150 | Final agentic-coding 64k config with one L1 prefix variant | 147456 |
 | `agentic-coding-128k-1l1variant-config150s-seed42-20260605-155045.jsonl` | 2,732 | 150 | Final agentic-coding 128k config with one L1 prefix variant | 147456 |
 | `agentic-coding-167k-1l1variant-config150s-seed42-20260606-131503.jsonl` | 2,256 | 150 | Final agentic-coding 167k config with one L1 prefix variant (max session-cumulative 167,899) | 184320 |
+| `agentic-coding-167k-1l1variant-config150s-seed42-20260607-040447.jsonl` | 1,603 | 155 | Regenerated 167k one-L1-variant config, saner length/context distribution (seed42 20260607, max session-cumulative 168,376) | 184320 |
+| `agentic-coding-167k-5variants-config150s-seed42-20260607-040451.jsonl` | 1,604 | 167 | Regenerated 167k five-L1-variant config (seed42 20260607, max session-cumulative 174,163) | 184320 |
 
 ## `agentic-coding-64k-5variants.jsonl`
 
