@@ -50,6 +50,28 @@ nvidia-smi
 resolve_trace_source
 install_agentic_deps
 
+# ---- Patch aiperf server-metrics NaN filter (runtime) -----------------------
+# The pinned aiperf submodule drops the ENTIRE /metrics scrape when SGLang emits
+# sglang:fwd_occupancy=NaN (uninitialized gauge): orjson encodes NaN as JSON null,
+# which fails ServerMetricsRecordMessage validation, taking cache_hit_rate /
+# cached_tokens_total down with it. We can't push the one-line fix to the aiperf
+# fork from CI, so we apply it to the editable-install source here. Idempotent via
+# a content marker. See patches/aiperf-skip-nonfinite-server-metrics.patch.
+NONFINITE_PATCH="$(dirname "$0")/patches/aiperf-skip-nonfinite-server-metrics.patch"
+NONFINITE_TARGET="$AIPERF_DIR/src/aiperf/server_metrics/data_collector.py"
+if grep -q "not math.isfinite" "$NONFINITE_TARGET" 2>/dev/null; then
+    echo "aiperf nonfinite-metrics fix already present; skipping patch"
+elif [ -f "$NONFINITE_PATCH" ]; then
+    if git -C "$AIPERF_DIR" apply "$NONFINITE_PATCH" 2>/dev/null \
+        || patch -p1 -d "$AIPERF_DIR" < "$NONFINITE_PATCH"; then
+        echo "Applied aiperf nonfinite-metrics patch"
+    else
+        echo "WARNING: failed to apply aiperf nonfinite-metrics patch; server cache-hit metrics will be empty" >&2
+    fi
+else
+    echo "WARNING: aiperf nonfinite-metrics patch not found at $NONFINITE_PATCH" >&2
+fi
+
 # ---- Server config ----------------------------------------------------------
 SERVER_LOG="$RESULT_DIR/server.log"
 mkdir -p "$RESULT_DIR"
