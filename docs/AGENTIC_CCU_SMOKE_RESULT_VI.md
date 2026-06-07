@@ -135,8 +135,9 @@ Mọi chỉ số "per GPU" là của **một H100**; card thứ hai trên runner
 
 ## 6. Khuyến nghị cho đợt đo chính thức
 
-Để chuyển từ smoke sang số trích dẫn được: dùng trace lớn
-(`agentic-coding-64k.jsonl#2000`, `max-model-len 73728`), nâng `request-count` lên
+Để chuyển từ smoke sang số trích dẫn được: dùng trace config150s thật
+(`agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl`,
+`max-model-len 73728`), nâng `request-count` lên
 ~2000–3000 với ~16 warmup session, mở rộng thang concurrency lên `[8, 16, 32, 64,
 128, 256]` và dừng ở leg đầu tiên vỡ SLA TTFT/ITL, đồng thời chạy lặp để có mean ± std.
 Khi đó các chỉ số Power/Token-Watt mới đáng tin. Quy trình chi tiết:

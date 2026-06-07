@@ -158,8 +158,15 @@ capacity-finding run).
 
 ## Scaling to a real capacity sweep
 
-1. Point `input-file` at a larger trace (`agentic-coding-64k.jsonl#<N>`), size
-   `max-model-len` from the **session-cumulative** max (see the table in
+> The current report sweeps replay the **MiniMax-M2.5 167k agentic-coding**
+> traces on SGLang 8×H200 (`minimaxm2.5-agentic-mode1-h200-sglang-8x-167k-*`),
+> using exactly the Mode 1 fields below. See the dataset inventory in
+> [`benchmarks/single_node/agentic/datasets/README.md`](../benchmarks/single_node/agentic/datasets/README.md).
+
+1. Point `input-file` at a real config150s trace (e.g.
+   `agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl`, or a
+   `167k` trace for long-context capacity), size `max-model-len` from the
+   **session-cumulative** max (see the table in
    [`AIPERF_INTEGRATION.md`](AIPERF_INTEGRATION.md#context-length-requirements-per-dataset-size-max-model-len-from-the-session-cumulative-max)).
 2. Raise `request-count` (e.g. 1000) and `num-warmup-sessions` (e.g. 16).
 3. Extend `conc-list` upward (`[8, 16, 32, 64, 128, ...]`) and stop at the first

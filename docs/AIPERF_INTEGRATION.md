@@ -12,13 +12,20 @@ For the **Mode 1 concurrency (CCU) capacity sweep** of the `agentic-replay` path
 
 ## Status
 
-As of 2026-06-04, AIPerf is integrated as a benchmark client for fixed-sequence
+As of 2026-06-07, AIPerf is integrated as a benchmark client for fixed-sequence
 single-node benchmarks and for `agentic-replay` Mooncake traces. It is not a
 serving framework; vLLM, SGLang, TRT, and other frameworks still start the model
 server, while AIPerf replaces the native InferenceX HTTP load generator.
 
-The current GreenNode config is `gemma4-bf16-h100-vllm` in
-`.github/configs/nvidia-master.yaml`:
+**Current focus is the `agentic-replay` path** — the active sweeps replay the
+MiniMax-M2.5 agentic-coding traces on SGLang `v0.5.12` across 8×H200
+(`minimaxm2.5-agentic-mode1-h200-sglang-8x-167k-*` config keys), driven by AIPerf
+in Mode 1 (concurrency back-pressure). The agentic-replay job now also uploads the
+**full raw AIPerf artifact set** (see [Artifacts](#artifacts)), so per-request and
+per-timeslice exports are recoverable from CI without a re-run.
+
+The first GreenNode config wired through AIPerf was `gemma4-bf16-h100-vllm` in
+`.github/configs/nvidia-master.yaml` (kept below as the fixed-sequence reference):
 
 - `runner: h100-2x`, which maps to `h100-greennode_01` and exposes 2x H100.
 - `benchmark-client: [aiperf]` for the final config.
@@ -64,7 +71,7 @@ Minimal scenario config:
 ```yaml
 scenarios:
   agentic-replay:
-  - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#2000
+  - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl
     custom-dataset-type: mooncake_trace
     max-model-len: 73728
     search-space:
@@ -197,20 +204,29 @@ hits the server is **not** a record's `input_length` — it is the running
 `sum(input_length + output_length)` over the session up to that turn. Size
 `max-model-len` from that **session-cumulative max**, not the per-record max.
 
-Empirically derived from the committed traces (per-record vs realized
-session-cumulative `input+output`):
+Sized from the realized **session-cumulative** `input+output` of each committed
+trace. The canonical inventory (with record/session counts and the recommended
+window) lives in
+[`benchmarks/single_node/agentic/datasets/README.md`](../benchmarks/single_node/agentic/datasets/README.md);
+the rows below are the current report set:
 
-| Dataset | records | per-record max(in+out) | **session-cumulative max** | `max-model-len` to use |
-|---|---|---|---|---|
-| `qwen3.5-4b-smoke.jsonl` | 12 | 1,783 | 2,293 | **8192** (ample) |
-| `agentic-coding-64k.jsonl#1000` | 1,000 | 35,922 | 65,847 | **73728** |
-| `agentic-coding-64k.jsonl#2000` | 2,000 | 38,416 | 65,847 | **73728** |
-| `agentic-coding-64k.jsonl` | 18,595 | 38,613 | 66,655 | **73728** |
-| `agentic-coding-128k.jsonl#2000` | 2,000 | 79,106 | 132,346 | **147456** |
-| `agentic-coding-128k.jsonl` | 16,957 | 82,159 | 133,851 | **147456** |
+| Dataset | records | **session-cumulative max** | `max-model-len` to use |
+|---|---:|---:|---|
+| `qwen3.5-4b-smoke.jsonl` | 12 | 2,293 | **8192** (ample) |
+| `agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl` | 2,821 | ≤ 65,847 | **73728** |
+| `agentic-coding-128k-5variants-config150s-seed42-20260605-131909.jsonl` | 2,716 | ≤ 133,851 | **147456** |
+| `agentic-coding-167k-1l1variant-config150s-seed42-20260606-131503.jsonl` | 2,256 | 167,899 | **184320** |
+| `agentic-coding-167k-1l1variant-config150s-seed42-20260607-040447.jsonl` (v2) | 1,603 | 168,376 | **184320** |
+| `agentic-coding-167k-5variants-config150s-seed42-20260607-040451.jsonl` | 1,604 | 174,163 | **184320** |
 
-(Recompute with the one-off script in the handoff if traces change: group by
-`session_id`, take the max running `sum(input_length+output_length)`.)
+> The 64k/128k examples above use the conservative five-L1-variant traces; the
+> matched single-L1-variant (`1l1`) traces and the 300-session 128k trace are in
+> the datasets README. The large raw `agentic-coding-64k.jsonl` (18,595 rec) and
+> `agentic-coding-128k.jsonl` (16,957 rec) traces were **pruned on `de34c6c`** —
+> use the config150s traces above instead.
+
+(Recompute if traces change: group by `session_id`, take the max running
+`sum(input_length+output_length)`.)
 
 **Why this matters — silent truncation.** Sizing from the per-record length is the
 trap that produced the 64k run [26874210796](https://github.com/vngcloud/InferenceX/actions/runs/26874210796):
@@ -524,6 +540,42 @@ gpu_metrics.csv
 artifact for debugging. `gpu_metrics.csv` is the `nvidia-smi` power/utilization
 log; `process_result.py` reads its `power.draw` column to compute the
 tokens/Watt metric (see [Energy Efficiency](#energy-efficiency-tokenswatt)).
+
+### Raw AIPerf artifacts (agentic-replay)
+
+Since `955246a`/`c494334`, the `Upload agentic raw results` step in
+`.github/workflows/benchmark-tmpl.yml` fires for **both** `agentic-coding` **and
+`agentic-replay`** (it was previously `agentic-coding`-only) and now ships the
+**full raw AIPerf export set** from the adapter's `<RESULT_FILENAME>_aiperf/`
+directory — not just the single `profile_export_aiperf.json`. The artifact is
+named `agentic_<RESULT_FILENAME>` and contains, when present:
+
+```text
+profile_export.jsonl                      # per-record exported requests
+profile_export_aiperf.json / .csv         # aggregate metrics (the adapter reads the .json)
+profile_export_aiperf_timeslices.json/.csv# per-timeslice metrics over the run
+profile_export_aiperf_aggregate.json/.csv # rolled-up aggregate
+profile_export_aiperf_collated.json       # collated view
+server_metrics_export.{json,jsonl,csv,parquet}   # AIPerf-side server metrics
+gpu_telemetry_export.jsonl                # DCGM/pynvml telemetry (when reachable)
+logs/aiperf.log, logs/*.log               # AIPerf run logs
+server.log, benchmark.log, config.yaml,   # launcher-side context
+vllm_command.txt, benchmark_command.txt,
+workload_distribution_summary.txt, *_plots.png
+```
+
+The step is `if-no-files-found: ignore`, so a leg that produced only a subset
+(e.g. no DCGM telemetry) still uploads what it has. Two heavy debug files are
+**excluded by design**: `inputs.json` (pre-formatted request bodies, rebuildable
+from `--public-dataset` + `--random-seed`) and `profile_export_raw.jsonl` (full
+per-request HTTP bodies, recoverable by re-running the same trace).
+
+Fetch the raw artifact for a finished run with:
+
+```bash
+gh run download <RUN_ID> --repo vngcloud/InferenceX \
+  -n agentic_<RESULT_FILENAME> -D ./raw
+```
 
 ## Troubleshooting
 

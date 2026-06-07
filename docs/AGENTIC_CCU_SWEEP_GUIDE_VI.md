@@ -35,17 +35,30 @@ hết thời gian nghỉ, rồi xem ở mức CCU nào thì latency tăng vọt.
 Dataset là file JSONL kiểu **mooncake_trace**: mỗi dòng là một lượt (turn) với
 `session_id`, `input_length`, `output_length`, `hash_ids`, `delay`.
 
-Các trace đã commit sẵn trong repo (`benchmarks/single_node/agentic/datasets/`):
+Các trace đã commit sẵn trong repo (`benchmarks/single_node/agentic/datasets/`).
+Danh sách đầy đủ + số session xem
+[`datasets/README.md`](../benchmarks/single_node/agentic/datasets/README.md):
 
 | Dataset | Số record | **max-model-len phải dùng** |
-|---|---|---|
+|---|---:|---|
 | `qwen3.5-4b-smoke.jsonl` | 12 | **8192** (chỉ để smoke test) |
-| `agentic-coding-64k.jsonl` | 18,595 | **73728** |
-| `agentic-coding-128k.jsonl` | 16,957 | **147456** |
+| `agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl` | 2,821 | **73728** |
+| `agentic-coding-128k-5variants-config150s-seed42-20260605-131909.jsonl` | 2,716 | **147456** |
+| `agentic-coding-167k-1l1variant-config150s-seed42-20260607-040447.jsonl` (v2) | 1,603 | **184320** |
+| `agentic-coding-167k-5variants-config150s-seed42-20260607-040451.jsonl` | 1,604 | **184320** |
 
-Có thể lấy **một phần đầu** của trace bằng hậu tố `#N` trên đường dẫn, ví dụ
-`agentic-coding-64k.jsonl#2000` = chỉ lấy 2000 dòng đầu. `max-model-len` không đổi
-theo N (xem bảng trong [`AIPERF_INTEGRATION.md`](AIPERF_INTEGRATION.md#context-length-requirements-per-dataset-size-max-model-len-from-the-session-cumulative-max)).
+> Trace `*-5variants-*` gán mỗi session vào 1 trong 5 biến thể prefix L1 (ít tái dùng
+> cache hơn — bảo thủ hơn); trace `*-1l1variant-*` chỉ 1 biến thể (hẹp hơn, hợp cho
+> CCU ≤ 32). Các trace 167k là workload báo cáo hiện tại (MiniMax-M2.5 8×H200).
+> Hai trace thô lớn cũ `agentic-coding-64k.jsonl` (18,595 record) và
+> `agentic-coding-128k.jsonl` (16,957 record) **đã bị xoá ở `de34c6c`** — dùng các
+> trace config150s ở trên.
+
+Các trace config150s đã nhỏ (≤ ~2,900 record) nên thường **replay trọn cả file**.
+Nếu vẫn muốn lấy **một phần đầu**, dùng hậu tố `#N` trên đường dẫn, ví dụ
+`...-64k-5variants-config150s-seed42-20260605-131906.jsonl#2000` = chỉ lấy 2000
+dòng đầu. `max-model-len` không đổi theo N (xem bảng trong
+[`AIPERF_INTEGRATION.md`](AIPERF_INTEGRATION.md#context-length-requirements-per-dataset-size-max-model-len-from-the-session-cumulative-max)).
 
 ### ⚠️ Quan trọng nhất: sizing `max-model-len`
 
@@ -118,9 +131,9 @@ MYMODEL-agentic-mode1-h100-vllm:          # <- tên config key (tùy bạn)
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#2000
+    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl
       custom-dataset-type: mooncake_trace
-      max-model-len: 73728                 # <- theo bảng sizing (64k→73728, 128k→147456)
+      max-model-len: 73728                 # <- theo bảng sizing (64k→73728, 128k→147456, 167k→184320)
       benchmark-client: [aiperf]
       no-fixed-schedule: true              # Mode 1
       strip-trace-delays: true             # Mode 1 (bắt buộc)
@@ -180,12 +193,14 @@ Hai con số này **khác nhau**, đừng nhầm:
   (lặp lại) các session trong hồ cho đủ số này.
 
 → Quy tắc: đặt **`#N` ≥ `request-count`** để mỗi request đến từ một session khác
-nhau, tránh lặp lại làm cache hit bị thổi phồng giả tạo. Ví dụ `request-count: 2000`
-thì dùng `...64k.jsonl#2500` trở lên.
+nhau, tránh lặp lại làm cache hit bị thổi phồng giả tạo. Các trace config150s hiện
+tại đã nhỏ (≤ ~2,900 record), nên thường **bỏ `#N`** và replay trọn file; khi đó pool
+session = toàn bộ file. Nếu `request-count` vượt số record của file thì AIPerf buộc
+phải resample lặp lại — chấp nhận được nhưng cache hit sẽ hơi cao giả tạo.
 
-### `request-count` — bao nhiêu thì hội tụ mà KHÔNG cần full dataset?
+### `request-count` — bao nhiêu thì hội tụ?
 
-Không cần chạy hết 18,595 request. Có **2 ràng buộc**, lấy cái lớn hơn:
+Có **2 ràng buộc**, lấy cái lớn hơn:
 
 1. **Đại diện workload:** phân phối độ dài prompt của mẫu đã khớp ~hoàn hảo với cả
    tập **từ N ≈ 500** (đo thực tế trên trace 64k: p50/p90/p95/p99 lệch < 2%). Tức là
@@ -206,8 +221,9 @@ Gộp lại (đã tính cả ramp):
 
 - **Bắt buộc (hard rule):** `request-count >= max(conc-list)`, nếu không config bị từ
   chối trước khi dispatch (`validate_request_count_vs_conc`).
-- **Kết luận:** ~**3000 là trần thực dụng** cho mọi thang tới 256 — chạy full 18,595
-  tốn ~6× thời gian mà p99 không ổn định thêm. Chỉ nâng N nếu cần đo tới **p99.9**.
+- **Kết luận:** ~**3000 là trần thực dụng** cho mọi thang tới 256 — vượt mức này p99
+  không ổn định thêm bao nhiêu mà tốn thời gian. Các trace config150s (~1,600–2,900
+  record) replay trọn file đã nằm trong tầm này. Chỉ nâng N nếu cần đo tới **p99.9**.
 
 ### `conc-list` (thang CCU)
 - Thang điển hình tìm capacity: `[8, 16, 32, 64, 128, 256]`.
@@ -253,6 +269,15 @@ grep -ic preempt server.log
 - Kiểm tra cache thực sự hit: vLLM log `Prefix cache hit rate: NN%`; SGLang log
   `#new-token / #cached-token` mỗi prefill-batch.
 
+> **Tải artifact thô về để soi sâu.** Từ `955246a`/`c494334`, job `agentic-replay`
+> upload **trọn bộ export thô của AIPerf** (per-request `profile_export.jsonl`,
+> timeslices, aggregate/collated, `server_metrics_export.*`, `gpu_telemetry_export.jsonl`,
+> log) trong artifact tên `agentic_<RESULT_FILENAME>`. Tải về:
+> ```bash
+> gh run download <RUN_ID> --repo vngcloud/InferenceX -n agentic_<RESULT_FILENAME> -D ./raw
+> ```
+> Chi tiết danh sách file: [`AIPERF_INTEGRATION.md`](AIPERF_INTEGRATION.md#artifacts).
+
 ---
 
 ## 8. Một số lưu ý theo loại model
@@ -288,7 +313,7 @@ source .venv/bin/activate
 uv run python utils/bench_serving/aiperf_adapter.py \
   --model ORG/MyModel-Instruct --url http://0.0.0.0:8000 --endpoint-type chat \
   --concurrency 16 --request-count 200 \
-  --input-file benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#500 \
+  --input-file benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants-config150s-seed42-20260605-131906.jsonl \
   --custom-dataset-type mooncake_trace \
   --result-filename mymodel-test --result-dir /tmp/mymodel-test
 ```
