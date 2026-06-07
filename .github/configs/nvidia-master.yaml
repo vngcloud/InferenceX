@@ -5104,6 +5104,31 @@ minimaxm2.5-agentic-mode1-h200-sglang-4x-128k-1l1-config150s-benchmark:
       search-space:
       - { tp: 4, ep: 4, conc-list: [16, 24, 32] }
 
+# Smoke test of the upstream SemiAnalysis AgentX-MVP path (scenario-type
+# agentic-coding) on SGLang, instead of our Mode 1 mooncake_trace replay.
+# Replays the upstream semianalysisai/cc-traces-weka-no-subagents-051226 corpus
+# (949 traces) through aiperf's inferencex-agentx-mvp scenario via
+# resolve_trace_source + build_replay_cmd. The only load knob is --concurrency;
+# the scenario locks cache-bust / inter-turn-delay-cap / ignore_eos itself.
+# Launcher: benchmarks/single_node/agentic/minimaxm2.5-weka_fp8_h100_sglang.sh
+# (model-prefix minimaxm2.5-weka -> agentic/minimaxm2.5-weka_fp8_h100_sglang.sh).
+# Short duration (<900s) -> build_replay_cmd auto-adds --unsafe-override, so
+# submission_valid is flagged false (expected for a smoke). Single conc keeps
+# warmup minimal; bump duration to >=900 and widen conc-list for real numbers.
+minimaxm2.5-weka-smoke-h200-sglang-8x:
+  image: lmsysorg/sglang:v0.5.12
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-weka
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - duration: 120
+      search-space:
+      - { tp: 8, ep: 8, offloading: none, conc-list: [1] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
