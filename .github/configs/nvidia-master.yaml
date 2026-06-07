@@ -5129,6 +5129,27 @@ minimaxm2.5-weka-smoke-h200-sglang-8x:
       search-space:
       - { tp: 8, ep: 8, offloading: none, conc-list: [1] }
 
+# Complete (submission-valid) run of the same AgentX-MVP weka path. duration 1800
+# (>=900 so build_replay_cmd does NOT add --unsafe-override -> submission_valid
+# stays true, unlike the 120s smoke) and conc-list [16, 24, 32] to match the
+# Mode-1 20260606 report ladder. Same launcher / corpus / serving args as the
+# smoke entry above; only duration + concurrency differ. Dispatch with
+# --model-prefix minimaxm2.5-weka-h200-sglang-8x to select ONLY this entry — the
+# bare prefix minimaxm2.5-weka would also pull in the smoke.
+minimaxm2.5-weka-h200-sglang-8x:
+  image: lmsysorg/sglang:v0.5.12
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-weka
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - duration: 1800
+      search-space:
+      - { tp: 8, ep: 8, offloading: none, conc-list: [16, 24, 32] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
