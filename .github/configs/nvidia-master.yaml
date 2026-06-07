@@ -4804,18 +4804,6 @@ qwen3-4b-2507-bf16-h100-vllm:
       benchmark-client: [aiperf]
       search-space:
       - { tp: 1, conc-list: [2] }
-    # 64k agentic-coding trace (committed in-repo), first 2000 records replayed
-    # at concurrency 32. AIPerf threads each mooncake session (session_id), so
-    # context ACCUMULATES across turns: the realized per-request total reaches
-    # ~65,847 tokens (the "64k" target), NOT the per-record input_length max of
-    # 37,818. max-model-len 73728 covers that with headroom; 40960 rejected ~55%
-    # of requests with HTTP 400 (input+output > context window).
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k.jsonl#2000
-      custom-dataset-type: mooncake_trace
-      max-model-len: 73728
-      benchmark-client: [aiperf]
-      search-space:
-      - { tp: 1, conc-list: [32] }
 
 # Mode 1 (capacity sweep) smoke for agentic-replay. Separate config key (same
 # model-prefix → reuses qwen3-4b-2507_bf16_h100_vllm.sh) so it can be dispatched
@@ -4871,34 +4859,6 @@ qwen3-4b-2507-bf16-h200-vllm-mode1-smoke:
       num-warmup-sessions: 1
       search-space:
       - { tp: 1, conc-list: [8, 16, 32] }
-
-# Mode 1 (capacity sweep) smoke for MiniMax-M2.5 FP8 (MoE 229B) on the GreenNode
-# H200 box (4x H200, TP=4). Dedicated model-prefix `minimaxm2.5-agentic` →
-# resolves minimaxm2.5-agentic_fp8_h100_vllm.sh (agentic-replay launcher), NOT
-# the fixed-seq-len minimaxm2.5_fp8_h100.sh. Smoke scope: full 64k 5-variant
-# trace, request-count 1000 (>= max conc 16), warmup 1, max-model-len 147456 — validates the model loads on
-# 4x H200 and Mode 1 plumbing works, not real capacity numbers. Queues behind
-# the qwen3 H200 smoke on the same runner (no cancel-in-progress).
-minimaxm2.5-agentic-mode1-h200-smoke:
-  image: vllm/vllm-openai:v0.21.0
-  model: MiniMaxAI/MiniMax-M2.5
-  model-prefix: minimaxm2.5-agentic
-  runner: h200-greennode_00
-  precision: fp8
-  framework: vllm
-  multinode: false
-  scenarios:
-    agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/agentic-coding-64k-5variants.jsonl
-      custom-dataset-type: mooncake_trace
-      max-model-len: 147456
-      benchmark-client: [aiperf]
-      no-fixed-schedule: true
-      strip-trace-delays: true
-      request-count: 1000
-      num-warmup-sessions: 1
-      search-space:
-      - { tp: 4, conc-list: [8, 16] }
 
 # MiniMax-M2.5 FP8 on the GreenNode H200 box using SGLang TP8/EP8 and the
 # 128k five-variant 300-session agentic coding trace. Uses the brother-provided
