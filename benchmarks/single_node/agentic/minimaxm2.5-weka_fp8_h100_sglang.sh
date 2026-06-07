@@ -58,6 +58,10 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 export PYTHONNOUSERSITE=1
 
 echo "Starting SGLang server..."
+# --enable-metrics exposes the Prometheus /metrics endpoint on $PORT so aiperf
+# (server-metrics scrape on by default, auto-discovers localhost:$PORT/metrics)
+# can capture sglang:cache_hit_rate / sglang:cached_tokens_total — the weka
+# corpus's whole point is prefix-cache reuse, which is otherwise invisible.
 python3 -m sglang.launch_server \
   --model-path "$MODEL" \
   --served-model-name "$SERVED_MODEL_NAME" \
@@ -72,6 +76,7 @@ python3 -m sglang.launch_server \
   --page-size 64 \
   --chunked-prefill-size 16384 \
   --hicache-size 1200 \
+  --enable-metrics \
   --trust-remote-code > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
