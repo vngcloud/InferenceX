@@ -139,6 +139,8 @@ def common_aiperf_args(args: argparse.Namespace) -> list[str]:
         cmd.extend(["--osl", str(args.osl)])
     if args.random_seed is not None:
         cmd.extend(["--random-seed", str(args.random_seed)])
+    for extra_input in args.extra_inputs:
+        cmd.extend(["--extra-inputs", extra_input])
     if args.benchmark_duration is not None:
         cmd.extend(["--benchmark-duration", str(args.benchmark_duration)])
         if args.benchmark_grace_period is not None:
@@ -310,6 +312,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--osl", type=int)
     parser.add_argument("--random-seed", type=int)
     parser.add_argument(
+        "--extra-inputs",
+        action="append",
+        default=[],
+        help="Forward an AIPerf extra input, e.g. ignore_eos:true.",
+    )
+    parser.add_argument(
         "--search-recipe",
         choices=sorted(SEARCH_RECIPES),
         help="Delegate to this AIPerf native BO search recipe over a "
@@ -390,9 +398,20 @@ def run_search(args: argparse.Namespace) -> dict:
     """Delegate to AIPerf's native BO recipe and record the winning point."""
     artifact_dir = args.result_dir / f"{args.result_filename}_aiperf"
     cmd = build_search_command(args, artifact_dir)
-    subprocess.run(cmd, check=True)
+    completed = subprocess.run(cmd, check=False)
 
-    history = json.loads((artifact_dir / SEARCH_HISTORY).read_text())
+    history_path = artifact_dir / SEARCH_HISTORY
+    if completed.returncode != 0 and not history_path.exists():
+        completed.check_returncode()
+    if completed.returncode != 0:
+        print(
+            f"[aiperf-search] WARNING: aiperf exited with code "
+            f"{completed.returncode}, but {SEARCH_HISTORY} exists; "
+            "continuing with the recorded best-effort search result.",
+            file=sys.stderr,
+        )
+
+    history = json.loads(history_path.read_text())
     winner_conc, winner_iter, sla_met = winner_from_history(history)
     artifact = winner_profile_export(artifact_dir, winner_iter)
     result = build_result(artifact, winner_conc)

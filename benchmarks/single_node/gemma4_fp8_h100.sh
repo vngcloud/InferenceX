@@ -59,6 +59,73 @@ export PYTHONNOUSERSITE=1
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
+# Long-context AIPerf path for the GreenNode H200 runs. Keep this separate from
+# the historical native-client Gemma sweeps above: those characterize on-the-fly
+# fp8 quantization, while this path serves the pre-quantized block-FP8 checkpoint
+# through the OpenAI-compatible chat endpoint.
+if [ "${BENCHMARK_CLIENT:-inferencex_native}" = "aiperf" ]; then
+    TOKENIZER_MODEL="${TOKENIZER_MODEL:-RedHatAI/gemma-4-31B-it-FP8-block}"
+    AIPERF_SERVED_MODEL_NAME="${AIPERF_SERVED_MODEL_NAME:-google/gemma-4-31b-it}"
+    GEMMA4_AIPERF_MAX_MODEL_LEN="${GEMMA4_AIPERF_MAX_MODEL_LEN:-$MAX_MODEL_LEN}"
+
+    SEARCH_ARGS=()
+    if [[ -n "${SEARCH_RECIPE:-}" ]]; then
+        SEARCH_ARGS+=(--search-recipe "$SEARCH_RECIPE" --concurrency-min "${CONCURRENCY_MIN}" --concurrency-max "${CONCURRENCY_MAX}")
+        if [[ -n "${SLA_MS:-}" ]]; then SEARCH_ARGS+=(--sla-ms "$SLA_MS"); fi
+        if [[ -n "${SEARCH_MAX_ITERATIONS:-}" ]]; then SEARCH_ARGS+=(--search-max-iterations "$SEARCH_MAX_ITERATIONS"); fi
+    fi
+    if [[ -n "${BENCHMARK_DURATION:-}" ]]; then
+        SEARCH_ARGS+=(--benchmark-duration "$BENCHMARK_DURATION")
+        if [[ -n "${BENCHMARK_GRACE_PERIOD:-}" ]]; then
+            SEARCH_ARGS+=(--benchmark-grace-period "$BENCHMARK_GRACE_PERIOD")
+        fi
+    fi
+
+    start_gpu_monitor
+
+    set -x
+    python3 -m vllm.entrypoints.openai.api_server \
+        --model "$MODEL" \
+        --tokenizer "$TOKENIZER_MODEL" \
+        --host 0.0.0.0 \
+        --port "$PORT" \
+        --served-model-name google/gemma-4-31b-it gemma-4-31b-it \
+        --tensor-parallel-size "$TP" \
+        --gpu-memory-utilization 0.92 \
+        --kv-cache-dtype fp8_e4m3 \
+        --max-model-len "$GEMMA4_AIPERF_MAX_MODEL_LEN" \
+        --enable-auto-tool-choice \
+        --tool-call-parser gemma4 \
+        --reasoning-parser gemma4 > "$SERVER_LOG" 2>&1 &
+
+    SERVER_PID=$!
+
+    wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+
+    run_client_benchmark \
+        --model "$AIPERF_SERVED_MODEL_NAME" \
+        --tokenizer "$TOKENIZER_MODEL" \
+        --port "$PORT" \
+        --backend vllm \
+        --endpoint-type chat \
+        --isl "$ISL" \
+        --osl "$OSL" \
+        --random-range-ratio "$RANDOM_RANGE_RATIO" \
+        --concurrency "$CONC" \
+        --result-filename "$RESULT_FILENAME" \
+        --result-dir /workspace/ \
+        --bench-serving-dir "${INFMAX_CONTAINER_WORKSPACE:-$(pwd)}" \
+        --server-pid "$SERVER_PID" \
+        --random-seed "${RANDOM_SEED:-0}" \
+        --extra-inputs ignore_eos:true \
+        "${SEARCH_ARGS[@]}"
+    BENCHMARK_EXIT_CODE=$?
+
+    stop_gpu_monitor
+    set +x
+    exit "$BENCHMARK_EXIT_CODE"
+fi
+
 # num_speculative_tokens (N) comes from the matrix via $NUM_SPECULATIVE_TOKENS.
 # Falls back to N=2 to match Gemma 4's native MTP drafter depth — kept for
 # backwards-compat with configs that don't pin a value.

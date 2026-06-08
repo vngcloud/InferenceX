@@ -308,6 +308,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
                     max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
+                    max_model_len = bmk.get(
+                        Fields.MAX_MODEL_LEN.value, isl + osl + 256)
 
                     # Apply max-tp filter if specified
                     if args.max_tp is not None:
@@ -354,6 +356,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     benchmark_duration = bmk.get(Fields.BENCHMARK_DURATION.value)
                     benchmark_grace_period = bmk.get(
                         Fields.BENCHMARK_GRACE_PERIOD.value)
+                    max_model_len = bmk.get(
+                        Fields.MAX_MODEL_LEN.value, isl + osl + 256)
 
                     def _single_node_entry(conc_value, runner_value, benchmark_client):
                         entry = {
@@ -368,7 +372,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                             Fields.OSL.value: osl,
                             Fields.TP.value: tp,
                             Fields.CONC.value: conc_value,
-                            Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                            Fields.MAX_MODEL_LEN.value: max_model_len,
                             Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
                             Fields.EP.value: 1,  # Default
                             Fields.DP_ATTN.value: False,  # Default
@@ -819,6 +823,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
                     max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
+                    max_model_len = bmk.get(
+                        Fields.MAX_MODEL_LEN.value, isl + osl + 256)
 
                     # Get concurrency values
                     if Fields.CONC_LIST.value in bmk:
@@ -858,7 +864,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                     Fields.OSL.value: osl,
                                     Fields.TP.value: tp,
                                     Fields.CONC.value: conc,
-                                    Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                    Fields.MAX_MODEL_LEN.value: max_model_len,
                                     Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
                                     Fields.EP.value: ep if ep is not None else 1,
                                     Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,

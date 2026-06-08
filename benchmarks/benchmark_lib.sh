@@ -535,6 +535,7 @@ run_aiperf_benchmark() {
     local sla_ms=""
     local benchmark_duration=""
     local benchmark_grace_period=""
+    local extra_inputs=()
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -563,6 +564,7 @@ run_aiperf_benchmark() {
             --sla-ms) sla_ms="$2"; shift 2 ;;
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
+            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -607,6 +609,9 @@ run_aiperf_benchmark() {
     if [[ -n "$tokenizer" ]]; then
         benchmark_cmd+=(--tokenizer "$tokenizer")
     fi
+    for extra_input in "${extra_inputs[@]}"; do
+        benchmark_cmd+=(--extra-inputs "$extra_input")
+    done
 
     # Load terminator: a fixed request count or a wall-clock duration (the
     # caller guarantees exactly one is set). Duration gives every BO-probed
@@ -674,6 +679,7 @@ run_client_benchmark() {
     local sla_ms=""
     local benchmark_duration=""
     local benchmark_grace_period=""
+    local extra_inputs=()
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -701,6 +707,7 @@ run_client_benchmark() {
             --sla-ms) sla_ms="$2"; shift 2 ;;
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
+            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -737,6 +744,9 @@ run_client_benchmark() {
             if [[ -n "$tokenizer" ]]; then
                 aiperf_args+=(--tokenizer "$tokenizer")
             fi
+            for extra_input in "${extra_inputs[@]}"; do
+                aiperf_args+=(--extra-inputs "$extra_input")
+            done
             # Load terminator. Duration mode (config-driven --benchmark-duration)
             # measures every BO-probed concurrency for an equal wall-clock window
             # instead of a fixed request count (which shrinks the window as

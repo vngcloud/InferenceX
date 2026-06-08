@@ -335,6 +335,9 @@ class SingleNodeSearchSpaceEntry(BaseModel):
     # Chunked-prefill ceiling. None means the engine default is used.
     max_num_batched_tokens: Optional[int] = Field(
         default=None, alias=Fields.MAX_NUM_BATCHED_TOKENS.value)
+    # Optional serving context length override. None means ISL + OSL + headroom.
+    max_model_len: Optional[int] = Field(
+        default=None, alias=Fields.MAX_MODEL_LEN.value)
     conc_start: Optional[int] = Field(
         default=None, alias=Fields.CONC_START.value)
     conc_end: Optional[int] = Field(

@@ -258,6 +258,85 @@ def test_search_delegates_to_native_bo_and_feeds_process_result(tmp_path: Path):
     assert agg["conc"] == 32
     assert agg["tput_per_gpu"] == pytest.approx(3200.0 / 8)
 
+def test_search_writes_best_effort_result_when_aiperf_returns_no_sla_exit(
+    tmp_path: Path,
+):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_aiperf = bin_dir / "aiperf"
+    fake_aiperf.write_text(
+        _FAKE_AIPERF_BO.replace("'feasible': True", "'feasible': False")
+        .replace("'feasible_count': 3", "'feasible_count': 0")
+        + "\nsys.exit(1)\n"
+    )
+    fake_aiperf.chmod(0o755)
+
+    result_dir = tmp_path / "results"
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+    proc = subprocess.run(
+        [
+            sys.executable, str(ADAPTER),
+            "--model", "meta-llama/Llama-3.1-8B-Instruct",
+            "--url", "http://0.0.0.0:8888",
+            "--request-count", "320",
+            "--result-filename", "bmk",
+            "--result-dir", str(result_dir),
+            "--isl", "1024", "--osl", "1024", "--random-seed", "1",
+            "--search-recipe", "max-throughput-itl-sla",
+            "--concurrency-min", "8", "--concurrency-max", "32",
+            "--sla-ms", "50",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "aiperf exited with code 1" in proc.stderr
+
+    result = json.loads((result_dir / "bmk.json").read_text())
+    assert result["max_concurrency"] == 32
+    assert result["sla_met"] is False
+
+
+def test_search_forwards_extra_inputs(tmp_path: Path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_aiperf = bin_dir / "aiperf"
+    fake_aiperf.write_text(
+        _FAKE_AIPERF_BO
+        + "\nPath('aiperf_argv.json').write_text(json.dumps(sys.argv))\n"
+    )
+    fake_aiperf.chmod(0o755)
+
+    result_dir = tmp_path / "results"
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+    proc = subprocess.run(
+        [
+            sys.executable, str(ADAPTER),
+            "--model", "meta-llama/Llama-3.1-8B-Instruct",
+            "--url", "http://0.0.0.0:8888",
+            "--request-count", "320",
+            "--result-filename", "bmk",
+            "--result-dir", str(result_dir),
+            "--isl", "1024", "--osl", "1024", "--random-seed", "1",
+            "--search-recipe", "max-throughput-itl-sla",
+            "--concurrency-min", "8", "--concurrency-max", "32",
+            "--sla-ms", "50",
+            "--extra-inputs", "ignore_eos:true",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    argv = json.loads((tmp_path / "aiperf_argv.json").read_text())
+    idx = argv.index("--extra-inputs")
+    assert argv[idx + 1] == "ignore_eos:true"
 
 @pytest.mark.integration
 def test_main_against_live_server(tmp_path: Path):
