@@ -143,6 +143,44 @@ vào entry `search-space`:
   **từng điểm** nó dò). Chỉ `--convergence-metric` và `--variant` mới xung đột với
   search-recipe, duration thì không.
 
+### Đường ống đầy đủ (đừng quên launcher `-e`)
+
+Field phải đi qua hết chuỗi sau mới tới được AIPerf:
+
+```
+nvidia-master.yaml (benchmark-duration)
+  → validation.py (schema)
+  → generate_sweep_configs.py (emit vào matrix entry)
+  → e2e-tests.yml (matrix.config.benchmark-duration → input)
+  → benchmark-tmpl.yml (input → env BENCHMARK_DURATION)
+  → runners/launch_h200-greennode.sh  ← ⚠️ PHẢI có trong mảng RUN_ENV / docker run -e
+  → benchmarks/single_node/qwen3-4b-2507_bf16_h100.sh (BENCHMARK_DURATION → SEARCH_ARGS)
+  → benchmark_lib.sh (run_client_benchmark → --benchmark-duration)
+  → aiperf_adapter.py
+```
+
+> 🔴 **Bench script chạy BÊN TRONG docker.** Env set ở `benchmark-tmpl.yml` chỉ
+> tồn tại trên runner host; nếu launcher KHÔNG forward `BENCHMARK_DURATION
+> BENCHMARK_GRACE_PERIOD` qua `docker run -e` (mảng `RUN_ENV` trong
+> `launch_h200-greennode.sh`) thì script thấy biến **rỗng** → âm thầm rớt về
+> request-count. Đây đúng là bug đã gặp ở smoke đầu (run `27127298906`: chạy
+> `requests:320` thay vì duration), fix ở commit `fc0c8f3`. Khi thêm runner mới,
+> phải thêm 2 biến này vào `RUN_ENV` của launcher tương ứng.
+
+### Kiểm chứng duration thật sự chạy (không tin mỗi tốc độ)
+
+Tốc độ nhanh **không** chứng minh duration mode — OSL ngắn cũng làm request-count
+nhanh. Để biết chắc, mở artifact `aiperf_search_*` và check **2 nguồn**:
+
+1. `search_iter_<NNNN>/profile_runs/run_0001/profile_export_aiperf.json` →
+   `.input_config.phases[] | select(.name=="profiling")`:
+   - **Duration mode:** `requests: null, duration: 20.0, grace_period: 10.0`
+   - **Request-count:** `requests: 320, duration: null`
+2. `search_iter_<NNNN>/profile_runs/run_0001/logs/aiperf.log` → dòng
+   `PhaseRecordsStats(phase=...PROFILING...)`: duration mode chạy đúng `duration`
+   giây mỗi điểm — đối chiếu `sent_end_ns − start_ns ≈ duration × 1e9` (smoke v2:
+   cả 6 iteration đều **đúng 20.0s**; v1 request-count biến thiên 10–25s theo waves).
+
 ### Đặt duration bao nhiêu?
 
 Đơn vị là **giây**. Quy tắc dựa trên thời gian decode mỗi request tại SLA:
@@ -304,3 +342,4 @@ file thô khổng lồ (`profile_export_raw.jsonl`, `inputs.json`).
 | `exactly one of --request-count or --benchmark-duration` | set cả hai hoặc không cái nào | bỏ bớt — duration-based chỉ cần `benchmark-duration`; mặc định không set field nào (request-count tự suy ra) |
 | `FileNotFoundError` khi đọc winner export | đang chạy adapter cũ (map theo `concurrency_<v>/`) | dùng adapter đã fix (`e73ab5c`+): map winner qua `iteration_idx` → `search_iter_<NNNN>/` |
 | số liệu duration "lạ"/ít sample | `benchmark-duration` quá ngắn (vd smoke 20s) | đo thật phải ≥300s/điểm (mục 3.5) |
+| đặt `benchmark-duration` nhưng phase vẫn `requests:320` (rớt về request-count) | launcher không forward biến vào container | thêm `BENCHMARK_DURATION BENCHMARK_GRACE_PERIOD` vào mảng `RUN_ENV` / `docker run -e` của launcher (mục 3.5 → "Đường ống đầy đủ"; fix `fc0c8f3`) |
