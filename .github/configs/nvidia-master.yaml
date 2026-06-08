@@ -4789,6 +4789,31 @@ gemma4-bf16-h100-vllm:
       search-space:
       - { tp: 2, conc-start: 4, conc-end: 32 }
 
+# Qwen3-4B-Instruct-2507 (bf16, TP=1) on the GreenNode H200 box. Small model
+# used to validate the AIPerf search-recipe plumbing end to end: instead of
+# emitting one matrix entry per concurrency, the conc-start..conc-end ladder
+# [8, 16, 32] (step_size 2) is handed to the adapter, which sweeps it and
+# records the single point with the highest total token throughput whose p99
+# inter-token latency stays under sla-ms. runner: h200-greennode_00 is used
+# directly as the runs-on label (no runners.yaml entry); select with
+# --model-prefix qwen3-4b-2507. Serving script: qwen3-4b-2507_bf16_h100.sh
+# (the _h100 token is just the filename convention, hardware-agnostic).
+qwen3-4b-2507-bf16-h200-greennode-vllm-search-recipe:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507
+  runner: h200-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50 }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5

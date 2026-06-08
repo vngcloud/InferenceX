@@ -266,6 +266,9 @@ jobs:
             num-speculative-tokens: ${{ matrix.config.num-speculative-tokens }}
             max-num-batched-tokens: ${{ matrix.config.max-num-batched-tokens }}
             disagg: ${{ matrix.config.disagg }}
+            search-recipe: ${{ matrix.config.search-recipe }}
+            sla-ms: ${{ matrix.config.sla-ms }}
+            search-concurrencies: ${{ toJson(matrix.config.search-concurrencies) }}
             run-eval: false
             ref: ${{ inputs.ref }}
 

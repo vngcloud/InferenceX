@@ -101,6 +101,21 @@ on:
         required: false
         type: string
         default: '1800'
+      search-recipe:
+        description: "AIPerf search recipe (e.g. max-throughput-itl-sla). Empty = single fixed concurrency."
+        required: false
+        type: string
+        default: ''
+      sla-ms:
+        description: "SLA threshold (ms) for the search recipe's constraint metric."
+        required: false
+        type: string
+        default: ''
+      search-concurrencies:
+        description: "JSON list of concurrencies the AIPerf adapter sweeps for the recipe (e.g. [8,16,32])."
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -131,6 +146,9 @@ env:
   OFFLOADING: ${{ inputs.offloading }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
+  SEARCH_RECIPE: ${{ inputs.search-recipe }}
+  SLA_MS: ${{ inputs.sla-ms }}
+  SEARCH_CONCURRENCIES: ${{ inputs.search-concurrencies }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache

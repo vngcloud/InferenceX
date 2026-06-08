@@ -40,6 +40,11 @@ class Fields(Enum):
     CONC_LIST = 'conc-list'
     EP = 'ep'
     DP_ATTN = 'dp-attn'
+    # AIPerf search recipe: the adapter drives the concurrency ladder and
+    # records the single winning point per the recipe (see aiperf_adapter.py).
+    SEARCH_RECIPE = 'search-recipe'
+    SLA_MS = 'sla-ms'
+    SEARCH_CONCURRENCIES = 'search-concurrencies'
     MAX_NUM_BATCHED_TOKENS = 'max-num-batched-tokens'
     NUM_SPECULATIVE_TOKENS = 'num-speculative-tokens'
 
@@ -113,6 +118,14 @@ class SingleNodeMatrixEntry(BaseModel):
     disagg: bool
     run_eval: bool = Field(alias=Fields.RUN_EVAL.value)
     eval_only: bool = Field(alias=Fields.EVAL_ONLY.value, default=False)
+    # AIPerf search recipe (optional). When set, `conc` is the largest ladder
+    # value (server sizing) and `search_concurrencies` is the full ladder the
+    # adapter sweeps.
+    search_recipe: Optional[str] = Field(
+        default=None, alias=Fields.SEARCH_RECIPE.value)
+    sla_ms: Optional[float] = Field(default=None, alias=Fields.SLA_MS.value)
+    search_concurrencies: Optional[List[int]] = Field(
+        default=None, alias=Fields.SEARCH_CONCURRENCIES.value)
 
 
 class WorkerConfig(BaseModel):
@@ -310,6 +323,13 @@ class SingleNodeSearchSpaceEntry(BaseModel):
         default=None, alias=Fields.CONC_END.value)
     conc_list: Optional[List[int]] = Field(
         default=None, alias=Fields.CONC_LIST.value)
+    # AIPerf search recipe (optional). When set, the conc range/list defines the
+    # ladder the adapter sweeps; it records the single winning point instead of
+    # emitting one matrix entry per concurrency. The recipe name is validated by
+    # the adapter (argparse choices), not here, to avoid coupling.
+    search_recipe: Optional[str] = Field(
+        default=None, alias=Fields.SEARCH_RECIPE.value)
+    sla_ms: Optional[float] = Field(default=None, alias=Fields.SLA_MS.value)
 
     @model_validator(mode='after')
     def validate_conc_fields(self):

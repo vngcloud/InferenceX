@@ -527,6 +527,9 @@ run_aiperf_benchmark() {
     local isl=""
     local osl=""
     local random_seed=""
+    local search_recipe=""
+    local search_concurrencies=""
+    local sla_ms=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -547,22 +550,31 @@ run_aiperf_benchmark() {
             --isl) isl="$2"; shift 2 ;;
             --osl) osl="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
+            --search-recipe) search_recipe="$2"; shift 2 ;;
+            --search-concurrencies) search_concurrencies="$2"; shift 2 ;;
+            --sla-ms) sla_ms="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
 
     if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
     if [[ -z "$url" ]]; then echo "Error: --url is required"; return 1; fi
-    if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
     if [[ -z "$request_count" ]]; then echo "Error: --request-count is required"; return 1; fi
     if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
     if [[ -z "$bench_serving_dir" ]]; then echo "Error: --bench-serving-dir is required"; return 1; fi
-    if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
     if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
-    if (( request_count < concurrency )); then
-        echo "Error: --request-count must be greater than or equal to --concurrency"
-        return 1
+    # In search mode the adapter drives the concurrency ladder itself, so a
+    # single --concurrency is not required; the adapter validates the ladder.
+    if [[ -z "$search_recipe" ]]; then
+        if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
+        if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
+        if (( request_count < concurrency )); then
+            echo "Error: --request-count must be greater than or equal to --concurrency"
+            return 1
+        fi
+    elif [[ -z "$search_concurrencies" ]]; then
+        echo "Error: --search-recipe requires --search-concurrencies"; return 1
     fi
 
     local benchmark_cmd=(
@@ -570,11 +582,17 @@ run_aiperf_benchmark() {
         --model "$model"
         --url "$url"
         --endpoint-type "$endpoint_type"
-        --concurrency "$concurrency"
         --request-count "$request_count"
         --result-filename "$result_filename"
         --result-dir "$result_dir"
     )
+
+    if [[ -n "$search_recipe" ]]; then
+        benchmark_cmd+=(--search-recipe "$search_recipe" --search-concurrencies "$search_concurrencies")
+        if [[ -n "$sla_ms" ]]; then benchmark_cmd+=(--sla-ms "$sla_ms"); fi
+    else
+        benchmark_cmd+=(--concurrency "$concurrency")
+    fi
 
     if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
     if [[ -n "$server_metrics_url" ]]; then benchmark_cmd+=(--server-metrics-url "$server_metrics_url"); fi
@@ -614,6 +632,9 @@ run_client_benchmark() {
     local use_chat_template=false
     local dsv4=false
     local trust_remote_code=false
+    local search_recipe=""
+    local search_concurrencies=""
+    local sla_ms=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -633,6 +654,9 @@ run_client_benchmark() {
             --use-chat-template) use_chat_template=true; shift ;;
             --dsv4) dsv4=true; use_chat_template=true; shift ;;
             --trust-remote-code) trust_remote_code=true; shift ;;
+            --search-recipe) search_recipe="$2"; shift 2 ;;
+            --search-concurrencies) search_concurrencies="$2"; shift 2 ;;
+            --sla-ms) sla_ms="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -653,11 +677,13 @@ run_client_benchmark() {
 
     case "$benchmark_client" in
         aiperf)
+            # concurrency carries the largest ladder value in search mode (the
+            # serving server is sized to it), so request/warmup counts derived
+            # from it remain valid for every ladder point.
             local aiperf_args=(
                 --model "$model"
                 --url "http://0.0.0.0:$port"
                 --endpoint-type "$endpoint_type"
-                --concurrency "$concurrency"
                 --request-count "$((concurrency * 10))"
                 --warmup-request-count "$((concurrency * 2))"
                 --isl "$isl"
@@ -666,6 +692,12 @@ run_client_benchmark() {
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
+            if [[ -n "$search_recipe" ]]; then
+                aiperf_args+=(--search-recipe "$search_recipe" --search-concurrencies "$search_concurrencies")
+                if [[ -n "$sla_ms" ]]; then aiperf_args+=(--sla-ms "$sla_ms"); fi
+            else
+                aiperf_args+=(--concurrency "$concurrency")
+            fi
             if [[ -n "$random_seed" ]]; then
                 aiperf_args+=(--random-seed "$random_seed")
             fi

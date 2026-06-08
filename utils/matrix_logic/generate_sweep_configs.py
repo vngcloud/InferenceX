@@ -347,38 +347,70 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     seq_len_str = seq_len_to_str(isl, osl)
                     runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
 
+                    search_recipe = bmk.get(Fields.SEARCH_RECIPE.value)
+                    sla_ms = bmk.get(Fields.SLA_MS.value)
+
+                    def _single_node_entry(conc_value, runner_value, benchmark_client):
+                        entry = {
+                            Fields.IMAGE.value: image,
+                            Fields.MODEL.value: model,
+                            Fields.MODEL_PREFIX.value: model_code,
+                            Fields.PRECISION.value: precision,
+                            Fields.FRAMEWORK.value: framework,
+                            Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                            Fields.RUNNER.value: runner_value,
+                            Fields.ISL.value: isl,
+                            Fields.OSL.value: osl,
+                            Fields.TP.value: tp,
+                            Fields.CONC.value: conc_value,
+                            Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                            Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                            Fields.EP.value: 1,  # Default
+                            Fields.DP_ATTN.value: False,  # Default
+                            Fields.SPEC_DECODING.value: spec_decoding,
+                            Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
+                            Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
+                            Fields.DISAGG.value: disagg,
+                            Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
+                        }
+                        if ep is not None:
+                            entry[Fields.EP.value] = ep
+                        if dp_attn is not None:
+                            entry[Fields.DP_ATTN.value] = dp_attn
+                        return entry
+
                     for benchmark_client in benchmark_clients:
+                        # AIPerf search recipe: emit a single entry carrying the
+                        # whole concurrency ladder (the adapter sweeps it and
+                        # records the winning point) instead of one entry per
+                        # concurrency. Only the aiperf adapter understands this;
+                        # other clients fall back to normal per-conc expansion.
+                        if search_recipe and benchmark_client == "aiperf":
+                            conc_ladder = []
+                            conc = conc_start
+                            while conc <= conc_end:
+                                conc_ladder.append(conc)
+                                if conc == conc_end:
+                                    break
+                                conc *= args.step_size
+                                if conc > conc_end:
+                                    conc = conc_end
+                            for runner_value in runners_for_entry:
+                                entry = _single_node_entry(
+                                    max(conc_ladder), runner_value, benchmark_client)
+                                entry[Fields.SEARCH_RECIPE.value] = search_recipe
+                                entry[Fields.SEARCH_CONCURRENCIES.value] = conc_ladder
+                                if sla_ms is not None:
+                                    entry[Fields.SLA_MS.value] = sla_ms
+                                validate_matrix_entry(entry, is_multinode)
+                                matrix_values.append(entry)
+                            continue
+
                         conc = conc_start
                         while conc <= conc_end:
                             for runner_value in runners_for_entry:
-                                entry = {
-                                    Fields.IMAGE.value: image,
-                                    Fields.MODEL.value: model,
-                                    Fields.MODEL_PREFIX.value: model_code,
-                                    Fields.PRECISION.value: precision,
-                                    Fields.FRAMEWORK.value: framework,
-                                    Fields.BENCHMARK_CLIENT.value: benchmark_client,
-                                    Fields.RUNNER.value: runner_value,
-                                    Fields.ISL.value: isl,
-                                    Fields.OSL.value: osl,
-                                    Fields.TP.value: tp,
-                                    Fields.CONC.value: conc,
-                                    Fields.MAX_MODEL_LEN.value: isl + osl + 256,
-                                    Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
-                                    Fields.EP.value: 1,  # Default
-                                    Fields.DP_ATTN.value: False,  # Default
-                                    Fields.SPEC_DECODING.value: spec_decoding,
-                                    Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
-                                    Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
-                                    Fields.DISAGG.value: disagg,
-                                    Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
-                                }
-
-                                if ep is not None:
-                                    entry[Fields.EP.value] = ep
-                                if dp_attn is not None:
-                                    entry[Fields.DP_ATTN.value] = dp_attn
-
+                                entry = _single_node_entry(
+                                    conc, runner_value, benchmark_client)
                                 validate_matrix_entry(entry, is_multinode)
                                 matrix_values.append(entry)
 
