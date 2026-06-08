@@ -4822,6 +4822,22 @@ qwen3-4b-2507-bf16-h200-greennode-vllm-search-recipe:
       search-space:
       - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 6, benchmark-duration: 20, benchmark-grace-period: 10 }
 
+qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-smoke:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h200-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 128
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 6, benchmark-duration: 20, benchmark-grace-period: 10 }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
