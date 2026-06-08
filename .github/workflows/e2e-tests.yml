@@ -271,6 +271,8 @@ jobs:
             concurrency-min: ${{ matrix.config.concurrency-min }}
             concurrency-max: ${{ matrix.config.concurrency-max }}
             search-max-iterations: ${{ matrix.config.search-max-iterations }}
+            benchmark-duration: ${{ matrix.config.benchmark-duration }}
+            benchmark-grace-period: ${{ matrix.config.benchmark-grace-period }}
             run-eval: false
             ref: ${{ inputs.ref }}
 

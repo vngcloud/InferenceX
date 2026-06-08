@@ -126,6 +126,16 @@ on:
         required: false
         type: string
         default: ''
+      benchmark-duration:
+        description: "Measure each (BO-probed) run for this many seconds instead of a fixed request count. Empty = request-count mode."
+        required: false
+        type: string
+        default: ''
+      benchmark-grace-period:
+        description: "Seconds to collect in-flight responses after --benchmark-duration ends (must exceed one request's decode time). Ignored unless benchmark-duration set."
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -161,6 +171,8 @@ env:
   CONCURRENCY_MIN: ${{ inputs.concurrency-min }}
   CONCURRENCY_MAX: ${{ inputs.concurrency-max }}
   SEARCH_MAX_ITERATIONS: ${{ inputs.search-max-iterations }}
+  BENCHMARK_DURATION: ${{ inputs.benchmark-duration }}
+  BENCHMARK_GRACE_PERIOD: ${{ inputs.benchmark-grace-period }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache
@@ -275,6 +287,23 @@ jobs:
         with:
           name: bmk_${{ env.RESULT_FILENAME }}
           path: agg_${{ env.RESULT_FILENAME }}.json
+
+      # Raw AIPerf search artifacts (only present for --search-recipe runs).
+      # always() so a crash mid-parse still surfaces the BO trajectory for
+      # debugging. Scoped to the small JSON/log files — the per-request
+      # profile_export_raw.jsonl (multi-GB HTTP bodies) and inputs.json are
+      # deliberately excluded.
+      - name: Upload aiperf search artifacts (raw)
+        if: ${{ always() && inputs.search-recipe != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aiperf_search_${{ env.RESULT_FILENAME }}
+          path: |
+            ${{ env.RESULT_FILENAME }}_aiperf/search_history.json
+            ${{ env.RESULT_FILENAME }}_aiperf/**/profile_export_aiperf.json
+            ${{ env.RESULT_FILENAME }}_aiperf/**/profile_export_aiperf_aggregate.json
+            ${{ env.RESULT_FILENAME }}_aiperf/**/logs/aiperf.log
+          if-no-files-found: ignore
 
       - name: Upload agentic aggregated result
         if: ${{ inputs.scenario-type == 'agentic-coding' }}

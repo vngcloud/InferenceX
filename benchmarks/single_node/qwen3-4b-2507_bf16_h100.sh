@@ -60,6 +60,15 @@ if [[ -n "${SEARCH_RECIPE:-}" ]]; then
     if [[ -n "${SLA_MS:-}" ]]; then SEARCH_ARGS+=(--sla-ms "$SLA_MS"); fi
     if [[ -n "${SEARCH_MAX_ITERATIONS:-}" ]]; then SEARCH_ARGS+=(--search-max-iterations "$SEARCH_MAX_ITERATIONS"); fi
 fi
+# Optional duration-based measurement (config-driven). When set, each BO-probed
+# concurrency is measured for BENCHMARK_DURATION seconds instead of a fixed
+# request count; BENCHMARK_GRACE_PERIOD must exceed one request's decode time.
+if [[ -n "${BENCHMARK_DURATION:-}" ]]; then
+    SEARCH_ARGS+=(--benchmark-duration "$BENCHMARK_DURATION")
+    if [[ -n "${BENCHMARK_GRACE_PERIOD:-}" ]]; then
+        SEARCH_ARGS+=(--benchmark-grace-period "$BENCHMARK_GRACE_PERIOD")
+    fi
+fi
 
 run_client_benchmark \
     --model "$SERVED_MODEL_NAME" \

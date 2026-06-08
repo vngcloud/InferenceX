@@ -532,6 +532,8 @@ run_aiperf_benchmark() {
     local concurrency_max=""
     local search_max_iterations=""
     local sla_ms=""
+    local benchmark_duration=""
+    local benchmark_grace_period=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -557,24 +559,34 @@ run_aiperf_benchmark() {
             --concurrency-max) concurrency_max="$2"; shift 2 ;;
             --search-max-iterations) search_max_iterations="$2"; shift 2 ;;
             --sla-ms) sla_ms="$2"; shift 2 ;;
+            --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
+            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
 
     if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
     if [[ -z "$url" ]]; then echo "Error: --url is required"; return 1; fi
-    if [[ -z "$request_count" ]]; then echo "Error: --request-count is required"; return 1; fi
     if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
     if [[ -z "$bench_serving_dir" ]]; then echo "Error: --bench-serving-dir is required"; return 1; fi
-    if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
+    # Load terminator: exactly one of --request-count or --benchmark-duration.
+    if [[ -n "$request_count" && -n "$benchmark_duration" ]]; then
+        echo "Error: --request-count and --benchmark-duration are mutually exclusive"; return 1
+    fi
+    if [[ -z "$request_count" && -z "$benchmark_duration" ]]; then
+        echo "Error: one of --request-count or --benchmark-duration is required"; return 1
+    fi
+    if [[ -n "$request_count" ]] && ! [[ "$request_count" =~ ^[0-9]+$ ]]; then
+        echo "Error: --request-count must be an integer"; return 1
+    fi
     # In search mode AIPerf's native BO chooses the concurrency points itself
     # within [--concurrency-min, --concurrency-max], so a single --concurrency is
     # not required; the adapter forwards the range and validates it.
     if [[ -z "$search_recipe" ]]; then
         if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
         if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
-        if (( request_count < concurrency )); then
+        if [[ -n "$request_count" ]] && (( request_count < concurrency )); then
             echo "Error: --request-count must be greater than or equal to --concurrency"
             return 1
         fi
@@ -587,10 +599,21 @@ run_aiperf_benchmark() {
         --model "$model"
         --url "$url"
         --endpoint-type "$endpoint_type"
-        --request-count "$request_count"
         --result-filename "$result_filename"
         --result-dir "$result_dir"
     )
+
+    # Load terminator: a fixed request count or a wall-clock duration (the
+    # caller guarantees exactly one is set). Duration gives every BO-probed
+    # concurrency an equal measurement window.
+    if [[ -n "$request_count" ]]; then
+        benchmark_cmd+=(--request-count "$request_count")
+    else
+        benchmark_cmd+=(--benchmark-duration "$benchmark_duration")
+        if [[ -n "$benchmark_grace_period" ]]; then
+            benchmark_cmd+=(--benchmark-grace-period "$benchmark_grace_period")
+        fi
+    fi
 
     if [[ -n "$search_recipe" ]]; then
         benchmark_cmd+=(--search-recipe "$search_recipe" --concurrency-min "$concurrency_min" --concurrency-max "$concurrency_max")
@@ -643,6 +666,8 @@ run_client_benchmark() {
     local concurrency_max=""
     local search_max_iterations=""
     local sla_ms=""
+    local benchmark_duration=""
+    local benchmark_grace_period=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -667,6 +692,8 @@ run_client_benchmark() {
             --concurrency-max) concurrency_max="$2"; shift 2 ;;
             --search-max-iterations) search_max_iterations="$2"; shift 2 ;;
             --sla-ms) sla_ms="$2"; shift 2 ;;
+            --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
+            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -694,14 +721,27 @@ run_client_benchmark() {
                 --model "$model"
                 --url "http://0.0.0.0:$port"
                 --endpoint-type "$endpoint_type"
-                --request-count "$((concurrency * 10))"
-                --warmup-request-count "$((concurrency * 2))"
                 --isl "$isl"
                 --osl "$osl"
                 --result-filename "$result_filename"
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
+            # Load terminator. Duration mode (config-driven --benchmark-duration)
+            # measures every BO-probed concurrency for an equal wall-clock window
+            # instead of a fixed request count (which shrinks the window as
+            # concurrency rises). Default stays request-count = concurrency*10.
+            if [[ -n "$benchmark_duration" ]]; then
+                aiperf_args+=(--benchmark-duration "$benchmark_duration")
+                if [[ -n "$benchmark_grace_period" ]]; then
+                    aiperf_args+=(--benchmark-grace-period "$benchmark_grace_period")
+                fi
+            else
+                aiperf_args+=(
+                    --request-count "$((concurrency * 10))"
+                    --warmup-request-count "$((concurrency * 2))"
+                )
+            fi
             if [[ -n "$search_recipe" ]]; then
                 aiperf_args+=(--search-recipe "$search_recipe" --concurrency-min "$concurrency_min" --concurrency-max "$concurrency_max")
                 if [[ -n "$sla_ms" ]]; then aiperf_args+=(--sla-ms "$sla_ms"); fi

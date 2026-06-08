@@ -49,6 +49,12 @@ class Fields(Enum):
     CONCURRENCY_MIN = 'concurrency-min'
     CONCURRENCY_MAX = 'concurrency-max'
     SEARCH_MAX_ITERATIONS = 'search-max-iterations'
+    # Duration-based measurement (optional). When set, AIPerf measures each
+    # (BO-probed) concurrency for this many seconds instead of a fixed request
+    # count, giving every point an equal measurement window. Grace period must
+    # exceed one request's decode time (~osl x target-ITL).
+    BENCHMARK_DURATION = 'benchmark-duration'
+    BENCHMARK_GRACE_PERIOD = 'benchmark-grace-period'
     MAX_NUM_BATCHED_TOKENS = 'max-num-batched-tokens'
     NUM_SPECULATIVE_TOKENS = 'num-speculative-tokens'
 
@@ -134,6 +140,10 @@ class SingleNodeMatrixEntry(BaseModel):
         default=None, alias=Fields.CONCURRENCY_MAX.value)
     search_max_iterations: Optional[int] = Field(
         default=None, alias=Fields.SEARCH_MAX_ITERATIONS.value)
+    benchmark_duration: Optional[float] = Field(
+        default=None, alias=Fields.BENCHMARK_DURATION.value)
+    benchmark_grace_period: Optional[float] = Field(
+        default=None, alias=Fields.BENCHMARK_GRACE_PERIOD.value)
 
 
 class WorkerConfig(BaseModel):
@@ -341,6 +351,10 @@ class SingleNodeSearchSpaceEntry(BaseModel):
     sla_ms: Optional[float] = Field(default=None, alias=Fields.SLA_MS.value)
     search_max_iterations: Optional[int] = Field(
         default=None, alias=Fields.SEARCH_MAX_ITERATIONS.value)
+    benchmark_duration: Optional[float] = Field(
+        default=None, alias=Fields.BENCHMARK_DURATION.value)
+    benchmark_grace_period: Optional[float] = Field(
+        default=None, alias=Fields.BENCHMARK_GRACE_PERIOD.value)
 
     @model_validator(mode='after')
     def validate_conc_fields(self):

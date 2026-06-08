@@ -137,6 +137,10 @@ def common_aiperf_args(args: argparse.Namespace) -> list[str]:
         cmd.extend(["--osl", str(args.osl)])
     if args.random_seed is not None:
         cmd.extend(["--random-seed", str(args.random_seed)])
+    if args.benchmark_duration is not None:
+        cmd.extend(["--benchmark-duration", str(args.benchmark_duration)])
+        if args.benchmark_grace_period is not None:
+            cmd.extend(["--benchmark-grace-period", str(args.benchmark_grace_period)])
     return cmd
 
 
@@ -154,12 +158,12 @@ def run_aiperf(args: argparse.Namespace, concurrency: int, artifact_dir: Path) -
         "--streaming",
         "--concurrency",
         str(concurrency),
-        "--request-count",
-        str(args.request_count),
         "--artifact-dir",
         str(artifact_dir),
         *common_aiperf_args(args),
     ]
+    if args.request_count is not None:
+        cmd.extend(["--request-count", str(args.request_count)])
     subprocess.run(cmd, check=True)
     return json.loads((artifact_dir / PROFILE_EXPORT).read_text())
 
@@ -183,12 +187,12 @@ def build_search_command(args: argparse.Namespace, artifact_dir: Path) -> list[s
         str(args.concurrency_min),
         "--concurrency-max",
         str(args.concurrency_max),
-        "--request-count",
-        str(args.request_count),
         "--artifact-dir",
         str(artifact_dir),
         *common_aiperf_args(args),
     ]
+    if args.request_count is not None:
+        cmd.extend(["--request-count", str(args.request_count)])
     # InferenceX's --sla-ms is the p95 ITL/TPOT threshold; forward it as AIPerf's
     # --itl-sla-ms (alias of --tpot-sla-ms). --ttft-sla-ms passes straight
     # through. AIPerf's SLAFilter applies these at p95 by default.
@@ -267,7 +271,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--url", required=True)
     parser.add_argument("--concurrency", type=int)
-    parser.add_argument("--request-count", required=True, type=int)
+    parser.add_argument(
+        "--request-count",
+        type=int,
+        help="Stop each (probed) run after this many requests. Mutually "
+        "exclusive with --benchmark-duration; exactly one is required.",
+    )
+    parser.add_argument(
+        "--benchmark-duration",
+        type=float,
+        help="Measure each (probed) run for this many seconds instead of a "
+        "fixed request count (AIPerf --benchmark-duration). Mutually exclusive "
+        "with --request-count. In --search-recipe mode the duration applies "
+        "per BO-probed concurrency, so every point gets an equal measurement "
+        "window (request count would shrink the window as concurrency rises).",
+    )
+    parser.add_argument(
+        "--benchmark-grace-period",
+        type=float,
+        help="Seconds to keep collecting in-flight responses after "
+        "--benchmark-duration ends (AIPerf --benchmark-grace-period). Must "
+        "exceed one request's decode time (~osl x target-ITL) or in-flight "
+        "requests are truncated. Ignored unless --benchmark-duration is set.",
+    )
     parser.add_argument("--result-filename", required=True)
     parser.add_argument("--result-dir", required=True, type=Path)
     parser.add_argument("--endpoint-type", default="chat")
@@ -313,6 +339,13 @@ def parse_args() -> argparse.Namespace:
     )
     args = parser.parse_args()
 
+    # Load terminator: exactly one of a fixed request count or a wall-clock
+    # duration. AIPerf accepts either as the profiling-phase stop condition.
+    if (args.request_count is None) == (args.benchmark_duration is None):
+        parser.error(
+            "exactly one of --request-count or --benchmark-duration is required"
+        )
+
     if args.search_recipe:
         recipe = SEARCH_RECIPES[args.search_recipe]
         if args.concurrency_min is None or args.concurrency_max is None:
@@ -330,12 +363,14 @@ def parse_args() -> argparse.Namespace:
                 f"--search-recipe {args.search_recipe} requires at least one of "
                 "--sla-ms / --ttft-sla-ms"
             )
-        if args.request_count < args.concurrency_max:
+        # request-count must cover the largest concurrency the BO may probe;
+        # duration-mode has no such constraint (the window is time-bounded).
+        if args.request_count is not None and args.request_count < args.concurrency_max:
             parser.error("--request-count must be >= --concurrency-max")
     else:
         if args.concurrency is None:
             parser.error("--concurrency is required unless --search-recipe is set")
-        if args.request_count < args.concurrency:
+        if args.request_count is not None and args.request_count < args.concurrency:
             parser.error("--request-count must be greater than or equal to --concurrency")
 
     return args

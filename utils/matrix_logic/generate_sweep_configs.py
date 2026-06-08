@@ -351,6 +351,9 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     sla_ms = bmk.get(Fields.SLA_MS.value)
                     search_max_iterations = bmk.get(
                         Fields.SEARCH_MAX_ITERATIONS.value)
+                    benchmark_duration = bmk.get(Fields.BENCHMARK_DURATION.value)
+                    benchmark_grace_period = bmk.get(
+                        Fields.BENCHMARK_GRACE_PERIOD.value)
 
                     def _single_node_entry(conc_value, runner_value, benchmark_client):
                         entry = {
@@ -401,6 +404,12 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 if search_max_iterations is not None:
                                     entry[Fields.SEARCH_MAX_ITERATIONS.value] = \
                                         search_max_iterations
+                                if benchmark_duration is not None:
+                                    entry[Fields.BENCHMARK_DURATION.value] = \
+                                        benchmark_duration
+                                if benchmark_grace_period is not None:
+                                    entry[Fields.BENCHMARK_GRACE_PERIOD.value] = \
+                                        benchmark_grace_period
                                 validate_matrix_entry(entry, is_multinode)
                                 matrix_values.append(entry)
                             continue

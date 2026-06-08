@@ -4811,11 +4811,16 @@ qwen3-4b-2507-bf16-h200-greennode-vllm-search-recipe:
   multinode: false
   scenarios:
     fixed-seq-len:
+    # osl kept short (128) so each request finishes in ~1s on H200: a
+    # duration-based smoke needs requests to complete inside the measurement
+    # window, and short requests make the BO loop validate fast. benchmark-grace
+    # (10s) exceeds one request's worst-case decode (128 x 50ms SLA = 6.4s) so
+    # in-flight requests are counted, not truncated.
     - isl: 1024
-      osl: 1024
+      osl: 128
       benchmark-client: [aiperf]
       search-space:
-      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 6 }
+      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 6, benchmark-duration: 20, benchmark-grace-period: 10 }
 
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
