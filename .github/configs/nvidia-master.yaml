@@ -4852,7 +4852,7 @@ qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-8k1k-real:
       osl: 1024
       benchmark-client: [aiperf]
       search-space:
-      - { tp: 1, conc-start: 32, conc-end: 1000, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
 
 qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real:
   image: vllm/vllm-openai:v0.21.0
@@ -4868,7 +4868,7 @@ qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real:
       osl: 1024
       benchmark-client: [aiperf]
       search-space:
-      - { tp: 1, conc-start: 32, conc-end: 1000, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
 
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
