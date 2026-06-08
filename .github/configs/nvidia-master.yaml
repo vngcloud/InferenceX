@@ -4718,6 +4718,22 @@ qwen3.5-27b-fp8-h100-1x-sglang:
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none }
 
+qwen3.5-27b-bf16-h100-2x-vllm-search:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h100-2x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 10 }
+
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
