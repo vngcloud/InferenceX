@@ -819,6 +819,11 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
                     max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
+                    search_recipe = bmk.get(Fields.SEARCH_RECIPE.value)
+                    sla_ms = bmk.get(Fields.SLA_MS.value)
+                    search_max_iterations = bmk.get(Fields.SEARCH_MAX_ITERATIONS.value)
+                    benchmark_duration = bmk.get(Fields.BENCHMARK_DURATION.value)
+                    benchmark_grace_period = bmk.get(Fields.BENCHMARK_GRACE_PERIOD.value)
 
                     # Get concurrency values
                     if Fields.CONC_LIST.value in bmk:
@@ -844,6 +849,46 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                             continue
 
                     for benchmark_client in benchmark_clients:
+                        # AIPerf native BO search: emit one entry for the whole
+                        # [conc_start, conc_end] range instead of one per conc value.
+                        if search_recipe and benchmark_client == "aiperf":
+                            for runner_value in runners_for_entry:
+                                entry = {
+                                    Fields.IMAGE.value: image,
+                                    Fields.MODEL.value: model,
+                                    Fields.MODEL_PREFIX.value: model_code,
+                                    Fields.PRECISION.value: precision,
+                                    Fields.FRAMEWORK.value: framework,
+                                    Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                    Fields.RUNNER.value: runner_value,
+                                    Fields.ISL.value: isl,
+                                    Fields.OSL.value: osl,
+                                    Fields.TP.value: tp,
+                                    Fields.CONC.value: conc_end,
+                                    Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                    Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                                    Fields.EP.value: ep if ep is not None else 1,
+                                    Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                    Fields.SPEC_DECODING.value: spec_decoding,
+                                    Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
+                                    Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
+                                    Fields.DISAGG.value: disagg,
+                                    Fields.RUN_EVAL.value: False,
+                                    Fields.SEARCH_RECIPE.value: search_recipe,
+                                    Fields.CONCURRENCY_MIN.value: conc_start,
+                                    Fields.CONCURRENCY_MAX.value: conc_end,
+                                }
+                                if sla_ms is not None:
+                                    entry[Fields.SLA_MS.value] = sla_ms
+                                if search_max_iterations is not None:
+                                    entry[Fields.SEARCH_MAX_ITERATIONS.value] = search_max_iterations
+                                if benchmark_duration is not None:
+                                    entry[Fields.BENCHMARK_DURATION.value] = benchmark_duration
+                                if benchmark_grace_period is not None:
+                                    entry[Fields.BENCHMARK_GRACE_PERIOD.value] = benchmark_grace_period
+                                matrix_values.append(validate_matrix_entry(entry, is_multinode=False))
+                            continue
+
                         for conc in conc_values:
                             for runner_value in runners_for_entry:
                                 entry = {
