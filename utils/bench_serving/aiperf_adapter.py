@@ -201,17 +201,20 @@ def build_search_command(args: argparse.Namespace, artifact_dir: Path) -> list[s
     return cmd
 
 
-def winner_from_history(history: dict) -> tuple[int, bool]:
-    """Read the winning concurrency and feasibility from search_history.json.
+def winner_from_history(history: dict) -> tuple[int, int, bool]:
+    """Read the winning point from search_history.json.
 
     ``best_trials`` is feasibility-first: for a single-objective recipe it holds
     the single argmax/argmin. ``variation_values`` keys are dotted parameter
     paths (e.g. ``phases.profiling.concurrency``); we pick the one whose leaf is
-    ``concurrency``. ``feasible_count == 0`` signals AIPerf fell back to the full
-    (infeasible) pool because no probed point met the SLA.
+    ``concurrency``. ``iteration_idx`` is the BO iteration number — it, NOT the
+    concurrency, identifies the winner's on-disk artifact directory
+    (``search_iter_<iteration_idx:04d>/``; see ``winner_profile_export``).
+    ``feasible_count == 0`` signals AIPerf fell back to the full (infeasible)
+    pool because no probed point met the SLA.
 
     Returns:
-        (winner_concurrency, sla_met).
+        (winner_concurrency, iteration_idx, sla_met).
     """
     best = history.get("best_trials")
     if not best:
@@ -225,26 +228,37 @@ def winner_from_history(history: dict) -> tuple[int, bool]:
             break
     if concurrency is None:
         raise ValueError(f"no concurrency dimension in variation_values: {values}")
+    if "iteration_idx" not in top:
+        raise ValueError(f"best_trials[0] has no iteration_idx: {top}")
+    iteration_idx = int(top["iteration_idx"])
     sla_met = bool(top.get("feasible", False)) and top.get("feasible_count", 0) > 0
-    return concurrency, sla_met
+    return concurrency, iteration_idx, sla_met
 
 
-def winner_profile_export(artifact_dir: Path, concurrency: int) -> dict:
-    """Load the per-variation profile export for the winning concurrency.
+def winner_profile_export(artifact_dir: Path, iteration_idx: int) -> dict:
+    """Load the profile export for the winning BO iteration.
 
-    AIPerf writes each swept cell under ``<artifact>/concurrency_<v>/`` (see
-    ``aiperf.config.sweep._format_dir_name``). We prefer the single-run
-    ``profile_export_aiperf.json`` (nested-key schema ``build_result`` expects)
-    and glob for it to tolerate an intermediate ``aggregate/`` subdir.
+    AIPerf's adaptive (BO) search lays out each iteration as
+    ``<artifact>/search_iter_<NNNN>/profile_runs/run_<MMMM>/`` — the BO
+    iteration is the cell identity, NOT the proposed concurrency (verified
+    against aiperf 0.9.0: ``orchestrator.py`` builds
+    ``base/<variation.label>/profile_runs/run_<trial+1:04d>`` and the search
+    planners set ``variation.label = f"search_iter_{iteration_idx:04d}"``).
+    There is one run per iteration here, so we glob ``run_*`` rather than
+    hard-coding ``run_0001``. We prefer the single-run
+    ``profile_export_aiperf.json`` (the nested-key schema ``build_result``
+    expects), not the ``aggregate/`` rollup.
     """
-    cell = artifact_dir / f"concurrency_{concurrency}"
+    cell = artifact_dir / f"search_iter_{iteration_idx:04d}"
+    runs = cell / "profile_runs"
+    for candidate in sorted(runs.glob(f"run_*/{PROFILE_EXPORT}")):
+        return json.loads(candidate.read_text())
+    # Tolerate a flattened layout (no profile_runs wrapper) just in case.
     direct = cell / PROFILE_EXPORT
     if direct.exists():
         return json.loads(direct.read_text())
-    for candidate in sorted(cell.glob(f"**/{PROFILE_EXPORT}")):
-        return json.loads(candidate.read_text())
     raise FileNotFoundError(
-        f"no {PROFILE_EXPORT} for winning concurrency {concurrency} under {cell}"
+        f"no {PROFILE_EXPORT} for winning BO iteration {iteration_idx} under {cell}"
     )
 
 
@@ -341,8 +355,8 @@ def run_search(args: argparse.Namespace) -> dict:
     subprocess.run(cmd, check=True)
 
     history = json.loads((artifact_dir / SEARCH_HISTORY).read_text())
-    winner_conc, sla_met = winner_from_history(history)
-    artifact = winner_profile_export(artifact_dir, winner_conc)
+    winner_conc, winner_iter, sla_met = winner_from_history(history)
+    artifact = winner_profile_export(artifact_dir, winner_iter)
     result = build_result(artifact, winner_conc)
     result["search_recipe"] = args.search_recipe
     result["sla_met"] = sla_met

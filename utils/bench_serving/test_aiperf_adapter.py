@@ -66,14 +66,16 @@ def test_extract_max_concurrency_reads_profiling_phase():
     assert extract_max_concurrency(_artifact(concurrency=64)) == 64
 
 
-def _history(concurrency: int, *, feasible: bool, feasible_count: int) -> dict:
+def _history(
+    concurrency: int, *, feasible: bool, feasible_count: int, iteration_idx: int = 3
+) -> dict:
     """A minimal search_history.json payload (AIPerf 0.9.0 schema subset)."""
     return {
         "config": {"objectives": [], "sla_filters": []},
         "iterations": [],
         "best_trials": [
             {
-                "iteration_idx": 3,
+                "iteration_idx": iteration_idx,
                 "objective_values": [float(concurrency) * 100.0],
                 # AIPerf keys variation_values by dotted parameter path.
                 "variation_values": {"phases.profiling.concurrency": concurrency},
@@ -89,52 +91,60 @@ def _history(concurrency: int, *, feasible: bool, feasible_count: int) -> dict:
 
 
 def test_winner_from_history_reads_dotted_concurrency_and_feasibility():
-    conc, sla_met = winner_from_history(
-        _history(24, feasible=True, feasible_count=5)
+    conc, iteration_idx, sla_met = winner_from_history(
+        _history(24, feasible=True, feasible_count=5, iteration_idx=4)
     )
     assert conc == 24
+    assert iteration_idx == 4
     assert sla_met is True
 
 
 def test_winner_from_history_leaf_concurrency_key():
     history = _history(16, feasible=True, feasible_count=2)
     history["best_trials"][0]["variation_values"] = {"concurrency": 16}
-    conc, sla_met = winner_from_history(history)
+    conc, iteration_idx, sla_met = winner_from_history(history)
     assert conc == 16
+    assert iteration_idx == 3
     assert sla_met is True
 
 
 def test_winner_from_history_infeasible_when_no_feasible_count():
     # AIPerf falls back to the full pool with feasible_count == 0 when no probed
     # point met the SLA; the adapter surfaces that as sla_met=False.
-    conc, sla_met = winner_from_history(
+    conc, iteration_idx, sla_met = winner_from_history(
         _history(32, feasible=False, feasible_count=0)
     )
     assert conc == 32
     assert sla_met is False
 
 
-def test_winner_profile_export_prefers_direct_then_nested(tmp_path: Path):
-    base = tmp_path / "bmk_aiperf"
-    # Direct per-variation file.
-    direct = base / "concurrency_16"
-    direct.mkdir(parents=True)
-    (direct / "profile_export_aiperf.json").write_text(
-        json.dumps(_artifact(concurrency=16))
+def _write_search_iter_export(base: Path, iteration_idx: int, concurrency: int) -> None:
+    """Mirror AIPerf 0.9.0's adaptive (BO) artifact layout for one iteration:
+    ``<base>/search_iter_<NNNN>/profile_runs/run_<MMMM>/profile_export_aiperf.json``.
+    """
+    run = base / f"search_iter_{iteration_idx:04d}" / "profile_runs" / "run_0001"
+    run.mkdir(parents=True)
+    (run / "profile_export_aiperf.json").write_text(
+        json.dumps(_artifact(concurrency=concurrency))
     )
-    assert winner_profile_export(base, 16)["input_config"]["phases"][1][
-        "concurrency"
-    ] == 16
 
-    # Nested under an aggregate/ subdir (multi-trial cell layout).
-    nested = base / "concurrency_32" / "aggregate"
-    nested.mkdir(parents=True)
-    (nested / "profile_export_aiperf.json").write_text(
-        json.dumps(_artifact(concurrency=32))
-    )
-    assert winner_profile_export(base, 32)["input_config"]["phases"][1][
+
+def test_winner_profile_export_reads_search_iter_run_dir(tmp_path: Path):
+    # The winner is located by BO iteration index, NOT by concurrency: the
+    # proposed concurrency (30) never appears in the directory name.
+    base = tmp_path / "bmk_aiperf"
+    _write_search_iter_export(base, iteration_idx=5, concurrency=30)
+    assert winner_profile_export(base, 5)["input_config"]["phases"][1][
         "concurrency"
-    ] == 32
+    ] == 30
+
+
+def test_winner_profile_export_zero_pads_iteration_index(tmp_path: Path):
+    base = tmp_path / "bmk_aiperf"
+    _write_search_iter_export(base, iteration_idx=0, concurrency=8)
+    assert winner_profile_export(base, 0)["input_config"]["phases"][1][
+        "concurrency"
+    ] == 8
 
 
 def test_winner_profile_export_missing_raises(tmp_path: Path):
@@ -151,8 +161,10 @@ def test_search_recipes_are_native_names():
 
 # Fake `aiperf` that mimics the native BO search: it reads the concurrency
 # range, "optimises" to --concurrency-max as the winner, writes
-# search_history.json next to the artifact dir root, and writes the winner's
-# per-variation profile_export_aiperf.json under concurrency_<winner>/.
+# search_history.json at the artifact dir root, and writes the winner's
+# profile_export_aiperf.json under the real adaptive (BO) layout
+# search_iter_<iteration_idx>/profile_runs/run_0001/ (the BO iteration — not
+# the concurrency — is the cell identity, per aiperf 0.9.0).
 _FAKE_AIPERF_BO = (
     "#!/usr/bin/env python3\n"
     "import json, sys\n"
@@ -163,15 +175,16 @@ _FAKE_AIPERF_BO = (
     "art = Path(opt('--artifact-dir'))\n"
     "lo = int(opt('--concurrency-min')); hi = int(opt('--concurrency-max'))\n"
     "winner = hi  # pretend BO converged on the top of the range\n"
+    "winner_iter = 1\n"
     "art.mkdir(parents=True, exist_ok=True)\n"
     "history = {\n"
-    "    'best_trials': [{'iteration_idx': 1,\n"
+    "    'best_trials': [{'iteration_idx': winner_iter,\n"
     "        'objective_values': [winner * 100.0],\n"
     "        'variation_values': {'phases.profiling.concurrency': winner},\n"
     "        'feasible': True, 'feasible_count': 3, 'pareto_rank': 0}],\n"
     "    'recipe': opt('--search-recipe'), 'convergence_reason': 'max_iterations'}\n"
     "(art / 'search_history.json').write_text(json.dumps(history))\n"
-    "cell = art / ('concurrency_%d' % winner)\n"
+    "cell = art / ('search_iter_%04d' % winner_iter) / 'profile_runs' / 'run_0001'\n"
     "cell.mkdir(parents=True, exist_ok=True)\n"
     "artifact = {\n"
     "    'input_config': {'models': {'items': [{'name': 'm'}]},\n"
