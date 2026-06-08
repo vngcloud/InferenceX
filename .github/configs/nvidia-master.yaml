@@ -4826,6 +4826,38 @@ gemma4-fp8-h200-greennode-vllm-aiperf-16k1k-real:
       search-space:
       - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
 
+gemma4-fp8-h200-greennode-vllm-aiperf-8k1k-real-tp2:
+  image: vllm/vllm-openai:v0.21.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h200-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 8, conc-end: 256, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
+
+gemma4-fp8-h200-greennode-vllm-aiperf-16k1k-real-tp2:
+  image: vllm/vllm-openai:v0.21.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h200-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 8, conc-end: 256, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
+
 gemma4-fp8-h200-greennode-sglang-aiperf-8k1k-real:
   image: lmsysorg/sglang:v0.5.12-cu130
   model: RedHatAI/gemma-4-31B-it-FP8-block
@@ -4938,6 +4970,38 @@ qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real:
       benchmark-client: [aiperf]
       search-space:
       - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+
+qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-8k1k-real-tp2:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h200-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 8, conc-end: 256, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+
+qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real-tp2:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h200-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 8, conc-end: 256, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
 
 qwen3.5-27b-bf16-h200-greennode-sglang-aiperf-8k1k-real:
   image: lmsysorg/sglang:v0.5.12-cu130
