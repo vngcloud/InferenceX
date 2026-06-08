@@ -21,6 +21,10 @@ nvidia-smi
 
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-qwen3-5-27b}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$(( ISL + OSL + 256 ))}"
+SERVER_MAX_NUM_SEQS="${SERVER_MAX_NUM_SEQS:-$CONC}"
+if (( SERVER_MAX_NUM_SEQS > 256 )); then
+    SERVER_MAX_NUM_SEQS=256
+fi
 
 if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 
@@ -43,7 +47,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_xml \
     --max-model-len "$MAX_MODEL_LEN" \
-    --max-num-seqs "$CONC" > "$SERVER_LOG" 2>&1 &
+    --max-num-seqs "$SERVER_MAX_NUM_SEQS" > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
 
