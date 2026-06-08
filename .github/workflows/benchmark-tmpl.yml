@@ -102,17 +102,27 @@ on:
         type: string
         default: '1800'
       search-recipe:
-        description: "AIPerf search recipe (e.g. max-throughput-itl-sla). Empty = single fixed concurrency."
+        description: "AIPerf native BO search recipe (e.g. max-throughput-itl-sla). Empty = single fixed concurrency."
         required: false
         type: string
         default: ''
       sla-ms:
-        description: "SLA threshold (ms) for the search recipe's constraint metric."
+        description: "p95 ITL/TPOT SLA threshold (ms) forwarded to AIPerf's recipe (--itl-sla-ms)."
         required: false
         type: string
         default: ''
-      search-concurrencies:
-        description: "JSON list of concurrencies the AIPerf adapter sweeps for the recipe (e.g. [8,16,32])."
+      concurrency-min:
+        description: "Lower bound of AIPerf's BO concurrency search range (--search-recipe)."
+        required: false
+        type: string
+        default: ''
+      concurrency-max:
+        description: "Upper bound of AIPerf's BO concurrency search range (--search-recipe)."
+        required: false
+        type: string
+        default: ''
+      search-max-iterations:
+        description: "Cap on AIPerf BO iterations for the recipe (empty = AIPerf default)."
         required: false
         type: string
         default: ''
@@ -148,7 +158,9 @@ env:
   DURATION: ${{ inputs.duration }}
   SEARCH_RECIPE: ${{ inputs.search-recipe }}
   SLA_MS: ${{ inputs.sla-ms }}
-  SEARCH_CONCURRENCIES: ${{ inputs.search-concurrencies }}
+  CONCURRENCY_MIN: ${{ inputs.concurrency-min }}
+  CONCURRENCY_MAX: ${{ inputs.concurrency-max }}
+  SEARCH_MAX_ITERATIONS: ${{ inputs.search-max-iterations }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache

@@ -268,7 +268,9 @@ jobs:
             disagg: ${{ matrix.config.disagg }}
             search-recipe: ${{ matrix.config.search-recipe }}
             sla-ms: ${{ matrix.config.sla-ms }}
-            search-concurrencies: ${{ toJson(matrix.config.search-concurrencies) }}
+            concurrency-min: ${{ matrix.config.concurrency-min }}
+            concurrency-max: ${{ matrix.config.concurrency-max }}
+            search-max-iterations: ${{ matrix.config.search-max-iterations }}
             run-eval: false
             ref: ${{ inputs.ref }}
 

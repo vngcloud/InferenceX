@@ -5,9 +5,10 @@
 # search-recipe plumbing (e.g. --search-recipe max-throughput-itl-sla) end to
 # end on the GreenNode H200 runner.
 #
-# In search mode CONC carries the largest ladder value so the vLLM server is
-# sized for the whole ladder; the AIPerf adapter then sweeps SEARCH_CONCURRENCIES
-# and records the single winning point.
+# In search mode CONC carries the upper search bound (CONCURRENCY_MAX) so the
+# vLLM server is sized for the largest concurrency AIPerf's native BO may probe;
+# the adapter forwards the [CONCURRENCY_MIN, CONCURRENCY_MAX] range and records
+# the single winning point AIPerf converges on.
 
 source "$(dirname "$0")/../benchmark_lib.sh"
 
@@ -50,12 +51,14 @@ SERVER_PID=$!
 
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
-# Optional AIPerf search recipe (config-driven via env). When set, the adapter
-# runs the SEARCH_CONCURRENCIES ladder and selects the winning point.
+# Optional AIPerf native BO search recipe (config-driven via env). When set, the
+# adapter delegates to `aiperf --search-recipe` over [CONCURRENCY_MIN,
+# CONCURRENCY_MAX] and records the winning point AIPerf's BO selects.
 SEARCH_ARGS=()
 if [[ -n "${SEARCH_RECIPE:-}" ]]; then
-    SEARCH_ARGS+=(--search-recipe "$SEARCH_RECIPE" --search-concurrencies "${SEARCH_CONCURRENCIES}")
+    SEARCH_ARGS+=(--search-recipe "$SEARCH_RECIPE" --concurrency-min "${CONCURRENCY_MIN}" --concurrency-max "${CONCURRENCY_MAX}")
     if [[ -n "${SLA_MS:-}" ]]; then SEARCH_ARGS+=(--sla-ms "$SLA_MS"); fi
+    if [[ -n "${SEARCH_MAX_ITERATIONS:-}" ]]; then SEARCH_ARGS+=(--search-max-iterations "$SEARCH_MAX_ITERATIONS"); fi
 fi
 
 run_client_benchmark \

@@ -349,6 +349,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
 
                     search_recipe = bmk.get(Fields.SEARCH_RECIPE.value)
                     sla_ms = bmk.get(Fields.SLA_MS.value)
+                    search_max_iterations = bmk.get(
+                        Fields.SEARCH_MAX_ITERATIONS.value)
 
                     def _single_node_entry(conc_value, runner_value, benchmark_client):
                         entry = {
@@ -380,28 +382,25 @@ def generate_full_sweep(args, all_config_data, runner_data):
                         return entry
 
                     for benchmark_client in benchmark_clients:
-                        # AIPerf search recipe: emit a single entry carrying the
-                        # whole concurrency ladder (the adapter sweeps it and
-                        # records the winning point) instead of one entry per
+                        # AIPerf native BO search recipe: emit a single entry
+                        # carrying the [conc_start, conc_end] range as AIPerf's BO
+                        # bounds (the adapter delegates to `aiperf --search-recipe`
+                        # and records the winning point) instead of one entry per
                         # concurrency. Only the aiperf adapter understands this;
                         # other clients fall back to normal per-conc expansion.
                         if search_recipe and benchmark_client == "aiperf":
-                            conc_ladder = []
-                            conc = conc_start
-                            while conc <= conc_end:
-                                conc_ladder.append(conc)
-                                if conc == conc_end:
-                                    break
-                                conc *= args.step_size
-                                if conc > conc_end:
-                                    conc = conc_end
                             for runner_value in runners_for_entry:
+                                # conc carries the upper bound for server sizing.
                                 entry = _single_node_entry(
-                                    max(conc_ladder), runner_value, benchmark_client)
+                                    conc_end, runner_value, benchmark_client)
                                 entry[Fields.SEARCH_RECIPE.value] = search_recipe
-                                entry[Fields.SEARCH_CONCURRENCIES.value] = conc_ladder
+                                entry[Fields.CONCURRENCY_MIN.value] = conc_start
+                                entry[Fields.CONCURRENCY_MAX.value] = conc_end
                                 if sla_ms is not None:
                                     entry[Fields.SLA_MS.value] = sla_ms
+                                if search_max_iterations is not None:
+                                    entry[Fields.SEARCH_MAX_ITERATIONS.value] = \
+                                        search_max_iterations
                                 validate_matrix_entry(entry, is_multinode)
                                 matrix_values.append(entry)
                             continue

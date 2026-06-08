@@ -528,7 +528,9 @@ run_aiperf_benchmark() {
     local osl=""
     local random_seed=""
     local search_recipe=""
-    local search_concurrencies=""
+    local concurrency_min=""
+    local concurrency_max=""
+    local search_max_iterations=""
     local sla_ms=""
 
     while [[ $# -gt 0 ]]; do
@@ -551,7 +553,9 @@ run_aiperf_benchmark() {
             --osl) osl="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
             --search-recipe) search_recipe="$2"; shift 2 ;;
-            --search-concurrencies) search_concurrencies="$2"; shift 2 ;;
+            --concurrency-min) concurrency_min="$2"; shift 2 ;;
+            --concurrency-max) concurrency_max="$2"; shift 2 ;;
+            --search-max-iterations) search_max_iterations="$2"; shift 2 ;;
             --sla-ms) sla_ms="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
@@ -564,8 +568,9 @@ run_aiperf_benchmark() {
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
     if [[ -z "$bench_serving_dir" ]]; then echo "Error: --bench-serving-dir is required"; return 1; fi
     if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
-    # In search mode the adapter drives the concurrency ladder itself, so a
-    # single --concurrency is not required; the adapter validates the ladder.
+    # In search mode AIPerf's native BO chooses the concurrency points itself
+    # within [--concurrency-min, --concurrency-max], so a single --concurrency is
+    # not required; the adapter forwards the range and validates it.
     if [[ -z "$search_recipe" ]]; then
         if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
         if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
@@ -573,8 +578,8 @@ run_aiperf_benchmark() {
             echo "Error: --request-count must be greater than or equal to --concurrency"
             return 1
         fi
-    elif [[ -z "$search_concurrencies" ]]; then
-        echo "Error: --search-recipe requires --search-concurrencies"; return 1
+    elif [[ -z "$concurrency_min" || -z "$concurrency_max" ]]; then
+        echo "Error: --search-recipe requires --concurrency-min and --concurrency-max"; return 1
     fi
 
     local benchmark_cmd=(
@@ -588,8 +593,9 @@ run_aiperf_benchmark() {
     )
 
     if [[ -n "$search_recipe" ]]; then
-        benchmark_cmd+=(--search-recipe "$search_recipe" --search-concurrencies "$search_concurrencies")
+        benchmark_cmd+=(--search-recipe "$search_recipe" --concurrency-min "$concurrency_min" --concurrency-max "$concurrency_max")
         if [[ -n "$sla_ms" ]]; then benchmark_cmd+=(--sla-ms "$sla_ms"); fi
+        if [[ -n "$search_max_iterations" ]]; then benchmark_cmd+=(--search-max-iterations "$search_max_iterations"); fi
     else
         benchmark_cmd+=(--concurrency "$concurrency")
     fi
@@ -633,7 +639,9 @@ run_client_benchmark() {
     local dsv4=false
     local trust_remote_code=false
     local search_recipe=""
-    local search_concurrencies=""
+    local concurrency_min=""
+    local concurrency_max=""
+    local search_max_iterations=""
     local sla_ms=""
 
     while [[ $# -gt 0 ]]; do
@@ -655,7 +663,9 @@ run_client_benchmark() {
             --dsv4) dsv4=true; use_chat_template=true; shift ;;
             --trust-remote-code) trust_remote_code=true; shift ;;
             --search-recipe) search_recipe="$2"; shift 2 ;;
-            --search-concurrencies) search_concurrencies="$2"; shift 2 ;;
+            --concurrency-min) concurrency_min="$2"; shift 2 ;;
+            --concurrency-max) concurrency_max="$2"; shift 2 ;;
+            --search-max-iterations) search_max_iterations="$2"; shift 2 ;;
             --sla-ms) sla_ms="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
@@ -677,9 +687,9 @@ run_client_benchmark() {
 
     case "$benchmark_client" in
         aiperf)
-            # concurrency carries the largest ladder value in search mode (the
-            # serving server is sized to it), so request/warmup counts derived
-            # from it remain valid for every ladder point.
+            # concurrency carries the upper search bound (--concurrency-max) in
+            # search mode -- the serving server is sized to it -- so request and
+            # warmup counts derived from it stay valid for every BO-probed point.
             local aiperf_args=(
                 --model "$model"
                 --url "http://0.0.0.0:$port"
@@ -693,8 +703,9 @@ run_client_benchmark() {
                 --bench-serving-dir "$bench_serving_dir"
             )
             if [[ -n "$search_recipe" ]]; then
-                aiperf_args+=(--search-recipe "$search_recipe" --search-concurrencies "$search_concurrencies")
+                aiperf_args+=(--search-recipe "$search_recipe" --concurrency-min "$concurrency_min" --concurrency-max "$concurrency_max")
                 if [[ -n "$sla_ms" ]]; then aiperf_args+=(--sla-ms "$sla_ms"); fi
+                if [[ -n "$search_max_iterations" ]]; then aiperf_args+=(--search-max-iterations "$search_max_iterations"); fi
             else
                 aiperf_args+=(--concurrency "$concurrency")
             fi

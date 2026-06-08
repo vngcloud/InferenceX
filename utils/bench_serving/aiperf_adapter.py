@@ -4,10 +4,17 @@
 Two modes:
 
 - fixed   : run a single concurrency, record that point (default).
-- search  : run a concurrency ladder and select the winning point according to
-            a ``--search-recipe`` (e.g. ``max-throughput-itl-sla``). The adapter
-            drives the ladder itself (one ``aiperf profile`` per concurrency),
-            so it only depends on AIPerf's single-run contract.
+- search  : delegate to AIPerf's native Bayesian-Optimization search recipes
+            (``--search-recipe``, e.g. ``max-throughput-itl-sla``). AIPerf
+            itself chooses which concurrency points to probe within
+            ``[--concurrency-min, --concurrency-max]``, enforces the p95 SLA via
+            its built-in ``SLAFilter`` (stat defaults to p95), and writes the
+            optimisation trajectory to ``search_history.json``. The adapter then
+            reads the winning trial and maps that point's per-variation
+            ``profile_export_aiperf.json`` into the InferenceX schema.
+
+Native search requires AIPerf >= 0.9.0 (the version InferenceX installs from
+PyPI), which ships the ``search_recipes`` / adaptive-sweep machinery.
 """
 
 from __future__ import annotations
@@ -21,40 +28,60 @@ from pathlib import Path
 
 
 PROFILE_EXPORT = "profile_export_aiperf.json"
+SEARCH_HISTORY = "search_history.json"
 
 
 @dataclass(frozen=True)
-class SearchRecipe:
-    """A rule for picking the winning point from a concurrency ladder.
+class NativeRecipe:
+    """An AIPerf native BO search recipe we expose through the adapter.
 
-    The recipe is expressed over the keys of the intermediate result produced by
-    ``build_result`` so selection reuses the exact metrics InferenceX records.
+    The adapter is a thin pass-through: AIPerf owns the optimisation. This
+    record only declares which SLA flags the recipe accepts so the adapter can
+    forward the InferenceX ``--sla-ms`` / ``--ttft-sla-ms`` values to the right
+    AIPerf flags and fail early if a required one is missing.
 
     Attributes:
-        objective_key: Result key to optimize (e.g. "total_token_throughput").
-        objective_direction: "max" or "min".
-        constraint_key: Result key constrained by the SLA, or None for no SLA.
-        constraint_cmp: "le" (value <= sla) or "ge" (value >= sla).
-        sla_required: Whether --sla-ms must be supplied for this recipe.
+        objective: Human-readable objective (for the log line only).
+        accepts_itl: Forward ``--sla-ms`` as ``--itl-sla-ms`` when set.
+        accepts_ttft: Forward ``--ttft-sla-ms`` as ``--ttft-sla-ms`` when set.
+        require_itl: ``--sla-ms`` is mandatory for this recipe.
+        require_ttft: ``--ttft-sla-ms`` is mandatory for this recipe.
+        require_any: At least one accepted SLA flag must be supplied.
     """
 
-    objective_key: str
-    objective_direction: str
-    constraint_key: str | None
-    constraint_cmp: str | None
-    sla_required: bool
+    objective: str
+    accepts_itl: bool
+    accepts_ttft: bool
+    require_itl: bool = False
+    require_ttft: bool = False
+    require_any: bool = False
 
 
-# Registry of named recipes. Add new selection rules here.
-SEARCH_RECIPES: dict[str, SearchRecipe] = {
-    # Highest total token throughput among points whose p99 inter-token latency
-    # stays under the SLA (ms).
-    "max-throughput-itl-sla": SearchRecipe(
-        objective_key="total_token_throughput",
-        objective_direction="max",
-        constraint_key="p99_itl_ms",
-        constraint_cmp="le",
-        sla_required=True,
+# Native AIPerf BO recipes we surface. Names match AIPerf's own recipe names
+# (aiperf.search_recipes.builtins); the SLA stat defaults to p95 inside AIPerf's
+# SLAFilter, matching the MaaS proposals (MEP-0001/0002).
+SEARCH_RECIPES: dict[str, NativeRecipe] = {
+    # Maximise total token throughput subject to a p95 ITL/TPOT SLA.
+    "max-throughput-itl-sla": NativeRecipe(
+        objective="max total_token_throughput",
+        accepts_itl=True,
+        accepts_ttft=False,
+        require_itl=True,
+    ),
+    # Maximise total token throughput subject to a p95 TTFT SLA.
+    "max-throughput-ttft-sla": NativeRecipe(
+        objective="max total_token_throughput",
+        accepts_itl=False,
+        accepts_ttft=True,
+        require_ttft=True,
+    ),
+    # Maximise sustainable concurrency subject to a p95 SLA. Composes whichever
+    # of the ITL / TTFT filters are supplied (at least one required).
+    "max-concurrency-under-sla": NativeRecipe(
+        objective="max concurrency",
+        accepts_itl=True,
+        accepts_ttft=True,
+        require_any=True,
     ),
 }
 
@@ -67,12 +94,16 @@ def build_result(artifact: dict, max_concurrency: int) -> dict:
         "total_token_throughput": artifact["total_token_throughput"]["avg"],
         "output_throughput": artifact["output_token_throughput"]["avg"],
         "mean_ttft_ms": artifact["time_to_first_token"]["avg"],
+        "p95_ttft_ms": artifact["time_to_first_token"]["p95"],
         "p99_ttft_ms": artifact["time_to_first_token"]["p99"],
         "mean_tpot_ms": artifact["inter_token_latency"]["avg"],
+        "p95_tpot_ms": artifact["inter_token_latency"]["p95"],
         "p99_tpot_ms": artifact["inter_token_latency"]["p99"],
         "mean_itl_ms": artifact["inter_token_latency"]["avg"],
+        "p95_itl_ms": artifact["inter_token_latency"]["p95"],
         "p99_itl_ms": artifact["inter_token_latency"]["p99"],
         "mean_e2el_ms": artifact["request_latency"]["avg"],
+        "p95_e2el_ms": artifact["request_latency"]["p95"],
         "p99_e2el_ms": artifact["request_latency"]["p99"],
     }
 
@@ -85,39 +116,28 @@ def extract_max_concurrency(artifact: dict) -> int:
     raise ValueError("AIPerf artifact is missing the profiling phase")
 
 
-def select_winner(
-    results: list[tuple[int, dict]], recipe: SearchRecipe, sla_ms: float | None
-) -> tuple[int, dict, bool]:
-    """Pick the winning (concurrency, result) per the recipe.
-
-    Args:
-        results: List of (concurrency, build_result dict) for each ladder point.
-        recipe: Selection rule.
-        sla_ms: SLA threshold for the recipe's constraint (ms), or None.
-
-    Returns:
-        (winning_concurrency, winning_result, sla_met) where sla_met is False
-        when no point satisfied the constraint (the best-objective point is then
-        returned as a best-effort fallback).
-    """
-    if not results:
-        raise ValueError("select_winner requires at least one ladder point")
-
-    def meets_sla(result: dict) -> bool:
-        if recipe.constraint_key is None or sla_ms is None:
-            return True
-        value = result[recipe.constraint_key]
-        if recipe.constraint_cmp == "le":
-            return value <= sla_ms
-        if recipe.constraint_cmp == "ge":
-            return value >= sla_ms
-        raise ValueError(f"Unknown constraint comparator: {recipe.constraint_cmp}")
-
-    feasible = [(c, r) for c, r in results if meets_sla(r)]
-    pool = feasible if feasible else results
-    pick = max if recipe.objective_direction == "max" else min
-    winner_conc, winner_result = pick(pool, key=lambda cr: cr[1][recipe.objective_key])
-    return winner_conc, winner_result, bool(feasible)
+def common_aiperf_args(args: argparse.Namespace) -> list[str]:
+    """Optional `aiperf profile` flags shared by the fixed and search paths."""
+    cmd: list[str] = []
+    if args.warmup_request_count is not None:
+        cmd.extend(["--warmup-request-count", str(args.warmup_request_count)])
+    if args.server_metrics_url:
+        cmd.extend(["--server-metrics", args.server_metrics_url])
+    if args.gpu_telemetry_url:
+        cmd.extend(["--gpu-telemetry", args.gpu_telemetry_url])
+    if args.public_dataset:
+        cmd.extend(["--public-dataset", args.public_dataset])
+    if args.input_file:
+        cmd.extend(["--input-file", args.input_file])
+    if args.custom_dataset_type:
+        cmd.extend(["--custom-dataset-type", args.custom_dataset_type])
+    if args.isl is not None:
+        cmd.extend(["--isl", str(args.isl)])
+    if args.osl is not None:
+        cmd.extend(["--osl", str(args.osl)])
+    if args.random_seed is not None:
+        cmd.extend(["--random-seed", str(args.random_seed)])
+    return cmd
 
 
 def run_aiperf(args: argparse.Namespace, concurrency: int, artifact_dir: Path) -> dict:
@@ -138,29 +158,94 @@ def run_aiperf(args: argparse.Namespace, concurrency: int, artifact_dir: Path) -
         str(args.request_count),
         "--artifact-dir",
         str(artifact_dir),
+        *common_aiperf_args(args),
     ]
-
-    if args.warmup_request_count is not None:
-        cmd.extend(["--warmup-request-count", str(args.warmup_request_count)])
-    if args.server_metrics_url:
-        cmd.extend(["--server-metrics", args.server_metrics_url])
-    if args.gpu_telemetry_url:
-        cmd.extend(["--gpu-telemetry", args.gpu_telemetry_url])
-    if args.public_dataset:
-        cmd.extend(["--public-dataset", args.public_dataset])
-    if args.input_file:
-        cmd.extend(["--input-file", args.input_file])
-    if args.custom_dataset_type:
-        cmd.extend(["--custom-dataset-type", args.custom_dataset_type])
-    if args.isl is not None:
-        cmd.extend(["--isl", str(args.isl)])
-    if args.osl is not None:
-        cmd.extend(["--osl", str(args.osl)])
-    if args.random_seed is not None:
-        cmd.extend(["--random-seed", str(args.random_seed)])
-
     subprocess.run(cmd, check=True)
     return json.loads((artifact_dir / PROFILE_EXPORT).read_text())
+
+
+def build_search_command(args: argparse.Namespace, artifact_dir: Path) -> list[str]:
+    """Assemble the native `aiperf profile --search-recipe ...` command."""
+    recipe = SEARCH_RECIPES[args.search_recipe]
+    cmd = [
+        "aiperf",
+        "profile",
+        "--model",
+        args.model,
+        "--url",
+        args.url,
+        "--endpoint-type",
+        args.endpoint_type,
+        "--streaming",
+        "--search-recipe",
+        args.search_recipe,
+        "--concurrency-min",
+        str(args.concurrency_min),
+        "--concurrency-max",
+        str(args.concurrency_max),
+        "--request-count",
+        str(args.request_count),
+        "--artifact-dir",
+        str(artifact_dir),
+        *common_aiperf_args(args),
+    ]
+    # InferenceX's --sla-ms is the p95 ITL/TPOT threshold; forward it as AIPerf's
+    # --itl-sla-ms (alias of --tpot-sla-ms). --ttft-sla-ms passes straight
+    # through. AIPerf's SLAFilter applies these at p95 by default.
+    if recipe.accepts_itl and args.sla_ms is not None:
+        cmd.extend(["--itl-sla-ms", str(args.sla_ms)])
+    if recipe.accepts_ttft and args.ttft_sla_ms is not None:
+        cmd.extend(["--ttft-sla-ms", str(args.ttft_sla_ms)])
+    if args.search_max_iterations is not None:
+        cmd.extend(["--search-max-iterations", str(args.search_max_iterations)])
+    return cmd
+
+
+def winner_from_history(history: dict) -> tuple[int, bool]:
+    """Read the winning concurrency and feasibility from search_history.json.
+
+    ``best_trials`` is feasibility-first: for a single-objective recipe it holds
+    the single argmax/argmin. ``variation_values`` keys are dotted parameter
+    paths (e.g. ``phases.profiling.concurrency``); we pick the one whose leaf is
+    ``concurrency``. ``feasible_count == 0`` signals AIPerf fell back to the full
+    (infeasible) pool because no probed point met the SLA.
+
+    Returns:
+        (winner_concurrency, sla_met).
+    """
+    best = history.get("best_trials")
+    if not best:
+        raise ValueError("search_history.json has no best_trials")
+    top = best[0]
+    values = top["variation_values"]
+    concurrency = None
+    for key, value in values.items():
+        if key == "concurrency" or key.endswith(".concurrency"):
+            concurrency = int(value)
+            break
+    if concurrency is None:
+        raise ValueError(f"no concurrency dimension in variation_values: {values}")
+    sla_met = bool(top.get("feasible", False)) and top.get("feasible_count", 0) > 0
+    return concurrency, sla_met
+
+
+def winner_profile_export(artifact_dir: Path, concurrency: int) -> dict:
+    """Load the per-variation profile export for the winning concurrency.
+
+    AIPerf writes each swept cell under ``<artifact>/concurrency_<v>/`` (see
+    ``aiperf.config.sweep._format_dir_name``). We prefer the single-run
+    ``profile_export_aiperf.json`` (nested-key schema ``build_result`` expects)
+    and glob for it to tolerate an intermediate ``aggregate/`` subdir.
+    """
+    cell = artifact_dir / f"concurrency_{concurrency}"
+    direct = cell / PROFILE_EXPORT
+    if direct.exists():
+        return json.loads(direct.read_text())
+    for candidate in sorted(cell.glob(f"**/{PROFILE_EXPORT}")):
+        return json.loads(candidate.read_text())
+    raise FileNotFoundError(
+        f"no {PROFILE_EXPORT} for winning concurrency {concurrency} under {cell}"
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -184,40 +269,55 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--search-recipe",
         choices=sorted(SEARCH_RECIPES),
-        help="Run a concurrency ladder and select the winning point by this recipe.",
+        help="Delegate to this AIPerf native BO search recipe over a "
+        "[--concurrency-min, --concurrency-max] range.",
     )
     parser.add_argument(
-        "--search-concurrencies",
-        help="Comma-separated concurrency ladder for --search-recipe (e.g. 16,24,32).",
+        "--concurrency-min",
+        type=int,
+        help="Lower bound of the BO concurrency search range (--search-recipe).",
+    )
+    parser.add_argument(
+        "--concurrency-max",
+        type=int,
+        help="Upper bound of the BO concurrency search range (--search-recipe).",
+    )
+    parser.add_argument(
+        "--search-max-iterations",
+        type=int,
+        help="Cap on BO iterations (trials) for --search-recipe.",
     )
     parser.add_argument(
         "--sla-ms",
         type=float,
-        help="SLA threshold (ms) for the recipe's constraint metric.",
+        help="p95 ITL/TPOT SLA threshold (ms); forwarded to AIPerf --itl-sla-ms.",
+    )
+    parser.add_argument(
+        "--ttft-sla-ms",
+        type=float,
+        help="p95 TTFT SLA threshold (ms); forwarded to AIPerf --ttft-sla-ms.",
     )
     args = parser.parse_args()
 
     if args.search_recipe:
         recipe = SEARCH_RECIPES[args.search_recipe]
-        if not args.search_concurrencies:
-            parser.error("--search-recipe requires --search-concurrencies")
-        # Accept both "8,16,32" and a JSON array string "[8, 16, 32]" (the form
-        # produced by toJson() in the GitHub Actions workflow).
-        raw = args.search_concurrencies.strip().strip("[]")
-        try:
-            args.search_concurrencies = [
-                int(c) for c in raw.split(",") if c.strip()
-            ]
-        except ValueError:
-            parser.error("--search-concurrencies must be a comma-separated list of ints")
-        if not args.search_concurrencies:
-            parser.error("--search-concurrencies must contain at least one value")
-        if recipe.sla_required and args.sla_ms is None:
-            parser.error(f"--search-recipe {args.search_recipe} requires --sla-ms")
-        if args.request_count < max(args.search_concurrencies):
+        if args.concurrency_min is None or args.concurrency_max is None:
             parser.error(
-                "--request-count must be >= the largest --search-concurrencies value"
+                "--search-recipe requires --concurrency-min and --concurrency-max"
             )
+        if args.concurrency_min >= args.concurrency_max:
+            parser.error("--concurrency-min must be < --concurrency-max")
+        if recipe.require_itl and args.sla_ms is None:
+            parser.error(f"--search-recipe {args.search_recipe} requires --sla-ms")
+        if recipe.require_ttft and args.ttft_sla_ms is None:
+            parser.error(f"--search-recipe {args.search_recipe} requires --ttft-sla-ms")
+        if recipe.require_any and args.sla_ms is None and args.ttft_sla_ms is None:
+            parser.error(
+                f"--search-recipe {args.search_recipe} requires at least one of "
+                "--sla-ms / --ttft-sla-ms"
+            )
+        if args.request_count < args.concurrency_max:
+            parser.error("--request-count must be >= --concurrency-max")
     else:
         if args.concurrency is None:
             parser.error("--concurrency is required unless --search-recipe is set")
@@ -235,33 +335,34 @@ def run_fixed(args: argparse.Namespace) -> dict:
 
 
 def run_search(args: argparse.Namespace) -> dict:
-    """Run the concurrency ladder and select the winning point per the recipe."""
-    recipe = SEARCH_RECIPES[args.search_recipe]
-    results: list[tuple[int, dict]] = []
-    for concurrency in args.search_concurrencies:
-        artifact_dir = args.result_dir / f"{args.result_filename}_aiperf_c{concurrency}"
-        artifact = run_aiperf(args, concurrency, artifact_dir)
-        results.append((concurrency, build_result(artifact, concurrency)))
+    """Delegate to AIPerf's native BO recipe and record the winning point."""
+    artifact_dir = args.result_dir / f"{args.result_filename}_aiperf"
+    cmd = build_search_command(args, artifact_dir)
+    subprocess.run(cmd, check=True)
 
-    winner_conc, winner_result, sla_met = select_winner(results, recipe, args.sla_ms)
-    if not sla_met:
+    history = json.loads((artifact_dir / SEARCH_HISTORY).read_text())
+    winner_conc, sla_met = winner_from_history(history)
+    artifact = winner_profile_export(artifact_dir, winner_conc)
+    result = build_result(artifact, winner_conc)
+    result["search_recipe"] = args.search_recipe
+    result["sla_met"] = sla_met
+
+    if sla_met:
         print(
-            f"[aiperf-search] WARNING: no point met the SLA "
-            f"({recipe.constraint_key} {recipe.constraint_cmp} {args.sla_ms}); "
-            f"returning best-effort {recipe.objective_key} point at "
-            f"concurrency={winner_conc}.",
+            f"[aiperf-search] recipe={args.search_recipe} BO winner "
+            f"concurrency={winner_conc} "
+            f"total_token_throughput={result['total_token_throughput']} "
+            f"p95_itl_ms={result['p95_itl_ms']} (SLA met)",
             file=sys.stderr,
         )
     else:
         print(
-            f"[aiperf-search] recipe={args.search_recipe} winner concurrency="
-            f"{winner_conc} {recipe.objective_key}={winner_result[recipe.objective_key]}",
+            f"[aiperf-search] WARNING: recipe={args.search_recipe} found no point "
+            f"meeting the SLA; returning best-effort BO winner "
+            f"concurrency={winner_conc}.",
             file=sys.stderr,
         )
-
-    winner_result["search_recipe"] = args.search_recipe
-    winner_result["sla_met"] = sla_met
-    return winner_result
+    return result
 
 
 def main() -> None:
