@@ -4732,7 +4732,7 @@ qwen3.5-27b-bf16-h100-2x-vllm-search:
       osl: 1024
       benchmark-client: [aiperf]
       search-space:
-      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 10 }
+      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 6, benchmark-duration: 30, benchmark-grace-period: 20 }
 
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
