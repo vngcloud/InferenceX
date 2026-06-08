@@ -4826,6 +4826,38 @@ gemma4-fp8-h200-greennode-vllm-aiperf-16k1k-real:
       search-space:
       - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
 
+gemma4-fp8-h200-greennode-sglang-aiperf-8k1k-real:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
+
+gemma4-fp8-h200-greennode-sglang-aiperf-16k1k-real:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h200-greennode_00
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
+
 # Qwen3-4B-Instruct-2507 (bf16, TP=1) on the GreenNode H200 box. Small model
 # used to validate the AIPerf native BO search-recipe plumbing end to end:
 # instead of emitting one matrix entry per concurrency, the conc-start..conc-end
