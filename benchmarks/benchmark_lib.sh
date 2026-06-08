@@ -511,6 +511,7 @@ run_aiperf_benchmark() {
 
     set +x
     local model=""
+    local tokenizer=""
     local url=""
     local concurrency=""
     local request_count=""
@@ -538,6 +539,7 @@ run_aiperf_benchmark() {
     while [[ $# -gt 0 ]]; do
         case $1 in
             --model) model="$2"; shift 2 ;;
+            --tokenizer) tokenizer="$2"; shift 2 ;;
             --url) url="$2"; shift 2 ;;
             --concurrency) concurrency="$2"; shift 2 ;;
             --request-count) request_count="$2"; shift 2 ;;
@@ -602,6 +604,9 @@ run_aiperf_benchmark() {
         --result-filename "$result_filename"
         --result-dir "$result_dir"
     )
+    if [[ -n "$tokenizer" ]]; then
+        benchmark_cmd+=(--tokenizer "$tokenizer")
+    fi
 
     # Load terminator: a fixed request count or a wall-clock duration (the
     # caller guarantees exactly one is set). Duration gives every BO-probed
@@ -646,6 +651,7 @@ run_aiperf_benchmark() {
 run_client_benchmark() {
     set +x
     local model=""
+    local tokenizer=""
     local port=""
     local backend=""
     local endpoint_type="chat"
@@ -672,6 +678,7 @@ run_client_benchmark() {
     while [[ $# -gt 0 ]]; do
         case $1 in
             --model) model="$2"; shift 2 ;;
+            --tokenizer) tokenizer="$2"; shift 2 ;;
             --port) port="$2"; shift 2 ;;
             --backend) backend="$2"; shift 2 ;;
             --endpoint-type) endpoint_type="$2"; shift 2 ;;
@@ -727,6 +734,9 @@ run_client_benchmark() {
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
+            if [[ -n "$tokenizer" ]]; then
+                aiperf_args+=(--tokenizer "$tokenizer")
+            fi
             # Load terminator. Duration mode (config-driven --benchmark-duration)
             # measures every BO-probed concurrency for an equal wall-clock window
             # instead of a fixed request count (which shrinks the window as

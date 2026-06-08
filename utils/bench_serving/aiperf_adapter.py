@@ -119,6 +119,8 @@ def extract_max_concurrency(artifact: dict) -> int:
 def common_aiperf_args(args: argparse.Namespace) -> list[str]:
     """Optional `aiperf profile` flags shared by the fixed and search paths."""
     cmd: list[str] = []
+    if args.tokenizer:
+        cmd.extend(["--tokenizer", args.tokenizer])
     if args.warmup_request_count is not None:
         cmd.extend(["--warmup-request-count", str(args.warmup_request_count)])
     if args.server_metrics_url:
@@ -269,6 +271,7 @@ def winner_profile_export(artifact_dir: Path, iteration_idx: int) -> dict:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--tokenizer")
     parser.add_argument("--url", required=True)
     parser.add_argument("--concurrency", type=int)
     parser.add_argument(

@@ -64,6 +64,7 @@ fi
 
 run_client_benchmark \
     --model "$SERVED_MODEL_NAME" \
+    --tokenizer "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --endpoint-type chat \
