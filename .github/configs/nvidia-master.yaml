@@ -4876,6 +4876,28 @@ gemma4-fp8-h100-greennode-vllm-aiperf-16k1k-real-tp2:
       search-space:
       - { tp: 2, conc-start: 8, conc-end: 256, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
 
+# Gemma 4 31B block-FP8 MAX-THROUGHPUT BO search at 8K/1K on the GreenNode 2x-H100
+# box (h100-greennode_01), TP=1. Mirrors gemma4-fp8-h200-greennode-vllm-aiperf-8k1k-real
+# (same model/seq-len/duration/CCU range) but pinned to the H100 node and using the
+# max-throughput-itl-sla recipe (single ITL SLA, throughput objective) instead of
+# max-concurrency-under-sla, since the goal here is peak token throughput. ignore_eos is
+# set by the aiperf path in benchmarks/single_node/gemma4_fp8_h100.sh.
+gemma4-fp8-h100-greennode-vllm-aiperf-8k1k-real-maxtput:
+  image: vllm/vllm-openai:v0.21.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h100-greennode_01
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
+
 # Same as gemma4-fp8-h200-greennode-vllm-aiperf-8k1k-real (run 27140461219)
 # but targeting the hoanq3-h100-inferx-runner H100 box instead of H200.
 # Resolves launcher runners/launch_hoanq3-h100-inferx-runner.sh and serve
