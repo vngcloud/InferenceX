@@ -265,6 +265,7 @@ jobs:
             spec-decoding: ${{ matrix.config.spec-decoding }}
             num-speculative-tokens: ${{ matrix.config.num-speculative-tokens }}
             max-num-batched-tokens: ${{ matrix.config.max-num-batched-tokens }}
+            max-num-seqs: ${{ matrix.config.max-num-seqs }}
             disagg: ${{ matrix.config.disagg }}
             search-recipe: ${{ matrix.config.search-recipe }}
             sla-ms: ${{ matrix.config.sla-ms }}
@@ -305,6 +306,7 @@ jobs:
             spec-decoding: ${{ matrix.config.spec-decoding }}
             num-speculative-tokens: ${{ matrix.config.num-speculative-tokens }}
             max-num-batched-tokens: ${{ matrix.config.max-num-batched-tokens }}
+            max-num-seqs: ${{ matrix.config.max-num-seqs }}
             disagg: ${{ matrix.config.disagg }}
             run-eval: true
             eval-only: true

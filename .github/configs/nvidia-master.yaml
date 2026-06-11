@@ -4750,6 +4750,26 @@ qwen3.5-27b-bf16-h100-2x-vllm-bo-search-16k:
       search-space:
       - { tp: 1, conc-start: 32, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 10, benchmark-duration: 300, benchmark-grace-period: 60, spec-decoding: none }
 
+# Real (steady-state, duration-based) BO throughput search at 8K/1K with the
+# vLLM running-batch capped at 256 (max-num-seqs) while AIPerf probes offered
+# concurrency across [32, 1000]. Pinned to the h100-greennode_01 node directly.
+# Served by benchmarks/single_node/qwen3.5-27b_bf16_h100.sh.
+qwen3.5-27b-bf16-h100-2x-vllm-bo-search-8k1k-mns256:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h100-greennode_01
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 32, conc-end: 1000, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 10, benchmark-duration: 300, benchmark-grace-period: 60, max-num-seqs: 256, spec-decoding: none }
+
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B

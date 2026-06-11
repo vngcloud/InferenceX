@@ -61,6 +61,11 @@ on:
         required: false
         type: string
         default: ''
+      max-num-seqs:
+        description: "vLLM/SGLang --max-num-seqs (running-batch cap). Empty = bench-script default (typically the upper concurrency bound)."
+        required: false
+        type: string
+        default: ''
       disagg:
         required: true
         type: string
@@ -157,6 +162,7 @@ env:
   SPEC_DECODING: ${{ inputs.spec-decoding }}
   NUM_SPECULATIVE_TOKENS: ${{ inputs.num-speculative-tokens }}
   MAX_NUM_BATCHED_TOKENS: ${{ inputs.max-num-batched-tokens }}
+  MAX_NUM_SEQS: ${{ inputs.max-num-seqs }}
   DISAGG: ${{ inputs.disagg }}
   RUN_EVAL: ${{ inputs.run-eval }}
   EVAL_ONLY: ${{ inputs.eval-only }}

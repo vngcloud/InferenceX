@@ -56,6 +56,7 @@ class Fields(Enum):
     BENCHMARK_DURATION = 'benchmark-duration'
     BENCHMARK_GRACE_PERIOD = 'benchmark-grace-period'
     MAX_NUM_BATCHED_TOKENS = 'max-num-batched-tokens'
+    MAX_NUM_SEQS = 'max-num-seqs'
     NUM_SPECULATIVE_TOKENS = 'num-speculative-tokens'
 
     # Multinode-specific fields (when MULTINODE = true)
@@ -123,6 +124,9 @@ class SingleNodeMatrixEntry(BaseModel):
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
     max_num_batched_tokens: Optional[int] = Field(
         default=None, alias=Fields.MAX_NUM_BATCHED_TOKENS.value
+    )
+    max_num_seqs: Optional[int] = Field(
+        default=None, alias=Fields.MAX_NUM_SEQS.value
     )
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
@@ -335,6 +339,12 @@ class SingleNodeSearchSpaceEntry(BaseModel):
     # Chunked-prefill ceiling. None means the engine default is used.
     max_num_batched_tokens: Optional[int] = Field(
         default=None, alias=Fields.MAX_NUM_BATCHED_TOKENS.value)
+    # vLLM/SGLang running-batch cap (--max-num-seqs). None means the bench
+    # script default is used (typically the upper concurrency bound). Lets an
+    # experiment pin the server batch independently of the concurrency search
+    # range (e.g. cap at 256 while AIPerf probes concurrency up to 1000).
+    max_num_seqs: Optional[int] = Field(
+        default=None, alias=Fields.MAX_NUM_SEQS.value)
     conc_start: Optional[int] = Field(
         default=None, alias=Fields.CONC_START.value)
     conc_end: Optional[int] = Field(

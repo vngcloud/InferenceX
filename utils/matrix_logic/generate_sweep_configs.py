@@ -308,6 +308,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
                     max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
+                    max_num_seqs = bmk.get(Fields.MAX_NUM_SEQS.value)
 
                     # Apply max-tp filter if specified
                     if args.max_tp is not None:
@@ -370,6 +371,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                             Fields.CONC.value: conc_value,
                             Fields.MAX_MODEL_LEN.value: isl + osl + 256,
                             Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                            Fields.MAX_NUM_SEQS.value: max_num_seqs,
                             Fields.EP.value: 1,  # Default
                             Fields.DP_ATTN.value: False,  # Default
                             Fields.SPEC_DECODING.value: spec_decoding,
@@ -819,6 +821,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     num_speculative_tokens = bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
                     max_num_batched_tokens = bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
+                    max_num_seqs = bmk.get(Fields.MAX_NUM_SEQS.value)
                     search_recipe = bmk.get(Fields.SEARCH_RECIPE.value)
                     sla_ms = bmk.get(Fields.SLA_MS.value)
                     search_max_iterations = bmk.get(Fields.SEARCH_MAX_ITERATIONS.value)
@@ -867,6 +870,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                     Fields.CONC.value: conc_end,
                                     Fields.MAX_MODEL_LEN.value: isl + osl + 256,
                                     Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                                    Fields.MAX_NUM_SEQS.value: max_num_seqs,
                                     Fields.EP.value: ep if ep is not None else 1,
                                     Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
                                     Fields.SPEC_DECODING.value: spec_decoding,
@@ -905,6 +909,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                     Fields.CONC.value: conc,
                                     Fields.MAX_MODEL_LEN.value: isl + osl + 256,
                                     Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                                    Fields.MAX_NUM_SEQS.value: max_num_seqs,
                                     Fields.EP.value: ep if ep is not None else 1,
                                     Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
                                     Fields.SPEC_DECODING.value: spec_decoding,
