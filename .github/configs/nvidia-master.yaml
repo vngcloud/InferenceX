@@ -5057,6 +5057,26 @@ qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real:
       search-space:
       - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
 
+# Same config as qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real (run 27139225302)
+# but targeting the GreenNode 2x-H100 box (h100-greennode_01) instead of H200.
+# HF_TOKEN repo secret is inherited via benchmark-tmpl.yml and forwarded into the
+# container by runners/launch_h100-greennode.sh for faster (authenticated) model pulls.
+qwen3.5-27b-bf16-h100-greennode-vllm-aiperf-16k1k-real:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h100-greennode_01
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+
 qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-8k1k-real-tp2:
   image: vllm/vllm-openai:v0.21.0
   model: Qwen/Qwen3.5-27B
