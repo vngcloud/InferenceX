@@ -4934,6 +4934,24 @@ gemma4-fp8-h100-greennode-vllm-aiperf-16k1k-real-maxtput:
       search-space:
       - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
 
+# TP=2 sibling of gemma4-fp8-h100-greennode-vllm-aiperf-16k1k-real-maxtput: block-FP8
+# 16K/1K max-throughput BO search on h100-greennode_01 split across both H100s.
+gemma4-fp8-h100-greennode-vllm-aiperf-16k1k-real-tp2-maxtput:
+  image: vllm/vllm-openai:v0.21.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h100-greennode_01
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 8, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60, max-model-len: 131072 }
+
 # Same as gemma4-fp8-h200-greennode-vllm-aiperf-8k1k-real (run 27140461219)
 # but targeting the hoanq3-h100-inferx-runner H100 box instead of H200.
 # Resolves launcher runners/launch_hoanq3-h100-inferx-runner.sh and serve
