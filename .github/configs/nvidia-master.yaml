@@ -5154,6 +5154,24 @@ qwen3.5-27b-bf16-h100-greennode-vllm-aiperf-8k1k-real-tp2-maxtput:
       search-space:
       - { tp: 2, conc-start: 8, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
 
+# Same as qwen3.5-27b-bf16-h100-greennode-vllm-aiperf-8k1k-real-tp2-maxtput but at
+# 16K/1K (longer-context TP=2 max-throughput BO search) on h100-greennode_01.
+qwen3.5-27b-bf16-h100-greennode-vllm-aiperf-16k1k-real-tp2-maxtput:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h100-greennode_01
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 8, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+
 qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real-tp2:
   image: vllm/vllm-openai:v0.21.0
   model: Qwen/Qwen3.5-27B
