@@ -5117,6 +5117,25 @@ qwen3.5-27b-bf16-h100-greennode-vllm-aiperf-8k1k-real:
       search-space:
       - { tp: 1, conc-start: 32, conc-end: 1000, search-recipe: max-concurrency-under-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
 
+# TP=1 max-throughput BO search at 8K/1K on h100-greennode_01. CCU range 8-512;
+# vLLM running batch is hard-capped at 256 by the script (SERVER_MAX_NUM_SEQS).
+# ignore_eos set by the aiperf path in benchmarks/single_node/qwen3.5-27b_bf16_h100.sh.
+qwen3.5-27b-bf16-h100-greennode-vllm-aiperf-8k1k-real-tp1-maxtput:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h100-greennode_01
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 512, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 16, benchmark-duration: 300, benchmark-grace-period: 60 }
+
 qwen3.5-27b-bf16-h200-greennode-vllm-aiperf-16k1k-real:
   image: vllm/vllm-openai:v0.21.0
   model: Qwen/Qwen3.5-27B
