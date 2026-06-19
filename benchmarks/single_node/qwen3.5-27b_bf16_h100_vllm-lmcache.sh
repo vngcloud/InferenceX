@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Qwen3.5-27B BF16 on H100 (single node) via vLLM + LMCache (local CPU-tier).
 #
-# LMCache pools and reuses KV blocks across requests within the run.
-# Local-only mode uses CPU RAM as the cache backend; no Redis or RDMA required.
+# Uses LMCacheMPConnector which supports Qwen3.5-27B's GDN/Mamba hybrid layers.
+# LMCacheConnectorV1 does not implement SupportsHMA and crashes at startup for
+# this model (ValueError: Hybrid KV cache manager is disabled...).
 #
-# Requires BENCHMARK_CLIENT=aiperf — only AIPerf supports --server-metrics-url
-# which is how we scrape the /metrics endpoint for cache hit counters.
+# Required for hybrid model compatibility:
+#   --mamba-cache-mode align   GDN does not support 'all' mode
+#   --enable-prefix-caching    needed for KV hit-rate measurement via /metrics
+#   --max-num-batched-tokens   must be in [784, 1568) to match the GDN block size
 #
-# Counterpart config key: qwen3.5-27b-bf16-h100-1x-vllm-lmcache-8k1k
+# Requires BENCHMARK_CLIENT=aiperf.
+#
+# Counterpart config keys: qwen3.5-27b-bf16-h100-1x-vllm-lmcache-8k1k
+#                          qwen3.5-27b-bf16-h100-1x-vllm-lmcache-8k1k-gn00
 
 source "$(dirname "$0")/../benchmark_lib.sh"
 
@@ -28,15 +34,28 @@ fi
 if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 
 SERVER_LOG=/workspace/server.log
+LMCACHE_LOG=/workspace/lmcache_server.log
 PORT=${PORT:-8888}
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$(( ISL + OSL + 256 ))}"
-MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-8192}"
-
-export LMCACHE_LOCAL_CPU=True
-export LMCACHE_MAX_LOCAL_CPU_SIZE="${LMCACHE_MAX_LOCAL_CPU_SIZE:-5}"
-export LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-256}"
+# Block size for Qwen3.5-27B GDN layers is 784 (derived at runtime by vLLM).
+# --max-num-batched-tokens must be in [784, 1568) for mamba-cache-mode=align.
+MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-1567}"
+LMCACHE_CPU_SIZE_GB="${LMCACHE_MAX_LOCAL_CPU_SIZE:-5}"
+# Chunk size must match the vLLM-derived GDN block size (784 for Qwen3.5-27B BF16 tp=1).
+LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-784}"
 
 start_gpu_monitor
+
+# LMCacheMPConnector requires a separate lmcache server process.
+lmcache server \
+    --chunk-size "$LMCACHE_CHUNK_SIZE" \
+    --l1-size-gb "$LMCACHE_CPU_SIZE_GB" \
+    --eviction-policy LRU \
+    > "$LMCACHE_LOG" 2>&1 &
+LMCACHE_PID=$!
+
+# Give the lmcache server a moment to initialize before vLLM connects.
+sleep 3
 
 set -x
 python3 -m vllm.entrypoints.openai.api_server \
@@ -47,7 +66,9 @@ python3 -m vllm.entrypoints.openai.api_server \
     --gpu-memory-utilization 0.9 \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
-    --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}' \
+    --enable-prefix-caching \
+    --mamba-cache-mode align \
+    --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both"}' \
     > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
