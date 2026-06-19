@@ -38,6 +38,7 @@ result_filename = base_env['RESULT_FILENAME']
 isl = base_env['ISL']
 osl = base_env['OSL']
 image = base_env['IMAGE']
+benchmark_client = os.environ.get('BENCHMARK_CLIENT', 'inferencex_native')
 
 
 def _opt_int(env_name):
@@ -59,6 +60,7 @@ data = {
     'model': bmk_result['model_id'],
     'infmax_model_prefix': model_prefix,
     'framework': framework,
+    'benchmark_client': benchmark_client,
     'precision': precision,
     'spec_decoding': spec_decoding,
     'num_speculative_tokens': num_speculative_tokens,
@@ -142,6 +144,16 @@ for key, value in bmk_result.items():
     if 'tpot' in key:
         data[key.replace('_ms', '').replace(
             'tpot', 'intvty')] = 1000.0 / float(value)
+
+_CACHE_STAT_KEYS = (
+    'server_gpu_cache_hit_rate',
+    'server_cpu_cache_hit_rate',
+    'lmcache_local_hit_rate',
+    'lmcache_remote_hit_rate',
+)
+for key in _CACHE_STAT_KEYS:
+    if key in bmk_result and bmk_result[key] is not None:
+        data[key] = bmk_result[key]
 
 print(json.dumps(data, indent=2))
 

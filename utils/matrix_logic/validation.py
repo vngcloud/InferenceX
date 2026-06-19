@@ -22,6 +22,7 @@ class Fields(Enum):
     RUNNER = 'runner'
     SCENARIOS = 'scenarios'
     MULTINODE = 'multinode'
+    BENCHMARK_CLIENT = 'benchmark-client'
 
     # Scenario type keys
     FIXED_SEQ_LEN = 'fixed-seq-len'
@@ -438,6 +439,8 @@ class SingleNodeMasterConfigEntry(BaseModel):
     runner: str
     multinode: Literal[False]
     disagg: bool = Field(default=False)
+    benchmark_client: Optional[Literal["inferencex_native", "aiperf"]] = Field(
+        default=None, alias=Fields.BENCHMARK_CLIENT.value)
     scenarios: SingleNodeScenarios
 
 

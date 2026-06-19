@@ -34,6 +34,10 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+# bench_serving/ lives alongside this script under utils/
+sys.path.insert(0, str(Path(__file__).resolve().parent / "bench_serving"))
+from server_metrics import load_server_metrics, index_server_metrics  # noqa: E402
+
 # Trace metadata lookup: conversation_id (= trace id) -> per-turn dict with
 # ``hash_ids`` and ``output_length``. Built lazily from the HF dataset cache.
 _TRACE_METADATA_CACHE: dict[str, list[dict]] | None = None
@@ -103,13 +107,6 @@ def load_records(path: Path) -> list[dict]:
                 continue
             records.append(obj)
     return records
-
-
-def load_server_metrics(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    with open(path) as f:
-        return json.load(f)
 
 
 # ---- trace metadata --------------------------------------------------------
@@ -446,7 +443,7 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     #   {"metrics": {<name>: {"type": ..., "series": [{"stats": {...}}, ...]}}}
     # We aggregate across series (multiple endpoints / label sets) and prefer
     # ``total`` for counters, then ``max``/``avg`` for gauges.
-    metrics_by_name = _index_server_metrics(server_metrics)
+    metrics_by_name = index_server_metrics(server_metrics)
 
     def _final_value(metric_name: str) -> float | None:
         entry = metrics_by_name.get(metric_name)
@@ -514,25 +511,6 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     result["total_requests_completed"] = len(records)
 
     return result
-
-
-def _index_server_metrics(server_metrics: dict) -> dict[str, dict]:
-    """Return the metrics dict from aiperf's server_metrics_export.json.
-
-    aiperf v0.8 schema: top-level ``{"metrics": {<name>: {"type": ...,
-    "series": [{"stats": {...}}, ...]}}}``. The ``metrics`` value is a
-    ``dict`` keyed by metric name, NOT a list. We just return it as-is so
-    callers can do ``out[metric_name]`` lookups.
-
-    See ``utils/aiperf/docs/server-metrics/server-metrics-json-schema.md``
-    for the full schema.
-    """
-    if not isinstance(server_metrics, dict):
-        return {}
-    metrics = server_metrics.get("metrics")
-    if isinstance(metrics, dict):
-        return metrics
-    return {}
 
 
 # ---- main ------------------------------------------------------------------
