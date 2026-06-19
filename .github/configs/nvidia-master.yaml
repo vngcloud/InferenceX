@@ -4749,6 +4749,26 @@ qwen3.5-27b-fp8-h100-1x-sglang:
       search-space:
       - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none }
 
+# Qwen3.5-27B BF16 on a single H100 node (greennode_01) with vLLM + LMCache.
+# Mirrors the reference BO-search run (conc winner=37 at 8k1k) but runs fixed
+# concurrency so we can see cache hit metrics without the full search overhead.
+# Served by benchmarks/single_node/qwen3.5-27b_bf16_h100_vllm-lmcache.sh.
+qwen3.5-27b-bf16-h100-1x-vllm-lmcache-8k1k:
+  image: lmcache/vllm-openai:nightly-2026-06-18
+  model: Qwen/Qwen3.5-27B
+  model-prefix: qwen3.5-27b
+  runner: h100-greennode_01
+  precision: bf16
+  framework: vllm-lmcache
+  benchmark-client: aiperf
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 37, conc-end: 37, spec-decoding: none }
+
 # Same as above but targeting greennode_00 (h100-1x runner).
 qwen3.5-27b-bf16-h100-1x-vllm-lmcache-8k1k-gn00:
   image: lmcache/vllm-openai:nightly-2026-06-18
