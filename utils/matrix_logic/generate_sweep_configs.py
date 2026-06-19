@@ -202,8 +202,11 @@ def generate_full_sweep(args, all_config_data, runner_data):
             runner_nodes_to_use = [
                 node for node in runner_nodes if args.runner_node_filter in node]
             if not runner_nodes_to_use:
-                # No matching nodes for this config's runner type, skip this config
-                continue
+                # runner field may itself be a node name (e.g. lmcache configs)
+                if args.runner_node_filter in runner:
+                    runner_nodes_to_use = [runner]
+                else:
+                    continue
 
         for seq_config in seq_len_configs:
             isl = seq_config[Fields.ISL.value]

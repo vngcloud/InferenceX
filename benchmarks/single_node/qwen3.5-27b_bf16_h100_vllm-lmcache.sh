@@ -66,7 +66,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --gpu-memory-utilization 0.9 \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
-    --compilation-config '{"cudagraph_capture_sizes": [1, 2, 4, 8, 16, 32, 64, 128]}' \
+    --enforce-eager \
     --enable-prefix-caching \
     --mamba-cache-mode align \
     --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both"}' \
