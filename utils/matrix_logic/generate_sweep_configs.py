@@ -193,6 +193,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
         framework = val[Fields.FRAMEWORK.value]
         runner = val[Fields.RUNNER.value]
         model_code = val[Fields.MODEL_PREFIX.value]
+        benchmark_client = val.get(Fields.BENCHMARK_CLIENT.value, "inferencex_native")
 
         # Compute filtered runner nodes for this config if filter is specified
         runner_nodes_to_use = None
@@ -352,6 +353,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.MODEL_PREFIX.value: model_code,
                                 Fields.PRECISION.value: precision,
                                 Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
                                 Fields.RUNNER.value: runner_value,
                                 Fields.ISL.value: isl,
                                 Fields.OSL.value: osl,
@@ -677,6 +679,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
         precision = val[Fields.PRECISION.value]
         framework = val[Fields.FRAMEWORK.value]
         runner = val[Fields.RUNNER.value]
+        benchmark_client = val.get(Fields.BENCHMARK_CLIENT.value, "inferencex_native")
         runners_for_entry = _runner_values_for_filter(
             runner, runner_data, getattr(args, 'runner_node_filter', None))
         if not runners_for_entry:
@@ -789,6 +792,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.MODEL_PREFIX.value: model_code,
                                 Fields.PRECISION.value: precision,
                                 Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
                                 Fields.RUNNER.value: runner_value,
                                 Fields.ISL.value: isl,
                                 Fields.OSL.value: osl,

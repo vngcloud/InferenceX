@@ -110,6 +110,8 @@ class SingleNodeMatrixEntry(BaseModel):
     disagg: bool
     run_eval: bool = Field(alias=Fields.RUN_EVAL.value)
     eval_only: bool = Field(alias=Fields.EVAL_ONLY.value, default=False)
+    benchmark_client: str = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value)
 
 
 class WorkerConfig(BaseModel):
