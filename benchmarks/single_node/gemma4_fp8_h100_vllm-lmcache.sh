@@ -58,6 +58,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --gpu-memory-utilization 0.9 \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
+    --compilation-config '{"cudagraph_capture_sizes": [1, 2, 4, 8, 16, 32, 64, 128, 256]}' \
     --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}' \
     > "$SERVER_LOG" 2>&1 &
 
