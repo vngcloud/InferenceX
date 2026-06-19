@@ -4786,6 +4786,28 @@ qwen3.5-27b-bf16-h100-1x-vllm-lmcache-8k1k-gn00:
       search-space:
       - { tp: 1, conc-start: 37, conc-end: 37, spec-decoding: none }
 
+# Gemma 4 31B FP8 on a single H100 (greennode_00) with vLLM + LMCache.
+# Mirrors gemma4-fp8-h100-2x-vllm-lmcache but on the 1x node (TP=1).
+# Gemma 4 is a pure transformer — no GDN/Mamba hybrid layers — so
+# LMCacheConnectorV1 works without HMA and does not trigger the
+# "Hybrid KV cache manager is disabled" crash seen with Qwen3.5-27B.
+# Served by benchmarks/single_node/gemma4_fp8_h100_vllm-lmcache.sh.
+gemma4-fp8-h100-1x-vllm-lmcache-gn00:
+  image: lmcache/vllm-openai:nightly-2026-06-18
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4
+  runner: h100-greennode_00
+  precision: fp8
+  framework: vllm-lmcache
+  benchmark-client: aiperf
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none }
+
 dsr1qwen3-bf16-rtx5090-1x-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
