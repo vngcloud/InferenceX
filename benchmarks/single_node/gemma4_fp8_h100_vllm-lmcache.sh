@@ -109,6 +109,8 @@ else
     AIPERF_CMD+=(--concurrency "$CONC")
 fi
 
+ensure_aiperf
+
 "${AIPERF_CMD[@]}"
 BENCHMARK_EXIT_CODE=$?
 
