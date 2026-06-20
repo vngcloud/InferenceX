@@ -76,6 +76,25 @@ SERVER_PID=$!
 
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
+# Prime LMCache lookup counters before aiperf starts. OTel counters for
+# lmcache_mp_lookup_* are lazy-initialized: they don't appear at port 8080
+# until the first lookup request flows through LMCacheMPConnector. aiperf
+# discovers metrics once at startup, so they must exist before it begins.
+python3 -c "
+import urllib.request, json, os
+req = urllib.request.Request(
+    'http://0.0.0.0:${PORT}/v1/chat/completions',
+    data=json.dumps({'model': os.environ['MODEL'],
+                     'messages': [{'role': 'user', 'content': 'hello'}],
+                     'max_tokens': 1}).encode(),
+    headers={'Content-Type': 'application/json'})
+try:
+    urllib.request.urlopen(req, timeout=60)
+except Exception:
+    pass
+" || true
+sleep 2
+
 SEARCH_ARGS=()
 if [[ -n "${SEARCH_RECIPE:-}" ]]; then
     SEARCH_ARGS+=(
@@ -135,6 +154,12 @@ BENCHMARK_EXIT_CODE=$?
 # lookup counters (lmcache_mp_lookup_*) are visible in the artifact.
 curl -sf "http://0.0.0.0:8080/metrics" \
     > /workspace/lmcache_server_post_metrics_snapshot.txt 2>&1 || true
+
+# Export aiperf's server_metrics_export.json (what aiperf actually scraped and
+# used to compute cache stats) for debugging. Named as _snapshot.txt so the
+# existing artifact upload glob (*_metrics_snapshot.txt) picks it up.
+cp "/workspace/${RESULT_FILENAME}_aiperf/server_metrics_export.json" \
+   /workspace/aiperf_server_metrics_snapshot.txt 2>/dev/null || true
 
 stop_gpu_monitor
 set +x

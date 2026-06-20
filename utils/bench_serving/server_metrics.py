@@ -97,8 +97,10 @@ def extract_cache_stats(server_metrics: dict) -> dict:
     def _rate(hit_key: str, query_key: str) -> float | None:
         hits = final_value(m, hit_key)
         queries = final_value(m, query_key)
-        if hits is not None and queries and queries > 0:
-            return hits / queries
+        if queries is not None and queries > 0:
+            # hits may be None when the OTel hit counter is lazy-initialized
+            # and no cache hits have occurred yet (miss rate = 100%).
+            return (hits if hits is not None else 0.0) / queries
         return None
 
     return {
