@@ -131,6 +131,11 @@ ensure_aiperf
 "${AIPERF_CMD[@]}"
 BENCHMARK_EXIT_CODE=$?
 
+# Capture the LMCache server metrics AFTER the benchmark so lazy-initialized
+# lookup counters (lmcache_mp_lookup_*) are visible in the artifact.
+curl -sf "http://0.0.0.0:8080/metrics" \
+    > /workspace/lmcache_server_post_metrics_snapshot.txt 2>&1 || true
+
 stop_gpu_monitor
 set +x
 exit "$BENCHMARK_EXIT_CODE"
