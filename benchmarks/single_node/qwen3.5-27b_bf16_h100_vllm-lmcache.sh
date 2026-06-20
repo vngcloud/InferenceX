@@ -109,7 +109,7 @@ AIPERF_CMD=(
     --osl "$OSL"
     --result-filename "$RESULT_FILENAME"
     --result-dir /workspace/
-    --server-metrics-url "http://0.0.0.0:${PORT}/metrics"
+    --server-metrics-url "http://0.0.0.0:8080/metrics"
     "${DURATION_ARGS[@]}"
 )
 if [[ -n "${SEARCH_RECIPE:-}" ]]; then
@@ -117,6 +117,13 @@ if [[ -n "${SEARCH_RECIPE:-}" ]]; then
 else
     AIPERF_CMD+=(--concurrency "$CONC")
 fi
+
+# Snapshot the raw metrics endpoints so we can verify which LMCache metric
+# names are actually exposed (port 8888 = vLLM, port 8080 = lmcache server).
+curl -sf "http://0.0.0.0:${PORT}/metrics" | grep -E "^[^#]" | grep -i lmcache \
+    > /workspace/vllm_lmcache_metrics_snapshot.txt 2>&1 || true
+curl -sf "http://0.0.0.0:8080/metrics" \
+    > /workspace/lmcache_server_metrics_snapshot.txt 2>&1 || true
 
 ensure_aiperf
 

@@ -108,6 +108,12 @@ else
     AIPERF_CMD+=(--concurrency "$CONC")
 fi
 
+# Snapshot the vLLM metrics endpoint to discover which LMCache metric names
+# are exposed (LMCacheConnectorV1 is embedded in vLLM, so metrics land at
+# port 8888 not 8080).
+curl -sf "http://0.0.0.0:${PORT}/metrics" | grep -E "^[^#]" | grep -i lmcache \
+    > /workspace/vllm_lmcache_metrics_snapshot.txt 2>&1 || true
+
 ensure_aiperf
 
 "${AIPERF_CMD[@]}"

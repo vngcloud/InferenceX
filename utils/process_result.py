@@ -148,8 +148,7 @@ for key, value in bmk_result.items():
 _CACHE_STAT_KEYS = (
     'server_gpu_cache_hit_rate',
     'server_cpu_cache_hit_rate',
-    'lmcache_local_hit_rate',
-    'lmcache_remote_hit_rate',
+    'lmcache_hit_rate',
 )
 for key in _CACHE_STAT_KEYS:
     if key in bmk_result and bmk_result[key] is not None:

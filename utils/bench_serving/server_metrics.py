@@ -75,15 +75,22 @@ def final_value(metrics_by_name: dict, metric_name: str) -> float | None:
 def extract_cache_stats(server_metrics: dict) -> dict:
     """Extract cache hit rates from a server_metrics_export.json blob.
 
-    All four keys are always present in the returned dict; values are None when
-    the metric was absent from the scrape (e.g. LMCache keys are absent when
-    LMCache is not running, vLLM prefix-cache keys are absent on SGLang).
+    Keys are present only when the underlying metric was found in the scrape.
 
     Keys:
-        server_gpu_cache_hit_rate   vLLM built-in prefix cache: hits/queries
-        server_cpu_cache_hit_rate   vLLM CPU-tier prefix cache: hits/queries
-        lmcache_local_hit_rate      LMCache local tier: hit_tokens/query_tokens
-        lmcache_remote_hit_rate     LMCache remote tier: hit_tokens/query_tokens
+        server_gpu_cache_hit_rate  vLLM built-in prefix cache: hits/queries
+        server_cpu_cache_hit_rate  vLLM CPU-tier prefix cache: hits/queries
+        lmcache_hit_rate           LMCache L1+L2 lookup hit rate (MP mode,
+                                   scraped from LMCache server port 8080):
+                                   lmcache_mp_lookup_hit_tokens_total /
+                                   lmcache_mp_lookup_requested_tokens_total
+
+    LMCache MP metrics are exposed by the LMCache server process at port 8080,
+    not by vLLM at port 8888. The benchmark script must set
+    --server-metrics-url to http://0.0.0.0:8080/metrics for lmcache_hit_rate
+    to be populated. LMCacheConnectorV1 (single-process) exposes metrics
+    within vLLM's process; those metric names may differ and are logged via
+    the pre-run metrics snapshot in the benchmark script for discovery.
     """
     m = index_server_metrics(server_metrics)
 
@@ -101,10 +108,12 @@ def extract_cache_stats(server_metrics: dict) -> dict:
         "server_cpu_cache_hit_rate": _rate(
             "vllm:cpu_prefix_cache_hits", "vllm:cpu_prefix_cache_queries"
         ),
-        "lmcache_local_hit_rate": _rate(
-            "lmcache_local_hit_tokens", "lmcache_local_query_tokens"
-        ),
-        "lmcache_remote_hit_rate": _rate(
-            "lmcache_remote_hit_tokens", "lmcache_remote_query_tokens"
+        # LMCache MP mode (LMCacheMPConnector): metrics live in the separate
+        # lmcache server process. OTel counter names (Prometheus export):
+        #   lmcache_mp_lookup_hit_tokens_total       numerator
+        #   lmcache_mp_lookup_requested_tokens_total denominator
+        "lmcache_hit_rate": _rate(
+            "lmcache_mp_lookup_hit_tokens_total",
+            "lmcache_mp_lookup_requested_tokens_total",
         ),
     }
