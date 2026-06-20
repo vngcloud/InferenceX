@@ -66,7 +66,6 @@ python3 -m vllm.entrypoints.openai.api_server \
     --gpu-memory-utilization 0.9 \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-batched-tokens "$MAX_NUM_BATCHED_TOKENS" \
-    --enforce-eager \
     --enable-prefix-caching \
     --mamba-cache-mode align \
     --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both"}' \
