@@ -32,8 +32,14 @@ LMCACHE_CPU_SIZE_GB="${LMCACHE_MAX_LOCAL_CPU_SIZE:-5}"
 # Chunk size must match the vLLM-derived GDN block size (784 for Qwen3.5-27B BF16 tp=1).
 LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-784}"
 
+mkdir -p "$RESULT_DIR"
+
 resolve_trace_source
 install_agentic_deps
+# install_agentic_deps pip-installs aiperf but doesn't guarantee PATH visibility
+# on all images. ensure_aiperf (no-op if already available) installs into a venv
+# and exports the venv bin dir onto PATH.
+AIPERF_SOURCE_DIR="$AIPERF_DIR" ensure_aiperf
 
 start_gpu_monitor
 

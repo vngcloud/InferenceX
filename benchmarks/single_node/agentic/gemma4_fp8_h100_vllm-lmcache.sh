@@ -29,8 +29,14 @@ export LMCACHE_LOCAL_CPU=True
 export LMCACHE_MAX_LOCAL_CPU_SIZE="${LMCACHE_MAX_LOCAL_CPU_SIZE:-5}"
 export LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-256}"
 
+mkdir -p "$RESULT_DIR"
+
 resolve_trace_source
 install_agentic_deps
+# install_agentic_deps pip-installs aiperf but doesn't guarantee PATH visibility
+# on all images. ensure_aiperf (no-op if already available) installs into a venv
+# and exports the venv bin dir onto PATH.
+AIPERF_SOURCE_DIR="$AIPERF_DIR" ensure_aiperf
 
 start_gpu_monitor
 
