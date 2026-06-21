@@ -512,59 +512,11 @@ run_aiperf_benchmark() {
     set +x
     local model=""
     local tokenizer=""
-    local url=""
-    local concurrency=""
-    local request_count=""
-    local result_filename=""
-    local result_dir=""
-    local bench_serving_dir=""
-    local endpoint_type="chat"
-    local warmup_request_count=""
-    local server_metrics_url=""
-    local gpu_telemetry_url=""
-    local public_dataset=""
-    local input_file=""
-    local custom_dataset_type=""
-    local isl=""
-    local osl=""
-    local random_seed=""
-    local search_recipe=""
-    local concurrency_min=""
-    local concurrency_max=""
-    local search_max_iterations=""
-    local sla_ms=""
-    local benchmark_duration=""
-    local benchmark_grace_period=""
-    local extra_inputs=()
 
     while [[ $# -gt 0 ]]; do
         case $1 in
             --model) model="$2"; shift 2 ;;
             --tokenizer) tokenizer="$2"; shift 2 ;;
-            --url) url="$2"; shift 2 ;;
-            --concurrency) concurrency="$2"; shift 2 ;;
-            --request-count) request_count="$2"; shift 2 ;;
-            --result-filename) result_filename="$2"; shift 2 ;;
-            --result-dir) result_dir="$2"; shift 2 ;;
-            --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
-            --endpoint-type) endpoint_type="$2"; shift 2 ;;
-            --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
-            --server-metrics-url) server_metrics_url="$2"; shift 2 ;;
-            --gpu-telemetry-url) gpu_telemetry_url="$2"; shift 2 ;;
-            --public-dataset) public_dataset="$2"; shift 2 ;;
-            --input-file) input_file="$2"; shift 2 ;;
-            --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
-            --isl) isl="$2"; shift 2 ;;
-            --osl) osl="$2"; shift 2 ;;
-            --random-seed) random_seed="$2"; shift 2 ;;
-            --search-recipe) search_recipe="$2"; shift 2 ;;
-            --concurrency-min) concurrency_min="$2"; shift 2 ;;
-            --concurrency-max) concurrency_max="$2"; shift 2 ;;
-            --search-max-iterations) search_max_iterations="$2"; shift 2 ;;
-            --sla-ms) sla_ms="$2"; shift 2 ;;
-            --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
-            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
-            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -612,51 +564,6 @@ run_aiperf_benchmark() {
     for extra_input in "${extra_inputs[@]}"; do
         benchmark_cmd+=(--extra-inputs "$extra_input")
     done
-
-    # Load terminator: a fixed request count or a wall-clock duration (the
-    # caller guarantees exactly one is set). Duration gives every BO-probed
-    # concurrency an equal measurement window.
-    if [[ -n "$request_count" ]]; then
-        benchmark_cmd+=(--request-count "$request_count")
-    else
-        benchmark_cmd+=(--benchmark-duration "$benchmark_duration")
-        if [[ -n "$benchmark_grace_period" ]]; then
-            benchmark_cmd+=(--benchmark-grace-period "$benchmark_grace_period")
-        fi
-    fi
-
-    if [[ -n "$search_recipe" ]]; then
-        benchmark_cmd+=(--search-recipe "$search_recipe" --concurrency-min "$concurrency_min" --concurrency-max "$concurrency_max")
-        if [[ -n "$sla_ms" ]]; then benchmark_cmd+=(--sla-ms "$sla_ms"); fi
-        if [[ -n "$search_max_iterations" ]]; then benchmark_cmd+=(--search-max-iterations "$search_max_iterations"); fi
-    else
-        benchmark_cmd+=(--concurrency "$concurrency")
-    fi
-
-    if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
-    if [[ -n "$server_metrics_url" ]]; then benchmark_cmd+=(--server-metrics-url "$server_metrics_url"); fi
-    if [[ -n "$gpu_telemetry_url" ]]; then benchmark_cmd+=(--gpu-telemetry-url "$gpu_telemetry_url"); fi
-    if [[ -n "$public_dataset" ]]; then benchmark_cmd+=(--public-dataset "$public_dataset"); fi
-    if [[ -n "$input_file" ]]; then benchmark_cmd+=(--input-file "$input_file"); fi
-    if [[ -n "$custom_dataset_type" ]]; then benchmark_cmd+=(--custom-dataset-type "$custom_dataset_type"); fi
-    if [[ -n "$isl" ]]; then benchmark_cmd+=(--isl "$isl"); fi
-    if [[ -n "$osl" ]]; then benchmark_cmd+=(--osl "$osl"); fi
-    if [[ -n "$random_seed" ]]; then benchmark_cmd+=(--random-seed "$random_seed"); fi
-
-    set -x
-    "${benchmark_cmd[@]}"
-    local benchmark_exit_code=$?
-    set +x
-
-    return $benchmark_exit_code
-}
-
-# Route a benchmark run to the selected benchmark client using a common argument
-# vocabulary shared by benchmark scripts.
-run_client_benchmark() {
-    set +x
-    local model=""
-    local tokenizer=""
     local port=""
     local backend=""
     local endpoint_type="chat"
@@ -680,11 +587,6 @@ run_client_benchmark() {
     local benchmark_duration=""
     local benchmark_grace_period=""
     local extra_inputs=()
-
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --model) model="$2"; shift 2 ;;
-            --tokenizer) tokenizer="$2"; shift 2 ;;
             --port) port="$2"; shift 2 ;;
             --backend) backend="$2"; shift 2 ;;
             --endpoint-type) endpoint_type="$2"; shift 2 ;;
@@ -708,45 +610,6 @@ run_client_benchmark() {
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
             --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
-            *) echo "Unknown parameter: $1"; return 1 ;;
-        esac
-    done
-
-    if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
-    if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
-    if [[ -z "$backend" ]]; then echo "Error: --backend is required"; return 1; fi
-    if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
-    if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
-    if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
-    if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
-    if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
-    if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
-    if [[ -z "$bench_serving_dir" ]]; then bench_serving_dir=$(pwd); fi
-    if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
-
-    local benchmark_client="${BENCHMARK_CLIENT:-inferencex_native}"
-
-    case "$benchmark_client" in
-        aiperf)
-            # concurrency carries the upper search bound (--concurrency-max) in
-            # search mode -- the serving server is sized to it -- so request and
-            # warmup counts derived from it stay valid for every BO-probed point.
-            local aiperf_args=(
-                --model "$model"
-                --url "http://0.0.0.0:$port"
-                --endpoint-type "$endpoint_type"
-                --isl "$isl"
-                --osl "$osl"
-                --result-filename "$result_filename"
-                --result-dir "$result_dir"
-                --bench-serving-dir "$bench_serving_dir"
-            )
-            if [[ -n "$tokenizer" ]]; then
-                aiperf_args+=(--tokenizer "$tokenizer")
-            fi
-            for extra_input in "${extra_inputs[@]}"; do
-                aiperf_args+=(--extra-inputs "$extra_input")
-            done
             # Load terminator. Duration mode (config-driven --benchmark-duration)
             # measures every BO-probed concurrency for an equal wall-clock window
             # instead of a fixed request count (which shrinks the window as

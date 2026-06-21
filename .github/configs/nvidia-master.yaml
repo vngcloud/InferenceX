@@ -4842,6 +4842,64 @@ dsr1qwen3-fp8-rtx5090-1x-vllm:
     #   search-space:
     #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
+# GreenNode-scoped Gemma4 31B BF16 on 2x H100 (matches the validated local
+# launch_h100-local.sh config: TP=2, bf16). Use h100-2x so TP=2 lands on
+# h100-greennode_01; h100-greennode_00 is the h100-1x runner and only exposes
+# one GPU to jobs.
+gemma4-bf16-h100-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4
+  runner: h100-2x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 32 }
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 32 }
+
+# Qwen3-4B-Instruct-2507 (bf16, TP=1) on the GreenNode H200 box. Small model
+# used to validate the AIPerf native BO search-recipe plumbing end to end:
+# instead of emitting one matrix entry per concurrency, the conc-start..conc-end
+# range [8, 32] becomes AIPerf's BO concurrency bounds. AIPerf's native
+# `max-throughput-itl-sla` recipe then uses Bayesian Optimization to probe
+# concurrencies in that range and records the single point with the highest
+# total token throughput whose p95 inter-token latency stays under sla-ms
+# (AIPerf's SLAFilter applies the SLA at p95 by default). runner:
+# h200-greennode_00 is used directly as the runs-on label (no runners.yaml
+# entry); select with --model-prefix qwen3-4b-2507. Serving script:
+# qwen3-4b-2507_bf16_h100.sh (the _h100 token is just the filename convention,
+# hardware-agnostic). search-max-iterations caps BO trials to bound CI time.
+qwen3-4b-2507-bf16-h200-greennode-vllm-search-recipe:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507
+  runner: h200-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    # osl kept short (128) so each request finishes in ~1s on H200: a
+    # duration-based smoke needs requests to complete inside the measurement
+    # window, and short requests make the BO loop validate fast. benchmark-grace
+    # (10s) exceeds one request's worst-case decode (128 x 50ms SLA = 6.4s) so
+    # in-flight requests are counted, not truncated.
+    - isl: 1024
+      osl: 128
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 1, conc-start: 8, conc-end: 32, search-recipe: max-throughput-itl-sla, sla-ms: 50, search-max-iterations: 6, benchmark-duration: 20, benchmark-grace-period: 10 }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5

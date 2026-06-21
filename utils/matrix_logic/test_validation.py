@@ -4,11 +4,14 @@ from validation import (
     Fields,
     SingleNodeMatrixEntry,
     MultiNodeMatrixEntry,
+    SingleNodeAgenticMatrixEntry,
+    MultiNodeAgenticMatrixEntry,
     WorkerConfig,
     SingleNodeSearchSpaceEntry,
     MultiNodeSearchSpaceEntry,
     SingleNodeSeqLenConfig,
     MultiNodeSeqLenConfig,
+    AgenticCodingConfig,
     SingleNodeMasterConfigEntry,
     MultiNodeMasterConfigEntry,
     validate_matrix_entry,
@@ -196,6 +199,7 @@ class TestFieldsEnum:
         assert Fields.TP.value == "tp"
         assert Fields.MULTINODE.value == "multinode"
         assert Fields.CONC.value == "conc"
+        assert Fields.BENCHMARK_CLIENT.value == "benchmark-client"
         assert Fields.SPEC_DECODING.value == "spec-decoding"
         assert Fields.PREFILL.value == "prefill"
         assert Fields.DECODE.value == "decode"
@@ -272,6 +276,20 @@ class TestSingleNodeMatrixEntry:
         assert entry.tp == 8
         assert entry.conc == 4
         assert entry.framework == "sglang"
+        assert entry.benchmark_client == "inferencex_native"
+
+    def test_benchmark_client_aiperf(self, valid_single_node_matrix_entry):
+        """AIPerf should validate as benchmark client, not framework."""
+        valid_single_node_matrix_entry["benchmark-client"] = "aiperf"
+        entry = SingleNodeMatrixEntry(**valid_single_node_matrix_entry)
+        assert entry.benchmark_client == "aiperf"
+        assert entry.framework == "sglang"
+
+    def test_invalid_benchmark_client(self, valid_single_node_matrix_entry):
+        """Invalid benchmark client value should fail."""
+        valid_single_node_matrix_entry["benchmark-client"] = "foo"
+        with pytest.raises(Exception):
+            SingleNodeMatrixEntry(**valid_single_node_matrix_entry)
 
     def test_conc_as_list(self, valid_single_node_matrix_entry):
         """Conc can be a list of integers."""
@@ -318,6 +336,19 @@ class TestMultiNodeMatrixEntry:
         assert entry.model == "deepseek-r1-fp4"
         assert entry.conc == [2150]
         assert entry.disagg is True
+        assert entry.benchmark_client == "inferencex_native"
+
+    def test_benchmark_client_aiperf(self, valid_multinode_matrix_entry):
+        """AIPerf should validate as benchmark client for multinode entries."""
+        valid_multinode_matrix_entry["benchmark-client"] = "aiperf"
+        entry = MultiNodeMatrixEntry(**valid_multinode_matrix_entry)
+        assert entry.benchmark_client == "aiperf"
+
+    def test_invalid_benchmark_client(self, valid_multinode_matrix_entry):
+        """Invalid benchmark client value should fail for multinode entries."""
+        valid_multinode_matrix_entry["benchmark-client"] = "foo"
+        with pytest.raises(Exception):
+            MultiNodeMatrixEntry(**valid_multinode_matrix_entry)
 
     def test_prefill_decode_worker_configs(self, valid_multinode_matrix_entry):
         """Prefill and decode should be WorkerConfig objects."""
@@ -377,6 +408,125 @@ class TestValidateMatrixEntry:
             validate_matrix_entry(valid_multinode_matrix_entry, is_multinode=True)
         assert "failed validation" in str(exc_info.value)
 
+
+# =============================================================================
+# Test Agentic Matrix Entries
+# =============================================================================
+
+class TestAgenticMatrixEntries:
+    """Tests for benchmark-client validation on agentic matrix entries."""
+
+    def test_single_node_agentic_benchmark_client_default(self):
+        entry = SingleNodeAgenticMatrixEntry(**{
+            "image": "test-image",
+            "model": "test-model",
+            "model-prefix": "test",
+            "precision": "fp8",
+            "framework": "vllm",
+            "runner": "h100",
+            "tp": 8,
+            "ep": 1,
+            "dp-attn": False,
+            "conc": 8,
+            "offloading": "none",
+            "exp-name": "agentic_test",
+            "scenario-type": "agentic-coding",
+        })
+        assert entry.benchmark_client == "inferencex_native"
+
+    def test_single_node_agentic_benchmark_client_aiperf(self):
+        entry = SingleNodeAgenticMatrixEntry(**{
+            "image": "test-image",
+            "model": "test-model",
+            "model-prefix": "test",
+            "precision": "fp8",
+            "framework": "vllm",
+            "benchmark-client": "aiperf",
+            "runner": "h100",
+            "tp": 8,
+            "ep": 1,
+            "dp-attn": False,
+            "conc": 8,
+            "offloading": "none",
+            "exp-name": "agentic_test",
+            "scenario-type": "agentic-coding",
+        })
+        assert entry.benchmark_client == "aiperf"
+
+    def test_single_node_agentic_invalid_benchmark_client(self):
+        with pytest.raises(Exception):
+            SingleNodeAgenticMatrixEntry(**{
+                "image": "test-image",
+                "model": "test-model",
+                "model-prefix": "test",
+                "precision": "fp8",
+                "framework": "vllm",
+                "benchmark-client": "foo",
+                "runner": "h100",
+                "tp": 8,
+                "ep": 1,
+                "dp-attn": False,
+                "conc": 8,
+                "offloading": "none",
+                "exp-name": "agentic_test",
+                "scenario-type": "agentic-coding",
+            })
+
+    def test_multinode_agentic_benchmark_client_default(self):
+        entry = MultiNodeAgenticMatrixEntry(**{
+            "image": "test-image",
+            "model": "test-model",
+            "model-prefix": "test",
+            "precision": "fp8",
+            "framework": "vllm",
+            "spec-decoding": "none",
+            "runner": "h100",
+            "prefill": {"num-worker": 1, "tp": 4, "ep": 1, "dp-attn": False},
+            "decode": {"num-worker": 1, "tp": 4, "ep": 1, "dp-attn": False},
+            "conc": 8,
+            "exp-name": "agentic_test",
+            "disagg": True,
+            "scenario-type": "agentic-coding",
+        })
+        assert entry.benchmark_client == "inferencex_native"
+
+    def test_multinode_agentic_benchmark_client_aiperf(self):
+        entry = MultiNodeAgenticMatrixEntry(**{
+            "image": "test-image",
+            "model": "test-model",
+            "model-prefix": "test",
+            "precision": "fp8",
+            "framework": "vllm",
+            "benchmark-client": "aiperf",
+            "spec-decoding": "none",
+            "runner": "h100",
+            "prefill": {"num-worker": 1, "tp": 4, "ep": 1, "dp-attn": False},
+            "decode": {"num-worker": 1, "tp": 4, "ep": 1, "dp-attn": False},
+            "conc": 8,
+            "exp-name": "agentic_test",
+            "disagg": True,
+            "scenario-type": "agentic-coding",
+        })
+        assert entry.benchmark_client == "aiperf"
+
+    def test_multinode_agentic_invalid_benchmark_client(self):
+        with pytest.raises(Exception):
+            MultiNodeAgenticMatrixEntry(**{
+                "image": "test-image",
+                "model": "test-model",
+                "model-prefix": "test",
+                "precision": "fp8",
+                "framework": "vllm",
+                "benchmark-client": "foo",
+                "spec-decoding": "none",
+                "runner": "h100",
+                "prefill": {"num-worker": 1, "tp": 4, "ep": 1, "dp-attn": False},
+                "decode": {"num-worker": 1, "tp": 4, "ep": 1, "dp-attn": False},
+                "conc": 8,
+                "exp-name": "agentic_test",
+                "disagg": True,
+                "scenario-type": "agentic-coding",
+            })
 
 # =============================================================================
 # Test SingleNodeSearchSpaceEntry
@@ -583,6 +733,32 @@ class TestSeqLenConfigs:
         assert config.isl == 1024
         assert config.osl == 1024
         assert len(config.search_space) == 1
+        assert config.benchmark_client == ["inferencex_native"]
+
+    def test_single_node_benchmark_client_roundtrip(self):
+        """Single-node seq-len configs should accept both benchmark clients."""
+        config = SingleNodeSeqLenConfig(**{
+            "isl": 1024,
+            "osl": 1024,
+            "benchmark-client": ["inferencex_native", "aiperf"],
+            "search-space": [
+                {"tp": 8, "conc-start": 4, "conc-end": 64}
+            ]
+        })
+        assert config.benchmark_client == ["inferencex_native", "aiperf"]
+        assert config.model_dump(by_alias=True)["benchmark-client"] == ["inferencex_native", "aiperf"]
+
+    def test_single_node_invalid_benchmark_client(self):
+        """Invalid single-node benchmark client values should fail."""
+        with pytest.raises(Exception):
+            SingleNodeSeqLenConfig(**{
+                "isl": 1024,
+                "osl": 1024,
+                "benchmark-client": ["foo"],
+                "search-space": [
+                    {"tp": 8, "conc-start": 4, "conc-end": 64}
+                ]
+            })
 
     def test_single_node_seq_len_config_8k1k(self):
         """Valid single node seq len config for 8k/1k."""
@@ -621,6 +797,90 @@ class TestSeqLenConfigs:
         })
         assert config.isl == 1024
         assert config.osl == 1024
+        assert config.benchmark_client == ["inferencex_native"]
+
+    def test_multinode_benchmark_client_roundtrip(self):
+        """Multinode seq-len configs should accept both benchmark clients."""
+        config = MultiNodeSeqLenConfig(**{
+            "isl": 1024,
+            "osl": 1024,
+            "benchmark-client": ["inferencex_native", "aiperf"],
+            "search-space": [
+                {
+                    "prefill": {
+                        "num-worker": 5,
+                        "tp": 4,
+                        "ep": 4,
+                        "dp-attn": True,
+                    },
+                    "decode": {
+                        "num-worker": 1,
+                        "tp": 8,
+                        "ep": 8,
+                        "dp-attn": True,
+                    },
+                    "conc-list": [2150],
+                }
+            ]
+        })
+        assert config.benchmark_client == ["inferencex_native", "aiperf"]
+        assert config.model_dump(by_alias=True)["benchmark-client"] == ["inferencex_native", "aiperf"]
+
+    def test_multinode_invalid_benchmark_client(self):
+        """Invalid multinode benchmark client values should fail."""
+        with pytest.raises(Exception):
+            MultiNodeSeqLenConfig(**{
+                "isl": 1024,
+                "osl": 1024,
+                "benchmark-client": ["foo"],
+                "search-space": [
+                    {
+                        "prefill": {
+                            "num-worker": 5,
+                            "tp": 4,
+                            "ep": 4,
+                            "dp-attn": True,
+                        },
+                        "decode": {
+                            "num-worker": 1,
+                            "tp": 8,
+                            "ep": 8,
+                            "dp-attn": True,
+                        },
+                        "conc-list": [2150],
+                    }
+                ]
+            })
+
+class TestAgenticCodingConfig:
+    """Tests for agentic coding scenario config benchmark clients."""
+
+    def test_benchmark_client_default(self):
+        config = AgenticCodingConfig(**{
+            "search-space": [
+                {"tp": 8, "conc-start": 4, "conc-end": 4}
+            ]
+        })
+        assert config.benchmark_client == ["inferencex_native"]
+
+    def test_benchmark_client_roundtrip(self):
+        config = AgenticCodingConfig(**{
+            "benchmark-client": ["inferencex_native", "aiperf"],
+            "search-space": [
+                {"tp": 8, "conc-start": 4, "conc-end": 4}
+            ]
+        })
+        assert config.benchmark_client == ["inferencex_native", "aiperf"]
+        assert config.model_dump(by_alias=True)["benchmark-client"] == ["inferencex_native", "aiperf"]
+
+    def test_invalid_benchmark_client(self):
+        with pytest.raises(Exception):
+            AgenticCodingConfig(**{
+                "benchmark-client": ["foo"],
+                "search-space": [
+                    {"tp": 8, "conc-start": 4, "conc-end": 4}
+                ]
+            })
 
 
 # =============================================================================
@@ -673,6 +933,16 @@ class TestValidateMasterConfig:
 
     def test_valid_single_node_config(self, valid_single_node_master_config):
         """Valid single node config should pass."""
+        configs = {"dsr1-fp8-mi300x-sglang": valid_single_node_master_config}
+        result = validate_master_config(configs)
+        assert result == configs
+
+    def test_valid_single_node_config_with_benchmark_client_opt_in(self, valid_single_node_master_config):
+        """Master config validation should allow scenario-level benchmark-client lists."""
+        valid_single_node_master_config["scenarios"]["fixed-seq-len"][0]["benchmark-client"] = [
+            "inferencex_native",
+            "aiperf",
+        ]
         configs = {"dsr1-fp8-mi300x-sglang": valid_single_node_master_config}
         result = validate_master_config(configs)
         assert result == configs

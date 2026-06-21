@@ -25,6 +25,7 @@ on:
             - main
             - dev
         types:
+            - opened
             - ready_for_review
             - synchronize
             - labeled
@@ -207,6 +208,7 @@ jobs:
             model: ${{ matrix.config.model }}
             model-prefix: ${{ matrix.config.model-prefix }}
             framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
             precision: ${{ matrix.config.precision }}
             tp: ${{ matrix.config.tp }}
             ep: ${{ matrix.config.ep }}
@@ -247,6 +249,7 @@ jobs:
             model: ${{ matrix.config.model }}
             model-prefix: ${{ matrix.config.model-prefix }}
             framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
             precision: ${{ matrix.config.precision }}
             tp: ${{ matrix.config.tp }}
             ep: ${{ matrix.config.ep }}
@@ -321,6 +324,7 @@ jobs:
             model: ${{ matrix.config.model }}
             model-prefix: ${{ matrix.config.model-prefix }}
             framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
             precision: ${{ matrix.config.precision }}
             tp: ${{ matrix.config.tp }}
             ep: ${{ matrix.config.ep }}

@@ -411,6 +411,33 @@ class TestGenerateFullSweepSingleNode:
         # 2 seq-len configs * 5 = 10 entries
         assert len(result) == 10
 
+    def test_default_benchmark_client_no_doubling(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
+        """Scenarios without benchmark-client should keep the same count and default to native."""
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_single_node_config,
+            sample_runner_config
+        )
+        assert len(result) == 10
+        assert all(entry["benchmark-client"] == "inferencex_native" for entry in result)
+
+    def test_benchmark_client_opt_in_doubles_entries(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
+        """Opting into native plus AIPerf should emit one entry per client."""
+        seq_config = sample_single_node_config["dsr1-fp8-mi300x-sglang"]["scenarios"]["fixed-seq-len"][0]
+        seq_config["benchmark-client"] = ["inferencex_native", "aiperf"]
+        full_sweep_args_single_node.seq_lens = ["1k1k"]
+        full_sweep_args_single_node.max_conc = 4
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_single_node_config,
+            sample_runner_config
+        )
+
+        assert len(result) == 2
+        assert {entry["benchmark-client"] for entry in result} == {"inferencex_native", "aiperf"}
+        assert {(entry["tp"], entry["conc"], entry["runner"]) for entry in result} == {(8, 4, "mi300x")}
+
     def test_matrix_entry_structure(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
         """Generated entries should have correct structure."""
         result = generate_full_sweep(
@@ -1584,6 +1611,39 @@ def full_sweep_args_both():
 class TestGenerateTestConfigSweep:
     """Tests for exact config-key sweep generation."""
 
+    def test_default_benchmark_client_no_doubling(self, sample_single_node_config):
+        """test-config should keep default scenarios at native-only count."""
+        args = argparse.Namespace(
+            config_keys=["dsr1-fp8-mi300x-sglang"],
+            seq_lens=["1k1k"],
+            conc=[4],
+            runner_node_filter=None,
+            scenario_type=None,
+        )
+
+        result = generate_test_config_sweep(args, sample_single_node_config)
+
+        assert len(result) == 1
+        assert result[0]["benchmark-client"] == "inferencex_native"
+
+    def test_benchmark_client_opt_in_doubles_entries(self, sample_single_node_config):
+        """test-config should multiply entries by scenario-level benchmark clients."""
+        seq_config = sample_single_node_config["dsr1-fp8-mi300x-sglang"]["scenarios"]["fixed-seq-len"][0]
+        seq_config["benchmark-client"] = ["inferencex_native", "aiperf"]
+        args = argparse.Namespace(
+            config_keys=["dsr1-fp8-mi300x-sglang"],
+            seq_lens=["1k1k"],
+            conc=[4],
+            runner_node_filter=None,
+            scenario_type=None,
+        )
+
+        result = generate_test_config_sweep(args, sample_single_node_config)
+
+        assert len(result) == 2
+        assert {entry["benchmark-client"] for entry in result} == {"inferencex_native", "aiperf"}
+        assert {(entry["tp"], entry["conc"], entry["runner"]) for entry in result} == {(8, 4, "mi300x")}
+
     def test_runner_node_filter_expands_config_runner(self, sample_multinode_config, sample_runner_config):
         """test-config should allow targeting one concrete runner node."""
         args = argparse.Namespace(
@@ -1970,4 +2030,3 @@ class TestE2EConfigSplitting:
         assert all('prefill' in x for x in multi)
         assert all('prefill' not in x for x in single)
         assert all('prefill' not in x for x in evals)
-

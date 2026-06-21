@@ -101,6 +101,41 @@ on:
         required: false
         type: string
         default: '1800'
+      search-recipe:
+        description: "AIPerf native BO search recipe (e.g. max-throughput-itl-sla). Empty = single fixed concurrency."
+        required: false
+        type: string
+        default: ''
+      sla-ms:
+        description: "p95 ITL/TPOT SLA threshold (ms) forwarded to AIPerf's recipe (--itl-sla-ms)."
+        required: false
+        type: string
+        default: ''
+      concurrency-min:
+        description: "Lower bound of AIPerf's BO concurrency search range (--search-recipe)."
+        required: false
+        type: string
+        default: ''
+      concurrency-max:
+        description: "Upper bound of AIPerf's BO concurrency search range (--search-recipe)."
+        required: false
+        type: string
+        default: ''
+      search-max-iterations:
+        description: "Cap on AIPerf BO iterations for the recipe (empty = AIPerf default)."
+        required: false
+        type: string
+        default: ''
+      benchmark-duration:
+        description: "Measure each (BO-probed) run for this many seconds instead of a fixed request count. Empty = request-count mode."
+        required: false
+        type: string
+        default: ''
+      benchmark-grace-period:
+        description: "Seconds to collect in-flight responses after --benchmark-duration ends (must exceed one request's decode time). Ignored unless benchmark-duration set."
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -131,6 +166,13 @@ env:
   OFFLOADING: ${{ inputs.offloading }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
+  SEARCH_RECIPE: ${{ inputs.search-recipe }}
+  SLA_MS: ${{ inputs.sla-ms }}
+  CONCURRENCY_MIN: ${{ inputs.concurrency-min }}
+  CONCURRENCY_MAX: ${{ inputs.concurrency-max }}
+  SEARCH_MAX_ITERATIONS: ${{ inputs.search-max-iterations }}
+  BENCHMARK_DURATION: ${{ inputs.benchmark-duration }}
+  BENCHMARK_GRACE_PERIOD: ${{ inputs.benchmark-grace-period }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache
@@ -193,7 +235,7 @@ jobs:
         env:
           RUNNER_NAME: ${{ runner.name }}
           RUNNER_TYPE: ${{ inputs.runner }}
-          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}_tp{}-ep{}-dpa{}_disagg-{}_spec-{}_n{}_mnbt{}_conc{}_{runner}
+          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}[_CLIENT]_tp{}-ep{}-dpa{}_disagg-{}_spec-{}_n{}_mnbt{}_conc{}_{runner}
           # n / mnbt segments hold the values of NUM_SPECULATIVE_TOKENS and
           # MAX_NUM_BATCHED_TOKENS (see benchmark-tmpl.yml inputs); when those
           # inputs are unset, the segments resolve to 'n' / 'mnbt' with no
@@ -245,6 +287,23 @@ jobs:
         with:
           name: bmk_${{ env.RESULT_FILENAME }}
           path: agg_${{ env.RESULT_FILENAME }}.json
+
+      # Raw AIPerf search artifacts (only present for --search-recipe runs).
+      # always() so a crash mid-parse still surfaces the BO trajectory for
+      # debugging. Scoped to the small JSON/log files — the per-request
+      # profile_export_raw.jsonl (multi-GB HTTP bodies) and inputs.json are
+      # deliberately excluded.
+      - name: Upload aiperf search artifacts (raw)
+        if: ${{ always() && inputs.search-recipe != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aiperf_search_${{ env.RESULT_FILENAME }}
+          path: |
+            ${{ env.RESULT_FILENAME }}_aiperf/search_history.json
+            ${{ env.RESULT_FILENAME }}_aiperf/**/profile_export_aiperf.json
+            ${{ env.RESULT_FILENAME }}_aiperf/**/profile_export_aiperf_aggregate.json
+            ${{ env.RESULT_FILENAME }}_aiperf/**/logs/aiperf.log
+          if-no-files-found: ignore
 
       - name: Upload agentic aggregated result
         if: ${{ inputs.scenario-type == 'agentic-coding' }}

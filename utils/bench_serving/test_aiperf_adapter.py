@@ -258,6 +258,7 @@ def test_search_delegates_to_native_bo_and_feeds_process_result(tmp_path: Path):
     assert agg["conc"] == 32
     assert agg["tput_per_gpu"] == pytest.approx(3200.0 / 8)
 
+
 def test_search_writes_best_effort_result_when_aiperf_returns_no_sla_exit(
     tmp_path: Path,
 ):
@@ -337,6 +338,7 @@ def test_search_forwards_extra_inputs(tmp_path: Path):
     argv = json.loads((tmp_path / "aiperf_argv.json").read_text())
     idx = argv.index("--extra-inputs")
     assert argv[idx + 1] == "ignore_eos:true"
+
 
 @pytest.mark.integration
 def test_main_against_live_server(tmp_path: Path):
