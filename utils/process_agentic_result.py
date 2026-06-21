@@ -384,6 +384,7 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
         "theoretical_cache_hit_rate": None,
         "server_gpu_cache_hit_rate": None,
         "server_cpu_cache_hit_rate": None,
+        "lmcache_hit_rate": None,
         "kv_offload_bytes_gpu_to_cpu": None,
         "kv_offload_bytes_cpu_to_gpu": None,
         "kv_offload_time_gpu_to_cpu": None,
@@ -482,6 +483,11 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     cpu_queries = _final_value("vllm:cpu_prefix_cache_queries")
     if cpu_hits is not None and cpu_queries and cpu_queries > 0:
         result["server_cpu_cache_hit_rate"] = cpu_hits / cpu_queries
+
+    lmcache_hit = _final_value("lmcache_mp_lookup_hit_tokens")
+    lmcache_requested = _final_value("lmcache_mp_lookup_requested_tokens")
+    if lmcache_hit is not None and lmcache_requested and lmcache_requested > 0:
+        result["lmcache_hit_rate"] = lmcache_hit / lmcache_requested
 
     for src_key, dst_key in (
         ("vllm:kv_offload_bytes_gpu_to_cpu", "kv_offload_bytes_gpu_to_cpu"),
@@ -657,6 +663,8 @@ def main() -> int:
         )
     if agg.get("server_gpu_cache_hit_rate") is not None:
         print(f"  GPU cache hit rate: {agg['server_gpu_cache_hit_rate']:.1%}")
+    if agg.get("lmcache_hit_rate") is not None:
+        print(f"  LMCache hit rate: {agg['lmcache_hit_rate']:.1%}")
     if agg.get("response_cache_hit_rate") is not None:
         print(f"  Response cache hit rate: {agg['response_cache_hit_rate']:.1%}")
     if agg.get("theoretical_cache_hit_rate") is not None:
