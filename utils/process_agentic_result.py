@@ -474,10 +474,21 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
                 return agg
         return None
 
-    hits = _final_value("vllm:prefix_cache_hits")
-    queries = _final_value("vllm:prefix_cache_queries")
-    if hits is not None and queries and queries > 0:
-        result["server_gpu_cache_hit_rate"] = hits / queries
+    # vllm:prompt_tokens_cached is the number of prompt tokens that were served
+    # from the GPU prefix cache (local_cache_hit). It is more reliable than
+    # vllm:prefix_cache_hits, which counts internal radix-cache lookups and can
+    # be zero even when prefix caching is active (query volume inflates the
+    # denominator into billions while hits stay at zero).
+    cached_tokens = _final_value("vllm:prompt_tokens_cached")
+    prompt_tokens = _final_value("vllm:prompt_tokens")
+    if cached_tokens is not None and prompt_tokens and prompt_tokens > 0:
+        result["server_gpu_cache_hit_rate"] = cached_tokens / prompt_tokens
+    else:
+        # Fallback for older vLLM versions that don't expose prompt_tokens_cached.
+        hits = _final_value("vllm:prefix_cache_hits")
+        queries = _final_value("vllm:prefix_cache_queries")
+        if hits is not None and queries and queries > 0:
+            result["server_gpu_cache_hit_rate"] = hits / queries
 
     cpu_hits = _final_value("vllm:cpu_prefix_cache_hits")
     cpu_queries = _final_value("vllm:cpu_prefix_cache_queries")

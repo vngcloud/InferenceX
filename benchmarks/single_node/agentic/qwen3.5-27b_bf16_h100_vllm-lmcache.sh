@@ -28,7 +28,11 @@ fi
 # Block size for Qwen3.5-27B GDN layers is 784 (derived at runtime by vLLM).
 # --max-num-batched-tokens must be in [784, 1568) for mamba-cache-mode=align.
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-1567}"
-LMCACHE_CPU_SIZE_GB="${LMCACHE_MAX_LOCAL_CPU_SIZE:-5}"
+# Each chunk ≈ 85.8 MB (2 × 28 layers × 8 kv_heads × 128 head_dim × 784 tokens
+# × 2 bytes BF16). 5 GB holds only ~59 chunks — less than one average request
+# (54K tokens / 784 ≈ 70 chunks) — causing constant L1 thrashing and 0% hit
+# rate. 50 GB holds ~582 chunks and allows meaningful prefix reuse.
+LMCACHE_CPU_SIZE_GB="${LMCACHE_MAX_LOCAL_CPU_SIZE:-50}"
 # Chunk size must match the vLLM-derived GDN block size (784 for Qwen3.5-27B BF16 tp=1).
 LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-784}"
 
