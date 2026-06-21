@@ -33,6 +33,8 @@ E2EL_P95 = "E2EL P95 (s)"
 TPUT_PER_GPU = "TPUT per GPU"
 OUTPUT_TPUT_PER_GPU = "Output TPUT per GPU"
 INPUT_TPUT_PER_GPU = "Input TPUT per GPU"
+GPU_CACHE_HIT_RATE = "GPU Cache Hit Rate"
+LMCACHE_HIT_RATE = "LMCache Hit Rate"
 PREFILL_TP = "Prefill TP"
 PREFILL_EP = "Prefill EP"
 PREFILL_DP_ATTN = "Prefill DP Attn"
@@ -51,6 +53,13 @@ EM_STRICT = "EM Strict"
 EM_FLEXIBLE = "EM Flexible"
 N_EFF = "N (eff)"
 SPEC_DECODING = "Spec Decode"
+
+
+def _fmt_rate(value) -> str:
+    """Format a cache hit rate (0.0–1.0) as a percentage string, or '-' if absent."""
+    if value is None:
+        return "-"
+    return f"{value * 100:.2f}%"
 
 
 def load_json(path: Path) -> Optional[Dict[str, Any]]:
@@ -90,7 +99,8 @@ def main():
             TPOT_MEAN, TPOT_P75,
             INTVTY_MEAN, INTVTY_AT_P75_TPOT, INTVTY_AT_P90_TPOT, INTVTY_AT_P95_TPOT,
             E2EL_MEAN, E2EL_P75, E2EL_P90, E2EL_P95,
-            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU
+            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU,
+            GPU_CACHE_HIT_RATE, LMCACHE_HIT_RATE,
         ]
 
         single_node_rows = [
@@ -123,6 +133,8 @@ def main():
                 f"{r['tput_per_gpu']:.4f}",
                 f"{r['output_tput_per_gpu']:.4f}",
                 f"{r['input_tput_per_gpu']:.4f}",
+                _fmt_rate(r.get('server_gpu_cache_hit_rate')),
+                _fmt_rate(r.get('lmcache_hit_rate')),
             ]
             for r in single_node_results
         ]
@@ -145,7 +157,8 @@ def main():
             TPOT_MEAN, TPOT_P75,
             INTVTY_MEAN, INTVTY_AT_P75_TPOT, INTVTY_AT_P90_TPOT, INTVTY_AT_P95_TPOT,
             E2EL_MEAN, E2EL_P75, E2EL_P90, E2EL_P95,
-            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU
+            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU,
+            GPU_CACHE_HIT_RATE, LMCACHE_HIT_RATE,
         ]
 
         multinode_rows = [
@@ -185,6 +198,8 @@ def main():
                 f"{r['tput_per_gpu']:.4f}",
                 f"{r['output_tput_per_gpu']:.4f}",
                 f"{r['input_tput_per_gpu']:.4f}",
+                _fmt_rate(r.get('server_gpu_cache_hit_rate')),
+                _fmt_rate(r.get('lmcache_hit_rate')),
             ]
             for r in multinode_results
         ]
