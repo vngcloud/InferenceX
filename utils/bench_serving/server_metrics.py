@@ -111,11 +111,11 @@ def extract_cache_stats(server_metrics: dict) -> dict:
             "vllm:cpu_prefix_cache_hits", "vllm:cpu_prefix_cache_queries"
         ),
         # LMCache MP mode (LMCacheMPConnector): metrics live in the separate
-        # lmcache server process. OTel counter names (Prometheus export):
-        #   lmcache_mp_lookup_hit_tokens_total       numerator
-        #   lmcache_mp_lookup_requested_tokens_total denominator
+        # lmcache server process. aiperf strips the _total suffix from
+        # Prometheus counter names in server_metrics_export.json, so the
+        # keys here are without _total (Prometheus wire: *_tokens_total).
         "lmcache_hit_rate": _rate(
-            "lmcache_mp_lookup_hit_tokens_total",
-            "lmcache_mp_lookup_requested_tokens_total",
+            "lmcache_mp_lookup_hit_tokens",
+            "lmcache_mp_lookup_requested_tokens",
         ),
     }
