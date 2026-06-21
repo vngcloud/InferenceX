@@ -20,7 +20,9 @@ if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-131072}"
+if [[ -z "${MAX_MODEL_LEN:-}" ]] || [[ "$MAX_MODEL_LEN" == "0" ]]; then
+    MAX_MODEL_LEN=131072
+fi
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-8192}"
 
 export LMCACHE_LOCAL_CPU=True

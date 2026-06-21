@@ -22,7 +22,9 @@ if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
 SERVER_LOG=/workspace/server.log
 LMCACHE_LOG=/workspace/lmcache_server.log
 PORT=${PORT:-8888}
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-131072}"
+if [[ -z "${MAX_MODEL_LEN:-}" ]] || [[ "$MAX_MODEL_LEN" == "0" ]]; then
+    MAX_MODEL_LEN=131072
+fi
 # Block size for Qwen3.5-27B GDN layers is 784 (derived at runtime by vLLM).
 # --max-num-batched-tokens must be in [784, 1568) for mamba-cache-mode=align.
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-1567}"
