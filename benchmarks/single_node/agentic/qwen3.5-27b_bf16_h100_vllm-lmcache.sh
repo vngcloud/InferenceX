@@ -3,7 +3,7 @@
 #
 # Uses LMCacheMPConnector (required for Qwen3.5-27B's GDN/Mamba hybrid layers).
 # A separate lmcache server process runs on port 8080; its Prometheus metrics
-# expose lmcache_mp_lookup_* which are scraped via --server-metrics-url and
+# expose lmcache_mp_lookup_* which are scraped via --server-metrics and
 # extracted by process_agentic_result.py as lmcache_hit_rate.
 #
 # Required env vars:
@@ -92,7 +92,9 @@ AIPERF_SOURCE_DIR="$AIPERF_DIR" ensure_aiperf
 build_replay_cmd "$RESULT_DIR"
 # Scrape the LMCache server's Prometheus endpoint (lmcache_mp_lookup_*)
 # so process_agentic_result.py can compute lmcache_hit_rate.
-REPLAY_CMD+=" --server-metrics-url http://0.0.0.0:8080/metrics"
+# Note: build_replay_cmd calls the aiperf CLI directly (not aiperf_adapter.py),
+# so the CLI flag --server-metrics is used, not aiperf_adapter.py's --server-metrics-url.
+REPLAY_CMD+=" --server-metrics http://0.0.0.0:8080/metrics"
 
 echo "$REPLAY_CMD" > "$RESULT_DIR/benchmark_command.txt"
 

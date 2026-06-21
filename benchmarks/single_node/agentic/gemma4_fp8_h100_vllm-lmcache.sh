@@ -59,7 +59,9 @@ wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$S
 AIPERF_SOURCE_DIR="$AIPERF_DIR" ensure_aiperf
 
 build_replay_cmd "$RESULT_DIR"
-REPLAY_CMD+=" --server-metrics-url http://0.0.0.0:${PORT}/metrics"
+# Note: build_replay_cmd calls the aiperf CLI directly (not aiperf_adapter.py),
+# so the CLI flag --server-metrics is used, not aiperf_adapter.py's --server-metrics-url.
+REPLAY_CMD+=" --server-metrics http://0.0.0.0:${PORT}/metrics"
 
 echo "$REPLAY_CMD" > "$RESULT_DIR/benchmark_command.txt"
 
