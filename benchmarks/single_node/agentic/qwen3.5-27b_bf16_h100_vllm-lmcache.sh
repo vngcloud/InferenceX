@@ -36,10 +36,6 @@ mkdir -p "$RESULT_DIR"
 
 resolve_trace_source
 install_agentic_deps
-# install_agentic_deps pip-installs aiperf but doesn't guarantee PATH visibility
-# on all images. ensure_aiperf (no-op if already available) installs into a venv
-# and exports the venv bin dir onto PATH.
-AIPERF_SOURCE_DIR="$AIPERF_DIR" ensure_aiperf
 
 start_gpu_monitor
 
@@ -88,6 +84,10 @@ except Exception:
     pass
 " || true
 sleep 2
+
+# ensure_aiperf is deferred to here (after server start) so that its venv bin
+# dir is not prepended to PATH before `python3 -m vllm` runs above.
+AIPERF_SOURCE_DIR="$AIPERF_DIR" ensure_aiperf
 
 build_replay_cmd "$RESULT_DIR"
 # Scrape the LMCache server's Prometheus endpoint (lmcache_mp_lookup_*)
