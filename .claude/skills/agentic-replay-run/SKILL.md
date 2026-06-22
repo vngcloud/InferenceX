@@ -17,6 +17,7 @@ Flow: pick dataset + model/serving → write a master-config entry **and** its l
 3. **Runner** — which box (`runner:` field). GreenNode options: `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `rtx5090-greennode_00` (1×RTX5090). The `runner:` value is the box label verbatim, and `search-space.tp` MUST match its GPU count. Full list in `.github/configs/runners.yaml`.
 4. **Duration** — `900` (standard, recommended) or `90` (smoke). Passed as `duration-override`.
 5. **New branch?** — recommend **yes**, `exp/<name>`. Edit + commit + dispatch from it (never `main` — see gotcha).
+6. **Bật DCGM không?** — mặc định **không**. Bật thì AIPerf sẽ thu thêm GPU telemetry phong phú hơn nhiều so với `gpu_metrics.csv` mặc định (`gpu_metrics.csv` chỉ có power/temp/util/clocks từ `nvidia-smi`; DCGM mở thêm `DCGM_FI_PROF_*`: SM/tensor-core activity, memory bandwidth, NVLink, …) vì AIPerf scrape trực tiếp endpoint DCGM. Nếu user cần → sửa launch script của runner để dựng container DCGM (xem **section DCGM** bên dưới); không cần → bỏ qua, giữ nguyên launcher.
 
 ## Datasets
 
@@ -94,6 +95,31 @@ Append-only, **exact whitespace**, copy an existing agentic-replay entry at the 
 ## grace-period
 
 `--benchmark-grace-period` (launcher default **120s**, env `BENCHMARK_GRACE_PERIOD`) only applies in duration mode: after the cutoff AIPerf stops sending new requests and waits up to this long for in-flight ones to finish (the rest drop). Size it to the **longest single request's E2E latency**, not the run duration — 120s is safe headroom for 64k/128k contexts. Leave it unless tail E2E exceeds ~120s.
+
+## DCGM (optional — only if the user said yes in Q6)
+
+DCGM is a **sidecar container on the runner**, not part of the config/script. The model server (vLLM/SGLang) already runs inside one `docker run` in the launcher with `--network host`; adding DCGM means starting a second container on the same host network so AIPerf (inside the model container) reaches `localhost:9400/metrics`. The default `gpu_metrics.csv` (nvidia-smi polling in `benchmark_lib.sh`) is untouched and keeps running in parallel.
+
+Edit the launcher for the chosen runner — `runners/launch_<hw>-greennode.sh` (e.g. `launch_h100-greennode.sh`, `launch_rtx5090-greennode.sh`). Paste this block **right before** the model `docker run --rm \` line, then commit it on the same `exp/<name>` branch:
+
+```bash
+# DCGM exporter sidecar. Runs --network host so AIPerf inside the model
+# container (also host network) reaches GPU telemetry at localhost:9400/metrics.
+# SYS_ADMIN needed for DCGM_FI_PROF_* metrics; port 9400 must be free
+# (conflicts with any host-level/k8s dcgm-exporter). Torn down on script exit.
+DCGM_IMAGE="${DCGM_IMAGE:-nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04}"
+DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-greennode}"
+docker rm -f "$DCGM_NAME" 2>/dev/null || true
+docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
+  --name "$DCGM_NAME" "$DCGM_IMAGE"
+trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
+```
+
+Notes for the agent:
+- Copy verbatim. The only thing to vary is which `launch_<hw>-greennode.sh` file, matching the `runner:` chosen in Q3.
+- Don't touch `benchmark_lib.sh` or the workflow — reachability on `localhost:9400` is all AIPerf needs; wiring the endpoint into the AIPerf config is the user's side.
+- Reverting = delete the block (or `git checkout` the launcher).
+- First-run check on the box: if a host-level/k8s dcgm-exporter already holds port 9400 (`docker ps | grep dcgm`, `ss -ltn | grep 9400`), the sidecar fails to bind — surface that instead of retrying.
 
 ## Validate → commit → dispatch
 
