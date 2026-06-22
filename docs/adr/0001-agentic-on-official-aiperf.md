@@ -4,7 +4,10 @@ Date: 2026-06-02
 
 ## Status
 
-Accepted
+Accepted, partially superseded by [ADR-0002](0002-keep-both-agentic-paths.md). The
+decision to **retire the fork scenario and drop the `utils/aiperf` submodule** is
+reversed (the team now wants agentx-weka kept for SemiAnalysis comparability). The
+decision to run our **own** datasets on official AIPerf `mooncake_trace` still stands.
 
 ## Context
 
