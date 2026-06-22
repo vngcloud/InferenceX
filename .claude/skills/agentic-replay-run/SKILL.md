@@ -1,6 +1,6 @@
 ---
 name: agentic-replay-run
-description: Configure and dispatch an InferenceX agentic-replay benchmark on official AIPerf for one of the three integrated trace datasets (agentic-coding 64k/128k/167k, Claude-Code MiniMax production, or Gemma blend_prod), on any model + serving stack the user specifies. Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
+description: Configure and dispatch an InferenceX agentic-replay benchmark on GreenNode's pinned-v0.9.0 AIPerf fork (utils/aiperf-mooncake submodule) for one of the three integrated trace datasets (agentic-coding 64k/128k/167k, Claude-Code MiniMax production, or Gemma blend_prod), on any model + serving stack the user specifies. Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
 ---
 
 # Agentic-replay run
@@ -58,9 +58,17 @@ The entry is **declarative metadata only**. It does NOT contain the serve comman
 
 ## B) Launch script — holds the serve command
 
-Script path is **derived** (bench-config rule): `benchmarks/single_node/<model-prefix>_<precision>_h100[_<framework>].sh`. **Reuse** if it exists and its serve flags match; otherwise **create** by copying the closest agentic-replay launcher — `qwen3-4b-2507_bf16_h100_vllm.sh` — and changing **only the serve block** to the user's command. Keep everything else verbatim: `check_env_vars`, the trace-subset/`STRIP_TRACE_DELAYS` handling, `STOP_ARGS` (duration), the **`REPLAY_ARGS` block** (`no-fixed-schedule`, `grace-period`, sampling, warmup, tokenizer passthrough), and the `run_client_benchmark` call — these wire up the agentic-replay methodology and must not be dropped.
+Script path is **derived** (bench-config rule): `benchmarks/single_node/<model-prefix>_<precision>_h100[_<framework>].sh`. **Reuse** if it exists and its serve flags match; otherwise **create** by copying the closest agentic-replay launcher — `qwen3-4b-2507_bf16_h100_vllm.sh` — adding the `AIPERF_SOURCE_DIR` export below, and changing **only the serve block** to the user's command. Keep everything else verbatim: `check_env_vars`, the trace-subset/`STRIP_TRACE_DELAYS` handling, `STOP_ARGS` (duration), the **`REPLAY_ARGS` block** (`no-fixed-schedule`, `grace-period`, sampling, warmup, tokenizer passthrough), and the `run_client_benchmark` call — these wire up the agentic-replay methodology and must not be dropped.
+
+**MANDATORY — pin aiperf to our fork.** Right after `source ../benchmark_lib.sh`, the script MUST export `AIPERF_SOURCE_DIR` so `ensure_aiperf` installs from the `utils/aiperf-mooncake` submodule (clean fork pinned to `v0.9.0`, `thangquang09/aiperf`) into the isolated venv via `pip install <dir>` — instead of stock PyPI `aiperf==0.9.0`. All three datasets run through this path (ADR-0003). Without this export the run silently falls back to PyPI and any fork patch is lost.
 
 ```bash
+source "$(dirname "$0")/../benchmark_lib.sh"
+
+# Pin aiperf to the clean-v0.9.0 fork submodule (ADR-0003) instead of PyPI.
+export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
+
+...
 vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
   --served-model-name "$SERVED_MODEL_NAME" --tensor-parallel-size "$TP" \
   --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$CONC" \
@@ -114,5 +122,11 @@ gh api --method POST -H "Accept: application/vnd.github+json" \
 RUN_ID=$(gh run list --repo vngcloud/InferenceX --workflow e2e-tests.yml --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
 gh run view "$RUN_ID" --repo vngcloud/InferenceX --json status,jobs -q '.jobs[] | "\(.status)/\(.conclusion // "-")  \(.name)"'
 ```
+
+**Confirm the fork was used** (not PyPI): the job log should show `ensure_aiperf` source-installing from the submodule —
+```
+[aiperf] CLI missing; installing from source: /workspace/utils/aiperf-mooncake
+```
+If you instead see `installing aiperf==0.9.0 from PyPI`, the `AIPERF_SOURCE_DIR` export is missing from the launch script (step B).
 
 Prefix-cache hit % lives in the separate `server_metrics_export.json` artifact (`prefix_cache_hits / prefix_cache_queries`), not `profile_export_aiperf.json`.
