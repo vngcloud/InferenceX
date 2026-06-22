@@ -1419,8 +1419,10 @@ build_replay_cmd() {
     # Default --num-dataset-entries is 100; the weka corpus has 949. Cap
     # at 949 so all unique traces are loaded (the loader treats this as a
     # ``min(cap, available)`` ceiling, not a target — see
-    # semianalysis_cc_traces_weka.py).
-    REPLAY_CMD+=" --num-dataset-entries 949"
+    # semianalysis_cc_traces_weka.py). Overridable via WEKA_NUM_DATASET_ENTRIES:
+    # loading/reconstructing all 949 long trajectories needs a lot of host RAM
+    # (~OOMs a 117GB/no-swap 1xH100 box), so smokes on small hosts cap this lower.
+    REPLAY_CMD+=" --num-dataset-entries ${WEKA_NUM_DATASET_ENTRIES:-949}"
     # 1-second timeslices on the server-metrics scrape so the post-run
     # plotter has per-window time series (KV usage, cache hit rate,
     # throughput, etc.). Matches kv-cache-tester's poll_interval=1.0
