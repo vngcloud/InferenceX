@@ -1,7 +1,75 @@
 import sys
 import json
 import os
+import csv
+from datetime import datetime
 from pathlib import Path
+
+
+def mean_total_power_w(csv_path, num_gpus, window_s=None):
+    """Mean total GPU power (W) over the benchmark window from an nvidia-smi CSV.
+
+    The CSV is the one written by start_gpu_monitor() in benchmark_lib.sh
+    (`nvidia-smi --query-gpu=timestamp,index,power.draw,... --format=csv -l 1`).
+
+    Sums the per-GPU mean power of the `num_gpus` busiest GPUs so idle GPUs on a
+    shared host (e.g. an unused second card on a TP=1 run) don't inflate the
+    figure. When `window_s` is given, only samples within the last `window_s`
+    seconds are used so model-load/warmup power (the monitor starts before the
+    server) is excluded. Returns None when no usable data is found.
+    """
+    try:
+        with open(csv_path, newline='') as f:
+            rows = list(csv.reader(f))
+    except (FileNotFoundError, OSError):
+        return None
+
+    if len(rows) < 2:
+        return None
+
+    header = [h.strip() for h in rows[0]]
+
+    def col(prefix):
+        for i, h in enumerate(header):
+            if h.startswith(prefix):
+                return i
+        return None
+
+    ts_i, idx_i, pw_i = col('timestamp'), col('index'), col('power.draw')
+    if ts_i is None or idx_i is None or pw_i is None:
+        return None
+
+    samples = []  # (ts_seconds, gpu_index, power_w)
+    for r in rows[1:]:
+        if len(r) <= max(ts_i, idx_i, pw_i):
+            continue
+        try:
+            ts = datetime.strptime(
+                r[ts_i].strip(), "%Y/%m/%d %H:%M:%S.%f").timestamp()
+            gpu = r[idx_i].strip()
+            # values look like "350.12 W"; "[N/A]" and similar are skipped
+            power = float(r[pw_i].strip().split()[0])
+        except (ValueError, IndexError):
+            continue
+        samples.append((ts, gpu, power))
+
+    if not samples:
+        return None
+
+    if window_s and window_s > 0:
+        end = max(s[0] for s in samples)
+        windowed = [s for s in samples if s[0] >= end - window_s]
+        if windowed:
+            samples = windowed
+
+    per_gpu = {}
+    for _, gpu, power in samples:
+        per_gpu.setdefault(gpu, []).append(power)
+
+    gpu_means = sorted(
+        (sum(v) / len(v) for v in per_gpu.values()), reverse=True)
+    n = max(1, min(num_gpus, len(gpu_means)))
+    return sum(gpu_means[:n])
 
 
 def get_required_env_vars(required_vars):
@@ -90,6 +158,7 @@ if is_multinode:
     decode_dp_attn = multinode_env['DECODE_DP_ATTN']
 
     total_gpus = prefill_gpus + decode_gpus
+    num_gpus_used = total_gpus
     if total_gpus <= 0:
         raise ValueError("Multinode results require at least one GPU.")
     if prefill_gpus <= 0:
@@ -125,6 +194,7 @@ else:
     tp_size = int(single_node_env['TP'])
     ep_size = int(single_node_env['EP_SIZE'])
     dp_attention = single_node_env['DP_ATTENTION']
+    num_gpus_used = tp_size
 
     single_node_data = {
         'is_multinode': False,
@@ -144,6 +214,23 @@ for key, value in bmk_result.items():
     if 'tpot' in key:
         data[key.replace('_ms', '').replace(
             'tpot', 'intvty')] = 1000.0 / float(value)
+
+# Energy efficiency: tokens per watt (tok/s/W) from the nvidia-smi power log.
+# Power telemetry is best-effort; a missing/empty CSV leaves the fields null.
+gpu_metrics_csv = os.environ.get('GPU_METRICS_CSV', 'gpu_metrics.csv')
+window_s = bmk_result.get('duration')
+mean_power = mean_total_power_w(gpu_metrics_csv, num_gpus_used, window_s)
+data['mean_power_w'] = round(mean_power, 2) if mean_power else None
+# Two tokens/Watt conventions, both emitted so reports aren't ambiguous:
+#   - total  = (input + output) tokens / W. Dominated by prefill on input-heavy
+#     or no-prefix-cache workloads, so it reads high.
+#   - output = decoded tokens only / W. The stricter "useful work per Watt".
+# `tok_per_watt` is kept as an alias of the total for backward compatibility.
+total_tput = float(bmk_result['total_token_throughput'])
+output_tput = float(bmk_result['output_throughput'])
+data['tok_per_watt_total'] = round(total_tput / mean_power, 4) if mean_power else None
+data['tok_per_watt_output'] = round(output_tput / mean_power, 4) if mean_power else None
+data['tok_per_watt'] = data['tok_per_watt_total']
 
 print(json.dumps(data, indent=2))
 

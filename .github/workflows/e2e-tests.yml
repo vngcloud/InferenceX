@@ -21,6 +21,11 @@ on:
                 required: false
                 type: string
                 default: ""
+            skip-resource-cleanup:
+                description: "Skip Docker/Slurm resource cleanup before benchmark"
+                required: false
+                type: string
+                default: "false"
     workflow_call:
         inputs:
             generate-cli-command:
@@ -40,6 +45,11 @@ on:
                 required: false
                 type: string
                 default: ""
+            skip-resource-cleanup:
+                description: "Skip Docker/Slurm resource cleanup before benchmark"
+                required: false
+                type: string
+                default: "false"
 
 jobs:
     get-jobs:
@@ -51,6 +61,7 @@ jobs:
             multi-node-eval-config: ${{ steps.get-jobs.outputs.multi-node-eval-config }}
             agentic-config: ${{ steps.get-jobs.outputs.agentic-config }}
             multi-node-agentic-config: ${{ steps.get-jobs.outputs.multi-node-agentic-config }}
+            agentic-replay-config: ${{ steps.get-jobs.outputs.agentic-replay-config }}
         steps:
             - name: Checkout code (ref)
               if: ${{ inputs.ref && inputs.ref != '' }}
@@ -71,12 +82,14 @@ jobs:
                     ${{ inputs.generate-cli-command || github.event.inputs.generate-cli-command }})
                   AGENTIC=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' not in x]))")
                   MULTI_AGENTIC=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' in x]))")
-                  SINGLE=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') != 'agentic-coding' and not x.get('eval-only', False)]))")
+                  AGENTIC_REPLAY=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-replay' and 'prefill' not in x]))")
+                  SINGLE=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') not in ('agentic-coding', 'agentic-replay') and not x.get('eval-only', False)]))")
                   MULTI=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('scenario-type') != 'agentic-coding' and not x.get('eval-only', False)]))")
-                  EVALS=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') != 'agentic-coding' and x.get('run-eval', False)]))")
+                  EVALS=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') not in ('agentic-coding', 'agentic-replay') and x.get('run-eval', False)]))")
                   MULTI_EVAL=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('run-eval', False)]))")
                   echo "agentic-config=$AGENTIC" >> $GITHUB_OUTPUT
                   echo "multi-node-agentic-config=$MULTI_AGENTIC" >> $GITHUB_OUTPUT
+                  echo "agentic-replay-config=$AGENTIC_REPLAY" >> $GITHUB_OUTPUT
                   echo "single-node-config=$SINGLE" >> $GITHUB_OUTPUT
                   echo "multi-node-config=$MULTI" >> $GITHUB_OUTPUT
                   echo "eval-config=$EVALS" >> $GITHUB_OUTPUT
@@ -269,6 +282,47 @@ jobs:
             run-eval: false
             ref: ${{ inputs.ref }}
 
+    test-sweep-agentic-replay:
+        needs: get-jobs
+        if: ${{ needs.get-jobs.outputs.agentic-replay-config != '[]' }}
+        uses: ./.github/workflows/benchmark-tmpl.yml
+        name: agentic-replay /
+        strategy:
+            fail-fast: false
+            matrix:
+                config: ${{ fromJson(needs.get-jobs.outputs.agentic-replay-config) }}
+        secrets: inherit
+        with:
+            exp-name: ${{ matrix.config.exp-name }}
+            runner: ${{ matrix.config.runner }}
+            image: ${{ matrix.config.image }}
+            model: ${{ matrix.config.model }}
+            model-prefix: ${{ matrix.config.model-prefix }}
+            framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
+            precision: ${{ matrix.config.precision }}
+            tp: ${{ matrix.config.tp }}
+            ep: ${{ matrix.config.ep }}
+            dp-attn: ${{ matrix.config.dp-attn }}
+            conc: ${{ matrix.config.conc }}
+            isl: ${{ matrix.config.isl }}
+            osl: ${{ matrix.config.osl }}
+            max-model-len: ${{ matrix.config.max-model-len }}
+            input-file: ${{ matrix.config.input-file }}
+            custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
+            tokenizer: ${{ matrix.config.tokenizer }}
+            no-fixed-schedule: ${{ matrix.config.no-fixed-schedule }}
+            num-warmup-sessions: ${{ matrix.config.num-warmup-sessions }}
+            request-count: ${{ matrix.config.request-count }}
+            strip-trace-delays: ${{ matrix.config.strip-trace-delays }}
+            duration: ${{ inputs.duration-override != '' && inputs.duration-override || matrix.config.duration }}
+            spec-decoding: 'none'
+            disagg: 'false'
+            run-eval: false
+            scenario-type: agentic-replay
+            skip-resource-cleanup: ${{ inputs.skip-resource-cleanup }}
+            ref: ${{ inputs.ref }}
+
     test-sweep-evals:
         needs: get-jobs
         if: ${{ needs.get-jobs.outputs.eval-config != '[]' }}
@@ -304,8 +358,8 @@ jobs:
             ref: ${{ inputs.ref }}
 
     collect-results:
-        needs: [test-sweep-multi-node, test-sweep-single-node, test-sweep-agentic, test-sweep-multi-node-agentic]
-        if: ${{ always() && (needs.test-sweep-multi-node.result != 'skipped' || needs.test-sweep-single-node.result != 'skipped' || needs.test-sweep-agentic.result != 'skipped' || needs.test-sweep-multi-node-agentic.result != 'skipped') }}
+        needs: [test-sweep-multi-node, test-sweep-single-node, test-sweep-agentic, test-sweep-multi-node-agentic, test-sweep-agentic-replay]
+        if: ${{ always() && (needs.test-sweep-multi-node.result != 'skipped' || needs.test-sweep-single-node.result != 'skipped' || needs.test-sweep-agentic.result != 'skipped' || needs.test-sweep-multi-node-agentic.result != 'skipped' || needs.test-sweep-agentic-replay.result != 'skipped') }}
         uses: ./.github/workflows/collect-results.yml
         secrets: inherit
         with:

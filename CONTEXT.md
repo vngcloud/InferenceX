@@ -54,9 +54,11 @@ Three capacity classes used to structure benchmark suites:
 
 A multi-turn coding-agent trace replay driven by AIPerf. Simulates concurrent agent sessions with realistic multi-turn timing and prefix-reuse patterns. Distinct from synthetic single-turn benchmarks.
 
-**Canonical path (official AIPerf v0.9.0):** a `mooncake_trace` custom dataset replayed with multi-turn session support, where the server's own response is threaded back into the next turn's context (FORK-mode DAG replay via `build_assistant_turn`, capturing both text and `tool_calls`). This is what gives realistic KV/prefix-cache reuse across turns. Runs on the official PyPI package — no fork required. The team's dataset generator lives in `inference-benchmark/aiperf-service/datasets/agentic-code/` (`64k`, `128k`).
+Two first-class invocation paths, kept for different purposes:
 
-**Legacy path (deprecated):** the `cquil11` fork's `inferencex-agentx-mvp` scenario + `semianalysis_cc_traces_weka` public dataset, installed via `install_agentic_deps` from the `utils/aiperf` submodule. A preset bundle (locked params + SemiAnalysis corpus) on top of capabilities now present in official AIPerf. Only needed for direct numeric comparability with SemiAnalysis's published agentic leaderboard. Being retired in favor of the canonical path so fixed-seq and agentic share one official install.
+**Mooncake path (the main prod-trace flow):** a `mooncake_trace` custom dataset replayed with multi-turn session support, where the server's own response is threaded back into the next turn's context (FORK-mode DAG replay via `build_assistant_turn`, capturing both text and `tool_calls`). This is what gives realistic KV/prefix-cache reuse across turns. Drives our **own prod-derived traces** (minimax claude-code, gemma chat, gemma RAG), committed in-repo and pointed at via `--input-file`. The team's dataset generators live in `InferenceOptiAIPlan/workload-gen/`.
+
+**Weka path (retained for SemiAnalysis comparability):** the `inferencex-agentx-mvp` scenario + `semianalysis_cc_traces_weka` **public** corpus (fetched at runtime), installed via `install_agentic_deps` from the `utils/aiperf` submodule (`vngcloud/aiperf` @ `cjq/weka-live-assistant-responses`). A preset bundle (locked params + SemiAnalysis corpus). **Not deprecated** — kept precisely for direct numeric comparability with SemiAnalysis's published agentic leaderboard. The mooncake path does not replace it; the two answer different questions.
 
 ---
 

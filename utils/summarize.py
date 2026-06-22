@@ -16,23 +16,16 @@ TP = "TP"
 EP = "EP"
 DP_ATTENTION = "DP Attention"
 CONC = "Conc"
-TTFT_MEAN = "TTFT Mean (ms)"
-TTFT_P75 = "TTFT P75 (ms)"
-TTFT_P90 = "TTFT P90 (ms)"
-TTFT_P95 = "TTFT P95 (ms)"
-TPOT_MEAN = "TPOT Mean (ms)"
-TPOT_P75 = "TPOT P75 (ms)"
-INTVTY_MEAN = "Intvty Mean (tok/s/user)"
-INTVTY_AT_P75_TPOT = "Intvty at P75 TPOT (tok/s/user)"
-INTVTY_AT_P90_TPOT = "Intvty at P90 TPOT (tok/s/user)"
-INTVTY_AT_P95_TPOT = "Intvty at P95 TPOT (tok/s/user)"
-E2EL_MEAN = "E2EL Mean (s)"
-E2EL_P75 = "E2EL P75 (s)"
-E2EL_P90 = "E2EL P90 (s)"
-E2EL_P95 = "E2EL P95 (s)"
+# Latency columns (TTFT / TPOT / Intvty / E2EL) are generated for the full
+# mean + p50/p75/p90/p95/p99 distribution by the _*_headers/_*_cells helpers below.
 TPUT_PER_GPU = "TPUT per GPU"
 OUTPUT_TPUT_PER_GPU = "Output TPUT per GPU"
 INPUT_TPUT_PER_GPU = "Input TPUT per GPU"
+# Two tokens/Watt conventions (see process_result.py): total counts input+output
+# tokens (prefill-dominated, reads high); output counts decoded tokens only.
+TOK_PER_WATT_TOTAL = "Token/Watt total (tok/s/W)"
+TOK_PER_WATT_OUTPUT = "Token/Watt output (tok/s/W)"
+POWER_MEAN = "Power Mean (W)"
 PREFILL_TP = "Prefill TP"
 PREFILL_EP = "Prefill EP"
 PREFILL_DP_ATTN = "Prefill DP Attn"
@@ -51,6 +44,45 @@ EM_STRICT = "EM Strict"
 EM_FLEXIBLE = "EM Flexible"
 N_EFF = "N (eff)"
 SPEC_DECODING = "Spec Decode"
+
+# Latency percentiles surfaced in the summary tables (mean is always shown too).
+LATENCY_PCTLS = ("p50", "p75", "p90", "p95", "p99")
+
+
+def _ms_headers(label: str) -> list:
+    """mean + percentile headers for a millisecond latency metric (e.g. TTFT)."""
+    return [f"{label} Mean (ms)"] + [f"{label} {p.upper()} (ms)" for p in LATENCY_PCTLS]
+
+
+def _ms_cells(r: dict, key: str) -> list:
+    """mean + percentile cells; values are stored in seconds, rendered as ms."""
+    return [f"{r.get(f'mean_{key}', 0) * 1000:.4f}"] + [
+        f"{r.get(f'{p}_{key}', 0) * 1000:.4f}" for p in LATENCY_PCTLS
+    ]
+
+
+def _sec_headers(label: str) -> list:
+    """mean + percentile headers for a second-scale latency metric (e.g. E2EL)."""
+    return [f"{label} Mean (s)"] + [f"{label} {p.upper()} (s)" for p in LATENCY_PCTLS]
+
+
+def _sec_cells(r: dict, key: str) -> list:
+    return [f"{r.get(f'mean_{key}', 0):.4f}"] + [
+        f"{r.get(f'{p}_{key}', 0):.4f}" for p in LATENCY_PCTLS
+    ]
+
+
+def _intvty_headers() -> list:
+    """Interactivity (tok/s/user) is 1/TPOT, so each column tracks a TPOT pctl."""
+    return ["Intvty Mean (tok/s/user)"] + [
+        f"Intvty at {p.upper()} TPOT (tok/s/user)" for p in LATENCY_PCTLS
+    ]
+
+
+def _intvty_cells(r: dict) -> list:
+    return [f"{r.get('mean_intvty', 0):.4f}"] + [
+        f"{r.get(f'{p}_intvty', 0):.4f}" for p in LATENCY_PCTLS
+    ]
 
 
 def load_json(path: Path) -> Optional[Dict[str, Any]]:
@@ -86,11 +118,12 @@ def main():
         single_node_headers = [
             MODEL, SERVED_MODEL, HARDWARE, FRAMEWORK, PRECISION, ISL, OSL, TP, EP, DP_ATTENTION,
             CONC,
-            TTFT_MEAN, TTFT_P75, TTFT_P90, TTFT_P95,
-            TPOT_MEAN, TPOT_P75,
-            INTVTY_MEAN, INTVTY_AT_P75_TPOT, INTVTY_AT_P90_TPOT, INTVTY_AT_P95_TPOT,
-            E2EL_MEAN, E2EL_P75, E2EL_P90, E2EL_P95,
-            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU
+            *_ms_headers("TTFT"),
+            *_ms_headers("TPOT"),
+            *_intvty_headers(),
+            *_sec_headers("E2EL"),
+            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU,
+            TOK_PER_WATT_TOTAL, TOK_PER_WATT_OUTPUT, POWER_MEAN
         ]
 
         single_node_rows = [
@@ -106,23 +139,16 @@ def main():
                 r['ep'],
                 r['dp_attention'],
                 r['conc'],
-                f"{r['mean_ttft'] * 1000:.4f}",
-                f"{r.get('p75_ttft', 0) * 1000:.4f}",
-                f"{r.get('p90_ttft', 0) * 1000:.4f}",
-                f"{r.get('p95_ttft', 0) * 1000:.4f}",
-                f"{r['mean_tpot'] * 1000:.4f}",
-                f"{r.get('p75_tpot', 0) * 1000:.4f}",
-                f"{r.get('mean_intvty', 0):.4f}",
-                f"{r.get('p75_intvty', 0):.4f}",
-                f"{r.get('p90_intvty', 0):.4f}",
-                f"{r.get('p95_intvty', 0):.4f}",
-                f"{r.get('mean_e2el', 0):.4f}",
-                f"{r.get('p75_e2el', 0):.4f}",
-                f"{r.get('p90_e2el', 0):.4f}",
-                f"{r.get('p95_e2el', 0):.4f}",
+                *_ms_cells(r, "ttft"),
+                *_ms_cells(r, "tpot"),
+                *_intvty_cells(r),
+                *_sec_cells(r, "e2el"),
                 f"{r['tput_per_gpu']:.4f}",
                 f"{r['output_tput_per_gpu']:.4f}",
                 f"{r['input_tput_per_gpu']:.4f}",
+                f"{r.get('tok_per_watt_total') or 0:.4f}",
+                f"{r.get('tok_per_watt_output') or 0:.4f}",
+                f"{r.get('mean_power_w') or 0:.2f}",
             ]
             for r in single_node_results
         ]
@@ -141,11 +167,12 @@ def main():
             PREFILL_TP, PREFILL_EP, PREFILL_DP_ATTN, PREFILL_WORKERS, PREFILL_GPUS,
             DECODE_TP, DECODE_EP, DECODE_DP_ATTN, DECODE_WORKERS, DECODE_GPUS,
             CONC,
-            TTFT_MEAN, TTFT_P75, TTFT_P90, TTFT_P95,
-            TPOT_MEAN, TPOT_P75,
-            INTVTY_MEAN, INTVTY_AT_P75_TPOT, INTVTY_AT_P90_TPOT, INTVTY_AT_P95_TPOT,
-            E2EL_MEAN, E2EL_P75, E2EL_P90, E2EL_P95,
-            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU
+            *_ms_headers("TTFT"),
+            *_ms_headers("TPOT"),
+            *_intvty_headers(),
+            *_sec_headers("E2EL"),
+            TPUT_PER_GPU, OUTPUT_TPUT_PER_GPU, INPUT_TPUT_PER_GPU,
+            TOK_PER_WATT_TOTAL, TOK_PER_WATT_OUTPUT, POWER_MEAN
         ]
 
         multinode_rows = [
@@ -168,23 +195,16 @@ def main():
                 r['decode_num_workers'],
                 r['num_decode_gpu'],
                 r['conc'],
-                f"{r['mean_ttft'] * 1000:.4f}",
-                f"{r.get('p75_ttft', 0) * 1000:.4f}",
-                f"{r.get('p90_ttft', 0) * 1000:.4f}",
-                f"{r.get('p95_ttft', 0) * 1000:.4f}",
-                f"{r['mean_tpot'] * 1000:.4f}",
-                f"{r.get('p75_tpot', 0) * 1000:.4f}",
-                f"{r.get('mean_intvty', 0):.4f}",
-                f"{r.get('p75_intvty', 0):.4f}",
-                f"{r.get('p90_intvty', 0):.4f}",
-                f"{r.get('p95_intvty', 0):.4f}",
-                f"{r.get('mean_e2el', 0):.4f}",
-                f"{r.get('p75_e2el', 0):.4f}",
-                f"{r.get('p90_e2el', 0):.4f}",
-                f"{r.get('p95_e2el', 0):.4f}",
+                *_ms_cells(r, "ttft"),
+                *_ms_cells(r, "tpot"),
+                *_intvty_cells(r),
+                *_sec_cells(r, "e2el"),
                 f"{r['tput_per_gpu']:.4f}",
                 f"{r['output_tput_per_gpu']:.4f}",
                 f"{r['input_tput_per_gpu']:.4f}",
+                f"{r.get('tok_per_watt_total') or 0:.4f}",
+                f"{r.get('tok_per_watt_output') or 0:.4f}",
+                f"{r.get('mean_power_w') or 0:.2f}",
             ]
             for r in multinode_results
         ]

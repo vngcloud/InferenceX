@@ -514,19 +514,32 @@ run_aiperf_benchmark() {
     local url=""
     local concurrency=""
     local request_count=""
+    local benchmark_duration=""
     local result_filename=""
     local result_dir=""
     local bench_serving_dir=""
     local endpoint_type="chat"
     local warmup_request_count=""
+    local num_warmup_sessions=""
+    local no_fixed_schedule=false
     local server_metrics_url=""
     local gpu_telemetry_url=""
     local public_dataset=""
     local input_file=""
     local custom_dataset_type=""
+    local tokenizer=""
     local isl=""
     local osl=""
     local random_seed=""
+    local extra_inputs=()
+    # Placeholder SLA / canonical-command flags — wired but inert (forwarded only
+    # when set; left unset in current configs).
+    local goodput=""
+    local temperature=""
+    local inter_turn_delay_cap_seconds=""
+    local dataset_sampling_strategy=""
+    local benchmark_grace_period=""
+    local workers_max=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -534,19 +547,30 @@ run_aiperf_benchmark() {
             --url) url="$2"; shift 2 ;;
             --concurrency) concurrency="$2"; shift 2 ;;
             --request-count) request_count="$2"; shift 2 ;;
+            --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --result-filename) result_filename="$2"; shift 2 ;;
             --result-dir) result_dir="$2"; shift 2 ;;
             --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
             --endpoint-type) endpoint_type="$2"; shift 2 ;;
             --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
+            --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
+            --no-fixed-schedule) no_fixed_schedule=true; shift ;;
             --server-metrics-url) server_metrics_url="$2"; shift 2 ;;
             --gpu-telemetry-url) gpu_telemetry_url="$2"; shift 2 ;;
             --public-dataset) public_dataset="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --tokenizer) tokenizer="$2"; shift 2 ;;
             --isl) isl="$2"; shift 2 ;;
             --osl) osl="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
+            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
+            --goodput) goodput="$2"; shift 2 ;;
+            --temperature) temperature="$2"; shift 2 ;;
+            --inter-turn-delay-cap-seconds) inter_turn_delay_cap_seconds="$2"; shift 2 ;;
+            --dataset-sampling-strategy) dataset_sampling_strategy="$2"; shift 2 ;;
+            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
+            --workers-max) workers_max="$2"; shift 2 ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -554,15 +578,20 @@ run_aiperf_benchmark() {
     if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
     if [[ -z "$url" ]]; then echo "Error: --url is required"; return 1; fi
     if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
-    if [[ -z "$request_count" ]]; then echo "Error: --request-count is required"; return 1; fi
+    # Stop condition: a fixed request count or a wall-clock duration cap.
+    if [[ -z "$request_count" && -z "$benchmark_duration" ]]; then
+        echo "Error: one of --request-count or --benchmark-duration is required"; return 1
+    fi
     if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
     if [[ -z "$bench_serving_dir" ]]; then echo "Error: --bench-serving-dir is required"; return 1; fi
     if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
-    if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
-    if (( request_count < concurrency )); then
-        echo "Error: --request-count must be greater than or equal to --concurrency"
-        return 1
+    if [[ -n "$request_count" ]]; then
+        if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
+        if (( request_count < concurrency )); then
+            echo "Error: --request-count must be greater than or equal to --concurrency"
+            return 1
+        fi
     fi
 
     local benchmark_cmd=(
@@ -571,20 +600,33 @@ run_aiperf_benchmark() {
         --url "$url"
         --endpoint-type "$endpoint_type"
         --concurrency "$concurrency"
-        --request-count "$request_count"
         --result-filename "$result_filename"
         --result-dir "$result_dir"
     )
 
+    if [[ -n "$request_count" ]]; then benchmark_cmd+=(--request-count "$request_count"); fi
+    if [[ -n "$benchmark_duration" ]]; then benchmark_cmd+=(--benchmark-duration "$benchmark_duration"); fi
     if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
+    if [[ -n "$num_warmup_sessions" ]]; then benchmark_cmd+=(--num-warmup-sessions "$num_warmup_sessions"); fi
+    if [[ "$no_fixed_schedule" == true ]]; then benchmark_cmd+=(--no-fixed-schedule); fi
     if [[ -n "$server_metrics_url" ]]; then benchmark_cmd+=(--server-metrics-url "$server_metrics_url"); fi
     if [[ -n "$gpu_telemetry_url" ]]; then benchmark_cmd+=(--gpu-telemetry-url "$gpu_telemetry_url"); fi
     if [[ -n "$public_dataset" ]]; then benchmark_cmd+=(--public-dataset "$public_dataset"); fi
     if [[ -n "$input_file" ]]; then benchmark_cmd+=(--input-file "$input_file"); fi
     if [[ -n "$custom_dataset_type" ]]; then benchmark_cmd+=(--custom-dataset-type "$custom_dataset_type"); fi
+    if [[ -n "$tokenizer" ]]; then benchmark_cmd+=(--tokenizer "$tokenizer"); fi
     if [[ -n "$isl" ]]; then benchmark_cmd+=(--isl "$isl"); fi
     if [[ -n "$osl" ]]; then benchmark_cmd+=(--osl "$osl"); fi
     if [[ -n "$random_seed" ]]; then benchmark_cmd+=(--random-seed "$random_seed"); fi
+    for extra_input in "${extra_inputs[@]}"; do
+        benchmark_cmd+=(--extra-inputs "$extra_input")
+    done
+    if [[ -n "$goodput" ]]; then benchmark_cmd+=(--goodput "$goodput"); fi
+    if [[ -n "$temperature" ]]; then benchmark_cmd+=(--temperature "$temperature"); fi
+    if [[ -n "$inter_turn_delay_cap_seconds" ]]; then benchmark_cmd+=(--inter-turn-delay-cap-seconds "$inter_turn_delay_cap_seconds"); fi
+    if [[ -n "$dataset_sampling_strategy" ]]; then benchmark_cmd+=(--dataset-sampling-strategy "$dataset_sampling_strategy"); fi
+    if [[ -n "$benchmark_grace_period" ]]; then benchmark_cmd+=(--benchmark-grace-period "$benchmark_grace_period"); fi
+    if [[ -n "$workers_max" ]]; then benchmark_cmd+=(--workers-max "$workers_max"); fi
 
     set -x
     "${benchmark_cmd[@]}"
@@ -614,6 +656,26 @@ run_client_benchmark() {
     local use_chat_template=false
     local dsv4=false
     local trust_remote_code=false
+    # Agentic-replay (trace) path: when --input-file is set, the benchmark
+    # replays a recorded mooncake_trace JSONL through AIPerf instead of a
+    # synthetic isl/osl workload. Only the aiperf client supports this.
+    local input_file=""
+    local custom_dataset_type=""
+    local tokenizer=""
+    local request_count=""
+    local benchmark_duration=""
+    local extra_inputs=()
+    # Mode 1 (capacity sweep) controls for the aiperf trace-replay path.
+    local num_warmup_sessions=""
+    local warmup_request_count=""
+    local no_fixed_schedule=false
+    # Placeholder SLA / canonical-command flags — wired but inert.
+    local goodput=""
+    local temperature=""
+    local inter_turn_delay_cap_seconds=""
+    local dataset_sampling_strategy=""
+    local benchmark_grace_period=""
+    local workers_max=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -630,6 +692,21 @@ run_client_benchmark() {
             --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
             --server-pid) server_pid="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
+            --input-file) input_file="$2"; shift 2 ;;
+            --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --tokenizer) tokenizer="$2"; shift 2 ;;
+            --request-count) request_count="$2"; shift 2 ;;
+            --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
+            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
+            --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
+            --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
+            --no-fixed-schedule) no_fixed_schedule=true; shift ;;
+            --goodput) goodput="$2"; shift 2 ;;
+            --temperature) temperature="$2"; shift 2 ;;
+            --inter-turn-delay-cap-seconds) inter_turn_delay_cap_seconds="$2"; shift 2 ;;
+            --dataset-sampling-strategy) dataset_sampling_strategy="$2"; shift 2 ;;
+            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
+            --workers-max) workers_max="$2"; shift 2 ;;
             --use-chat-template) use_chat_template=true; shift ;;
             --dsv4) dsv4=true; use_chat_template=true; shift ;;
             --trust-remote-code) trust_remote_code=true; shift ;;
@@ -640,9 +717,13 @@ run_client_benchmark() {
     if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
     if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
     if [[ -z "$backend" ]]; then echo "Error: --backend is required"; return 1; fi
-    if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
-    if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
-    if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
+    # isl/osl/random-range-ratio describe a synthetic workload; they are not
+    # required when replaying a recorded trace via --input-file.
+    if [[ -z "$input_file" ]]; then
+        if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
+        if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
+        if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
+    fi
     if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
     if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
@@ -658,20 +739,70 @@ run_client_benchmark() {
                 --url "http://0.0.0.0:$port"
                 --endpoint-type "$endpoint_type"
                 --concurrency "$concurrency"
-                --request-count "$((concurrency * 10))"
-                --warmup-request-count "$((concurrency * 2))"
-                --isl "$isl"
-                --osl "$osl"
                 --result-filename "$result_filename"
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
+            if [[ -n "$input_file" ]]; then
+                # Trace replay: replay the recorded dataset. The stop condition is
+                # either a fixed request-count (single-replay / Mode-1 resample) or a
+                # wall-clock --benchmark-duration cap (duration-based smoke). isl/osl
+                # and warmup do not apply (the trace defines per-request lengths).
+                if [[ -z "$request_count" && -z "$benchmark_duration" ]]; then
+                    echo "Error: one of --request-count or --benchmark-duration is required when --input-file is set"; return 1
+                fi
+                aiperf_args+=(--input-file "$input_file")
+                if [[ -n "$request_count" ]]; then
+                    aiperf_args+=(--request-count "$request_count")
+                fi
+                if [[ -n "$benchmark_duration" ]]; then
+                    aiperf_args+=(--benchmark-duration "$benchmark_duration")
+                fi
+                if [[ -n "$custom_dataset_type" ]]; then
+                    aiperf_args+=(--custom-dataset-type "$custom_dataset_type")
+                fi
+                # Mode 1 capacity-sweep flags (default off → trace replays once
+                # under fixed-schedule, the original agentic-replay behavior).
+                if [[ -n "$num_warmup_sessions" ]]; then
+                    aiperf_args+=(--num-warmup-sessions "$num_warmup_sessions")
+                fi
+                if [[ -n "$warmup_request_count" ]]; then
+                    aiperf_args+=(--warmup-request-count "$warmup_request_count")
+                fi
+                if [[ "$no_fixed_schedule" == true ]]; then
+                    aiperf_args+=(--no-fixed-schedule)
+                fi
+            else
+                aiperf_args+=(
+                    --request-count "$((concurrency * 10))"
+                    --warmup-request-count "$((concurrency * 2))"
+                    --isl "$isl"
+                    --osl "$osl"
+                )
+            fi
             if [[ -n "$random_seed" ]]; then
                 aiperf_args+=(--random-seed "$random_seed")
             fi
+            for extra_input in "${extra_inputs[@]}"; do
+                aiperf_args+=(--extra-inputs "$extra_input")
+            done
+            # Optional explicit tokenizer; unset => adapter omits it and aiperf
+            # defaults to the served model (the standard flow).
+            if [[ -n "$tokenizer" ]]; then aiperf_args+=(--tokenizer "$tokenizer"); fi
+            # Placeholder SLA / canonical-command flags — forwarded only when set.
+            if [[ -n "$goodput" ]]; then aiperf_args+=(--goodput "$goodput"); fi
+            if [[ -n "$temperature" ]]; then aiperf_args+=(--temperature "$temperature"); fi
+            if [[ -n "$inter_turn_delay_cap_seconds" ]]; then aiperf_args+=(--inter-turn-delay-cap-seconds "$inter_turn_delay_cap_seconds"); fi
+            if [[ -n "$dataset_sampling_strategy" ]]; then aiperf_args+=(--dataset-sampling-strategy "$dataset_sampling_strategy"); fi
+            if [[ -n "$benchmark_grace_period" ]]; then aiperf_args+=(--benchmark-grace-period "$benchmark_grace_period"); fi
+            if [[ -n "$workers_max" ]]; then aiperf_args+=(--workers-max "$workers_max"); fi
             run_aiperf_benchmark "${aiperf_args[@]}"
             ;;
         inferencex_native)
+            if [[ -n "$input_file" ]]; then
+                echo "Error: --input-file (trace replay) is only supported with BENCHMARK_CLIENT=aiperf"
+                return 1
+            fi
             local native_args=(
                 --model "$model"
                 --port "$port"

@@ -101,6 +101,46 @@ on:
         required: false
         type: string
         default: '1800'
+      input-file:
+        description: "Repo-relative trace JSONL for agentic-replay (mooncake_trace)"
+        required: false
+        type: string
+        default: ''
+      custom-dataset-type:
+        description: "AIPerf --custom-dataset-type for agentic-replay (e.g. mooncake_trace)"
+        required: false
+        type: string
+        default: ''
+      tokenizer:
+        description: "AIPerf --tokenizer (HF id); empty => default to the served model"
+        required: false
+        type: string
+        default: ''
+      no-fixed-schedule:
+        description: "agentic-replay Mode 1: drive by concurrency, suppress auto fixed-schedule"
+        required: false
+        type: string
+        default: ''
+      num-warmup-sessions:
+        description: "agentic-replay Mode 1: AIPerf --num-warmup-sessions"
+        required: false
+        type: string
+        default: ''
+      request-count:
+        description: "agentic-replay Mode 1: fixed request count (resamples sessions); blank = one per record"
+        required: false
+        type: string
+        default: ''
+      strip-trace-delays:
+        description: "agentic-replay Mode 1: drop per-turn delay field for a pure capacity sweep"
+        required: false
+        type: string
+        default: ''
+      skip-resource-cleanup:
+        description: "Skip Docker/Slurm resource cleanup before benchmark"
+        required: false
+        type: string
+        default: 'false'
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -131,6 +171,13 @@ env:
   OFFLOADING: ${{ inputs.offloading }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
+  INPUT_FILE: ${{ inputs.input-file }}
+  CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
+  TOKENIZER: ${{ inputs.tokenizer }}
+  NO_FIXED_SCHEDULE: ${{ inputs.no-fixed-schedule }}
+  NUM_WARMUP_SESSIONS: ${{ inputs.num-warmup-sessions }}
+  REQUEST_COUNT: ${{ inputs.request-count }}
+  STRIP_TRACE_DELAYS: ${{ inputs.strip-trace-delays }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache
@@ -145,6 +192,7 @@ jobs:
     name: "${{ inputs.exp-name }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework }} | tp=${{ inputs.tp }} ep=${{ inputs.ep }} dpa=${{ inputs.dp-attn }} | disagg-${{ inputs.disagg }} spec-${{ inputs.spec-decoding }} conc-${{ inputs.conc }}${{ inputs.eval-only && ' | eval-only' || (inputs.run-eval && ' | eval' || '') }}"
     steps:
       - name: Resource cleanup (pre-run)
+        if: ${{ inputs.skip-resource-cleanup != 'true' }}
         run: &resource-cleanup |
           # Cleanup Docker resources
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -254,7 +302,7 @@ jobs:
           path: ${{ env.RESULT_FILENAME }}.json
 
       - name: Upload agentic raw results
-        if: ${{ always() && inputs.scenario-type == 'agentic-coding' }}
+        if: ${{ always() && (inputs.scenario-type == 'agentic-coding' || inputs.scenario-type == 'agentic-replay') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agentic_${{ env.RESULT_FILENAME }}
@@ -282,12 +330,26 @@ jobs:
             results/trace_replay/gpu_telemetry_export.jsonl
             results/trace_replay/logs/aiperf.log
             results/trace_replay/logs/*.log
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_timeslices.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_timeslices.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_aggregate.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_aggregate.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_collated.json
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.json
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.parquet
+            ${{ env.RESULT_FILENAME }}_aiperf/gpu_telemetry_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/logs/aiperf.log
+            ${{ env.RESULT_FILENAME }}_aiperf/logs/*.log
           # Excluded by design (multi-GB debug artifacts, not consumed by
-          # post-processing): results/trace_replay/inputs.json (pre-formatted
-          # request bodies — the mmap'd binary equivalent is rebuilt from
-          # --public-dataset + --random-seed) and
-          # results/trace_replay/profile_export_raw.jsonl (full HTTP bodies
-          # per request — recoverable by re-running the same trace).
+          # post-processing): inputs.json (pre-formatted request bodies — the
+          # mmap'd binary equivalent is rebuilt from --public-dataset +
+          # --random-seed) and profile_export_raw.jsonl (full HTTP bodies per
+          # request — recoverable by re-running the same trace).
           if-no-files-found: ignore
 
       - name: Upload server logs
@@ -330,5 +392,5 @@ jobs:
           rm -f sample*.jsonl || true
           
       - name: Resource cleanup (post-run)
-        if: always()
+        if: ${{ always() && inputs.skip-resource-cleanup != 'true' }}
         run: *resource-cleanup
