@@ -663,6 +663,7 @@ run_client_benchmark() {
     local extra_inputs=()
     # Mode 1 (capacity sweep) controls for the aiperf trace-replay path.
     local num_warmup_sessions=""
+    local warmup_request_count=""
     local no_fixed_schedule=false
     # Placeholder SLA / canonical-command flags — wired but inert.
     local goodput=""
@@ -693,6 +694,7 @@ run_client_benchmark() {
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
             --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
+            --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
             --no-fixed-schedule) no_fixed_schedule=true; shift ;;
             --goodput) goodput="$2"; shift 2 ;;
             --temperature) temperature="$2"; shift 2 ;;
@@ -758,6 +760,9 @@ run_client_benchmark() {
                 # under fixed-schedule, the original agentic-replay behavior).
                 if [[ -n "$num_warmup_sessions" ]]; then
                     aiperf_args+=(--num-warmup-sessions "$num_warmup_sessions")
+                fi
+                if [[ -n "$warmup_request_count" ]]; then
+                    aiperf_args+=(--warmup-request-count "$warmup_request_count")
                 fi
                 if [[ "$no_fixed_schedule" == true ]]; then
                     aiperf_args+=(--no-fixed-schedule)

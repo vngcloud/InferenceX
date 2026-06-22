@@ -106,13 +106,30 @@ else
     echo "Replaying trace $INPUT_FILE: request-count=$REQUEST_COUNT at concurrency $CONC"
 fi
 
-# Mode 1 capacity-sweep flags (default off → original single-replay behavior).
-MODE1_ARGS=()
-if [[ "${NO_FIXED_SCHEDULE:-}" == "true" || "${NO_FIXED_SCHEDULE:-}" == "1" ]]; then
-    MODE1_ARGS+=(--no-fixed-schedule)
+# Agentic-replay methodology — matches the canonical AIPerf command in the docs:
+# closed-loop concurrency WITH think-time (sessions sleep their recorded inter-turn
+# delay, capped so one idle session can't stall the run), shuffled session order,
+# warmup, ignore_eos + temperature 0 for controlled/deterministic generation.
+# Every value is env-overridable; STRIP_TRACE_DELAYS=true (above) flips this to the
+# zero-think-time capacity-sweep variant, NO_FIXED_SCHEDULE=false to timestamp replay.
+REPLAY_ARGS=()
+if [[ "${NO_FIXED_SCHEDULE:-true}" == "true" || "${NO_FIXED_SCHEDULE:-true}" == "1" ]]; then
+    REPLAY_ARGS+=(--no-fixed-schedule)
 fi
+REPLAY_ARGS+=(--inter-turn-delay-cap-seconds "${INTER_TURN_DELAY_CAP_SECONDS:-60}")
+REPLAY_ARGS+=(--dataset-sampling-strategy "${DATASET_SAMPLING_STRATEGY:-shuffle}")
+REPLAY_ARGS+=(--warmup-request-count "${WARMUP_REQUEST_COUNT:-20}")
+REPLAY_ARGS+=(--workers-max "${WORKERS_MAX:-200}")
+REPLAY_ARGS+=(--benchmark-grace-period "${BENCHMARK_GRACE_PERIOD:-120}")
+REPLAY_ARGS+=(--extra-inputs "ignore_eos:${IGNORE_EOS:-true}")
+REPLAY_ARGS+=(--extra-inputs "temperature:${TEMPERATURE:-0}")
 if [[ -n "${NUM_WARMUP_SESSIONS:-}" ]]; then
-    MODE1_ARGS+=(--num-warmup-sessions "$NUM_WARMUP_SESSIONS")
+    REPLAY_ARGS+=(--num-warmup-sessions "$NUM_WARMUP_SESSIONS")
+fi
+# Goodput is reporting-only (does not affect the run) and is computed offline from
+# the raw artifact per ADR-0002; pass GOODPUT="metric:val ..." to label it inline.
+if [[ -n "${GOODPUT:-}" ]]; then
+    REPLAY_ARGS+=(--goodput "$GOODPUT")
 fi
 
 run_client_benchmark \
@@ -130,7 +147,7 @@ run_client_benchmark \
     --trust-remote-code \
     --server-pid "$SERVER_PID" \
     --random-seed "${RANDOM_SEED:-0}" \
-    "${MODE1_ARGS[@]}"
+    "${REPLAY_ARGS[@]}"
 
 stop_gpu_monitor
 set +x
