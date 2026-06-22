@@ -3103,3 +3103,11 @@
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-replay
+
+- config-keys:
+    - qwen3-4b-2507-bf16-h100-greennode-vllm-smoke-64k
+  description:
+    - "Add duration-based agentic-replay smoke replaying the GreenNode synthetic agentic-coding dataset (1-variant 64k tier, 150 sessions) on official AIPerf for Qwen3-4B-Instruct-2507 (vLLM bf16 TP=1, conc 4) on h100-greennode_00; single global L1 prefix (16k) to spot-check warm prefix-cache hit rate"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-replay
