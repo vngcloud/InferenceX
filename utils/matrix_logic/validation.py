@@ -60,6 +60,9 @@ class Fields(Enum):
     # Agentic replay fields (mooncake_trace on official AIPerf)
     INPUT_FILE = 'input-file'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
+    # Optional HF tokenizer id for AIPerf token counting; defaults to the served
+    # model when unset (the standard flow). Set only when served-name != HF id.
+    TOKENIZER = 'tokenizer'
     # Agentic-replay Mode 1 (capacity sweep) fields
     NO_FIXED_SCHEDULE = 'no-fixed-schedule'
     NUM_WARMUP_SESSIONS = 'num-warmup-sessions'
@@ -255,6 +258,8 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
         default=None, alias=Fields.REQUEST_COUNT.value)
     strip_trace_delays: bool = Field(
         default=False, alias=Fields.STRIP_TRACE_DELAYS.value)
+    tokenizer: Optional[str] = Field(
+        default=None, alias=Fields.TOKENIZER.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
@@ -514,6 +519,8 @@ class AgenticReplayConfig(BaseModel):
         default=None, alias=Fields.REQUEST_COUNT.value)
     strip_trace_delays: bool = Field(
         default=False, alias=Fields.STRIP_TRACE_DELAYS.value)
+    tokenizer: Optional[str] = Field(
+        default=None, alias=Fields.TOKENIZER.value)
     search_space: List[AgenticReplaySearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 

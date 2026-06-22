@@ -131,6 +131,11 @@ fi
 if [[ -n "${GOODPUT:-}" ]]; then
     REPLAY_ARGS+=(--goodput "$GOODPUT")
 fi
+# Explicit tokenizer (HF id) when the served model name isn't a valid tokenizer
+# source; unset => aiperf defaults to the served model (the standard flow).
+if [[ -n "${TOKENIZER:-}" ]]; then
+    REPLAY_ARGS+=(--tokenizer "$TOKENIZER")
+fi
 
 run_client_benchmark \
     --model "$SERVED_MODEL_NAME" \

@@ -527,6 +527,7 @@ run_aiperf_benchmark() {
     local public_dataset=""
     local input_file=""
     local custom_dataset_type=""
+    local tokenizer=""
     local isl=""
     local osl=""
     local random_seed=""
@@ -559,6 +560,7 @@ run_aiperf_benchmark() {
             --public-dataset) public_dataset="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --tokenizer) tokenizer="$2"; shift 2 ;;
             --isl) isl="$2"; shift 2 ;;
             --osl) osl="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
@@ -612,6 +614,7 @@ run_aiperf_benchmark() {
     if [[ -n "$public_dataset" ]]; then benchmark_cmd+=(--public-dataset "$public_dataset"); fi
     if [[ -n "$input_file" ]]; then benchmark_cmd+=(--input-file "$input_file"); fi
     if [[ -n "$custom_dataset_type" ]]; then benchmark_cmd+=(--custom-dataset-type "$custom_dataset_type"); fi
+    if [[ -n "$tokenizer" ]]; then benchmark_cmd+=(--tokenizer "$tokenizer"); fi
     if [[ -n "$isl" ]]; then benchmark_cmd+=(--isl "$isl"); fi
     if [[ -n "$osl" ]]; then benchmark_cmd+=(--osl "$osl"); fi
     if [[ -n "$random_seed" ]]; then benchmark_cmd+=(--random-seed "$random_seed"); fi
@@ -658,6 +661,7 @@ run_client_benchmark() {
     # synthetic isl/osl workload. Only the aiperf client supports this.
     local input_file=""
     local custom_dataset_type=""
+    local tokenizer=""
     local request_count=""
     local benchmark_duration=""
     local extra_inputs=()
@@ -690,6 +694,7 @@ run_client_benchmark() {
             --random-seed) random_seed="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --tokenizer) tokenizer="$2"; shift 2 ;;
             --request-count) request_count="$2"; shift 2 ;;
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
@@ -781,6 +786,9 @@ run_client_benchmark() {
             for extra_input in "${extra_inputs[@]}"; do
                 aiperf_args+=(--extra-inputs "$extra_input")
             done
+            # Optional explicit tokenizer; unset => adapter omits it and aiperf
+            # defaults to the served model (the standard flow).
+            if [[ -n "$tokenizer" ]]; then aiperf_args+=(--tokenizer "$tokenizer"); fi
             # Placeholder SLA / canonical-command flags — forwarded only when set.
             if [[ -n "$goodput" ]]; then aiperf_args+=(--goodput "$goodput"); fi
             if [[ -n "$temperature" ]]; then aiperf_args+=(--temperature "$temperature"); fi

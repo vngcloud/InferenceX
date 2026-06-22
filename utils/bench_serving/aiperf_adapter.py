@@ -171,6 +171,9 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--input-file", args.input_file])
     if args.custom_dataset_type:
         cmd.extend(["--custom-dataset-type", args.custom_dataset_type])
+    # Explicit tokenizer; unset → aiperf defaults to --model (the standard flow).
+    if args.tokenizer:
+        cmd.extend(["--tokenizer", args.tokenizer])
     if args.isl is not None:
         cmd.extend(["--isl", str(args.isl)])
     if args.osl is not None:
@@ -221,6 +224,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--public-dataset")
     parser.add_argument("--input-file")
     parser.add_argument("--custom-dataset-type")
+    parser.add_argument("--tokenizer")
     parser.add_argument("--isl", type=int)
     parser.add_argument("--osl", type=int)
     parser.add_argument("--random-seed", type=int)

@@ -68,6 +68,7 @@ def _run_aiperf_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         public_dataset=None,
         input_file=None,
         custom_dataset_type=None,
+        tokenizer=None,
         isl=None,
         osl=None,
         random_seed=None,
@@ -118,6 +119,20 @@ def test_run_aiperf_omits_mode1_flags_by_default(tmp_path: Path, monkeypatch):
 
     assert "--no-fixed-schedule" not in cmd
     assert "--num-warmup-sessions" not in cmd
+
+def test_run_aiperf_forwards_tokenizer_when_set(tmp_path: Path, monkeypatch):
+    """An explicit tokenizer is forwarded; the model name is left untouched."""
+    args = _run_aiperf_args(tmp_path, tokenizer="google/gemma-3-27b-it")
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+    assert cmd[cmd.index("--tokenizer") + 1] == "google/gemma-3-27b-it"
+
+
+def test_run_aiperf_omits_tokenizer_by_default(tmp_path: Path, monkeypatch):
+    """Unset tokenizer => no flag => aiperf defaults to the served model."""
+    args = _run_aiperf_args(tmp_path)
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+    assert "--tokenizer" not in cmd
+
 
 def test_run_aiperf_forwards_extra_inputs(tmp_path: Path, monkeypatch):
     args = _run_aiperf_args(

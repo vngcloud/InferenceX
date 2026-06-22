@@ -495,6 +495,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
             duration = replay_config.get(Fields.DURATION.value, 1800)
             input_file = replay_config[Fields.INPUT_FILE.value]
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            tokenizer = replay_config.get(Fields.TOKENIZER.value)
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
                 Fields.BENCHMARK_CLIENT.value, ["aiperf"])
@@ -556,6 +557,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.MAX_MODEL_LEN.value: replay_max_model_len,
                                 Fields.INPUT_FILE.value: input_file,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
                                 Fields.NO_FIXED_SCHEDULE.value: no_fixed_schedule,
                                 Fields.NUM_WARMUP_SESSIONS.value: num_warmup_sessions,
@@ -1010,6 +1012,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
             duration = replay_config.get(Fields.DURATION.value, 1800)
             input_file = replay_config[Fields.INPUT_FILE.value]
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            tokenizer = replay_config.get(Fields.TOKENIZER.value)
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
                 Fields.BENCHMARK_CLIENT.value, ["aiperf"])
@@ -1067,6 +1070,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.MAX_MODEL_LEN.value: replay_max_model_len,
                                 Fields.INPUT_FILE.value: input_file,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
                                 Fields.NO_FIXED_SCHEDULE.value: no_fixed_schedule,
                                 Fields.NUM_WARMUP_SESSIONS.value: num_warmup_sessions,

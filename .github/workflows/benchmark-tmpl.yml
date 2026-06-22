@@ -111,6 +111,11 @@ on:
         required: false
         type: string
         default: ''
+      tokenizer:
+        description: "AIPerf --tokenizer (HF id); empty => default to the served model"
+        required: false
+        type: string
+        default: ''
       no-fixed-schedule:
         description: "agentic-replay Mode 1: drive by concurrency, suppress auto fixed-schedule"
         required: false
@@ -168,6 +173,7 @@ env:
   DURATION: ${{ inputs.duration }}
   INPUT_FILE: ${{ inputs.input-file }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
+  TOKENIZER: ${{ inputs.tokenizer }}
   NO_FIXED_SCHEDULE: ${{ inputs.no-fixed-schedule }}
   NUM_WARMUP_SESSIONS: ${{ inputs.num-warmup-sessions }}
   REQUEST_COUNT: ${{ inputs.request-count }}
