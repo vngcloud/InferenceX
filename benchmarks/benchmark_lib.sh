@@ -1347,12 +1347,14 @@ build_replay_cmd() {
     # routinely takes 4-5 min for the 949-trace weka corpus on fast /tmp
     # (B300) but can stretch to 14 min on slower /tmp + parallel contention
     # (observed on H200 where all 14 R3 jobs hit aiperf's 900s Configure
-    # Profiling timeout simultaneously). Bump to 1800s to absorb 3x
-    # worst-case slowdown — the post-setup measurement window is unaffected.
-    export AIPERF_DATASET_CONFIGURATION_TIMEOUT=1800
+    # Profiling timeout simultaneously). Previously 1800s; bumped to 3600s
+    # after observing >28 min reconstruction on h100-greennode_00 under load
+    # (single job, cold runner — the 1800s timer starts when aiperf launches,
+    # leaving workers only ~28 min of budget after ~2 min of aiperf startup).
+    export AIPERF_DATASET_CONFIGURATION_TIMEOUT=3600
     # aiperf validates that SERVICE_PROFILE_CONFIGURE_TIMEOUT >=
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
-    export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
+    export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=3600
     REPLAY_CMD="aiperf profile --scenario inferencex-agentx-mvp"
     REPLAY_CMD+=" --url http://localhost:$PORT"
     REPLAY_CMD+=" --endpoint /v1/chat/completions"
