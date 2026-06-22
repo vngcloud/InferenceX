@@ -177,9 +177,10 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--osl", str(args.osl)])
     if args.random_seed is not None:
         cmd.extend(["--random-seed", str(args.random_seed)])
-    if args.extra_inputs:
-        cmd.append("--extra-inputs")
-        cmd.extend(args.extra_inputs)
+    for extra_input in args.extra_inputs:
+        # Repeat the flag per value — `aiperf profile` expects one key:value per
+        # --extra-inputs, not several values sharing a single flag.
+        cmd.extend(["--extra-inputs", extra_input])
 
     # Placeholder SLA / canonical-command flags. Wired through to `aiperf profile`
     # but inert in current configs (left unset). The team computes SLA (tok/s/user,

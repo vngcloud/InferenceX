@@ -9533,5 +9533,11 @@ qwen3-4b-2507-bf16-h100-greennode-vllm-smoke:
       custom-dataset-type: mooncake_trace
       max-model-len: 131072
       benchmark-client: [aiperf]
+      # Docs methodology: closed-loop WITH think-time. --no-fixed-schedule routes
+      # mooncake_trace through the concurrency/request-rate strategy (recorded
+      # inter-turn delays preserved, capped), which also permits shuffle sampling.
+      # Without it AIPerf auto-selects fixed_schedule, which requires sequential
+      # sampling and conflicts with --dataset-sampling-strategy shuffle.
+      no-fixed-schedule: true
       search-space:
       - { tp: 1, conc-list: [4, 8] }

@@ -126,12 +126,9 @@ def test_run_aiperf_forwards_extra_inputs(tmp_path: Path, monkeypatch):
     )
     cmd = _capture_aiperf_cmd(monkeypatch, args)
 
-    extra_index = cmd.index("--extra-inputs")
-    assert cmd[extra_index:extra_index + 3] == [
-        "--extra-inputs",
-        "ignore_eos:true",
-        "min_tokens:512",
-    ]
+    # aiperf expects one key:value per --extra-inputs, so the flag repeats.
+    values = [cmd[i + 1] for i, tok in enumerate(cmd) if tok == "--extra-inputs"]
+    assert values == ["ignore_eos:true", "min_tokens:512"]
 
 
 def test_run_aiperf_duration_mode_omits_request_count(tmp_path: Path, monkeypatch):
