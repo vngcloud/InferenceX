@@ -3111,3 +3111,11 @@
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-replay
+
+- config-keys:
+    - qwen3-4b-2507-bf16-h100-greennode-vllm-smoke-gemma-blend
+  description:
+    - "Add duration-based back-to-back replay smoke of the Gemma blend_prod trace (mooncake_trace, single-turn, no think-time, strip-trace-delays) on the qwen3-4b-2507 path (vLLM bf16 TP=1, conc 4) on h100-greennode_00 to validate the gemma dataset integration"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-replay
