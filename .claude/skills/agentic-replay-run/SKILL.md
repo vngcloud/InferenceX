@@ -15,7 +15,7 @@ Flow: pick dataset + model/serving → write a master-config entry **and** its l
 2. **Model + serving config** — HF model id, engine (vLLM/SGLang) + image, precision, TP, and any special serve flags (gpu-mem-util, kv-dtype, quantization, etc.). The user typically pastes a `vllm serve …` / sglang launch line — that line becomes the serve block in the launch script (step B).
    - **Sanity-check the `--model` / `--tokenizer` value before using it.** A pasted launch line often carries a value that is correct on *the user's box* but wrong for InferenceX (the runner pulls from HF and validates the form). If the value is **not a plain HF slug** (`namespace/repo_name`) — e.g. an absolute filesystem path (`/models/...`, `/mnt/...`, `~/...`), a bare name with no namespace, or anything that looks copied from a local/patched setup — **do not pass it through.** Ask the user: *"`--model` is `<value>` — that's a local path; should I use the HF slug `<stripped value>` instead?"* Default/fallback to the HF-slug form (strip the leading dirs: `/models/RedHatAI/gemma-4-31B-it-FP8-block` → `RedHatAI/gemma-4-31B-it-FP8-block`). A raw path makes HF raise `OSError: Repo id must be in the form 'repo_name' or 'namespace/repo_name'`. Same check for `--tokenizer`.
 3. **Runner** — which box (`runner:` field). GreenNode options: `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `rtx5090-greennode_00` (1×RTX5090). The `runner:` value is the box label verbatim, and `search-space.tp` MUST match its GPU count. Full list in `.github/configs/runners.yaml`.
-4. **Duration** — `900` (standard, recommended) or `90` (smoke). Passed as `duration-override`.
+4. **Duration** — `900` (standard, recommended) or `90` (smoke). Passed as `duration-override`. **For a smoke (`90`), also drop warmup to 2 requests in the launch script (step B).** Warmup runs *before* the profiling window; the launcher default of 20 can eat the whole short run — observed: 20 warmup reqs = ~750 s on a 31B/131072-ctx model, leaving ~6 profiling reqs in a 90 s smoke.
 5. **New branch?** — recommend **yes**, `exp/<name>`. Edit + commit + dispatch from it (never `main` — see gotcha).
 6. **Bật DCGM không?** — mặc định **không**. Bật thì AIPerf sẽ thu thêm GPU telemetry phong phú hơn nhiều so với `gpu_metrics.csv` mặc định (`gpu_metrics.csv` chỉ có power/temp/util/clocks từ `nvidia-smi`; DCGM mở thêm `DCGM_FI_PROF_*`: SM/tensor-core activity, memory bandwidth, NVLink, …) vì AIPerf scrape trực tiếp endpoint DCGM. Nếu user cần → sửa launch script của runner để dựng container DCGM (xem **section DCGM** bên dưới); không cần → bỏ qua, giữ nguyên launcher.
 
@@ -77,6 +77,8 @@ vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
 ```
 
 SGLang: swap for `python -m sglang.launch_server …`, keeping `$MODEL`/`$TP`/`$PORT`/`$MAX_MODEL_LEN`/`$CONC` on the same env vars.
+
+**Smoke warmup.** For a smoke (Q4 = `90`), set warmup to **2** requests. `WARMUP_REQUEST_COUNT` is *not* in `launch_<hw>-greennode.sh`'s `RUN_ENV` allowlist, so it can't come from the config or dispatch — set it in the launch script itself: change the REPLAY_ARGS line to `--warmup-request-count "${WARMUP_REQUEST_COUNT:-2}"` (or `export WARMUP_REQUEST_COUNT=2` near the `AIPERF_SOURCE_DIR` export). Leave the default 20 for full (`900`) runs.
 
 ## perf-changelog.yaml
 
