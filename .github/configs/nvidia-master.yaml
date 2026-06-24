@@ -9614,18 +9614,20 @@ qwen3-4b-weka-smoke-h100-greennode-vllm:
       search-space:
       - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
 
-# LMCache CPU KV-offload smoke for Qwen3.5-4B-Instruct on vLLM v0.21.0.
-# LMCache 0.4.5 is pre-bundled in the image; no extra install needed.
-# Two-tier cache: GPU HBM prefix cache feeds into LMCache CPU DRAM (LMCacheConnectorV1).
-# Launcher: benchmarks/single_node/agentic/qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh
-# (model-prefix qwen3.5-4b-weka-lmcache -> qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh)
-qwen3.5-4b-weka-lmcache-smoke-h100-greennode-vllm:
-  image: vllm/vllm-openai:v0.21.0
+# LMCache CPU KV-offload smoke for Qwen3.5-4B on SGLang v0.5.12.
+# Qwen3.5-4B uses hybrid attention (heterogeneous KV specs) — incompatible with
+# vLLM LMCacheConnectorV1 (no SupportsHMA). SGLang layerwise connector has no
+# such restriction. lmcache==0.4.5 installed at runtime (pinned; 0.4.6+ breaks
+# SGLang 0.5.12 with a positional config_file TypeError).
+# Launcher: benchmarks/single_node/agentic/qwen3.5-4b-weka-lmcache_bf16_h100_sglang.sh
+# (model-prefix qwen3.5-4b-weka-lmcache -> qwen3.5-4b-weka-lmcache_bf16_h100_sglang.sh)
+qwen3.5-4b-weka-lmcache-smoke-h100-greennode-sglang:
+  image: lmsysorg/sglang:v0.5.12-cu130
   model: Qwen/Qwen3.5-4B
   model-prefix: qwen3.5-4b-weka-lmcache
   runner: h100-greennode_00
   precision: bf16
-  framework: vllm
+  framework: sglang
   multinode: false
   scenarios:
     agentic-coding:

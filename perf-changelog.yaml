@@ -3121,9 +3121,9 @@
     - agentic-replay
 
 - config-keys:
-    - qwen3.5-4b-weka-lmcache-smoke-h100-greennode-vllm
+    - qwen3.5-4b-weka-lmcache-smoke-h100-greennode-sglang
   description:
-    - "LMCache CPU KV-offload (lmcache==0.4.5 bundled) + agentx-weka on vLLM v0.21.0 BF16 TP1 on h100-greennode_00; Qwen3.5-4B-Instruct, smoke 90s conc [2,4], 64 weka traces"
+    - "LMCache CPU KV-offload (lmcache==0.4.5, SGLang layerwise connector) + agentx-weka on SGLang v0.5.12 BF16 TP1 on h100-greennode_00; Qwen3.5-4B (base), smoke 90s conc [2,4], 64 weka traces; vLLM incompatible (Qwen3.5-4B hybrid attention vs LMCacheConnectorV1 no-HMA)"
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-coding
