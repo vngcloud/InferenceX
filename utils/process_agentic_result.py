@@ -490,14 +490,23 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
         result["server_cpu_cache_hit_rate"] = cpu_hits / cpu_queries
 
     # LMCache-tier hits (vLLM external KV connector = LMCache).
-    # Nonzero only when LMCache is enabled and the GPU prefix-cache tier evicted
-    # the prefix, isolating LMCache's contribution cleanly.
+    # The metric is present whenever LMCacheConnectorV1 is active, even when
+    # the GPU prefix-cache tier absorbs all reuse and lmc_queries == 0 (the
+    # "0/0 trap": small workload fits entirely in GPU HBM, LMCache never evicts).
+    # Distinguish three states:
+    #   null  — metric absent → LMCache connector not configured
+    #   0.0   — metric present, queries == 0 → LMCache active but GPU cache
+    #           handled everything; no CPU DRAM lookups were needed
+    #   >0.0  — LMCache was actually queried; value is hits/queries
     lmc_hits = _final_value("vllm:external_prefix_cache_hits_total")
     lmc_queries = _final_value("vllm:external_prefix_cache_queries_total")
     result["lmcache_hit_tokens"] = int(lmc_hits) if lmc_hits is not None else None
     result["lmcache_query_tokens"] = int(lmc_queries) if lmc_queries is not None else None
-    if lmc_hits is not None and lmc_queries and lmc_queries > 0:
-        result["server_lmcache_hit_rate"] = lmc_hits / lmc_queries
+    if lmc_queries is not None:
+        # Metric present → LMCache connector is active.
+        result["server_lmcache_hit_rate"] = (
+            lmc_hits / lmc_queries if lmc_queries > 0 else 0.0
+        )
 
     # SGLang exposes different metric names than vLLM (prefix ``sglang:``,
     # confirmed for v0.5.x). Only fill the slot the vLLM keys left empty so
@@ -505,9 +514,10 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     # ratio (cached / prompt) — robust over the whole run — over
     # ``sglang:cache_hit_rate``, which is a "mostrecent" snapshot gauge
     # reflecting only the final scrape window.
+    # Note: SGLang metric names do NOT carry a _total suffix (unlike vLLM).
     if result["server_gpu_cache_hit_rate"] is None:
-        sg_cached = _final_value("sglang:cached_tokens_total")
-        sg_prompt = _final_value("sglang:prompt_tokens_total")
+        sg_cached = _final_value("sglang:cached_tokens")
+        sg_prompt = _final_value("sglang:prompt_tokens")
         if sg_cached is not None and sg_prompt and sg_prompt > 0:
             result["server_gpu_cache_hit_rate"] = sg_cached / sg_prompt
         else:
