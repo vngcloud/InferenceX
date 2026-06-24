@@ -107,32 +107,25 @@ echo "LMCache server PID: $LMC_PID"
 
 # Wait for the ZMQ listener. lmcache 0.5.0 prints "ZMQ cache server is running"
 # on the happy path. The broader pattern list covers other version variants.
+LMC_READY=0
 for i in $(seq 1 40); do
-  grep -qiE "ZMQ cache server is running|listening|started|serving|bound|fired|ready|MessageQueueServer|MPCacheServer" \
-    "$LMC_LOG" 2>/dev/null && break
+  if grep -qiE "ZMQ cache server is running|listening|started|serving|bound|fired|ready|MessageQueueServer|MPCacheServer" \
+      "$LMC_LOG" 2>/dev/null; then
+    LMC_READY=1
+    break
+  fi
   kill -0 "$LMC_PID" 2>/dev/null || { echo "LMCache server died:"; cat "$LMC_LOG"; exit 1; }
   sleep 1
 done
 
-# Hard check: verify port 5555 is actually bound before handing off to vLLM.
-# If the server is alive but not yet listening, give it 10 more seconds.
-if ! ss -tlnp 2>/dev/null | grep -q ':5555'; then
-  echo "Port 5555 not yet bound after wait loop; waiting up to 10 more seconds..."
-  for i in $(seq 1 10); do
-    kill -0 "$LMC_PID" 2>/dev/null || { echo "LMCache server died:"; cat "$LMC_LOG"; exit 1; }
-    ss -tlnp 2>/dev/null | grep -q ':5555' && break
-    sleep 1
-  done
-fi
-
-if ! ss -tlnp 2>/dev/null | grep -q ':5555'; then
-  echo "ERROR: LMCache MP server not listening on :5555 after 50s." >&2
+if [ "$LMC_READY" -eq 0 ]; then
+  echo "ERROR: LMCache MP server did not print a ready message within 40s." >&2
   echo "lmcache_server.log:" >&2; cat "$LMC_LOG" >&2
   kill "$LMC_PID" 2>/dev/null || true
   exit 1
 fi
 
-echo "LMCache server ready (port 5555 bound)."
+echo "LMCache server ready."
 
 export LMCACHE_LOG_LEVEL=INFO
 export PYTHONHASHSEED=0
