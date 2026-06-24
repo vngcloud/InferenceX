@@ -63,6 +63,13 @@ if [ "$OFFLOADING" != "none" ]; then
     exit 1
 fi
 
+# LMCache CPU DRAM budget for the MP server.
+# DO NOT use $TOTAL_CPU_DRAM_GB here — that variable is for vLLM's native CPU
+# KV-offloading and defaults to 600 GB (benchmark-tmpl.yml), which exceeds
+# GreenNode H100 available RAM (~112-200 GB) and causes the lmcache server to
+# be OOM-killed silently before vLLM's EngineCore connects.
+LMCACHE_CPU_DRAM_GB="${LMCACHE_CPU_DRAM_GB:-20}"
+
 if [[ -n "${SLURM_JOB_ID:-}" ]]; then
     echo "JOB $SLURM_JOB_ID running on ${SLURMD_NODENAME:-unknown}"
 fi
@@ -91,20 +98,41 @@ LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-528}"
 LMC_LOG="$RESULT_DIR/lmcache_server.log"
 lmcache server \
   --chunk-size "$LMCACHE_CHUNK_SIZE" \
-  --l1-size-gb "$TOTAL_CPU_DRAM_GB" \
+  --l1-size-gb "$LMCACHE_CPU_DRAM_GB" \
   --eviction-policy LRU \
+  --port 5555 \
   --http-host 0.0.0.0 --http-port 8080 > "$LMC_LOG" 2>&1 &
 LMC_PID=$!
 echo "LMCache server PID: $LMC_PID"
 
-# Wait for the ZMQ listener (pattern from verify_lmcache/mp_bootstrap.sh)
+# Wait for the ZMQ listener. lmcache 0.5.0 prints "ZMQ cache server is running"
+# on the happy path. The broader pattern list covers other version variants.
 for i in $(seq 1 40); do
-  grep -qiE "listening|started|serving|bound|fired|ready|MessageQueueServer|MPCacheServer" \
+  grep -qiE "ZMQ cache server is running|listening|started|serving|bound|fired|ready|MessageQueueServer|MPCacheServer" \
     "$LMC_LOG" 2>/dev/null && break
   kill -0 "$LMC_PID" 2>/dev/null || { echo "LMCache server died:"; cat "$LMC_LOG"; exit 1; }
   sleep 1
 done
-echo "LMCache server ready."
+
+# Hard check: verify port 5555 is actually bound before handing off to vLLM.
+# If the server is alive but not yet listening, give it 10 more seconds.
+if ! ss -tlnp 2>/dev/null | grep -q ':5555'; then
+  echo "Port 5555 not yet bound after wait loop; waiting up to 10 more seconds..."
+  for i in $(seq 1 10); do
+    kill -0 "$LMC_PID" 2>/dev/null || { echo "LMCache server died:"; cat "$LMC_LOG"; exit 1; }
+    ss -tlnp 2>/dev/null | grep -q ':5555' && break
+    sleep 1
+  done
+fi
+
+if ! ss -tlnp 2>/dev/null | grep -q ':5555'; then
+  echo "ERROR: LMCache MP server not listening on :5555 after 50s." >&2
+  echo "lmcache_server.log:" >&2; cat "$LMC_LOG" >&2
+  kill "$LMC_PID" 2>/dev/null || true
+  exit 1
+fi
+
+echo "LMCache server ready (port 5555 bound)."
 
 export LMCACHE_LOG_LEVEL=INFO
 export PYTHONHASHSEED=0
