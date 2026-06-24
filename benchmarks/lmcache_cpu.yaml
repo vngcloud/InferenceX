@@ -1,0 +1,10 @@
+chunk_size: 256
+local_cpu: True
+max_local_cpu_size: 5.0   # GB of CPU DRAM for the KV cache
+use_layerwise: True       # required by the SGLang layerwise connector
+
+# Expose LMCache's OWN Prometheus metrics on an internal HTTP server.
+# Serves /metrics on (port + port_offset); worker uses offset 1 -> port 7001.
+internal_api_server_enabled: True
+internal_api_server_port_start: 7000
+internal_api_server_host: "0.0.0.0"

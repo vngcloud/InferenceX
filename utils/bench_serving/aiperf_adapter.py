@@ -122,6 +122,83 @@ def build_result(artifact: dict, max_concurrency: int) -> dict:
     return result
 
 
+def _extract_lmcache_metrics(artifact_dir: Path) -> dict:
+    """Read server_metrics_export.json and extract LMCache hit-rate fields.
+
+    Returns a dict with keys server_lmcache_hit_rate / lmcache_hit_tokens /
+    lmcache_query_tokens (all None when the file is absent or LMCache is off).
+    Covers both engines:
+    - vLLM: vllm:external_prefix_cache_hits_total / _queries_total
+    - SGLang: sglang:cached_tokens_total / sglang:prompt_tokens_total (fallback)
+    """
+    result: dict = {
+        "server_lmcache_hit_rate": None,
+        "lmcache_hit_tokens": None,
+        "lmcache_query_tokens": None,
+    }
+    metrics_path = artifact_dir / "server_metrics_export.json"
+    if not metrics_path.exists():
+        return result
+
+    try:
+        raw = json.loads(metrics_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return result
+
+    metrics: dict = raw.get("metrics") if isinstance(raw, dict) else {}
+    if not isinstance(metrics, dict):
+        return result
+
+    def _final_value(metric_name: str) -> float | None:
+        entry = metrics.get(metric_name)
+        if not isinstance(entry, dict):
+            return None
+        series = entry.get("series") or []
+        if not isinstance(series, list):
+            return None
+        for stats_key in ("total", "max", "avg"):
+            agg = 0.0
+            found = False
+            for s in series:
+                if not isinstance(s, dict):
+                    continue
+                stats = s.get("stats")
+                if not isinstance(stats, dict):
+                    continue
+                v = stats.get(stats_key)
+                if v is None:
+                    continue
+                try:
+                    agg += float(v)
+                    found = True
+                except (TypeError, ValueError):
+                    continue
+            if found:
+                return agg
+        return None
+
+    # vLLM with LMCache connector: external KV-connector hit counters
+    hits = _final_value("vllm:external_prefix_cache_hits_total")
+    queries = _final_value("vllm:external_prefix_cache_queries_total")
+    if hits is not None and queries is not None:
+        result["lmcache_hit_tokens"] = int(hits)
+        result["lmcache_query_tokens"] = int(queries)
+        if queries > 0:
+            result["server_lmcache_hit_rate"] = hits / queries
+        return result
+
+    # SGLang with LMCache: lmcache native counters stay 0 (connector limitation);
+    # fall back to SGLang's own prefix-cache counters as a proxy.
+    sg_cached = _final_value("sglang:cached_tokens_total")
+    sg_prompt = _final_value("sglang:prompt_tokens_total")
+    if sg_cached is not None and sg_prompt is not None and sg_prompt > 0:
+        result["lmcache_hit_tokens"] = int(sg_cached)
+        result["lmcache_query_tokens"] = int(sg_prompt)
+        result["server_lmcache_hit_rate"] = sg_cached / sg_prompt
+
+    return result
+
+
 def run_aiperf(args: argparse.Namespace) -> Path:
     """Run `aiperf profile` and return the artifact directory."""
     artifact_dir = args.result_dir / f"{args.result_filename}_aiperf"
@@ -270,6 +347,7 @@ def main() -> None:
         artifact,
         extract_max_concurrency(artifact, search_history, mode),
     )
+    result.update(_extract_lmcache_metrics(artifact_dir))
     output_path = args.result_dir / f"{args.result_filename}.json"
     output_path.write_text(json.dumps(result, indent=2))
 

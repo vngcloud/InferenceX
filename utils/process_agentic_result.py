@@ -387,6 +387,9 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
         "theoretical_cache_hit_rate": None,
         "server_gpu_cache_hit_rate": None,
         "server_cpu_cache_hit_rate": None,
+        "server_lmcache_hit_rate": None,
+        "lmcache_hit_tokens": None,
+        "lmcache_query_tokens": None,
         "kv_offload_bytes_gpu_to_cpu": None,
         "kv_offload_bytes_cpu_to_gpu": None,
         "kv_offload_time_gpu_to_cpu": None,
@@ -485,6 +488,16 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     cpu_queries = _final_value("vllm:cpu_prefix_cache_queries")
     if cpu_hits is not None and cpu_queries and cpu_queries > 0:
         result["server_cpu_cache_hit_rate"] = cpu_hits / cpu_queries
+
+    # LMCache-tier hits (vLLM external KV connector = LMCache).
+    # Nonzero only when LMCache is enabled and the GPU prefix-cache tier evicted
+    # the prefix, isolating LMCache's contribution cleanly.
+    lmc_hits = _final_value("vllm:external_prefix_cache_hits_total")
+    lmc_queries = _final_value("vllm:external_prefix_cache_queries_total")
+    result["lmcache_hit_tokens"] = int(lmc_hits) if lmc_hits is not None else None
+    result["lmcache_query_tokens"] = int(lmc_queries) if lmc_queries is not None else None
+    if lmc_hits is not None and lmc_queries and lmc_queries > 0:
+        result["server_lmcache_hit_rate"] = lmc_hits / lmc_queries
 
     # SGLang exposes different metric names than vLLM (prefix ``sglang:``,
     # confirmed for v0.5.x). Only fill the slot the vLLM keys left empty so
