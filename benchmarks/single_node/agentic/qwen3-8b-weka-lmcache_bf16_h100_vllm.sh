@@ -32,9 +32,9 @@ PORT=${PORT:-8888}
 DURATION=${DURATION:-1800}
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
 
-# benchmark-tmpl passes MAX_MODEL_LEN='0' for agentic-coding; fall back to 131072.
-if [ -z "${MAX_MODEL_LEN:-}" ] || [ "$MAX_MODEL_LEN" = "0" ]; then
-    MAX_MODEL_LEN=131072
+# Qwen3-8B max_position_embeddings=40960; vLLM refuses values exceeding derived max.
+if [ -z "${MAX_MODEL_LEN:-}" ] || [ "$MAX_MODEL_LEN" = "0" ] || [ "$MAX_MODEL_LEN" -gt 40960 ]; then
+    MAX_MODEL_LEN=40960
 fi
 
 # LMCache handles CPU KV-offload transparently via the KV-transfer connector;
