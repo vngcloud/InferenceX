@@ -83,6 +83,17 @@ mkdir -p "$RESULT_DIR"
 
 export PYTHONNOUSERSITE=1
 
+# On any non-zero exit, tail both server logs so CI captures the crash cause.
+_dump_logs_on_failure() {
+  local rc=$?
+  [ $rc -eq 0 ] && return
+  echo "=== EXIT $rc — last 80 lines of server.log ==="
+  tail -80 "$SERVER_LOG" 2>/dev/null || echo "(no server.log)"
+  echo "=== last 80 lines of lmcache_server.log ==="
+  tail -80 "${RESULT_DIR}/lmcache_server.log" 2>/dev/null || echo "(no lmcache_server.log)"
+}
+trap _dump_logs_on_failure EXIT
+
 # Upgrade lmcache from bundled 0.4.6 to 0.5.0 — required so LMCacheMPConnector
 # is a SupportsHMA subclass and vLLM keeps the hybrid KV manager on.
 # Must happen before lmcache server or vllm starts.
