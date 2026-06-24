@@ -3127,3 +3127,11 @@
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-coding
+
+- config-keys:
+    - qwen3-8b-weka-lmcache-smoke-h100-greennode-vllm
+  description:
+    - "LMCache CPU KV-offload (lmcache==0.4.5 bundled) + agentx-weka on vLLM v0.21.0 BF16 TP1 on h100-greennode_00; Qwen3-8B (standard GQA, no hybrid attention), smoke 90s conc [2,4], 64 weka traces"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-coding

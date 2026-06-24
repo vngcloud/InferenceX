@@ -9634,3 +9634,23 @@ qwen3.5-4b-weka-lmcache-smoke-h100-greennode-sglang:
     - duration: 90
       search-space:
       - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
+
+# LMCache CPU KV-offload smoke for Qwen3-8B on vLLM v0.21.0.
+# Qwen3-8B uses standard GQA (uniform KV specs) — no hybrid attention,
+# LMCacheConnectorV1 is fully compatible without HMA.
+# lmcache==0.4.5 pre-bundled in the image; no extra install needed.
+# Launcher: benchmarks/single_node/agentic/qwen3-8b-weka-lmcache_bf16_h100_vllm.sh
+# (model-prefix qwen3-8b-weka-lmcache -> qwen3-8b-weka-lmcache_bf16_h100_vllm.sh)
+qwen3-8b-weka-lmcache-smoke-h100-greennode-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-8B
+  model-prefix: qwen3-8b-weka-lmcache
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - duration: 90
+      search-space:
+      - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
