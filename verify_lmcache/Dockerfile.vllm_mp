@@ -1,0 +1,7 @@
+# vLLM v0.23.0 + lmcache 0.5.0 — the stack required for HYBRID-attention models.
+# v0.23.0 provides the engine-side `--mamba-cache-mode align` flag (absent in v0.21.0);
+# lmcache 0.5.0's LMCacheMPConnector is a `SupportsHMA` subclass, so vLLM keeps its
+# hybrid KV-cache manager ON (0.4.6's connector was NOT SupportsHMA -> manager disabled
+# -> startup crash). Both pieces are required.
+FROM vllm/vllm-openai:v0.23.0
+RUN pip install --no-cache-dir lmcache==0.5.0
