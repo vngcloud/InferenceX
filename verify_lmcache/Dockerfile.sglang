@@ -1,0 +1,11 @@
+# SGLang v0.5.12 with LMCache preinstalled.
+# SGLang ships the LMCache *connector* code but not the `lmcache` package itself,
+# so we bake it in here (pip install lmcache -> lmcache 0.5.0).
+FROM lmsysorg/sglang:v0.5.12-cu130
+# IMPORTANT: lmcache>=0.4.6 added a required `config_file` arg to
+# LMCacheLayerwiseConnector.__init__ that SGLang 0.5.12's call site does NOT
+# pass, so the scheduler crashes with a TypeError. lmcache 0.4.5 is the newest
+# version whose connector signature matches SGLang 0.5.12 (and it is the same
+# version bundled in vllm/vllm-openai:v0.21.0).
+RUN pip install --no-cache-dir "lmcache==0.4.5" && \
+    python3 -c "from lmcache.integration.sglang.sglang_adapter import LMCacheLayerwiseConnector; print('lmcache adapter OK')"
