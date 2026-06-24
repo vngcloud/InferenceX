@@ -2,7 +2,7 @@
 set -euo pipefail
 set -x
 
-# AgentX-MVP (cc-traces-weka) smoke for Qwen/Qwen3.5-4B-Instruct (bf16) on vLLM
+# AgentX-MVP (cc-traces-weka) smoke for Qwen/Qwen3.5-4B (bf16) on vLLM
 # with LMCache CPU KV-offload enabled.
 #
 # LMCache 0.4.5 is pre-bundled in vllm/vllm-openai:v0.21.0 — no extra install.

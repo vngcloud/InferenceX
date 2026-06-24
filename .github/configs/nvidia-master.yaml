@@ -9621,7 +9621,7 @@ qwen3-4b-weka-smoke-h100-greennode-vllm:
 # (model-prefix qwen3.5-4b-weka-lmcache -> qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh)
 qwen3.5-4b-weka-lmcache-smoke-h100-greennode-vllm:
   image: vllm/vllm-openai:v0.21.0
-  model: Qwen/Qwen3.5-4B-Instruct
+  model: Qwen/Qwen3.5-4B
   model-prefix: qwen3.5-4b-weka-lmcache
   runner: h100-greennode_00
   precision: bf16
