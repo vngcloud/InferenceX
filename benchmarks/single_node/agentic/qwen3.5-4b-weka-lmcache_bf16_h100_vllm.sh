@@ -71,6 +71,7 @@ vllm serve "$MODEL" \
   --max-model-len "$MAX_MODEL_LEN" \
   --enable-prefix-caching \
   --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}' \
+  --no-disable-hybrid-kv-cache-manager \
   --trust-remote-code > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
