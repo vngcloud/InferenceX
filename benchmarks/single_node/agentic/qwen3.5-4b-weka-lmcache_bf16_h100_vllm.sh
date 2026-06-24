@@ -97,7 +97,10 @@ trap _dump_logs_on_failure EXIT
 # Upgrade lmcache from bundled 0.4.6 to 0.5.0 — required so LMCacheMPConnector
 # is a SupportsHMA subclass and vLLM keeps the hybrid KV manager on.
 # Must happen before lmcache server or vllm starts.
+# set +x to suppress pip's verbose command echo from flooding the CI step log.
+{ set +x; } 2>/dev/null
 pip install --no-cache-dir "lmcache==0.5.0"
+set -x
 
 # Unified block size for Qwen3.5-4B (from --mamba-cache-mode align startup log:
 # "Setting attention block size to 528 tokens"). Both the lmcache server
@@ -158,7 +161,29 @@ vllm serve "$MODEL" \
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
-wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+# Use a quiet poll instead of wait_for_server_ready (which tails the full server log
+# to stdout). vLLM 0.23.0 + mamba-cache-mode align produces thousands of startup log
+# lines; streaming them through tail -f floods the GitHub Actions step log past the
+# ~50 MB per-step limit, causing the runner to disconnect mid-run.
+# _dump_logs_on_failure trap above still captures the last 80 lines on any failure.
+echo "Waiting for vLLM to become healthy (port $PORT)..."
+for _i in $(seq 1 120); do
+  if curl --output /dev/null --silent --fail "http://0.0.0.0:$PORT/health"; then
+    echo "vLLM ready after $((_i * 5))s"
+    break
+  fi
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "vLLM died before becoming healthy. Last 80 lines of server.log:" >&2
+    tail -80 "$SERVER_LOG" >&2
+    exit 1
+  fi
+  if [ "$_i" -eq 120 ]; then
+    echo "Timeout (600s) waiting for vLLM. Last 80 lines of server.log:" >&2
+    tail -80 "$SERVER_LOG" >&2
+    exit 1
+  fi
+  sleep 5
+done
 
 # ---- Isolate aiperf in its own venv, then resolve traces + install deps -----
 # Clean venv (NO --system-site-packages): see header. Lives in /tmp.
