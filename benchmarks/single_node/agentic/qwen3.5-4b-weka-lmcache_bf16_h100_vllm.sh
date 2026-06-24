@@ -148,7 +148,7 @@ vllm serve "$MODEL" \
   --served-model-name "$SERVED_MODEL_NAME" \
   --tensor-parallel-size "$TP" \
   --dtype bfloat16 \
-  --gpu-memory-utilization 0.90 \
+  --gpu-memory-utilization 0.85 \
   --max-model-len "$MAX_MODEL_LEN" \
   --mamba-cache-mode align \
   --enable-prefix-caching \
