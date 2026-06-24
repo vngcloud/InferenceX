@@ -3,21 +3,42 @@ set -euo pipefail
 set -x
 
 # AgentX-MVP (cc-traces-weka) smoke for Qwen/Qwen3.5-4B (bf16) on vLLM
-# with LMCache CPU KV-offload enabled.
+# with LMCache CPU KV-offload via the MP connector (standalone ZMQ server).
 #
-# LMCache 0.4.5 is pre-bundled in vllm/vllm-openai:v0.21.0 — no extra install.
-# Two-tier cache: vLLM GPU HBM prefix cache (--enable-prefix-caching) feeds into
-# LMCache CPU DRAM (LMCacheConnectorV1) when GPU blocks are evicted.
-# Hit metrics: vllm:external_prefix_cache_hits_total / *_queries_total (GPU-side view)
-# plus lmcache:num_hit_tokens_total / retrieve_hit_rate on the internal API server (:7001).
+# Stack: vllm/vllm-openai:v0.23.0 + lmcache 0.5.0 (installed at runtime;
+# v0.23.0 bundles lmcache 0.4.6 which is NOT a SupportsHMA subclass and
+# triggers the same hybrid-manager crash as 0.4.5).
 #
-# ONE deliberate difference from the MiniMax SGLang launcher: aiperf runs in an
-# ISOLATED venv. vLLM v0.21.0's API server imports anyio/starlette lazily while
-# serving; install_agentic_deps upgrades that web stack and triggers
-# `_IncludedRouter has no attribute 'path'` on /health then
-# `cannot import name 'TaskHandle' from anyio._core._tasks` on the first request.
-# Fix: clean venv (no --system-site-packages) so vLLM keeps the image's untouched
-# system python; they share only the localhost socket. Venv lives in /tmp.
+# Hybrid-attention requirement: Qwen3.5-4B interleaves linear_attention and
+# full_attention layers. The old in-process LMCacheConnectorV1 assumes one
+# unified KV shape, so vLLM disables its hybrid KV manager and aborts with
+# "ValueError: failed to convert the KV cache specs to one unified type".
+# Fix: --mamba-cache-mode align (vLLM 0.23.0+) equalizes block sizes so all
+# layers share one block footprint; lmcache 0.5.0's LMCacheMPConnector is
+# SupportsHMA, so vLLM keeps the hybrid KV manager on.
+#
+# Deployment shape: lmcache server runs as a separate process in the SAME
+# container (ZMQ tcp://localhost:5555 + CUDA IPC). Same-container = shared
+# IPC namespace by default; --ipc=host is not needed here.
+#
+# Unified block size for Qwen3.5-4B: N=528.
+# Discovered via: vllm serve <model> --mamba-cache-mode align \
+#   --enable-prefix-caching 2>&1 | grep "Setting attention block size"
+# Both --chunk-size (lmcache server) and --max-num-batched-tokens (vLLM)
+# must equal N.
+#
+# Hit metrics: vllm:external_prefix_cache_{hits,queries}_total on the vLLM
+# engine port. The :7001 internal-API-server (in-process V1 path only) is
+# absent here. process_agentic_result.py reads external_prefix_cache_* which
+# works on both connector stacks — no result-collection changes needed.
+#
+# aiperf isolation: same isolated venv as the Qwen3-8B vLLM launcher — vLLM
+# 0.23.0 lazily imports anyio/starlette; install_agentic_deps would upgrade
+# them and break the live server. Clean venv keeps aiperf on its own python.
+#
+# Template for other hybrid models: copy this script, update LMCACHE_CHUNK_SIZE
+# to the target model's unified block size (grep "Setting attention block size"
+# from a one-time --mamba-cache-mode align boot), and adjust MAX_MODEL_LEN.
 #
 # Required env vars (provided by the agentic-coding workflow path):
 #   MODEL, TP, CONC, OFFLOADING, TOTAL_CPU_DRAM_GB, RESULT_DIR
@@ -55,12 +76,40 @@ mkdir -p "$RESULT_DIR"
 
 export PYTHONNOUSERSITE=1
 
-# LMCache env — must be set before vllm serve forks the worker process.
-export LMCACHE_CONFIG_FILE="/workspace/benchmarks/lmcache_cpu.yaml"
+# Upgrade lmcache from bundled 0.4.6 to 0.5.0 — required so LMCacheMPConnector
+# is a SupportsHMA subclass and vLLM keeps the hybrid KV manager on.
+# Must happen before lmcache server or vllm starts.
+pip install --no-cache-dir "lmcache==0.5.0"
+
+# Unified block size for Qwen3.5-4B (from --mamba-cache-mode align startup log:
+# "Setting attention block size to 528 tokens"). Both the lmcache server
+# --chunk-size and vLLM --max-num-batched-tokens must equal this value.
+# Override via env var when adapting this script for another hybrid model.
+LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-528}"
+
+# ---- Start standalone LMCache MP server (ZMQ :5555) -------------------------
+LMC_LOG="$RESULT_DIR/lmcache_server.log"
+lmcache server \
+  --chunk-size "$LMCACHE_CHUNK_SIZE" \
+  --l1-size-gb "$TOTAL_CPU_DRAM_GB" \
+  --eviction-policy LRU \
+  --http-host 0.0.0.0 --http-port 8080 > "$LMC_LOG" 2>&1 &
+LMC_PID=$!
+echo "LMCache server PID: $LMC_PID"
+
+# Wait for the ZMQ listener (pattern from verify_lmcache/mp_bootstrap.sh)
+for i in $(seq 1 40); do
+  grep -qiE "listening|started|serving|bound|fired|ready|MessageQueueServer|MPCacheServer" \
+    "$LMC_LOG" 2>/dev/null && break
+  kill -0 "$LMC_PID" 2>/dev/null || { echo "LMCache server died:"; cat "$LMC_LOG"; exit 1; }
+  sleep 1
+done
+echo "LMCache server ready."
+
 export LMCACHE_LOG_LEVEL=INFO
 export PYTHONHASHSEED=0
 
-echo "Starting vLLM server with LMCache CPU KV-offload..."
+echo "Starting vLLM server with LMCache MP connector..."
 vllm serve "$MODEL" \
   --host 0.0.0.0 \
   --port "$PORT" \
@@ -69,9 +118,10 @@ vllm serve "$MODEL" \
   --dtype bfloat16 \
   --gpu-memory-utilization 0.90 \
   --max-model-len "$MAX_MODEL_LEN" \
+  --mamba-cache-mode align \
   --enable-prefix-caching \
-  --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}' \
-  --no-disable-hybrid-kv-cache-manager \
+  --max-num-batched-tokens "$LMCACHE_CHUNK_SIZE" \
+  --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both","kv_connector_extra_config":{"lmcache.mp.host":"tcp://localhost","lmcache.mp.port":5555}}' \
   --trust-remote-code > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
