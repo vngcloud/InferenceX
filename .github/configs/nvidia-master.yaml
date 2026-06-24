@@ -9654,3 +9654,26 @@ qwen3-8b-weka-lmcache-smoke-h100-greennode-vllm:
     - duration: 90
       search-space:
       - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
+
+# LMCache CPU KV-offload smoke for Qwen3.5-4B on vLLM v0.23.0 via MP connector.
+# Qwen3.5-4B is a hybrid-attention model (linear_attention + full_attention layers
+# with incompatible KV shapes). The in-process LMCacheConnectorV1 (vLLM 0.21.0)
+# is not SupportsHMA and crashes at engine-core init. Fix: vLLM 0.23.0 +
+# lmcache 0.5.0 (runtime pip install; bundled 0.4.6 is not SupportsHMA) +
+# LMCacheMPConnector (standalone ZMQ server) + --mamba-cache-mode align.
+# Unified block size N=528 (Qwen3.5-4B; both --chunk-size and --max-num-batched-tokens).
+# Launcher: benchmarks/single_node/agentic/qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh
+# (model-prefix qwen3.5-4b-weka-lmcache -> qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh)
+qwen3.5-4b-weka-lmcache-smoke-h100-greennode-vllm:
+  image: vllm/vllm-openai:v0.23.0
+  model: Qwen/Qwen3.5-4B
+  model-prefix: qwen3.5-4b-weka-lmcache
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - duration: 90
+      search-space:
+      - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
