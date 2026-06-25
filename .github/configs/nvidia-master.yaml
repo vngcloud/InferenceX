@@ -9745,7 +9745,7 @@ qwen3.5-27b-fp8-h100-greennode-vllm-lmcache:
       search-space:
       - { tp: 1, conc-list: [32] }
 
-# LMCache CPU KV-offload smoke for Gemma 4 31B FP8 on H100 (agentic-replay, MiniMax prod trace).
+# LMCache CPU KV-offload for Gemma 4 31B FP8 on H100 (agentic-replay, MiniMax prod trace).
 # Uses RedHatAI/gemma-4-31B-it-FP8-dynamic (compressed-tensors pre-quantized checkpoint).
 # vLLM auto-detects quantization from quantization_config.json — no --quantization flag.
 # MP connector (lmcache 0.5.0) used for hybrid-attention safety; LMCACHE_CHUNK_SIZE=256
@@ -9767,9 +9767,9 @@ gemma4-fp8-h100-greennode-vllm-lmcache:
       benchmark-client: [aiperf]
       no-fixed-schedule: true
       search-space:
-      - { tp: 1, conc-list: [16] }
+      - { tp: 1, conc-list: [2, 4, 8] }
 
-# Baseline (no LMCache) agentic-replay smoke for Gemma 4 31B FP8 on H100 (GreenNode).
+# Baseline (no LMCache) agentic-replay for Gemma 4 31B FP8 on H100 (GreenNode).
 # Uses RedHatAI/gemma-4-31B-it-FP8-dynamic (compressed-tensors pre-quantized checkpoint).
 # vLLM auto-detects quantization from quantization_config.json — no --quantization flag.
 # Prefix-caching enabled so vLLM hit rates are comparable to the LMCache counterpart.
@@ -9791,4 +9791,4 @@ gemma4-fp8-h100-greennode-vllm:
       benchmark-client: [aiperf]
       no-fixed-schedule: true
       search-space:
-      - { tp: 1, conc-list: [16] }
+      - { tp: 1, conc-list: [2, 4, 8] }
