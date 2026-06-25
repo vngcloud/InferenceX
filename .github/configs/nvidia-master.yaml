@@ -9814,3 +9814,26 @@ gemma4-lmcache-minimax-capacity:
       no-fixed-schedule: true
       search-space:
       - { tp: 1, conc-list: [2, 4, 8] }
+
+# Capacity (900s) LMCache CPU KV-offload run for Gemma 4 31B FP8 on H100 (agentic-replay, MiniMax prod trace).
+# GPU util lowered to 0.5 (vs 0.65 in gemma4-lmcache-minimax-capacity) to probe headroom/throughput trade-off.
+# CPU DRAM budget increased to 40 GB to measure LMCache hit-rate at higher KV retention.
+# MP connector (lmcache 0.5.0); LMCACHE_CHUNK_SIZE=256 (pure-attention default).
+# Launcher: benchmarks/single_node/gemma4-lmcache-minimax-gpu0.5-dram40g_fp8_h100_vllm.sh
+gemma4-lmcache-minimax-gpu0.5-dram40g:
+  image: vllm/vllm-openai:v0.23.0
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
+  model-prefix: gemma4-lmcache-minimax-gpu0.5-dram40g
+  runner: h100-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/minimax_claude_code_prod_v3.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [2, 4, 8] }
