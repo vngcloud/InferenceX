@@ -58,11 +58,12 @@ files to a short flat directory first — this is non-negotiable on Windows:
 ```bash
 SCRATCH="/c/Users/LAP14714/AppData/Local/Temp/infx_<RUN_ID>"
 mkdir -p "$SCRATCH"
-find /tmp/infx-dl-<RUN_ID> -name "server_metrics_export.json" | head -1 | xargs -I{} cp {} "$SCRATCH/server_metrics.json"
-find /tmp/infx-dl-<RUN_ID> -name "profile_export_aiperf.json"  | head -1 | xargs -I{} cp {} "$SCRATCH/profile.json"
-find /tmp/infx-dl-<RUN_ID> -name "server.log"                  | head -1 | xargs -I{} cp {} "$SCRATCH/server.log"
-find /tmp/infx-dl-<RUN_ID> -name "aiperf.log"                  | head -1 | xargs -I{} cp {} "$SCRATCH/aiperf.log"
-find /tmp/infx-dl-<RUN_ID> -name "agg_*.json"                  | head -1 | xargs -I{} cp {} "$SCRATCH/agg.json"
+find /tmp/infx-dl-<RUN_ID> -name "server_metrics_export.json"   | head -1 | xargs -I{} cp {} "$SCRATCH/server_metrics.json"
+find /tmp/infx-dl-<RUN_ID> -name "lmcache_server_metrics.json"  | head -1 | xargs -I{} cp {} "$SCRATCH/lmcache_metrics.json"
+find /tmp/infx-dl-<RUN_ID> -name "profile_export_aiperf.json"   | head -1 | xargs -I{} cp {} "$SCRATCH/profile.json"
+find /tmp/infx-dl-<RUN_ID> -name "server.log"                   | head -1 | xargs -I{} cp {} "$SCRATCH/server.log"
+find /tmp/infx-dl-<RUN_ID> -name "aiperf.log"                   | head -1 | xargs -I{} cp {} "$SCRATCH/aiperf.log"
+find /tmp/infx-dl-<RUN_ID> -name "agg_*.json"                   | head -1 | xargs -I{} cp {} "$SCRATCH/agg.json"
 ```
 
 ## Step 4 — Run the parser

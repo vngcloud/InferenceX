@@ -112,6 +112,20 @@ def load_server_metrics(path: Path) -> dict:
         return json.load(f)
 
 
+def merge_server_metrics(base: dict, extra: dict) -> dict:
+    """Merge two server_metrics_export.json dicts by union of their metrics keys.
+
+    Used to combine aiperf's vLLM scrape with the separate LMCache MP scrape.
+    Keys never collide (vllm: prefix vs lmcache_mp_ prefix), so a shallow
+    merge of the inner "metrics" dicts is correct.
+    """
+    base_metrics = base.get("metrics") or {}
+    extra_metrics = extra.get("metrics") or {}
+    if not extra_metrics:
+        return base
+    return {"metrics": {**base_metrics, **extra_metrics}}
+
+
 # ---- trace metadata --------------------------------------------------------
 
 
@@ -395,6 +409,15 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
         "kv_offload_time_gpu_to_cpu": None,
         "kv_offload_time_cpu_to_gpu": None,
         "cpu_kv_cache_usage_pct": None,
+        # LMCache MP internal metrics (from lmcache_server_metrics.json)
+        "lmcache_mp_hit_rate": None,
+        "lmcache_mp_hit_tokens": None,
+        "lmcache_mp_query_tokens": None,
+        "lmcache_mp_l2_hit_rate": None,
+        "lmcache_mp_l2_prefetch_failures": None,
+        "lmcache_mp_l1_usage_ratio": None,
+        "lmcache_mp_l1_memory_bytes": None,
+        "lmcache_mp_active_prefetch_jobs": None,
         "total_prompt_tokens": None,
         "total_generation_tokens": None,
         "total_requests_completed": None,
@@ -546,6 +569,34 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     gt = _final_value("vllm:generation_tokens")
     if gt is not None:
         result["total_generation_tokens"] = int(gt)
+
+    # LMCache MP internal metrics (available when lmcache_server_metrics.json
+    # was scraped and merged into server_metrics by main()).
+    mp_hits = _final_value("lmcache_mp_lookup_hit_tokens_total")
+    mp_queries = _final_value("lmcache_mp_lookup_requested_tokens_total")
+    if mp_queries is not None:
+        result["lmcache_mp_hit_tokens"] = int(mp_hits) if mp_hits is not None else 0
+        result["lmcache_mp_query_tokens"] = int(mp_queries)
+        result["lmcache_mp_hit_rate"] = (
+            mp_hits / mp_queries if mp_queries > 0 else 0.0
+        )
+    l2_hits = _final_value("lmcache_mp_l2_prefetch_hit_total")
+    l2_look = _final_value("lmcache_mp_l2_prefetch_lookup_total")
+    if l2_look is not None:
+        result["lmcache_mp_l2_hit_rate"] = (
+            l2_hits / l2_look if l2_look > 0 else 0.0
+        )
+    l2_fail = _final_value("lmcache_mp_l2_prefetch_failure_total")
+    if l2_fail is not None:
+        result["lmcache_mp_l2_prefetch_failures"] = l2_fail
+    for src_key, dst_key in (
+        ("lmcache_mp_l1_usage_ratio", "lmcache_mp_l1_usage_ratio"),
+        ("lmcache_mp_l1_memory_usage_bytes", "lmcache_mp_l1_memory_bytes"),
+        ("lmcache_mp_active_prefetch_jobs", "lmcache_mp_active_prefetch_jobs"),
+    ):
+        v = _final_value(src_key)
+        if v is not None:
+            result[dst_key] = v
 
     # Fallback to per-record sums when server metrics aren't present.
     isls = _extract_per_record_ints(records, "input_sequence_length")
@@ -704,6 +755,8 @@ def main() -> int:
     records = load_records(jsonl_path)
     aggregate = load_aggregate(aggregate_path) if aggregate_path.exists() else {}
     server_metrics = load_server_metrics(server_metrics_path)
+    lmcache_metrics = load_server_metrics(result_dir / "lmcache_server_metrics.json")
+    server_metrics = merge_server_metrics(server_metrics, lmcache_metrics)
 
     agg = build_agg(records, aggregate, server_metrics)
 

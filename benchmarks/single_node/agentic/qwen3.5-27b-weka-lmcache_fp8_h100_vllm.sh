@@ -175,6 +175,7 @@ set -x
 $REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
 set +x
 
+scrape_lmcache_server_metrics "$RESULT_DIR"
 write_agentic_result_json "$RESULT_DIR"
 
 # ---- Post-processing --------------------------------------------------------

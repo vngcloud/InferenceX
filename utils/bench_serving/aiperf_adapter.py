@@ -122,11 +122,25 @@ def build_result(artifact: dict, max_concurrency: int) -> dict:
     return result
 
 
+def _load_metrics_dict(path: Path) -> dict:
+    """Load a server_metrics_export.json-schema file and return its metrics dict."""
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    metrics = raw.get("metrics") if isinstance(raw, dict) else {}
+    return metrics if isinstance(metrics, dict) else {}
+
+
 def _extract_lmcache_metrics(artifact_dir: Path) -> dict:
-    """Read server_metrics_export.json and extract LMCache hit-rate fields.
+    """Read server_metrics_export.json (and lmcache_server_metrics.json if
+    present in the parent result_dir) and extract LMCache hit-rate fields.
 
     Returns a dict with keys server_lmcache_hit_rate / lmcache_hit_tokens /
-    lmcache_query_tokens (all None when the file is absent or LMCache is off).
+    lmcache_query_tokens (all None when the file is absent or LMCache is off),
+    plus lmcache_mp_* fields when the separate LMCache MP scrape is available.
     Covers both engines:
     - vLLM: vllm:external_prefix_cache_hits_total / _queries_total
     - SGLang: sglang:cached_tokens_total / sglang:prompt_tokens_total (fallback)
@@ -135,18 +149,24 @@ def _extract_lmcache_metrics(artifact_dir: Path) -> dict:
         "server_lmcache_hit_rate": None,
         "lmcache_hit_tokens": None,
         "lmcache_query_tokens": None,
+        "lmcache_mp_hit_rate": None,
+        "lmcache_mp_hit_tokens": None,
+        "lmcache_mp_query_tokens": None,
+        "lmcache_mp_l2_hit_rate": None,
+        "lmcache_mp_l2_prefetch_failures": None,
+        "lmcache_mp_l1_usage_ratio": None,
+        "lmcache_mp_l1_memory_bytes": None,
+        "lmcache_mp_active_prefetch_jobs": None,
     }
-    metrics_path = artifact_dir / "server_metrics_export.json"
-    if not metrics_path.exists():
-        return result
 
-    try:
-        raw = json.loads(metrics_path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return result
-
-    metrics: dict = raw.get("metrics") if isinstance(raw, dict) else {}
-    if not isinstance(metrics, dict):
+    # Merge aiperf's vLLM scrape with the separate LMCache MP scrape.
+    # artifact_dir is <result_dir>/<name>_aiperf/; lmcache_server_metrics.json
+    # is saved one level up at <result_dir>/.
+    metrics: dict = {
+        **_load_metrics_dict(artifact_dir / "server_metrics_export.json"),
+        **_load_metrics_dict(artifact_dir.parent / "lmcache_server_metrics.json"),
+    }
+    if not metrics:
         return result
 
     def _final_value(metric_name: str) -> float | None:
@@ -195,6 +215,34 @@ def _extract_lmcache_metrics(artifact_dir: Path) -> dict:
         result["lmcache_hit_tokens"] = int(sg_cached)
         result["lmcache_query_tokens"] = int(sg_prompt)
         result["server_lmcache_hit_rate"] = sg_cached / sg_prompt
+
+    # LMCache MP internal metrics (present only when lmcache_server_metrics.json
+    # was scraped and merged above).
+    mp_hits = _final_value("lmcache_mp_lookup_hit_tokens_total")
+    mp_queries = _final_value("lmcache_mp_lookup_requested_tokens_total")
+    if mp_queries is not None:
+        result["lmcache_mp_hit_tokens"] = int(mp_hits) if mp_hits is not None else 0
+        result["lmcache_mp_query_tokens"] = int(mp_queries)
+        result["lmcache_mp_hit_rate"] = (
+            mp_hits / mp_queries if mp_queries > 0 else 0.0
+        )
+    l2_hits = _final_value("lmcache_mp_l2_prefetch_hit_total")
+    l2_look = _final_value("lmcache_mp_l2_prefetch_lookup_total")
+    if l2_look is not None:
+        result["lmcache_mp_l2_hit_rate"] = (
+            l2_hits / l2_look if l2_look > 0 else 0.0
+        )
+    l2_fail = _final_value("lmcache_mp_l2_prefetch_failure_total")
+    if l2_fail is not None:
+        result["lmcache_mp_l2_prefetch_failures"] = l2_fail
+    for src_key, dst_key in (
+        ("lmcache_mp_l1_usage_ratio", "lmcache_mp_l1_usage_ratio"),
+        ("lmcache_mp_l1_memory_usage_bytes", "lmcache_mp_l1_memory_bytes"),
+        ("lmcache_mp_active_prefetch_jobs", "lmcache_mp_active_prefetch_jobs"),
+    ):
+        v = _final_value(src_key)
+        if v is not None:
+            result[dst_key] = v
 
     return result
 

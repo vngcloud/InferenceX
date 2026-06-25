@@ -1441,6 +1441,37 @@ build_replay_cmd() {
     REPLAY_CMD+=" $TRACE_SOURCE_FLAG"
 }
 
+scrape_lmcache_server_metrics() {
+    # Scrape LMCache MP server's Prometheus endpoint and save as
+    # <result_dir>/lmcache_server_metrics.json in the same schema as
+    # aiperf's server_metrics_export.json so process_agentic_result.py
+    # can merge both without a separate parser.
+    #
+    # Usage: scrape_lmcache_server_metrics <result_dir> [<http_port>]
+    #   result_dir  — directory where lmcache_server_metrics.json is written
+    #   http_port   — LMCache MP HTTP port (default: 8080)
+    #
+    # Best-effort: logs a warning and returns 0 on any failure so a scrape
+    # hiccup never aborts the CI job.
+    local result_dir="$1"
+    local http_port="${2:-8080}"
+    local out="$result_dir/lmcache_server_metrics.json"
+    local scraper="$INFMAX_CONTAINER_WORKSPACE/utils/scrape_lmcache_metrics.py"
+
+    if [[ ! -f "$scraper" ]]; then
+        echo "[scrape_lmcache] scraper not found at $scraper, skipping" >&2
+        return 0
+    fi
+
+    if curl -sf --max-time 10 "http://localhost:$http_port/metrics" \
+            | python3 "$scraper" > "$out"; then
+        echo "[scrape_lmcache] metrics saved to $out"
+    else
+        echo "[scrape_lmcache] failed to scrape http://localhost:$http_port/metrics, skipping" >&2
+        rm -f "$out"
+    fi
+}
+
 write_agentic_result_json() {
     # Aggregate aiperf's profile_export.{json,jsonl} + server_metrics_export.json
     # into $AGENTIC_OUTPUT_DIR/$RESULT_FILENAME.json. The workflow's existing

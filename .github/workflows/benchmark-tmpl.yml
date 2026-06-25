@@ -323,6 +323,7 @@ jobs:
             results/trace_replay/profile_export_aiperf_aggregate.json
             results/trace_replay/profile_export_aiperf_aggregate.csv
             results/trace_replay/profile_export_aiperf_collated.json
+            results/lmcache_server_metrics.json
             results/trace_replay/server_metrics_export.json
             results/trace_replay/server_metrics_export.jsonl
             results/trace_replay/server_metrics_export.csv

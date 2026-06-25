@@ -49,22 +49,46 @@ if os.path.exists(profile_path):
     }
 
 
-# ── server_metrics.json ───────────────────────────────────────────────────────
+# ── server_metrics.json + lmcache_metrics.json ────────────────────────────────
 sm_path = os.path.join(scratch, "server_metrics.json")
+lmc_path = os.path.join(scratch, "lmcache_metrics.json")
 if os.path.exists(sm_path):
     with open(sm_path) as f:
         data = json.load(f)
     m = data.get("metrics", {})
 
+    # Merge LMCache MP scrape if available (separate file, same schema).
+    if os.path.exists(lmc_path):
+        with open(lmc_path) as f:
+            lmc_data = json.load(f)
+        m = {**m, **lmc_data.get("metrics", {})}
+
     def series_stats(key):
-        return m.get(key, {}).get("series", [{}])[0].get("stats", {})
+        entry = m.get(key, {})
+        series = entry.get("series", [{}])
+        # Sum "total" across all series (handles multi-label counters correctly).
+        # For gauges use max of first series — adequate for a single-snapshot scrape.
+        totals = [s.get("stats", {}).get("total") for s in series if s.get("stats", {}).get("total") is not None]
+        if totals:
+            return {"total": sum(totals)}
+        return series[0].get("stats", {}) if series else {}
 
     ext_hits    = series_stats("vllm:external_prefix_cache_hits").get("total", 0)
     ext_queries = series_stats("vllm:external_prefix_cache_queries").get("total", 0)
     gpu_hits    = series_stats("vllm:prefix_cache_hits").get("total", 0)
     gpu_queries = series_stats("vllm:prefix_cache_queries").get("total", 0)
     cached_tok  = series_stats("vllm:prompt_tokens_cached").get("total", 0)
-    kv_st       = series_stats("vllm:kv_cache_usage_perc")
+    kv_st       = m.get("vllm:kv_cache_usage_perc", {}).get("series", [{}])[0].get("stats", {})
+
+    # LMCache MP internal metrics
+    mp_hit_tok  = series_stats("lmcache_mp_lookup_hit_tokens_total").get("total", 0)
+    mp_req_tok  = series_stats("lmcache_mp_lookup_requested_tokens_total").get("total", 0)
+    l2_hits     = series_stats("lmcache_mp_l2_prefetch_hit_total").get("total", 0)
+    l2_lookups  = series_stats("lmcache_mp_l2_prefetch_lookup_total").get("total", 0)
+    l2_fail     = series_stats("lmcache_mp_l2_prefetch_failure_total").get("total", 0)
+    l1_ratio_st = m.get("lmcache_mp_l1_usage_ratio", {}).get("series", [{}])[0].get("stats", {})
+    l1_bytes_st = m.get("lmcache_mp_l1_memory_usage_bytes", {}).get("series", [{}])[0].get("stats", {})
+    pf_jobs_st  = m.get("lmcache_mp_active_prefetch_jobs", {}).get("series", [{}])[0].get("stats", {})
 
     result["cache"] = {
         "ext_hits":             ext_hits,
@@ -77,6 +101,15 @@ if os.path.exists(sm_path):
         "kv_usage_avg_pct":     round(kv_st.get("avg", 0) * 100, 2),
         "kv_usage_max_pct":     round(kv_st.get("max", 0) * 100, 2),
         "kv_usage_min_pct":     round(kv_st.get("min", 0) * 100, 2),
+        # LMCache MP internal view (None fields absent when scrape not available)
+        "mp_hit_tokens":        mp_hit_tok or None,
+        "mp_query_tokens":      mp_req_tok or None,
+        "mp_hit_rate_pct":      round(mp_hit_tok / mp_req_tok * 100, 2) if mp_req_tok else None,
+        "mp_l2_hit_rate_pct":   round(l2_hits / l2_lookups * 100, 2) if l2_lookups else None,
+        "mp_l2_prefetch_fails": l2_fail or None,
+        "mp_l1_usage_ratio":    l1_ratio_st.get("max"),
+        "mp_l1_memory_gb":      round(l1_bytes_st["max"] / 1e9, 3) if l1_bytes_st.get("max") else None,
+        "mp_active_prefetch_jobs": pf_jobs_st.get("max"),
     }
 
 
