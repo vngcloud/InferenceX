@@ -9792,3 +9792,26 @@ gemma4-fp8-h100-greennode-vllm:
       no-fixed-schedule: true
       search-space:
       - { tp: 1, conc-list: [16] }
+
+# LMCache-only agentic-replay smoke for Gemma 4 31B FP8 on H100 (GreenNode).
+# --enable-prefix-caching is DISABLED — vLLM GPU HBM prefix cache is off.
+# Only LMCache (MP connector, CPU DRAM, lmcache==0.5.0) provides prefix reuse.
+# Three-way comparison: baseline (no LMCache, no PC) vs lmcache+PC vs lmcache-only (this).
+# Launcher: benchmarks/single_node/gemma4-lmcache-nopc_fp8_h100_vllm.sh
+gemma4-fp8-h100-greennode-vllm-lmcache-nopc:
+  image: vllm/vllm-openai:v0.23.0
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
+  model-prefix: gemma4-lmcache-nopc
+  runner: h100-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/minimax_claude_code_prod_v3.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [16] }

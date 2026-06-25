@@ -3183,3 +3183,11 @@
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-replay
+
+- config-keys:
+    - gemma4-fp8-h100-greennode-vllm-lmcache-nopc
+  description:
+    - "LMCache-only CPU KV-offload (lmcache==0.5.0, MP connector ZMQ :5555, NO --enable-prefix-caching) + agentic-replay MiniMax-prod on vLLM v0.23.0 FP8 TP1 on h100-greennode_00; RedHatAI/gemma-4-31B-it-FP8-dynamic (compressed-tensors), smoke 90s conc [16]; LMCACHE_CPU_DRAM_GB=5; vLLM GPU HBM prefix cache disabled — LMCache CPU tier only"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-replay
