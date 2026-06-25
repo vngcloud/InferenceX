@@ -9744,3 +9744,27 @@ qwen3.5-27b-fp8-h100-greennode-vllm-lmcache:
       no-fixed-schedule: true
       search-space:
       - { tp: 1, conc-list: [32] }
+
+# LMCache CPU KV-offload smoke for Gemma 4 31B FP8 on H100 (agentic-replay, MiniMax prod trace).
+# Uses RedHatAI/gemma-4-31B-it-FP8-dynamic (compressed-tensors pre-quantized checkpoint).
+# vLLM auto-detects quantization from quantization_config.json — no --quantization flag.
+# MP connector (lmcache 0.5.0) used for hybrid-attention safety; LMCACHE_CHUNK_SIZE=256
+# (pure-attention default — run discovery command in script header to verify for Gemma 4).
+# Launcher: benchmarks/single_node/gemma4-lmcache_fp8_h100_vllm.sh
+gemma4-fp8-h100-greennode-vllm-lmcache:
+  image: vllm/vllm-openai:v0.23.0
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
+  model-prefix: gemma4-lmcache
+  runner: h100-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/minimax_claude_code_prod_v3.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [16] }
