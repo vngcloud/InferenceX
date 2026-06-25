@@ -65,9 +65,7 @@ so the second round can be tailored to the chosen path.
    DRAM for a larger working set; decrease on RAM-constrained boxes.
 9. **Baseline to compare against** — existing config-key for the same model/runner
    without LMCache? Note it for result comparison (optional).
-10. **New branch?** — recommend `exp/<name>-lmcache`. Commit + dispatch from it
-    (never `main`).
-11. **DCGM?** — default no. If yes, see § DCGM below.
+10. **DCGM?** — default no. If yes, see § DCGM below.
 
 **agentx-weka path only:**
 
@@ -328,13 +326,30 @@ python3 utils/matrix_logic/generate_sweep_configs.py full-sweep \
   --model-prefix <model-prefix>-lmcache --framework <fw>
 ls -la benchmarks/lmcache_cpu.yaml
 grep -E "LMCacheConnectorV1|enable-lmcache|LMCACHE" benchmarks/single_node/agentic/<script>.sh
+```
 
-git switch -c exp/<name>-lmcache && git add -p && git commit && git push -u origin exp/<name>-lmcache
+**STOP — ask about branch before committing.** Run `git branch --show-current` to surface
+the current branch, then use `AskUserQuestion` with these options:
+
+- **Create new branch** (recommended) — suggest `exp/<descriptive-name>-lmcache` where the
+  name encodes the key config params (model, GPU util, DRAM, concurrency, etc.)
+- **Use current branch** — show the current branch name so the user can confirm
+- **Other** — user supplies a branch name
+
+Do not run any git commands until the user answers. Then:
+
+```bash
+# If creating new branch:
+git switch -c <branch-name>
+
+git add .github/configs/nvidia-master.yaml perf-changelog.yaml benchmarks/single_node/agentic/<script>.sh
+git commit -m "<descriptive message>"
+git push -u origin <branch-name>
 
 gh api --method POST -H "Accept: application/vnd.github+json" \
-  /repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
-  -f ref=exp/<name>-lmcache \
-  -f 'inputs[ref]=exp/<name>-lmcache' \
+  repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
+  -f ref=<branch-name> \
+  -f 'inputs[ref]=<branch-name>' \
   -f 'inputs[generate-cli-command]=full-sweep --config-files .github/configs/nvidia-master.yaml --model-prefix <model-prefix>-lmcache --framework <fw>' \
   -f 'inputs[test-name]=<label>' \
   -f 'inputs[duration-override]='
@@ -411,13 +426,30 @@ python3 utils/matrix_logic/generate_sweep_configs.py test-config \
   --config-files .github/configs/nvidia-master.yaml --config-keys <key>   # expect scenario-type=agentic-replay
 ls -la benchmarks/lmcache_cpu.yaml
 grep -E "LMCacheConnectorV1|enable-lmcache|LMCACHE" benchmarks/single_node/<script>.sh
+```
 
-git switch -c exp/<name>-lmcache && git add -p && git commit && git push -u origin exp/<name>-lmcache
+**STOP — ask about branch before committing.** Run `git branch --show-current` to surface
+the current branch, then use `AskUserQuestion` with these options:
+
+- **Create new branch** (recommended) — suggest `exp/<descriptive-name>-lmcache` where the
+  name encodes the key config params (model, GPU util, DRAM, concurrency, etc.)
+- **Use current branch** — show the current branch name so the user can confirm
+- **Other** — user supplies a branch name
+
+Do not run any git commands until the user answers. Then:
+
+```bash
+# If creating new branch:
+git switch -c <branch-name>
+
+git add .github/configs/nvidia-master.yaml perf-changelog.yaml benchmarks/single_node/<script>.sh
+git commit -m "<descriptive message>"
+git push -u origin <branch-name>
 
 gh api --method POST -H "Accept: application/vnd.github+json" \
-  /repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
-  -f ref=exp/<name>-lmcache \
-  -f 'inputs[ref]=exp/<name>-lmcache' \
+  repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
+  -f ref=<branch-name> \
+  -f 'inputs[ref]=<branch-name>' \
   -f 'inputs[generate-cli-command]=test-config --config-keys <key> --config-files .github/configs/nvidia-master.yaml' \
   -f 'inputs[test-name]=<label>' \
   -f 'inputs[duration-override]=<900|90>'
