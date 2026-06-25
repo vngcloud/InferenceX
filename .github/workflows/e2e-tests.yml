@@ -424,12 +424,12 @@ jobs:
                           sys.exit(0)
 
                       show_cols = [c for c in [
-                          "exp_name", "tp", "conc", "offload", "status",
+                          "exp_name", "tp", "conc", "status",
                           "num_requests", "throughput_rps", "output_throughput_tps",
                           "mean_ttft_ms", "p99_ttft_ms",
                           "mean_tpot_ms", "p99_tpot_ms",
                           "mean_latency_ms", "p99_latency_ms",
-                          "gpu_hit_rate", "cpu_hit_rate",
+                          "gpu_hit_rate", "cpu_hit_rate", "lmcache_hit_rate",
                       ] if c in df.columns]
 
                       display = df[show_cols].copy()

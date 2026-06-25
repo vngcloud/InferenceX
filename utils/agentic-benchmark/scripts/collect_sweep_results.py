@@ -23,6 +23,76 @@ import pandas as pd
 import numpy as np
 
 
+def _load_server_metrics_cache_stats(exp_dir: Path) -> dict:
+    """Extract cache hit rates from server_metrics_export.json.
+
+    Returns a dict with any of: gpu_hit_rate, cpu_hit_rate, lmcache_hit_rate
+    (all as percentages 0-100).  Missing metrics are simply absent.
+    """
+    json_path = next(exp_dir.rglob("server_metrics_export.json"), None)
+    if json_path is None:
+        return {}
+    try:
+        data = json.loads(json_path.read_text())
+    except Exception:
+        return {}
+
+    metrics = data.get("metrics", {})
+
+    def _final_value(metric_name: str):
+        entry = metrics.get(metric_name)
+        if not entry:
+            return None
+        agg, found = 0.0, False
+        for s in entry.get("series", []):
+            stats = s.get("stats", {})
+            for stat in ("total", "max", "avg"):
+                v = stats.get(stat)
+                if v is not None:
+                    agg += float(v)
+                    found = True
+                    break
+        return agg if found else None
+
+    result: dict = {}
+
+    # vLLM GPU prefix cache
+    hits = _final_value("vllm:prefix_cache_hits")
+    queries = _final_value("vllm:prefix_cache_queries")
+    if hits is not None and queries and queries > 0:
+        result["gpu_hit_rate"] = 100.0 * hits / queries
+
+    # vLLM CPU prefix cache (KV offload tier)
+    cpu_hits = _final_value("vllm:cpu_prefix_cache_hits")
+    cpu_queries = _final_value("vllm:cpu_prefix_cache_queries")
+    if cpu_hits is not None and cpu_queries and cpu_queries > 0:
+        result["cpu_hit_rate"] = 100.0 * cpu_hits / cpu_queries
+
+    # LMCache (vLLM external KV connector).
+    # Metric presence alone signals LMCache is active; queries==0 means GPU
+    # cache handled everything and LMCache was never queried.
+    lmc_hits = _final_value("vllm:external_prefix_cache_hits_total")
+    lmc_queries = _final_value("vllm:external_prefix_cache_queries_total")
+    if lmc_queries is not None:
+        result["lmcache_hit_rate"] = (
+            100.0 * lmc_hits / lmc_queries if lmc_queries > 0 else 0.0
+        )
+
+    # SGLang fallback (different metric namespace)
+    if "gpu_hit_rate" not in result:
+        sg_cached = _final_value("sglang:cached_tokens")
+        sg_prompt = _final_value("sglang:prompt_tokens")
+        if sg_cached is not None and sg_prompt and sg_prompt > 0:
+            result["gpu_hit_rate"] = 100.0 * sg_cached / sg_prompt
+        else:
+            sg_rate = _final_value("sglang:cache_hit_rate")
+            if sg_rate is not None:
+                # SGLang reports this as a percentage (0-100)
+                result["gpu_hit_rate"] = sg_rate if sg_rate > 1.0 else sg_rate * 100.0
+
+    return result
+
+
 def _load_custom_client_csv(client_csv: Path, exp_dir: Path) -> pd.DataFrame | None:
     """Load per-request metrics from custom benchmark client CSV."""
     df = pd.read_csv(client_csv)
@@ -131,7 +201,6 @@ def load_experiment(exp_dir: Path) -> dict | None:
     data_root = results_sub if results_sub.is_dir() else exp_dir
 
     client_csv = data_root / "metrics_client_metrics.csv"
-    server_csv = data_root / "metrics_server_metrics.csv"
 
     # Find profile_export_aiperf.csv anywhere under exp_dir — it may be under
     # results/trace_replay/ or {RESULT_FILENAME}_aiperf/ depending on run type.
@@ -297,18 +366,12 @@ def load_experiment(exp_dir: Path) -> dict | None:
         else:
             return result
 
-        # Cache hit rates from server metrics
-        if server_csv.exists():
-            try:
-                sdf = pd.read_csv(server_csv)
-                if len(sdf) > 0:
-                    final = sdf.iloc[-1]
-                    if final.get("prefix_cache_queries", 0) > 0:
-                        result["gpu_hit_rate"] = 100 * final["prefix_cache_hits"] / final["prefix_cache_queries"]
-                    if final.get("cpu_prefix_cache_queries", 0) > 0:
-                        result["cpu_hit_rate"] = 100 * final["cpu_prefix_cache_hits"] / final["cpu_prefix_cache_queries"]
-            except Exception as e:
-                print(f"Warning: failed to load server metrics for {exp_dir.name}: {e}")
+        # Cache hit rates from server_metrics_export.json (uploaded by every agentic run).
+        try:
+            cache_stats = _load_server_metrics_cache_stats(exp_dir)
+            result.update(cache_stats)
+        except Exception as e:
+            print(f"Warning: failed to load server metrics for {exp_dir.name}: {e}")
 
     except Exception as e:
         print(f"Warning: failed to load client metrics for {exp_dir.name}: {e}")
