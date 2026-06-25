@@ -191,7 +191,8 @@ def test_main_skips_request_count_validation_in_duration_mode(tmp_path: Path, mo
     assert (tmp_path / "bmk.json").exists()
 
 
-def test_build_result_maps_aiperf_profile_export():
+def test_build_result_maps_aiperf_profile_export(monkeypatch):
+    monkeypatch.delenv("WORKLOAD", raising=False)
     result = build_result(_artifact(concurrency=32), max_concurrency=32)
 
     assert result == {
@@ -199,6 +200,7 @@ def test_build_result_maps_aiperf_profile_export():
         "max_concurrency": 32,
         "total_token_throughput": 1234.5,
         "output_throughput": 987.6,
+        "workload": "",
         "mean_ttft_ms": 101.0,
         "p50_ttft_ms": 150.0, "p75_ttft_ms": 160.0, "p90_ttft_ms": 180.0,
         "p95_ttft_ms": 190.0, "p99_ttft_ms": 202.0,
@@ -212,6 +214,34 @@ def test_build_result_maps_aiperf_profile_export():
         "p50_e2el_ms": 1500.0, "p75_e2el_ms": 1600.0, "p90_e2el_ms": 1800.0,
         "p95_e2el_ms": 1900.0, "p99_e2el_ms": 2222.0,
     }
+
+
+def test_build_result_carries_workload_from_env(monkeypatch):
+    monkeypatch.setenv("WORKLOAD", "agentic_coding_1variant_64k_150s")
+    result = build_result(_artifact(concurrency=32), max_concurrency=32)
+    assert result["workload"] == "agentic_coding_1variant_64k_150s"
+
+
+def test_build_result_emits_per_user_throughput_sla():
+    """The tok/s/user SLA metric is flattened from the aiperf aggregate.
+
+    process_result.py passes these through verbatim; the dashboard reads them as
+    the authoritative tok/s/user >= 20 capacity gate.
+    """
+    artifact = _artifact(concurrency=32)
+    artifact["output_token_throughput_per_user"] = {
+        "avg": 27.2, "p50": 26.0, "p75": 30.0, "p90": 33.0, "p95": 35.0, "p99": 40.0,
+    }
+    result = build_result(artifact, max_concurrency=32)
+    assert result["mean_output_token_throughput_per_user"] == 27.2
+    assert result["p50_output_token_throughput_per_user"] == 26.0
+    assert result["p99_output_token_throughput_per_user"] == 40.0
+
+
+def test_build_result_omits_per_user_throughput_when_absent(monkeypatch):
+    monkeypatch.delenv("WORKLOAD", raising=False)
+    result = build_result(_artifact(concurrency=32), max_concurrency=32)
+    assert "mean_output_token_throughput_per_user" not in result
 
 
 def test_build_result_maps_benchmark_duration_when_present():
@@ -359,6 +389,9 @@ def test_main_writes_result_consumed_by_process_result(tmp_path: Path):
     result_dir = tmp_path / "results"
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    # Drive the workload identity through the adapter so we can assert it
+    # survives the process_result.py passthrough end-to-end.
+    env["WORKLOAD"] = "agentic_coding_1variant_64k_150s"
 
     proc = subprocess.run(
         [
@@ -421,3 +454,5 @@ def test_main_writes_result_consumed_by_process_result(tmp_path: Path):
     assert agg["benchmark_client"] == "aiperf"
     assert agg["output_tput_per_gpu"] == pytest.approx(987.6 / 8)
     assert agg["mean_ttft"] == pytest.approx(0.101)
+    # Workload identity survives the adapter -> process_result.py passthrough.
+    assert agg["workload"] == "agentic_coding_1variant_64k_150s"

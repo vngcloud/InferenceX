@@ -175,7 +175,7 @@ def _write_fixture(tmp_path: Path) -> Path:
     return result_dir
 
 
-def _run_processor(result_dir: Path, output_dir: Path) -> dict:
+def _run_processor(result_dir: Path, output_dir: Path, extra_env: dict | None = None) -> dict:
     env = os.environ.copy()
     env.update(
         {
@@ -201,6 +201,8 @@ def _run_processor(result_dir: Path, output_dir: Path) -> dict:
             "HF_HUB_CACHE": str(result_dir / "_no_such_cache"),
         }
     )
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.run(
         [sys.executable, str(PROCESSOR)],
         env=env,
@@ -245,6 +247,66 @@ def test_processor_throughput_per_gpu(tmp_path: Path):
     assert agg["tput_per_gpu"] > 0
     assert agg["input_tput_per_gpu"] > 0
     assert agg["output_tput_per_gpu"] > 0
+
+
+def test_processor_emits_workload_from_env(tmp_path: Path):
+    """WORKLOAD env is carried through verbatim as the dataset identity."""
+    result_dir = _write_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+    agg = _run_processor(result_dir, output_dir, extra_env={"WORKLOAD": "semianalysis_cc_traces_weka"})
+    assert agg["workload"] == "semianalysis_cc_traces_weka"
+
+
+def test_processor_workload_defaults_to_empty(tmp_path: Path):
+    """Without WORKLOAD the field is an explicit empty string, not absent."""
+    result_dir = _write_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+    agg = _run_processor(result_dir, output_dir)
+    assert "workload" in agg
+    assert agg["workload"] == ""
+
+
+def test_processor_emits_output_token_throughput_per_user(tmp_path: Path):
+    """The SLA metric (tok/s/user) is flattened from the aiperf aggregate.
+
+    aiperf stores it as ``output_token_throughput_per_user: {avg, p50, ...}``;
+    the processor projects it to mean_/pXX_ flat keys the dashboard reads. This
+    is the authoritative tok/s/user >= 20 capacity gate (distinct from
+    mean_intvty, the per-record 1/ITL near-equivalent).
+    """
+    result_dir = _write_fixture(tmp_path)
+    artifact = result_dir / "trace_replay"
+    with open(artifact / "profile_export_aiperf.json", "w") as f:
+        json.dump(
+            {
+                "request_count": 5,
+                "output_token_throughput_per_user": {
+                    "avg": 27.2,
+                    "p50": 26.0,
+                    "p75": 30.0,
+                    "p90": 33.0,
+                    "p95": 35.0,
+                    "p99": 40.0,
+                },
+            },
+            f,
+        )
+    output_dir = tmp_path / "out"
+    agg = _run_processor(result_dir, output_dir)
+    assert agg["mean_output_token_throughput_per_user"] == pytest.approx(27.2)
+    assert agg["p50_output_token_throughput_per_user"] == pytest.approx(26.0)
+    assert agg["p99_output_token_throughput_per_user"] == pytest.approx(40.0)
+    # All six percentiles present for this fixture.
+    for p in ("mean", "p50", "p75", "p90", "p95", "p99"):
+        assert f"{p}_output_token_throughput_per_user" in agg
+
+
+def test_processor_omits_per_user_throughput_when_absent(tmp_path: Path):
+    """Older artifacts without the metric must not error; keys are simply absent."""
+    result_dir = _write_fixture(tmp_path)
+    output_dir = tmp_path / "out"
+    agg = _run_processor(result_dir, output_dir)
+    assert "mean_output_token_throughput_per_user" not in agg
 
 
 def test_processor_handles_missing_server_metrics(tmp_path: Path):

@@ -23,6 +23,12 @@ Required env vars:
     RESULT_FILENAME   - base name for output file
     MODEL, MODEL_PREFIX, FRAMEWORK, PRECISION, TP, EP_SIZE, DP_ATTENTION,
     CONC, OFFLOADING, RUNNER_TYPE
+
+Optional env vars:
+    WORKLOAD          - dataset identity string emitted as the ``workload``
+                        field (weka scripts set the public-dataset name, e.g.
+                        ``semianalysis_cc_traces_weka``; mooncake scripts set
+                        the input-file basename). Defaults to "".
 """
 
 from __future__ import annotations
@@ -252,6 +258,40 @@ def _extract_per_record_ints(records: list[dict], key: str) -> list[int]:
             continue
         try:
             out.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def flatten_aggregate_metric(
+    aggregate: dict, metric_name: str, prefix: str
+) -> dict:
+    """Flatten an aiperf aggregate nested metric into flat mean_/pXX_ keys.
+
+    aiperf's ``profile_export_aiperf.json`` stores per-metric objects shaped
+    like ``{"output_token_throughput_per_user": {"avg": ..., "p50": ..., ...}}``.
+    We project them to the legacy flat ``mean_<prefix>`` / ``pXX_<prefix>``
+    convention that ``utils/summarize.py`` and the dashboard ingest. Returns an
+    empty dict when the metric is absent (older artifacts / failed scrape).
+    """
+    node = aggregate.get(metric_name)
+    if not isinstance(node, dict):
+        return {}
+    stat_map = {
+        "avg": f"mean_{prefix}",
+        "p50": f"p50_{prefix}",
+        "p75": f"p75_{prefix}",
+        "p90": f"p90_{prefix}",
+        "p95": f"p95_{prefix}",
+        "p99": f"p99_{prefix}",
+    }
+    out: dict = {}
+    for stat_key, flat_key in stat_map.items():
+        v = node.get(stat_key)
+        if v is None:
+            continue
+        try:
+            out[flat_key] = float(v)
         except (TypeError, ValueError):
             continue
     return out
@@ -602,6 +642,12 @@ def build_agg(
         "spec_decoding": os.environ.get("SPEC_DECODING", "none"),
         "disagg": env_bool("DISAGG"),
         "scenario_type": "agentic-coding",
+        # Dataset identity. The dashboard keys agentic curves by this (one
+        # workload = one trace dataset across a CCU ladder). Set by the launch
+        # scripts via the WORKLOAD env var; weka scripts resolve it to the
+        # public-dataset name, mooncake scripts to the input-file basename.
+        # Empty when unset so downstream sees an explicit "" rather than None.
+        "workload": os.environ.get("WORKLOAD", ""),
         "is_multinode": is_multinode,
         "tp": tp,
         "ep": ep,
@@ -632,6 +678,18 @@ def build_agg(
     agg.update(compute_workload_stats(records))
     agg.update(compute_cache_stats(records, server_metrics))
     agg.update(compute_throughput_stats(records, aggregate))
+
+    # SLA metric: output tokens/s/user = per-request decode speed. Authoritative
+    # value comes from aiperf's aggregate (tok/s/user = 1/mean(ITL)); the per-
+    # record mean_intvty above is a near-equivalent but the dashboard de-facto
+    # uses this field as the tok/s/user >= 20 capacity gate. Was dropped by the
+    # original processor; emitted now so the SLA reads off the real artifact.
+    agg.update(
+        flatten_aggregate_metric(
+            aggregate, "output_token_throughput_per_user",
+            "output_token_throughput_per_user",
+        )
+    )
 
     if "total_tput_tps" in agg and num_gpus > 0:
         agg["tput_per_gpu"] = agg["total_tput_tps"] / num_gpus
@@ -690,6 +748,8 @@ def main() -> int:
         json.dump(agg, f, indent=2)
 
     print(f"Saved aggregated agentic result to {output_path}")
+    if agg.get("workload"):
+        print(f"  Workload: {agg['workload']}")
     print(f"  Requests: {len(records)} successful (aiperf drops error records)")
     if "mean_qps" in agg:
         print(

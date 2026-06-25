@@ -215,6 +215,15 @@ for key, value in bmk_result.items():
         data[key.replace('_ms', '').replace(
             'tpot', 'intvty')] = 1000.0 / float(value)
 
+# Agentic workload identity + the per-user SLA throughput (tok/s/user). These
+# come from aiperf_adapter.build_result() (mooncake/agentic-replay lane) and are
+# NOT _ms latencies, so the loop above skips them. Pass them through verbatim so
+# the dashboard keys agentic rows by workload and reads the real SLA. Absent for
+# fixed-seq / native runs (workload is then "" or derived client-side from isl/osl).
+for key, value in bmk_result.items():
+    if key == 'workload' or key.endswith('_output_token_throughput_per_user'):
+        data[key] = value
+
 # Energy efficiency: tokens per watt (tok/s/W) from the nvidia-smi power log.
 # Power telemetry is best-effort; a missing/empty CSV leaves the fields null.
 gpu_metrics_csv = os.environ.get('GPU_METRICS_CSV', 'gpu_metrics.csv')

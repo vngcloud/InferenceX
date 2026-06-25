@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -30,6 +31,27 @@ def _latency_stats(metric: dict, name: str) -> dict:
     for pctl in _PCTL_KEYS:
         stats[f"{pctl}_{name}_ms"] = metric[pctl]
     return stats
+
+
+def _flatten_metric(metric: dict | None, name: str) -> dict:
+    """Flatten an AIPerf metric block into mean_<name>/pXX_<name> keys.
+
+    Unlike ``_latency_stats`` this adds no ``_ms`` suffix and performs no unit
+    conversion — use for throughput-style metrics that ``process_result.py``
+    should pass through verbatim (e.g. the per-user SLA throughput). Returns an
+    empty dict when the metric is absent so older artifacts stay supported.
+    """
+    if not isinstance(metric, dict):
+        return {}
+    out: dict = {}
+    avg = metric.get("avg")
+    if avg is not None:
+        out[f"mean_{name}"] = float(avg)
+    for pctl in _PCTL_KEYS:
+        v = metric.get(pctl)
+        if v is not None:
+            out[f"{pctl}_{name}"] = float(v)
+    return out
 
 
 def detect_mode(artifact_dir: Path) -> str:
@@ -106,11 +128,25 @@ def build_result(artifact: dict, max_concurrency: int) -> dict:
         "max_concurrency": max_concurrency,
         "total_token_throughput": artifact["total_token_throughput"]["avg"],
         "output_throughput": artifact["output_token_throughput"]["avg"],
+        # Dataset identity for the dashboard's workload dimension. Set by the
+        # launch scripts via WORKLOAD (mooncake = input-file basename; empty for
+        # fixed-seq runs, where the dashboard derives isl/osl client-side).
+        "workload": os.environ.get("WORKLOAD", ""),
         **_latency_stats(artifact["time_to_first_token"], "ttft"),
         **_latency_stats(itl, "tpot"),
         **_latency_stats(itl, "itl"),
         **_latency_stats(artifact["request_latency"], "e2el"),
     }
+
+    # SLA metric: output tokens/s/user = per-request decode speed (the
+    # tok/s/user >= 20 capacity gate). process_result.py passes these flat keys
+    # through verbatim; absent on older artifacts.
+    result.update(
+        _flatten_metric(
+            artifact.get("output_token_throughput_per_user"),
+            "output_token_throughput_per_user",
+        )
+    )
 
     # Benchmark duration (seconds) lets process_result.py window the power log
     # to the load-generation interval. Best-effort: omitted if AIPerf didn't

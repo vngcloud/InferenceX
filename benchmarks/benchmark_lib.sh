@@ -1326,12 +1326,35 @@ resolve_trace_source() {
     # under the hood pulls from semianalysisai/cc-traces-weka-no-subagents-051226
     # (949 traces, no-subagents variant — see plugins.yaml).
     TRACE_SOURCE_FLAG="--public-dataset semianalysis_cc_traces_weka"
+    # Dataset identity for the dashboard's workload dimension. The weka corpus
+    # has no --input-file, so the workload is this constant dataset name; mooncake
+    # (agentic-replay) scripts set WORKLOAD to the input-file basename instead.
+    # Allow an explicit override (e.g. a trimmed-corpus experiment) but default
+    # to the public-dataset name aiperf resolves below.
+    export WORKLOAD="${WORKLOAD:-semianalysis_cc_traces_weka}"
     echo "Loading traces via aiperf public-dataset: semianalysis_cc_traces_weka ($dataset)"
     # Pre-download the dataset into the shared HF_HUB_CACHE (same mount used
     # for model weights) so subsequent runs read from cache instead of
     # re-downloading every job.
     ensure_hf_cli
     hf download --repo-type dataset "$dataset"
+}
+
+capture_workload() {
+    # Derive the dashboard workload identity from a mooncake (agentic-replay)
+    # trace input file. Call ONCE right after check_env_vars in the launch
+    # script, BEFORE any subsetting/stripping rewrites $INPUT_FILE to
+    # /workspace/_trace_*.jsonl (which would lose the real dataset name).
+    #
+    # weka (agentic-coding) scripts don't call this — resolve_trace_source sets
+    # WORKLOAD to the constant public-dataset name instead. Honours an explicit
+    # $WORKLOAD override; no-op when already set or INPUT_FILE is empty.
+    local input_file="${1:-${INPUT_FILE:-}}"
+    if [[ -n "$input_file" && -z "${WORKLOAD:-}" ]]; then
+        local base
+        base="$(basename "$input_file")"
+        export WORKLOAD="${base%.*}"
+    fi
 }
 
 install_agentic_deps() {

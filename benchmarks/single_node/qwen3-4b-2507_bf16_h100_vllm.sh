@@ -17,6 +17,10 @@ check_env_vars \
     CUSTOM_DATASET_TYPE \
     RESULT_FILENAME
 
+# Capture the dataset identity from the original trace path before any
+# subsetting/stripping rewrites $INPUT_FILE (benchmark_lib.sh helper).
+capture_workload "$INPUT_FILE"
+
 if [[ -n "$SLURM_JOB_ID" ]]; then
   echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 fi
