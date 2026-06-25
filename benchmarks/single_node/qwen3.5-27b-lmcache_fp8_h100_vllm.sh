@@ -21,7 +21,7 @@ set -euo pipefail
 #
 # Unified block size for Qwen3.5-27B: N=784.
 # Confirmed from first-run crash: "block_size (784) must be <= max_num_batched_tokens".
-# Both --chunk-size (lmcache server) and --max-num-batched-tokens (vLLM) must equal N.
+# LMCache MP connector enforces N <= max_num_batched_tokens < 2*N; use 2*N-1 for max throughput.
 #
 # Reference implementation: benchmarks/single_node/agentic/qwen3.5-27b-weka-lmcache_fp8_h100_vllm.sh
 # (same model + connector, weka/agentx path). This script adapts the same LMCache setup
@@ -110,7 +110,8 @@ trap _dump_logs_on_failure EXIT
 pip install --no-cache-dir "lmcache==0.5.0"
 
 # Unified block size for Qwen3.5-27B (N=784, confirmed from crash log).
-# Both --chunk-size (lmcache server) and --max-num-batched-tokens (vLLM) must equal N.
+# LMCache MP connector enforces: N <= max_num_batched_tokens < 2*N.
+# Use 2*N-1 to maximise tokens-per-prefill-step within the constraint.
 LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-784}"
 
 # ---- Start standalone LMCache MP server (ZMQ :5555) -------------------------
@@ -156,7 +157,7 @@ vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
 --max-num-seqs "$CONC" \
 --mamba-cache-mode align \
 --enable-prefix-caching \
---max-num-batched-tokens "${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}" \
+--max-num-batched-tokens "${VLLM_MAX_NUM_BATCHED_TOKENS:-$((2 * LMCACHE_CHUNK_SIZE - 1))}" \
 --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both","kv_connector_extra_config":{"lmcache.mp.host":"tcp://localhost","lmcache.mp.port":5555}}' \
 --trust-remote-code > "$SERVER_LOG" 2>&1 &
 

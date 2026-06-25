@@ -212,13 +212,16 @@ vllm serve "$MODEL" \
   ... \
   --mamba-cache-mode align \
   --enable-prefix-caching \
-  --max-num-batched-tokens "$LMCACHE_CHUNK_SIZE" \
+  --max-num-batched-tokens "$((2 * LMCACHE_CHUNK_SIZE - 1))" \
   --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both","kv_connector_extra_config":{"lmcache.mp.host":"tcp://localhost","lmcache.mp.port":5555}}' \
   --trust-remote-code
 ```
 
 Key constraints:
-- `--chunk-size` (server) and `--max-num-batched-tokens` (vLLM) must both equal N.
+- LMCache MP connector enforces `N ≤ max_num_batched_tokens < 2N` (where N = LMCACHE_CHUNK_SIZE).
+  Use `2*N-1` to maximize tokens-per-prefill-step. Setting it equal to N (old advice) works but
+  halves throughput; setting it to anything ≥ 2N crashes at startup.
+- `--chunk-size` (lmcache server) must equal N (the attention block size).
 - `LMCACHE_CONFIG_FILE` and `internal_api_server_enabled` are V1 path only — do not set them here.
 - `--ipc=host` is needed only when server + vLLM run in separate Docker containers; inside the same benchmark container they share IPC by default.
 
