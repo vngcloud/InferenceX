@@ -3175,3 +3175,11 @@
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-replay
+
+- config-keys:
+    - gemma4-fp8-h100-greennode-vllm
+  description:
+    - "Baseline (no LMCache) agentic-replay MiniMax-prod on vLLM v0.23.0 FP8 TP1 on h100-greennode_00; RedHatAI/gemma-4-31B-it-FP8-dynamic (compressed-tensors), smoke 90s conc [16]; prefix-caching enabled; paired with gemma4-fp8-h100-greennode-vllm-lmcache for LMCache delta"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-replay
