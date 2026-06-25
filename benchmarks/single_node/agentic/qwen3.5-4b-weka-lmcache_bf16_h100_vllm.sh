@@ -68,7 +68,7 @@ fi
 # KV-offloading and defaults to 600 GB (benchmark-tmpl.yml), which exceeds
 # GreenNode H100 available RAM (~112-200 GB) and causes the lmcache server to
 # be OOM-killed silently before vLLM's EngineCore connects.
-LMCACHE_CPU_DRAM_GB="${LMCACHE_CPU_DRAM_GB:-20}"
+LMCACHE_CPU_DRAM_GB="${LMCACHE_CPU_DRAM_GB:-10}"
 
 if [[ -n "${SLURM_JOB_ID:-}" ]]; then
     echo "JOB $SLURM_JOB_ID running on ${SLURMD_NODENAME:-unknown}"
@@ -172,8 +172,11 @@ resolve_trace_source      # installs the hf CLI into the venv
 install_agentic_deps      # installs aiperf + deps into the venv
 
 # ---- Run benchmark ----------------------------------------------------------
-# Smoke subset: 64 of the 949 weka traces.
-export WEKA_NUM_DATASET_ENTRIES="${WEKA_NUM_DATASET_ENTRIES:-64}"
+# For smoke runs, cap at 64 traces via: export WEKA_NUM_DATASET_ENTRIES=64
+# Standard capacity (900s) uses the full 949-trace corpus (no cap set here).
+if [ -n "${WEKA_NUM_DATASET_ENTRIES:-}" ]; then
+  export WEKA_NUM_DATASET_ENTRIES
+fi
 
 build_replay_cmd "$RESULT_DIR"
 

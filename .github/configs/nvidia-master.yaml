@@ -9677,3 +9677,21 @@ qwen3.5-4b-weka-lmcache-smoke-h100-greennode-vllm:
     - duration: 90
       search-space:
       - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
+
+# Standard capacity (900s) run — full 949-trace Weka corpus, conc [8,16,32].
+# Same launcher as the smoke entry above; WEKA_NUM_DATASET_ENTRIES is not
+# capped here (full corpus). LMCACHE_CPU_DRAM_GB=10 passed via env.
+# Launcher: benchmarks/single_node/agentic/qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh
+qwen3.5-4b-weka-lmcache-h100-greennode-vllm:
+  image: vllm/vllm-openai:v0.23.0
+  model: Qwen/Qwen3.5-4B
+  model-prefix: qwen3.5-4b-weka-lmcache
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - duration: 900
+      search-space:
+      - { tp: 1, ep: 1, offloading: none, conc-list: [8, 16, 32] }
