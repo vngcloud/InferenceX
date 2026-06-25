@@ -156,7 +156,7 @@ vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
 --max-num-seqs "$CONC" \
 --mamba-cache-mode align \
 --enable-prefix-caching \
---max-num-batched-tokens "$LMCACHE_CHUNK_SIZE" \
+--max-num-batched-tokens "${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}" \
 --kv-transfer-config '{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both","kv_connector_extra_config":{"lmcache.mp.host":"tcp://localhost","lmcache.mp.port":5555}}' \
 --trust-remote-code > "$SERVER_LOG" 2>&1 &
 
