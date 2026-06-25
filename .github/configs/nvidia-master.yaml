@@ -9721,3 +9721,26 @@ qwen3.5-27b-weka-lmcache-smoke-h100-greennode-vllm:
     - duration: 90
       search-space:
       - { tp: 1, ep: 1, offloading: none, conc-list: [16, 24, 32] }
+
+# Qwen3.5-27B-FP8 agentic-replay smoke with LMCache CPU KV-offload (MP connector).
+# Same stack as the weka variant above (vLLM v0.23.0 + lmcache 0.5.0 + mamba-cache-mode align)
+# but using the mooncake_trace / AIPerf agentic-replay path.
+# Unified block size N=784; LMCACHE_CPU_DRAM_GB defaults to 5.
+# Launcher: benchmarks/single_node/qwen3.5-27b-lmcache_fp8_h100_vllm.sh
+qwen3.5-27b-fp8-h100-greennode-vllm-lmcache:
+  image: vllm/vllm-openai:v0.23.0
+  model: Qwen/Qwen3.5-27B-FP8
+  model-prefix: qwen3.5-27b-lmcache
+  runner: h100-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic_coding_1variant_64k_150s.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [2] }
