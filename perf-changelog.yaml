@@ -3147,7 +3147,7 @@
 - config-keys:
     - qwen3.5-4b-weka-lmcache-h100-greennode-vllm
   description:
-    - "LMCache CPU KV-offload (lmcache==0.5.0, MP connector ZMQ :5555) + agentx-weka on vLLM v0.23.0 BF16 TP1 on h100-greennode_00; Qwen3.5-4B (hybrid attention, unified block N=528), standard capacity 900s conc [8,16,32], full 949-trace corpus; LMCACHE_CPU_DRAM_GB=10; --mamba-cache-mode align + LMCacheMPConnector"
+    - "LMCache CPU KV-offload (lmcache==0.5.0, MP connector ZMQ :5555) + agentx-weka on vLLM v0.23.0 BF16 TP1 on h100-greennode_00; Qwen3.5-4B (hybrid attention, unified block N=528), standard capacity 900s conc [16,24,32], full 949-trace corpus; LMCACHE_CPU_DRAM_GB=10; --mamba-cache-mode align + LMCacheMPConnector"
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-coding
