@@ -9743,4 +9743,4 @@ qwen3.5-27b-fp8-h100-greennode-vllm-lmcache:
       benchmark-client: [aiperf]
       no-fixed-schedule: true
       search-space:
-      - { tp: 1, conc-list: [2] }
+      - { tp: 1, conc-list: [32] }
