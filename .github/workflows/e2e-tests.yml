@@ -393,6 +393,26 @@ jobs:
                   pattern: 'agentic_*'
                   path: results/
 
+            - name: Normalize artifact download layout
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # When exactly one artifact matches 'agentic_*', download-artifact
+                  # places files directly in results/ (as results/results/...) rather
+                  # than results/<artifact-name>/results/. This breaks the aggregation
+                  # script which parses tp/conc from the subdir name. Detect and fix.
+                  n_subdirs=$(find results/ -mindepth 1 -maxdepth 1 -type d | wc -l)
+                  if [ "$n_subdirs" -eq 1 ] && [ -d "results/results" ]; then
+                    aname=$(gh api \
+                      "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+                      --jq '[.artifacts[] | select(.name | startswith("agentic_"))] | .[0].name' 2>/dev/null || echo "")
+                    if [ -n "$aname" ]; then
+                      echo "Single-artifact flat layout detected — wrapping as: $aname"
+                      mkdir -p "results/$aname"
+                      mv results/results "results/$aname/"
+                    fi
+                  fi
+
             - name: Run aggregation
               env:
                   PYTHONPATH: utils/agentic-benchmark/scripts:utils/agentic-benchmark/analysis
