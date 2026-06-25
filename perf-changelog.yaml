@@ -3155,7 +3155,7 @@
 - config-keys:
     - qwen3.5-27b-weka-lmcache-smoke-h100-greennode-vllm
   description:
-    - "LMCache CPU KV-offload (lmcache==0.5.0, MP connector ZMQ :5555) + agentx-weka on vLLM v0.23.0 FP8 TP1 on h100-greennode_00; Qwen3.5-27B-FP8 (hybrid attention, unified block N=256 PLACEHOLDER — run discovery cmd), smoke 90s conc [16,24,32], 64 weka traces; LMCACHE_CPU_DRAM_GB=10; --mamba-cache-mode align + LMCacheMPConnector"
+    - "LMCache CPU KV-offload (lmcache==0.5.0, MP connector ZMQ :5555) + agentx-weka on vLLM v0.23.0 FP8 TP1 on h100-greennode_00; Qwen3.5-27B-FP8 (hybrid attention, unified block N=784), smoke 90s conc [16,24,32], 64 weka traces; LMCACHE_CPU_DRAM_GB=10; --mamba-cache-mode align + LMCacheMPConnector"
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-coding

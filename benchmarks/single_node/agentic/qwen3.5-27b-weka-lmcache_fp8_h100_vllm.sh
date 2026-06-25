@@ -23,15 +23,12 @@ set -x
 # Deployment shape: lmcache server runs as a separate process in the SAME
 # container (ZMQ tcp://localhost:5555). --ipc=host is not needed.
 #
-# IMPORTANT — unified block size for Qwen3.5-27B:
-#   LMCACHE_CHUNK_SIZE defaults to 256 here as a placeholder. The actual N
-#   must be discovered before the first production run:
-#     vllm serve Qwen/Qwen3.5-27B-FP8 --mamba-cache-mode align \
-#       --enable-prefix-caching --max-model-len 4096 2>&1 \
-#       | grep -m1 "Setting attention block size"
-#   Set LMCACHE_CHUNK_SIZE=<N> at dispatch time (or update the default below).
-#   Both --chunk-size (lmcache server) and --max-num-batched-tokens (vLLM) must
-#   equal N or KV chunks will not align.
+# Unified block size for Qwen3.5-27B: N=784.
+# Confirmed from first-run crash log:
+#   "AssertionError: In Mamba cache align mode, block_size (784) must be <=
+#    max_num_batched_tokens (256)"
+# Both --chunk-size (lmcache server) and --max-num-batched-tokens (vLLM) must
+# equal N=784.
 #
 # Reference implementation for this connector pattern: qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh
 # (Qwen3.5-4B, N=528). Copy this script for other hybrid 27B-class models and
@@ -95,11 +92,7 @@ trap _dump_logs_on_failure EXIT
 # Must happen before lmcache server or vllm starts.
 pip install --no-cache-dir "lmcache==0.5.0"
 
-# Unified block size for Qwen3.5-27B — PLACEHOLDER, see header.
-# Verify with: vllm serve ... --mamba-cache-mode align --enable-prefix-caching
-#   2>&1 | grep "Setting attention block size"
-# Override at dispatch time via LMCACHE_CHUNK_SIZE=<N>.
-LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-256}"
+LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-784}"
 
 # ---- Start standalone LMCache MP server (ZMQ :5555) -------------------------
 LMC_LOG="$RESULT_DIR/lmcache_server.log"
