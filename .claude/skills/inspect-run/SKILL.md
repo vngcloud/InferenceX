@@ -203,3 +203,18 @@ available.
 | `connector_crash: true` | mnbt outside `[block_size, 2*block_size)` | Set `--max-num-batched-tokens $((2 * LMCACHE_CHUNK_SIZE - 1))` |
 | SGLang `TypeError: unexpected keyword 'config_file'` | lmcache ≥ 0.4.6 incompatible with SGLang 0.5.12 | Pin `lmcache==0.4.5` |
 | `errors > 0` in aiperf | Server overloaded or crashed during run | Check tail of server.log for OOM / crash |
+
+## Step 7 — Offer to persist the report
+
+After delivering the inline report, if `conclusion == "success"`, ask the user:
+
+> "Would you like me to save this as a persisted report to the `dev-lmcache` branch?"
+
+If the user agrees (any affirmative — "yes", "sure", "go ahead", "do it"), invoke the
+`write-bench-report` skill. All the data it needs (parser JSON, run metadata, git
+context) is already in your conversation — pass it through without re-downloading
+artifacts.
+
+If the run **failed** (`conclusion != "success"`), skip this step — failed runs don't
+produce complete metric sets worth archiving. You may still offer if the user explicitly
+asks to save a partial/failed run report.
