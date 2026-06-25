@@ -385,7 +385,7 @@ jobs:
                   python-version: '3.11'
 
             - name: Install dependencies
-              run: pip install pandas matplotlib numpy
+              run: pip install pandas matplotlib numpy tabulate
 
             - name: Download agentic artifacts
               uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -398,6 +398,48 @@ jobs:
                   PYTHONPATH: utils/agentic-benchmark/scripts:utils/agentic-benchmark/analysis
               run: |
                   python utils/agentic-benchmark/scripts/collect_sweep_results.py results/ aggregated/
+
+            - name: Print agentic summary
+              if: always()
+              run: |
+                  python - <<'PYEOF'
+                  import os, sys
+                  from pathlib import Path
+                  import pandas as pd
+                  from tabulate import tabulate
+
+                  csv_path = Path("aggregated/summary.csv")
+                  summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+                  if not summary_file:
+                      sys.exit(0)
+
+                  with open(summary_file, "a") as f:
+                      if not csv_path.exists():
+                          f.write("## Agentic Benchmark Results\n\nNo summary.csv produced — aggregation may have failed.\n")
+                          sys.exit(0)
+
+                      df = pd.read_csv(csv_path)
+                      if df.empty:
+                          f.write("## Agentic Benchmark Results\n\nNo experiments found.\n")
+                          sys.exit(0)
+
+                      show_cols = [c for c in [
+                          "exp_name", "tp", "conc", "offload", "status",
+                          "num_requests", "throughput_rps", "output_throughput_tps",
+                          "mean_ttft_ms", "p99_ttft_ms",
+                          "mean_tpot_ms", "p99_tpot_ms",
+                          "mean_latency_ms", "p99_latency_ms",
+                          "gpu_hit_rate", "cpu_hit_rate",
+                      ] if c in df.columns]
+
+                      display = df[show_cols].copy()
+                      for col in display.select_dtypes(include="float").columns:
+                          display[col] = display[col].apply(lambda v: f"{v:.2f}" if pd.notna(v) else "")
+
+                      f.write("## Agentic Benchmark Results\n\n")
+                      f.write(tabulate(display.values.tolist(), headers=list(display.columns), tablefmt="github"))
+                      f.write("\n")
+                  PYEOF
 
             - name: Upload aggregated results
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
