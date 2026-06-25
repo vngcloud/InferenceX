@@ -3,9 +3,9 @@
 Collect and aggregate multi-turn benchmark sweep results from GitHub Actions
 artifacts.
 
-Expects a directory of artifact subdirectories named:
-    multiturn_tp{N}_users{M}_offload{mode}/
-each containing metrics CSVs, status.txt, etc.
+Expects a directory of artifact subdirectories (one per downloaded artifact).
+Each subdirectory is named after the artifact (e.g. agentic_{RESULT_FILENAME})
+and contains the files uploaded by the benchmark job.
 
 Produces:
     - summary.csv with per-experiment aggregated metrics
@@ -125,15 +125,36 @@ def _load_trace_replay_csv(csv_path: Path) -> pd.DataFrame | None:
 
 def load_experiment(exp_dir: Path) -> dict | None:
     """Load metrics from a single experiment artifact directory."""
-    client_csv = exp_dir / "metrics_client_metrics.csv"
-    server_csv = exp_dir / "metrics_server_metrics.csv"
+    # download-artifact preserves the upload-path prefix inside the artifact
+    # subdirectory, so files uploaded as "results/..." land at exp_dir/results/...
+    results_sub = exp_dir / "results"
+    data_root = results_sub if results_sub.is_dir() else exp_dir
 
-    # No more status.txt: an experiment is considered SUCCESS iff its
-    # trace_replay/detailed_results.csv has at least one successful row.
-    # Failed / missing jobs show up as FAILED in the summary.
-    trace_replay_csv = exp_dir / "trace_replay" / "detailed_results.csv"
+    client_csv = data_root / "metrics_client_metrics.csv"
+    server_csv = data_root / "metrics_server_metrics.csv"
+
+    # Find profile_export_aiperf.csv anywhere under exp_dir — it may be under
+    # results/trace_replay/ or {RESULT_FILENAME}_aiperf/ depending on run type.
+    aiperf_summary_csv = next(exp_dir.rglob("profile_export_aiperf.csv"), None)
+    # Legacy fallback: aiperf_artifacts/ subdir at the root of exp_dir.
+    if aiperf_summary_csv is None:
+        candidate = exp_dir / "aiperf_artifacts" / "profile_export_aiperf.csv"
+        if candidate.exists():
+            aiperf_summary_csv = candidate
+
+    # Success: aiperf CSV exists and has at least one data row.
     status = "FAILED"
-    if trace_replay_csv.exists():
+    if aiperf_summary_csv is not None:
+        try:
+            lines = aiperf_summary_csv.read_text().strip().split('\n')
+            if len(lines) >= 2:
+                status = "SUCCESS"
+        except Exception:
+            pass
+
+    # Fallback success check via detailed_results.csv (legacy trace-replay path).
+    trace_replay_csv = data_root / "trace_replay" / "detailed_results.csv"
+    if status == "FAILED" and trace_replay_csv.exists():
         try:
             import csv as _csv
             import sys as _sys
@@ -144,35 +165,31 @@ def load_experiment(exp_dir: Path) -> dict | None:
         except Exception:
             pass
 
-    # Check for aiperf summary CSV (preferred) or per-record JSONL (fallback)
-    aiperf_summary_csv = None
-    aiperf_artifacts = exp_dir / "aiperf_artifacts"
-    if aiperf_artifacts.exists():
-        candidate = aiperf_artifacts / "profile_export_aiperf.csv"
-        if candidate.exists():
-            aiperf_summary_csv = candidate
-
-    # Check for trace replay output
-    trace_replay_csv = exp_dir / "trace_replay" / "detailed_results.csv"
-
     if not client_csv.exists() and aiperf_summary_csv is None and not trace_replay_csv.exists():
         return None
 
-    # Parse experiment name from directory.
-    # Supports formats:
-    #   multiturn_tp{N}_conc{M}_offload{mode}
-    #   tp{N}_conc{M}_offload{mode}
-    #   agentic_{model}_tp{N}_conc{M}_offload{mode}_{extra...}
+    # Parse experiment name — support two naming conventions:
+    #   Legacy:  [multiturn_]tp{N}_conc{M}_offload{none|cpu|ssd}[_...]
+    #   Current: agentic_{RESULT_FILENAME} where RESULT_FILENAME is
+    #            {name}_{prec}_{fw}_tp{N}-ep{EP}-dpa{DPA}_disagg-{D}_..._conc{M}_{runner}
     import re
     name = exp_dir.name
-    match = re.search(r'tp(\d+)_conc(\d+)_offload(none|cpu|ssd)', name)
-    if not match:
-        print(f"Warning: cannot parse experiment name '{exp_dir.name}', skipping")
-        return None
+    tp, conc, offload = None, None, "none"
 
-    tp = int(match.group(1))
-    conc = int(match.group(2))
-    offload = match.group(3)
+    legacy_m = re.search(r'tp(\d+)_conc(\d+)_offload(none|cpu|ssd)', name)
+    if legacy_m:
+        tp = int(legacy_m.group(1))
+        conc = int(legacy_m.group(2))
+        offload = legacy_m.group(3)
+    else:
+        tp_m = re.search(r'_tp(\d+)[-_]', name)
+        conc_m = re.search(r'_conc(\d+)[_-]', name)
+        if tp_m and conc_m:
+            tp = int(tp_m.group(1))
+            conc = int(conc_m.group(1))
+        else:
+            print(f"Warning: cannot parse experiment name '{exp_dir.name}', skipping")
+            return None
 
     result = {
         "exp_name": name,
@@ -198,7 +215,7 @@ def load_experiment(exp_dir: Path) -> dict | None:
                 return result
 
             # Prefer benchmark_metadata.json for precise wall-clock duration
-            metadata_file = exp_dir / "benchmark_metadata.json"
+            metadata_file = data_root / "benchmark_metadata.json"
             total_time_sec = None
             if metadata_file.exists():
                 try:
@@ -240,7 +257,7 @@ def load_experiment(exp_dir: Path) -> dict | None:
             if df is None or len(df) == 0:
                 return result
 
-            metadata_file = exp_dir / "benchmark_metadata.json"
+            metadata_file = data_root / "benchmark_metadata.json"
             total_time_sec = None
             if metadata_file.exists():
                 try:
