@@ -102,6 +102,41 @@ Inside the container the file is available at `/workspace/benchmarks/lmcache_cpu
 
 ---
 
+## LMCache MP server metrics scrape (MP connector path only)
+
+When using the **MP connector** (hybrid-attention models), the standalone `lmcache server`
+exposes a Prometheus endpoint at `--http-port 8080`. This endpoint captures internal KV
+cache counters (`lmcache_mp_*`) that are not visible through vLLM's own `/metrics`.
+
+**Always add this call** immediately after `run_client_benchmark` / `$REPLAY_CMD` and
+before `write_agentic_result_json`. This is mandatory — omitting it means `lmcache_mp_*`
+artifact fields will be null even when the LMCache server ran successfully.
+
+```bash
+scrape_lmcache_server_metrics "$RESULT_DIR" 8080
+```
+
+`scrape_lmcache_server_metrics` is defined in `benchmark_lib.sh` — no import needed.
+It curl-scrapes `http://localhost:8080/metrics`, converts to `server_metrics_export.json`
+schema, and saves `$RESULT_DIR/lmcache_server_metrics.json`. Best-effort: logs a warning
+and returns 0 on failure so the CI job is never aborted.
+
+`$RESULT_DIR` must be defined before the call:
+- **Agentic path** (`$REPLAY_CMD` + `write_agentic_result_json`): `RESULT_DIR` is already set.
+- **Non-agentic path** (`run_client_benchmark`): define `RESULT_DIR=/workspace/` and also
+  pass it to `--result-dir "$RESULT_DIR"`. See `gemma4-lmcache-minimax_fp8_h100_vllm.sh`
+  as the reference implementation for this pattern.
+
+**Do NOT add for:**
+- V1 connector (full-attention models) — no standalone LMCache server, no port 8080.
+- SGLang — LMCache is in-process; no MP server is started.
+
+New artifact fields populated by this scrape: `lmcache_mp_hit_rate`, `lmcache_mp_hit_tokens`,
+`lmcache_mp_query_tokens`, `lmcache_mp_l2_hit_rate`, `lmcache_mp_l2_prefetch_failures`,
+`lmcache_mp_l1_usage_ratio`, `lmcache_mp_l1_memory_bytes`, `lmcache_mp_active_prefetch_jobs`.
+
+---
+
 ## Engine-specific additions to the launch script
 
 ### vLLM — full-attention models (in-process V1 connector)
@@ -225,7 +260,15 @@ Key constraints:
 - `LMCACHE_CONFIG_FILE` and `internal_api_server_enabled` are V1 path only — do not set them here.
 - `--ipc=host` is needed only when server + vLLM run in separate Docker containers; inside the same benchmark container they share IPC by default.
 
-**Reference implementation:** `benchmarks/single_node/agentic/qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh` (Qwen3.5-4B, N=528). Copy and change `LMCACHE_CHUNK_SIZE` for a different hybrid model.
+**Reference implementations:**
+- Agentic path: `benchmarks/single_node/agentic/qwen3.5-4b-weka-lmcache_bf16_h100_vllm.sh` (Qwen3.5-4B, N=528)
+- Non-agentic path: `benchmarks/single_node/gemma4-lmcache-minimax_fp8_h100_vllm.sh` (Gemma4, N=256)
+
+**After the benchmark client call, always add the LMCache MP scrape** (see § LMCache MP
+server metrics scrape above):
+```bash
+scrape_lmcache_server_metrics "$RESULT_DIR" 8080
+```
 
 ---
 
@@ -328,6 +371,8 @@ python3 utils/matrix_logic/generate_sweep_configs.py full-sweep \
   --model-prefix <model-prefix>-lmcache --framework <fw>
 ls -la benchmarks/lmcache_cpu.yaml
 grep -E "LMCacheConnectorV1|enable-lmcache|LMCACHE" benchmarks/single_node/agentic/<script>.sh
+# MP connector path only: confirm metrics scrape is present
+grep "scrape_lmcache_server_metrics" benchmarks/single_node/agentic/<script>.sh
 
 git switch -c exp/<name>-lmcache && git add -p && git commit && git push -u origin exp/<name>-lmcache
 
@@ -411,6 +456,8 @@ python3 utils/matrix_logic/generate_sweep_configs.py test-config \
   --config-files .github/configs/nvidia-master.yaml --config-keys <key>   # expect scenario-type=agentic-replay
 ls -la benchmarks/lmcache_cpu.yaml
 grep -E "LMCacheConnectorV1|enable-lmcache|LMCACHE" benchmarks/single_node/<script>.sh
+# MP connector path only: confirm metrics scrape is present
+grep "scrape_lmcache_server_metrics" benchmarks/single_node/<script>.sh
 
 git switch -c exp/<name>-lmcache && git add -p && git commit && git push -u origin exp/<name>-lmcache
 
@@ -508,12 +555,24 @@ is missing from the launch script.
 > `lmcache_hit_tokens` / `lmcache_query_tokens` / `server_lmcache_hit_rate` are populated
 > from those counters and work identically on both connector stacks.
 
-| Field | Engine | Meaning |
+| Field | Path | Meaning |
 |---|---|---|
 | `server_lmcache_hit_rate` | both | LMCache / GPU-proxy hit rate (0–1) |
-| `lmcache_hit_tokens` | vLLM | tokens served from LMCache CPU DRAM |
-| `lmcache_query_tokens` | vLLM | tokens that reached the LMCache tier |
+| `lmcache_hit_tokens` | vLLM V1 | tokens served from LMCache CPU DRAM |
+| `lmcache_query_tokens` | vLLM V1 | tokens that reached the LMCache tier |
 | `server_gpu_cache_hit_rate` | both | GPU HBM prefix-cache hit rate |
+| `lmcache_mp_hit_rate` | vLLM MP | fraction of LMCache MP lookups that hit (L1+L2) |
+| `lmcache_mp_hit_tokens` | vLLM MP | tokens served from LMCache MP |
+| `lmcache_mp_query_tokens` | vLLM MP | tokens requested from LMCache MP |
+| `lmcache_mp_l2_hit_rate` | vLLM MP | L2 (disk/remote) prefetch hit rate |
+| `lmcache_mp_l2_prefetch_failures` | vLLM MP | L2 prefetch failures (eviction race / OOM) |
+| `lmcache_mp_l1_usage_ratio` | vLLM MP | L1 (CPU DRAM) fill level, 0–1 |
+| `lmcache_mp_l1_memory_bytes` | vLLM MP | L1 memory in use (bytes) |
+| `lmcache_mp_active_prefetch_jobs` | vLLM MP | in-flight L2 prefetch jobs at scrape time |
+
+`lmcache_mp_*` fields require `scrape_lmcache_server_metrics` to have been called in the
+launch script (§ LMCache MP server metrics scrape above). They are null for V1 connector
+and SGLang runs.
 
 **vLLM:** `lmcache_query_tokens > 0` confirms LMCache was actually queried. If it stays 0,
 the GPU HBM tier absorbed all prefix reuse — normal for short prompts or single-pass

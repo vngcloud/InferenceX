@@ -223,5 +223,7 @@ run_client_benchmark \
     --random-seed "${RANDOM_SEED:-0}" \
     "${REPLAY_ARGS[@]}"
 
+scrape_lmcache_server_metrics /workspace/ 8080
+
 stop_gpu_monitor
 set +x
