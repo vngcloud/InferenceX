@@ -1,0 +1,1 @@
+{"id":"43b20ee4-f6ab-43db-ae84-0148ea9aafc8","models":["minimax-m2.5"],"block_size":64,"hash_id_scope":"local","tool_tokens":0,"system_tokens":0,"requests":[{"t":0.0,"type":"s","model":"minimax-m2.5","in":371,"out":197,"hash_ids":[0,1,2,3,4,5],"api_time":1.982}]}
