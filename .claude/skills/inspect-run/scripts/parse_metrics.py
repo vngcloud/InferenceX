@@ -26,6 +26,8 @@ agg_path = os.path.join(scratch, "agg.json")
 if os.path.exists(agg_path):
     with open(agg_path) as f:
         agg = json.load(f)
+    if isinstance(agg, list):
+        agg = agg[0] if agg else {}
     result["perf"] = {k: agg.get(k) for k in [
         "model", "framework", "precision", "conc", "tp", "hw", "isl", "osl",
         "mean_ttft", "p50_ttft", "p90_ttft", "p99_ttft",
