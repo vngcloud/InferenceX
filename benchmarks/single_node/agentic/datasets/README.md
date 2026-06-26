@@ -1,32 +1,44 @@
 # Agentic Replay Datasets
 
-These JSONL files are Mooncake-compatible traces used by the `agentic-replay`
-scenario. Use them with `custom-dataset-type: mooncake_trace` and the AIPerf
-benchmark client.
+Datasets in this directory are used by the `agentic-replay` scenario with the
+AIPerf benchmark client. The dataset format determines which AIPerf source tree
+the launch script must install from.
 
-## Files
+## Active Datasets
 
-| File | Records | Sessions | Notes | Recommended `max-model-len` |
-|---|---:|---:|---|---:|
-| `minimax_claude_code_prod_v3.jsonl` | 19,662 | 5,626 | Production-derived MiniMax claude-code trace (turn-granular, interleaved). Per-turn input up to ~181k tok; per-session cumulative up to ~186k. | 131072 (smoke); higher for full fidelity |
+| Path | Type | AIPerf source | Shape | Notes |
+|---|---|---|---:|---|
+| `agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | 64k tier | Integrated agentic-coding trace. Other tiers must be added here before use. |
+| `gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | blend_prod | Back-to-back replay; use `strip-trace-delays: true`. |
+| `minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf` | 223 files, 17,672 requests | MiniMax Claude Code v4 Weka traces. Use a directory `input-file`, `no-fixed-schedule: true`, and capped inter-turn delays. |
 
-## Replay modes
+## Archived Datasets
 
-**Duration-based smoke (current Qwen3-4B gate).** Point `input-file` at the full
-trace, set `max-model-len: 131072`, and bound the run with a dispatch
-`duration-override` (e.g. 90s) — no filtering, no `#N`, no `request-count`. The
-launcher passes `--benchmark-duration` to the adapter, which then **skips** exact
-request-count validation. Turns whose context exceeds `max-model-len` are rejected
-by the engine and recorded as errored requests; this is expected under duration
-mode and does not fail the run. This validates the mooncake → adapter →
-raw-artifact-upload plumbing, not real capacity numbers.
+| Path | Type | Status | Notes |
+|---|---|---|---|
+| `minimax_claude_code_prod_v3.jsonl` | `mooncake_trace` | outdated | Kept for reference only. Do not use for new MiniMax Claude Code benchmarking unless the old v3 trace is explicitly requested. |
 
-**Single-replay (no duration).** Omit the duration override and the launcher
-counts all records and passes that as `--request-count`; every request must then
-succeed or the adapter refuses to aggregate. Only safe when every turn fits the
-context window.
+## MiniMax Claude Code v4 Weka
 
-> The trace is **turn-granular and interleaved** — sessions do not appear
-> contiguously and long sessions sort first, so a `head -n N` (`#N`) prefix does
-> **not** yield a short-session subset. Use duration bounding (above) rather than
-> `#N` to cap a smoke against this trace.
+The v4 Weka corpus is the active MiniMax Claude Code replay dataset. It was
+filtered to remove no-op rows where `in=0,out=0`; the remaining corpus has:
+
+| Metric | Value |
+|---|---:|
+| Trace files | 223 |
+| Requests | 17,672 |
+| Input tokens | 1,358,286,289 |
+| Output tokens | 5,462,757 |
+
+Smoke status: validated on `h200-greennode_01` with
+`Qwen/Qwen3-4B-Instruct-2507`, vLLM bf16, `TP=1`, `conc=2`, and `duration=90`.
+Use `benchmarks/single_node/qwen3-4b-v4-weka_bf16_h200_vllm.sh` and the matching
+`qwen3-4b-v4-weka` config entry as the smoke template.
+
+## Replay Notes
+
+Use duration-bounded smoke runs for first validation. For a 90s smoke, keep
+warmup at 2 requests so the warmup phase does not consume the profiling window.
+
+For `mooncake_trace` datasets, set `AIPERF_SOURCE_DIR` to `utils/aiperf-mooncake`.
+For `weka_trace` datasets, set it to `utils/aiperf`.

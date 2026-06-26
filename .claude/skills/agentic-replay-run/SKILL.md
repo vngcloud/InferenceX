@@ -1,33 +1,37 @@
 ---
 name: agentic-replay-run
-description: Configure and dispatch an InferenceX agentic-replay benchmark on GreenNode's pinned-v0.9.0 AIPerf fork (utils/aiperf-mooncake submodule) for one of the three integrated trace datasets (agentic-coding 64k/128k/167k, Claude-Code MiniMax production, or Gemma blend_prod), on any model + serving stack the user specifies. Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
+description: Configure and dispatch an InferenceX agentic-replay benchmark for integrated trace datasets: mooncake_trace datasets via utils/aiperf-mooncake (agentic-coding and Gemma blend_prod) and Weka-trace datasets via utils/aiperf (MiniMax Claude Code v4 Weka). Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, weka_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
 ---
 
 # Agentic-replay run
 
-Flow: pick dataset + model/serving → write a master-config entry **and** its launch script → add a `perf-changelog.yaml` entry → commit on `exp/<name>` → dispatch `e2e-tests.yml`. The three datasets are AIPerf-integrated already; the work is config + (maybe) one launch script.
+Flow: pick dataset + model/serving → write a master-config entry **and** its launch script → add a `perf-changelog.yaml` entry → commit on `exp/<name>` → dispatch `e2e-tests.yml`. The integrated datasets are AIPerf-ready already; the work is config + (maybe) one launch script.
 
-> **Inherits from the `bench-config` skill** — read it first. The generic mechanics live there: script-name **derivation rule**, *what-to-edit-where* (sweepable `search-space` knobs vs fixed serve flags hard-coded in the script), the `runner`↔`tp` rule, the **exit 127** missing-script failure, and the **engine gotchas** (pre-quantized fp8 → no `--quantization`; SGLang multimodal fp8 crash). This skill adds only the agentic-replay specifics: the 3 datasets, the `agentic-replay` scenario fields, `grace-period`, and the **`ref=branch`** dispatch.
+> **Inherits from the `bench-config` skill** — read it first. The generic mechanics live there: script-name **derivation rule**, *what-to-edit-where* (sweepable `search-space` knobs vs fixed serve flags hard-coded in the script), the `runner`↔`tp` rule, the **exit 127** missing-script failure, and the **engine gotchas** (pre-quantized fp8 → no `--quantization`; SGLang multimodal fp8 crash). This skill adds only the agentic-replay specifics: the integrated datasets, the `agentic-replay` scenario fields, `grace-period`, and the **`ref=branch`** dispatch.
 
 ## Ask the user first (AskUserQuestion)
 
-1. **Dataset** — one of the three below.
+1. **Dataset** — one of the integrated datasets below.
 2. **Model + serving config** — HF model id, engine (vLLM/SGLang) + image, precision, TP, and any special serve flags (gpu-mem-util, kv-dtype, quantization, etc.). The user typically pastes a `vllm serve …` / sglang launch line — that line becomes the serve block in the launch script (step B).
    - **Sanity-check the `--model` / `--tokenizer` value before using it.** A pasted launch line often carries a value that is correct on *the user's box* but wrong for InferenceX (the runner pulls from HF and validates the form). If the value is **not a plain HF slug** (`namespace/repo_name`) — e.g. an absolute filesystem path (`/models/...`, `/mnt/...`, `~/...`), a bare name with no namespace, or anything that looks copied from a local/patched setup — **do not pass it through.** Ask the user: *"`--model` is `<value>` — that's a local path; should I use the HF slug `<stripped value>` instead?"* Default/fallback to the HF-slug form (strip the leading dirs: `/models/RedHatAI/gemma-4-31B-it-FP8-block` → `RedHatAI/gemma-4-31B-it-FP8-block`). A raw path makes HF raise `OSError: Repo id must be in the form 'repo_name' or 'namespace/repo_name'`. Same check for `--tokenizer`.
-3. **Runner** — which box (`runner:` field). GreenNode options: `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `rtx5090-greennode_00` (1×RTX5090). The `runner:` value is the box label verbatim, and `search-space.tp` MUST match its GPU count. Full list in `.github/configs/runners.yaml`.
+3. **Runner** — which box (`runner:` field). GreenNode options include `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `h200-greennode_01` (H200 box), and `rtx5090-greennode_00` (1×RTX5090). The `runner:` value is the box label verbatim, and `search-space.tp` MUST match the requested GPU count on that runner. Full list in `.github/configs/runners.yaml`.
 4. **Duration** — `900` (standard, recommended) or `90` (smoke). Passed as `duration-override`. **For a smoke (`90`), also drop warmup to 2 requests in the launch script (step B).** Warmup runs *before* the profiling window; the launcher default of 20 can eat the whole short run — observed: 20 warmup reqs = ~750 s on a 31B/131072-ctx model, leaving ~6 profiling reqs in a 90 s smoke.
 5. **New branch?** — recommend **yes**, `exp/<name>`. Edit + commit + dispatch from it (never `main` — see gotcha).
 6. **Bật DCGM không?** — mặc định **không**. Bật thì AIPerf sẽ thu thêm GPU telemetry phong phú hơn nhiều so với `gpu_metrics.csv` mặc định (`gpu_metrics.csv` chỉ có power/temp/util/clocks từ `nvidia-smi`; DCGM mở thêm `DCGM_FI_PROF_*`: SM/tensor-core activity, memory bandwidth, NVLink, …) vì AIPerf scrape trực tiếp endpoint DCGM. Nếu user cần → sửa launch script của runner để dựng container DCGM (xem **section DCGM** bên dưới); không cần → bỏ qua, giữ nguyên launcher.
 
 ## Datasets
 
-| Dataset | File under `benchmarks/single_node/agentic/datasets/` | Think-time | Extra flag |
-|---|---|---|---|
-| Agentic-coding | `agentic_coding_1variant_64k_150s.jsonl` (64k tier committed; other tiers must be added to this dir first) | **yes** | — |
-| Claude-Code MiniMax production | `minimax_claude_code_prod_v3.jsonl` | **yes** | — |
-| Gemma blend_prod | `gemma_blend_prod.jsonl` | **no** (back-to-back) | `strip-trace-delays: true` |
+| Dataset | Path under `benchmarks/single_node/agentic/datasets/` | Type | AIPerf source | Think-time | Extra flag |
+|---|---|---|---|---|---|
+| Agentic-coding | `agentic_coding_1variant_64k_150s.jsonl` (64k tier committed; other tiers must be added to this dir first) | `mooncake_trace` | `utils/aiperf-mooncake` | **yes** | — |
+| Gemma blend_prod | `gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | **no** (back-to-back) | `strip-trace-delays: true` |
+| MiniMax Claude Code v4 Weka | `minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf` | **yes** | `input-file` is a directory; cap inter-turn delays |
 
-All three: `custom-dataset-type: mooncake_trace`, `no-fixed-schedule: true`. Think-time datasets replay recorded inter-turn delays (capped). Gemma is single-turn with no `delay` field; `strip-trace-delays: true` makes the zero-think-time / pure-concurrency behaviour explicit.
+All datasets: `no-fixed-schedule: true`. Mooncake datasets use `custom-dataset-type: mooncake_trace`. MiniMax Claude Code v4 Weka uses `custom-dataset-type: weka_trace` and a directory `input-file`. Think-time datasets replay recorded inter-turn delays (capped). Gemma is single-turn with no `delay` field; `strip-trace-delays: true` makes the zero-think-time / pure-concurrency behaviour explicit.
+
+MiniMax Claude Code v4 Weka smoke status: validated on `h200-greennode_01` with `Qwen/Qwen3-4B-Instruct-2507`, vLLM bf16, `TP=1`, `conc=2`, `duration=90`. The dataset was filtered to remove no-op rows with `in=0,out=0`; final corpus shape is 223 trace files, 17,672 requests, 1,358,286,289 input tokens, and 5,462,757 output tokens. Use the checked-in Qwen3 config/script as the smoke template for this dataset.
+
+Archived/outdated: `minimax_claude_code_prod_v3.jsonl` is kept in the repository for reference only. Do not choose it for new runs unless the user explicitly asks for the old v3 Mooncake trace.
 
 ## A) Master-config entry — `.github/configs/nvidia-master.yaml`
 
@@ -45,7 +49,7 @@ The entry is **declarative metadata only**. It does NOT contain the serve comman
   scenarios:
     agentic-replay:
     - input-file: benchmarks/single_node/agentic/datasets/<dataset>.jsonl
-      custom-dataset-type: mooncake_trace
+      custom-dataset-type: mooncake_trace  # weka_trace for minimax_cc_v4_weka/
       max-model-len: 131072            # must cover the trace's longest turn
       benchmark-client: [aiperf]
       no-fixed-schedule: true
@@ -59,15 +63,23 @@ The entry is **declarative metadata only**. It does NOT contain the serve comman
 
 ## B) Launch script — holds the serve command
 
-Script path is **derived** (bench-config rule): `benchmarks/single_node/<model-prefix>_<precision>_h100[_<framework>].sh`. **Reuse** if it exists and its serve flags match; otherwise **create** by copying the closest agentic-replay launcher — `qwen3-4b-2507_bf16_h100_vllm.sh` — adding the `AIPERF_SOURCE_DIR` export below, and changing **only the serve block** to the user's command. Keep everything else verbatim: `check_env_vars`, the trace-subset/`STRIP_TRACE_DELAYS` handling, `STOP_ARGS` (duration), the **`REPLAY_ARGS` block** (`no-fixed-schedule`, `grace-period`, sampling, warmup, tokenizer passthrough), and the `run_client_benchmark` call — these wire up the agentic-replay methodology and must not be dropped.
+Script path is **derived** (bench-config rule): `benchmarks/single_node/<model-prefix>_<precision>_h100[_<framework>].sh` (or the matching hardware suffix, e.g. `_h200_vllm.sh`). **Reuse** if it exists and its serve flags match; otherwise **create** by copying the closest agentic-replay launcher. For mooncake datasets use `qwen3-4b-2507_bf16_h100_vllm.sh` as the template. For MiniMax Claude Code v4 Weka use `qwen3-4b-v4-weka_bf16_h200_vllm.sh` as the template. Change **only the serve block** to the user's command unless the dataset requires the AIPerf source/path changes below. Keep everything else verbatim: `check_env_vars`, the trace-subset/`STRIP_TRACE_DELAYS` handling, `STOP_ARGS` (duration), the **`REPLAY_ARGS` block** (`no-fixed-schedule`, `grace-period`, sampling, warmup, tokenizer passthrough), and the `run_client_benchmark` call — these wire up the agentic-replay methodology and must not be dropped.
 
-**MANDATORY — pin aiperf to our fork.** Right after `source ../benchmark_lib.sh`, the script MUST export `AIPERF_SOURCE_DIR` so `ensure_aiperf` installs from the `utils/aiperf-mooncake` submodule (clean fork pinned to `v0.9.0`, `thangquang09/aiperf`) into the isolated venv via `pip install <dir>` — instead of stock PyPI `aiperf==0.9.0`. All three datasets run through this path (ADR-0003). Without this export the run silently falls back to PyPI and any fork patch is lost.
+**MANDATORY — pin aiperf to the right fork.** Right after `source ../benchmark_lib.sh`, the script MUST export `AIPERF_SOURCE_DIR` so `ensure_aiperf` installs from source into the isolated venv via `pip install <dir>` instead of stock PyPI.
+
+- Mooncake datasets (`custom-dataset-type: mooncake_trace`) use `utils/aiperf-mooncake` (clean fork pinned to `v0.9.0`, `thangquang09/aiperf`; ADR-0003).
+- Weka datasets (`custom-dataset-type: weka_trace`, including `minimax_cc_v4_weka/`) use `utils/aiperf`, the vngcloud fork with the Weka loader.
+
+Without this export the run silently falls back to PyPI and any fork patch is lost.
 
 ```bash
 source "$(dirname "$0")/../benchmark_lib.sh"
 
-# Pin aiperf to the clean-v0.9.0 fork submodule (ADR-0003) instead of PyPI.
+# Mooncake datasets: pin aiperf to the clean-v0.9.0 fork submodule (ADR-0003) instead of PyPI.
 export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
+
+# Weka datasets: use the vngcloud fork that contains the weka_trace loader.
+# export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf"
 
 ...
 vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
@@ -151,10 +163,10 @@ RUN_ID=$(gh run list --repo vngcloud/InferenceX --workflow e2e-tests.yml --event
 gh run view "$RUN_ID" --repo vngcloud/InferenceX --json status,jobs -q '.jobs[] | "\(.status)/\(.conclusion // "-")  \(.name)"'
 ```
 
-**Confirm the fork was used** (not PyPI): the job log should show `ensure_aiperf` source-installing from the submodule —
+**Confirm the fork was used** (not PyPI): the job log should show `ensure_aiperf` source-installing from the configured source dir —
 ```
 [aiperf] CLI missing; installing from source: /workspace/utils/aiperf-mooncake
 ```
-If you instead see `installing aiperf==0.9.0 from PyPI`, the `AIPERF_SOURCE_DIR` export is missing from the launch script (step B).
+For Weka, expect `/workspace/utils/aiperf`. If you instead see `installing aiperf==0.9.0 from PyPI`, the `AIPERF_SOURCE_DIR` export is missing from the launch script (step B).
 
 Prefix-cache hit % lives in the separate `server_metrics_export.json` artifact (`prefix_cache_hits / prefix_cache_queries`), not `profile_export_aiperf.json`.
