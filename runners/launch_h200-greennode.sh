@@ -35,6 +35,17 @@ if [[ ! -f "$BENCH_SCRIPT" ]]; then
   BENCH_SCRIPT="${BENCH_BASE}.sh"
 fi
 
+# DCGM exporter sidecar. Runs --network host so AIPerf inside the model
+# container (also host network) reaches GPU telemetry at localhost:9400/metrics.
+# SYS_ADMIN needed for DCGM_FI_PROF_* metrics; port 9400 must be free
+# (conflicts with any host-level/k8s dcgm-exporter). Torn down on script exit.
+DCGM_IMAGE="${DCGM_IMAGE:-nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04}"
+DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-greennode}"
+docker rm -f "$DCGM_NAME" 2>/dev/null || true
+docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
+  --name "$DCGM_NAME" "$DCGM_IMAGE"
+trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
+
 docker run --rm \
   --init \
   --gpus all \
