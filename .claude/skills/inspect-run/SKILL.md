@@ -85,6 +85,8 @@ Check these things:
 
 ### Cache health
 
+> See `docs/lmcache-metrics.md` for the full field→metric→connector→impact table.
+
 The most important cache numbers:
 - **`cache.ext_hit_rate_pct`** — LMCache (CPU DRAM) hit rate. This is 0% whenever the
   GPU KV pool never fills enough to evict blocks to LMCache. Low KV usage (< ~15%)
@@ -95,6 +97,16 @@ The most important cache numbers:
   caching or the sessions aren't repeating prefixes.
 - **`cache.kv_usage_avg_pct` / `kv_usage_max_pct`** — If max < 15%, no eviction
   occurred regardless of concurrency.
+- **`lmcache_mp_l1_evicted_chunks`** (MP) — Non-zero means L1 DRAM is overflowing the
+  working set; future requests for evicted chunks will miss. Increase `--l1-size-gb`.
+- **`lmcache_mp_l1_eviction_loop_triggered` / `_ticks` ratio** (MP) — Ratio → 1.0 means
+  the eviction policy is running constantly (sustained pressure). Flag if > 0.5.
+- **`lmcache_mp_l1_write_chunks` vs `lmcache_mp_l1_read_chunks`** (MP) — In a warm
+  steady state reads should outpace writes. write ≫ read means low temporal reuse.
+- **`lmcache_retrieve_latency_ms_p95`** (V1) — > 200ms indicates PCIe is adding to
+  TTFT even on hits; not a cache miss problem.
+- **`lmcache_retrieve_speed_GBps_p95`** (V1) — < 5 GB/s on PCIe 4.0 = bandwidth
+  saturated under concurrent requests.
 
 ### Queue depth (scheduling bottleneck)
 
@@ -167,6 +179,15 @@ Output this exact structure in markdown:
 | External (LMCache) hit rate | <ext_hit_rate_pct>%  (<ext_hits>/<ext_queries> tokens) |
 | GPU KV cache usage (avg / max) | <kv_usage_avg_pct>% / <kv_usage_max_pct>% |
 | Prompt tokens cached total | <prompt_tokens_cached> |
+| MP L1 write / read chunks | <lmcache_mp_l1_write_chunks> / <lmcache_mp_l1_read_chunks> |
+| MP L1 evicted chunks | <lmcache_mp_l1_evicted_chunks> |
+| MP L1 eviction pressure ratio | <lmcache_mp_l1_eviction_loop_triggered>/<lmcache_mp_l1_eviction_loop_ticks> |
+| MP L1 read throughput p50/p95 | <lmcache_mp_l1_read_throughput_GBps_p50> / <lmcache_mp_l1_read_throughput_GBps_p95> GB/s |
+| MP L1 write throughput p50/p95 | <lmcache_mp_l1_write_throughput_GBps_p50> / <lmcache_mp_l1_write_throughput_GBps_p95> GB/s |
+| MP L2 load throughput p50/p95 | <lmcache_mp_l2_load_throughput_GBps_p50> / <lmcache_mp_l2_load_throughput_GBps_p95> GB/s |
+| Stored tokens (V1) | <lmcache_stored_tokens> |
+| Retrieve latency p50/p95 (V1) | <lmcache_retrieve_latency_ms_p50>ms / <lmcache_retrieve_latency_ms_p95>ms |
+| Retrieve speed p50/p95 (V1) | <lmcache_retrieve_speed_GBps_p50> / <lmcache_retrieve_speed_GBps_p95> GB/s |
 
 ### Server initialization
 - [✓/✗] LMCache version: <lmcache_version>  (need 0.5.0 for hybrid models)

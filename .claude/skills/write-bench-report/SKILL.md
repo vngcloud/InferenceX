@@ -113,7 +113,10 @@ verdict: healthy / degraded / config issue / expected for smoke.>
 <!-- [Agent] Include this subsection only when lmcache_server_metrics.json was present
      and lmcache_mp_* fields are non-null in the parser output. If the subsection is
      absent or all fields are null, replace it with a single line:
-     "_LMCache MP scrape not available for this run._" -->
+     "_LMCache MP scrape not available for this run._"
+     See docs/lmcache-metrics.md for the full field→metric→connector→impact table.
+     V1 fields are null when running MP connector. MP L1 bandwidth throughput fields (⚠️)
+     are null until metric names are confirmed. MP L2 fields are null for L1-only runs. -->
 
 | Metric | Value |
 |---|---|
@@ -122,6 +125,15 @@ verdict: healthy / degraded / config issue / expected for smoke.>
 | L2 prefetch failures | `<mp_l2_prefetch_fails>` |
 | L1 (CPU DRAM) usage | `<mp_l1_usage_ratio × 100>%` (`<mp_l1_memory_gb> GB`) |
 | Active prefetch jobs at scrape | `<mp_active_prefetch_jobs>` |
+| MP L1 write / read chunks | `<lmcache_mp_l1_write_chunks>` / `<lmcache_mp_l1_read_chunks>` |
+| MP L1 evicted chunks | `<lmcache_mp_l1_evicted_chunks>` |
+| MP L1 eviction pressure ratio | `<lmcache_mp_l1_eviction_loop_triggered>`/`<lmcache_mp_l1_eviction_loop_ticks>` |
+| MP L1 read throughput p50/p95 | `<lmcache_mp_l1_read_throughput_GBps_p50>` / `<lmcache_mp_l1_read_throughput_GBps_p95>` GB/s ⚠️ |
+| MP L1 write throughput p50/p95 | `<lmcache_mp_l1_write_throughput_GBps_p50>` / `<lmcache_mp_l1_write_throughput_GBps_p95>` GB/s ⚠️ |
+| MP L2 load throughput p50/p95 | `<lmcache_mp_l2_load_throughput_GBps_p50>` / `<lmcache_mp_l2_load_throughput_GBps_p95>` GB/s |
+| Stored tokens (V1) | `<lmcache_stored_tokens>` |
+| Retrieve latency p50/p95 (V1) | `<lmcache_retrieve_latency_ms_p50>`ms / `<lmcache_retrieve_latency_ms_p95>`ms |
+| Retrieve speed p50/p95 (V1) | `<lmcache_retrieve_speed_GBps_p50>` / `<lmcache_retrieve_speed_GBps_p95>` GB/s |
 <!-- [Agent] If lmcache_server_metrics.json contains additional lmcache_mp_* counters
      beyond the above (check the raw JSON), add them as extra rows with a plain-English
      label. Never silently drop a non-null metric. -->

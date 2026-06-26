@@ -1450,6 +1450,8 @@ scrape_lmcache_server_metrics() {
     # Usage: scrape_lmcache_server_metrics <result_dir> [<http_port>]
     #   result_dir  — directory where lmcache_server_metrics.json is written
     #   http_port   — LMCache MP HTTP port (default: 8080)
+    #                 For V1 connector (lmcache:* metrics including histograms),
+    #                 pass port 7001: scrape_lmcache_server_metrics "$RESULT_DIR" 7001
     #
     # Best-effort: logs a warning and returns 0 on any failure so a scrape
     # hiccup never aborts the CI job.

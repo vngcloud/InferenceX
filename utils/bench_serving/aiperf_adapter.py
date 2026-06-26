@@ -157,6 +157,26 @@ def _extract_lmcache_metrics(artifact_dir: Path) -> dict:
         "lmcache_mp_l1_usage_ratio": None,
         "lmcache_mp_l1_memory_bytes": None,
         "lmcache_mp_active_prefetch_jobs": None,
+        # V1 connector metrics (lmcache:* from :7001)
+        "lmcache_stored_tokens": None,
+        "lmcache_retrieve_latency_ms_p50": None,
+        "lmcache_retrieve_latency_ms_p95": None,
+        "lmcache_retrieve_speed_GBps_p50": None,
+        "lmcache_retrieve_speed_GBps_p95": None,
+        # MP L1 chunk operation counters (confirmed in observability docs)
+        "lmcache_mp_l1_write_chunks": None,
+        "lmcache_mp_l1_read_chunks": None,
+        "lmcache_mp_l1_evicted_chunks": None,
+        "lmcache_mp_l1_eviction_loop_ticks": None,
+        "lmcache_mp_l1_eviction_loop_triggered": None,
+        # MP L1 bandwidth histograms (unconfirmed metric names; null until validated)
+        "lmcache_mp_l1_read_throughput_GBps_p50": None,
+        "lmcache_mp_l1_read_throughput_GBps_p95": None,
+        "lmcache_mp_l1_write_throughput_GBps_p50": None,
+        "lmcache_mp_l1_write_throughput_GBps_p95": None,
+        # MP L2 load throughput histogram (null for L1-only runs)
+        "lmcache_mp_l2_load_throughput_GBps_p50": None,
+        "lmcache_mp_l2_load_throughput_GBps_p95": None,
     }
 
     # Merge aiperf's vLLM scrape with the separate LMCache MP scrape.
@@ -243,6 +263,53 @@ def _extract_lmcache_metrics(artifact_dir: Path) -> dict:
         v = _final_value(src_key)
         if v is not None:
             result[dst_key] = v
+
+    # V1 connector: stored tokens counter
+    stored = _final_value("lmcache:num_stored_tokens_total")
+    if stored is not None:
+        result["lmcache_stored_tokens"] = int(stored)
+
+    # V1 connector: retrieve latency histogram (seconds → milliseconds)
+    for pct in ("p50", "p95"):
+        v = _final_value(f"lmcache:time_to_retrieve_{pct}")
+        if v is not None:
+            result[f"lmcache_retrieve_latency_ms_{pct}"] = round(v * 1000, 3)
+
+    # V1 connector: retrieve speed histogram (already in GB/s)
+    for pct in ("p50", "p95"):
+        v = _final_value(f"lmcache:retrieve_speed_{pct}")
+        if v is not None:
+            result[f"lmcache_retrieve_speed_GBps_{pct}"] = round(v, 4)
+
+    # MP L1 chunk operation counters (confirmed in observability docs)
+    for src_key, dst_key in (
+        ("lmcache_mp_l1_write",                   "lmcache_mp_l1_write_chunks"),
+        ("lmcache_mp_l1_read",                    "lmcache_mp_l1_read_chunks"),
+        ("lmcache_mp_l1_evicted",                 "lmcache_mp_l1_evicted_chunks"),
+        ("lmcache_mp_l1_eviction_loop_ticks",     "lmcache_mp_l1_eviction_loop_ticks"),
+        ("lmcache_mp_l1_eviction_loop_triggered", "lmcache_mp_l1_eviction_loop_triggered"),
+    ):
+        v = _final_value(src_key)
+        if v is not None:
+            result[dst_key] = int(v)
+
+    # MP L1 bandwidth histograms (unconfirmed metric names; null until validated)
+    for pct in ("p50", "p95"):
+        for src, dst in (
+            ("lmcache_mp_l1_read_throughput_GB_per_second",
+             f"lmcache_mp_l1_read_throughput_GBps_{pct}"),
+            ("lmcache_mp_l1_write_throughput_GB_per_second",
+             f"lmcache_mp_l1_write_throughput_GBps_{pct}"),
+        ):
+            v = _final_value(f"{src}_{pct}")
+            if v is not None:
+                result[dst] = round(v, 4)
+
+    # MP L2 load throughput histogram (null for L1-only runs)
+    for pct in ("p50", "p95"):
+        v = _final_value(f"lmcache_mp_l2_load_throughput_{pct}")
+        if v is not None:
+            result[f"lmcache_mp_l2_load_throughput_GBps_{pct}"] = round(v, 4)
 
     return result
 
