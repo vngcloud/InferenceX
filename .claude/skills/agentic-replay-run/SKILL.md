@@ -1,6 +1,6 @@
 ---
 name: agentic-replay-run
-description: Configure and dispatch an InferenceX agentic-replay benchmark for integrated trace datasets: mooncake_trace datasets via utils/aiperf-mooncake (agentic-coding and Gemma blend_prod) and Weka-trace datasets via utils/aiperf (MiniMax Claude Code v4 Weka). Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, weka_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
+description: Configure and dispatch an InferenceX agentic-replay benchmark for integrated trace datasets: mooncake_trace datasets via utils/aiperf-mooncake (agentic-coding and Gemma blend_prod) and Weka-trace datasets via utils/aiperf-mooncake (MiniMax Claude Code v4 Weka). Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, weka_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
 ---
 
 # Agentic-replay run
@@ -24,7 +24,7 @@ Flow: pick dataset + model/serving → write master-config entry + launch script
 |---|---|---|---|---|---|
 | Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | yes | — |
 | Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | no | `strip-trace-delays: true` |
-| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf` | yes | dir input, cap inter-turn delays |
+| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | yes | dir input, cap inter-turn delays |
 
 All: `no-fixed-schedule: true`. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
 
@@ -67,12 +67,13 @@ Change **only the serve block**. Keep verbatim: `check_env_vars`, `STOP_ARGS`, `
 
 **MANDATORY — pin AIPerf fork** (right after `source ../benchmark_lib.sh`):
 ```bash
-# mooncake_trace
+# Both mooncake_trace AND weka_trace use utils/aiperf-mooncake (thangquang09 fork,
+# branch benchtool/agentx-weka). It carries the weka_trace loader AND the
+# data_collector math.isfinite NaN filter, so SGLang's sglang:fwd_occupancy=NaN
+# no longer drops the /metrics scrape — no runtime patch needed.
 export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
-# weka_trace
-# export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf"
 ```
-Without this, the run silently falls back to PyPI and fork patches are lost.
+Without this, the run silently falls back to PyPI and fork patches are lost. Do **not** use `utils/aiperf` (vngcloud fork) for weka any more — its `data_collector.py` uses `== float("inf")` which never catches NaN, so the SGLang runtime patch (`patches/aiperf-skip-nonfinite-server-metrics.patch`) would be required.
 
 SGLang serve block:
 ```bash
@@ -173,7 +174,7 @@ gh run view "$RUN_ID" --repo vngcloud/InferenceX --json status,jobs \
 ```
 [aiperf] CLI missing; installing from source: /workspace/utils/aiperf-mooncake
 ```
-Weka: expect `/workspace/utils/aiperf`. Seeing `installing aiperf==0.9.0 from PyPI` → `AIPERF_SOURCE_DIR` missing from script.
+Both mooncake and weka now resolve to `/workspace/utils/aiperf-mooncake`. Seeing `installing aiperf==0.9.0 from PyPI` → `AIPERF_SOURCE_DIR` missing from script. Seeing `/workspace/utils/aiperf` → the script still pins the old vngcloud fork (missing the SGLang NaN fix).
 
 **grace-period**: `--benchmark-grace-period` (default 120s) = max in-flight drain after duration cutoff. 120s covers 64k–192k contexts; increase only if tail E2E latency exceeds ~120s.
 
