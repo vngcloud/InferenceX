@@ -97,6 +97,9 @@ SERVER_LOG=/workspace/server.log
 LMC_LOG=/workspace/lmcache_server.log
 PORT=${PORT:-8888}
 
+# Result directory — written by run_client_benchmark; scraped after the benchmark.
+RESULT_DIR=/workspace/
+
 start_gpu_monitor
 
 # Capacity-run defaults: lower GPU util leaves DRAM headroom for the larger CPU KV budget.
@@ -126,7 +129,7 @@ pip install --no-cache-dir "lmcache==0.5.0"
 # crash, and set LMCACHE_CHUNK_SIZE to the discovered N.
 LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-256}"
 
-# ---- Start standalone LMCache MP server (ZMQ :5555) -------------------------
+# ---- Start standalone LMCache MP server (ZMQ :5555, HTTP metrics :8080) -----
 lmcache server \
   --chunk-size "$LMCACHE_CHUNK_SIZE" \
   --l1-size-gb "$LMCACHE_CPU_DRAM_GB" \
@@ -221,12 +224,16 @@ run_client_benchmark \
     --custom-dataset-type "$CUSTOM_DATASET_TYPE" \
     "${STOP_ARGS[@]}" \
     --result-filename "$RESULT_FILENAME" \
-    --result-dir /workspace/ \
+    --result-dir "$RESULT_DIR" \
     --bench-serving-dir "${INFMAX_CONTAINER_WORKSPACE:-$(pwd)}" \
     --trust-remote-code \
     --server-pid "$SERVER_PID" \
     --random-seed "${RANDOM_SEED:-0}" \
     "${REPLAY_ARGS[@]}"
+
+# Scrape LMCache MP server's Prometheus endpoint (:8080/metrics) and save as
+# lmcache_server_metrics.json so the inspect-run parser can populate mp_* metrics.
+scrape_lmcache_server_metrics "$RESULT_DIR" 8080
 
 stop_gpu_monitor
 set +x
