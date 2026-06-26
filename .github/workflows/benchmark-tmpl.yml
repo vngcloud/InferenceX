@@ -343,6 +343,7 @@ jobs:
             ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.jsonl
             ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.csv
             ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.parquet
+            lmcache_server_metrics.json
             ${{ env.RESULT_FILENAME }}_aiperf/gpu_telemetry_export.jsonl
             ${{ env.RESULT_FILENAME }}_aiperf/logs/aiperf.log
             ${{ env.RESULT_FILENAME }}_aiperf/logs/*.log
