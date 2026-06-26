@@ -9769,6 +9769,30 @@ gemma4-fp8-h100-greennode-vllm-lmcache:
       search-space:
       - { tp: 1, conc-list: [16] }
 
+# Smoke (120 s, conc=2) for gemma4-lmcache-minimax to verify LMCache metrics scrape.
+# Identical stack to gemma4-lmcache-minimax-capacity but short duration so the
+# scrape_lmcache_server_metrics call (lmcache HTTP :8080/metrics) produces
+# lmcache_server_metrics.json and populates mp_* fields in the inspect-run parser.
+# Launcher: benchmarks/single_node/gemma4-lmcache-minimax_fp8_h100_vllm.sh
+gemma4-lmcache-minimax-smoke-metrics:
+  image: vllm/vllm-openai:v0.23.0
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
+  model-prefix: gemma4-lmcache-minimax
+  runner: h100-greennode_00
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/minimax_claude_code_prod_v3.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      duration: 120
+      search-space:
+      - { tp: 1, conc-list: [2] }
+
 # Baseline (no LMCache) agentic-replay smoke for Gemma 4 31B FP8 on H100 (GreenNode).
 # Uses RedHatAI/gemma-4-31B-it-FP8-dynamic (compressed-tensors pre-quantized checkpoint).
 # vLLM auto-detects quantization from quantization_config.json — no --quantization flag.

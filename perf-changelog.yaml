@@ -3183,3 +3183,10 @@
   pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
   scenario-type:
     - agentic-replay
+- config-keys:
+    - gemma4-lmcache-minimax-smoke-metrics
+  description:
+    - "Smoke 120s conc=2 to verify LMCache metrics scrape fix (scrape_lmcache_server_metrics :8080 now called in launch script); RedHatAI/gemma-4-31B-it-FP8-dynamic FP8 TP1 vLLM v0.23.0 LMCache 0.5.0 MP connector h100-greennode_00"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-replay
