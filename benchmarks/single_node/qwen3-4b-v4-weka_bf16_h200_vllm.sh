@@ -56,6 +56,7 @@ if [[ "${NO_FIXED_SCHEDULE:-true}" == "true" || "${NO_FIXED_SCHEDULE:-true}" == 
     REPLAY_ARGS+=(--no-fixed-schedule)
 fi
 REPLAY_ARGS+=(--inter-turn-delay-cap-seconds "${INTER_TURN_DELAY_CAP_SECONDS:-60}")
+REPLAY_ARGS+=(--use-think-time-only)
 REPLAY_ARGS+=(--warmup-request-count "${WARMUP_REQUEST_COUNT:-2}")
 REPLAY_ARGS+=(--workers-max "${WORKERS_MAX:-64}")
 REPLAY_ARGS+=(--benchmark-grace-period "${BENCHMARK_GRACE_PERIOD:-120}")

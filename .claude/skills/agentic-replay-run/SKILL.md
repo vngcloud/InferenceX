@@ -24,7 +24,7 @@ Flow: pick dataset + model/serving → write master-config entry + launch script
 |---|---|---|---|---|---|
 | Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | yes | — |
 | Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | no | `strip-trace-delays: true` |
-| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | yes | dir input, cap inter-turn delays |
+| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | yes | dir input, cap inter-turn delays, `--use-think-time-only` |
 
 All: `no-fixed-schedule: true`. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
 
