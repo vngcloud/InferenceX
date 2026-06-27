@@ -206,6 +206,8 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--temperature", str(args.temperature)])
     if args.inter_turn_delay_cap_seconds is not None:
         cmd.extend(["--inter-turn-delay-cap-seconds", str(args.inter_turn_delay_cap_seconds)])
+    if args.use_think_time_only:
+        cmd.append("--use-think-time-only")
     if args.dataset_sampling_strategy is not None:
         cmd.extend(["--dataset-sampling-strategy", args.dataset_sampling_strategy])
     if args.benchmark_grace_period is not None:
@@ -249,6 +251,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--goodput")
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--inter-turn-delay-cap-seconds", type=float)
+    parser.add_argument("--use-think-time-only", action="store_true")
     parser.add_argument("--dataset-sampling-strategy")
     parser.add_argument("--benchmark-grace-period", type=float)
     parser.add_argument("--workers-max", type=int)

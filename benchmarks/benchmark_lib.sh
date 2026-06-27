@@ -540,6 +540,7 @@ run_aiperf_benchmark() {
     local dataset_sampling_strategy=""
     local benchmark_grace_period=""
     local workers_max=""
+    local use_think_time_only=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -571,6 +572,7 @@ run_aiperf_benchmark() {
             --dataset-sampling-strategy) dataset_sampling_strategy="$2"; shift 2 ;;
             --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
             --workers-max) workers_max="$2"; shift 2 ;;
+            --use-think-time-only) use_think_time_only=true; shift ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -627,6 +629,7 @@ run_aiperf_benchmark() {
     if [[ -n "$dataset_sampling_strategy" ]]; then benchmark_cmd+=(--dataset-sampling-strategy "$dataset_sampling_strategy"); fi
     if [[ -n "$benchmark_grace_period" ]]; then benchmark_cmd+=(--benchmark-grace-period "$benchmark_grace_period"); fi
     if [[ -n "$workers_max" ]]; then benchmark_cmd+=(--workers-max "$workers_max"); fi
+    if [[ "$use_think_time_only" == true ]]; then benchmark_cmd+=(--use-think-time-only); fi
 
     set -x
     "${benchmark_cmd[@]}"

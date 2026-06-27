@@ -76,6 +76,7 @@ def _run_aiperf_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         goodput=None,
         temperature=None,
         inter_turn_delay_cap_seconds=None,
+        use_think_time_only=False,
         dataset_sampling_strategy=None,
         benchmark_grace_period=None,
         workers_max=None,
@@ -119,6 +120,13 @@ def test_run_aiperf_omits_mode1_flags_by_default(tmp_path: Path, monkeypatch):
 
     assert "--no-fixed-schedule" not in cmd
     assert "--num-warmup-sessions" not in cmd
+
+
+def test_run_aiperf_forwards_use_think_time_only(tmp_path: Path, monkeypatch):
+    args = _run_aiperf_args(tmp_path, input_file="trace_dir", use_think_time_only=True)
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    assert "--use-think-time-only" in cmd
 
 def test_run_aiperf_forwards_tokenizer_when_set(tmp_path: Path, monkeypatch):
     """An explicit tokenizer is forwarded; the model name is left untouched."""

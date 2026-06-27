@@ -72,8 +72,21 @@ Change **only the serve block**. Keep verbatim: `check_env_vars`, `STOP_ARGS`, `
 # data_collector math.isfinite NaN filter, so SGLang's sglang:fwd_occupancy=NaN
 # no longer drops the /metrics scrape — no runtime patch needed.
 export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
+export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
 ```
-Without this, the run silently falls back to PyPI and fork patches are lost. Do **not** use `utils/aiperf` (vngcloud fork) for weka any more — its `data_collector.py` uses `== float("inf")` which never catches NaN, so the SGLang runtime patch (`patches/aiperf-skip-nonfinite-server-metrics.patch`) would be required.
+Without `AIPERF_SOURCE_DIR`, the run silently falls back to PyPI and fork patches are lost. Without a fork-specific `AIPERF_VENV_DIR`, self-hosted runners can reuse stale `/tmp/aiperf-venv` installs that predate new CLI flags; symptom: log shows `installing from source: /workspace/utils/aiperf-mooncake` followed by `Unknown parameter: --use-think-time-only`. Do **not** use `utils/aiperf` (vngcloud fork) for weka any more — its `data_collector.py` uses `== float("inf")` which never catches NaN, so the SGLang runtime patch (`patches/aiperf-skip-nonfinite-server-metrics.patch`) would be required.
+
+**MANDATORY — benchmark_lib flag wiring**: if the launch script passes `--use-think-time-only` through `run_client_benchmark`, `benchmarks/benchmark_lib.sh` must parse it and forward it to AIPerf. Required snippets:
+```bash
+local use_think_time_only=false
+...
+--use-think-time-only) use_think_time_only=true; shift ;;
+...
+if [[ "$use_think_time_only" == true ]]; then
+    aiperf_args+=(--use-think-time-only)
+fi
+```
+If this is missing, `run_client_benchmark` fails immediately with `Unknown parameter: --use-think-time-only`. If this is present but the AIPerf install is stale, AIPerf itself fails with the same text after `[aiperf] CLI missing; installing from source: ...`.
 
 SGLang serve block:
 ```bash
@@ -174,7 +187,7 @@ gh run view "$RUN_ID" --repo vngcloud/InferenceX --json status,jobs \
 ```
 [aiperf] CLI missing; installing from source: /workspace/utils/aiperf-mooncake
 ```
-Both mooncake and weka now resolve to `/workspace/utils/aiperf-mooncake`. Seeing `installing aiperf==0.9.0 from PyPI` → `AIPERF_SOURCE_DIR` missing from script. Seeing `/workspace/utils/aiperf` → the script still pins the old vngcloud fork (missing the SGLang NaN fix).
+Both mooncake and weka now resolve to `/workspace/utils/aiperf-mooncake`. Seeing `installing aiperf==0.9.0 from PyPI` → `AIPERF_SOURCE_DIR` missing from script. Seeing `/workspace/utils/aiperf` → the script still pins the old vngcloud fork (missing the SGLang NaN fix). Seeing `Unknown parameter: --use-think-time-only` after source install → stale/shared venv or missing `benchmark_lib.sh` flag wiring; set a fork-specific `AIPERF_VENV_DIR` and verify the branch includes the benchmark_lib forwarding fix.
 
 **grace-period**: `--benchmark-grace-period` (default 120s) = max in-flight drain after duration cutoff. 120s covers 64k–192k contexts; increase only if tail E2E latency exceeds ~120s.
 
