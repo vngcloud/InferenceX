@@ -669,6 +669,7 @@ run_client_benchmark() {
     local num_warmup_sessions=""
     local warmup_request_count=""
     local no_fixed_schedule=false
+    local use_think_time_only=false
     # Placeholder SLA / canonical-command flags — wired but inert.
     local goodput=""
     local temperature=""
@@ -701,6 +702,7 @@ run_client_benchmark() {
             --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
             --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
             --no-fixed-schedule) no_fixed_schedule=true; shift ;;
+            --use-think-time-only) use_think_time_only=true; shift ;;
             --goodput) goodput="$2"; shift 2 ;;
             --temperature) temperature="$2"; shift 2 ;;
             --inter-turn-delay-cap-seconds) inter_turn_delay_cap_seconds="$2"; shift 2 ;;
@@ -771,6 +773,9 @@ run_client_benchmark() {
                 fi
                 if [[ "$no_fixed_schedule" == true ]]; then
                     aiperf_args+=(--no-fixed-schedule)
+                fi
+                if [[ "$use_think_time_only" == true ]]; then
+                    aiperf_args+=(--use-think-time-only)
                 fi
             else
                 aiperf_args+=(
