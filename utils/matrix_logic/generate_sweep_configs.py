@@ -493,8 +493,11 @@ def generate_full_sweep(args, all_config_data, runner_data):
 
             bmk_space = replay_config[Fields.SEARCH_SPACE.value]
             duration = replay_config.get(Fields.DURATION.value, 1800)
-            input_file = replay_config[Fields.INPUT_FILE.value]
+            input_file = replay_config.get(Fields.INPUT_FILE.value)
+            public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
+                public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
             tokenizer = replay_config.get(Fields.TOKENIZER.value)
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
@@ -556,6 +559,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.OSL.value: 512,
                                 Fields.MAX_MODEL_LEN.value: replay_max_model_len,
                                 Fields.INPUT_FILE.value: input_file,
+                                Fields.PUBLIC_DATASET.value: public_dataset,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
@@ -1010,8 +1014,11 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                 continue
 
             duration = replay_config.get(Fields.DURATION.value, 1800)
-            input_file = replay_config[Fields.INPUT_FILE.value]
+            input_file = replay_config.get(Fields.INPUT_FILE.value)
+            public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
+                public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
             tokenizer = replay_config.get(Fields.TOKENIZER.value)
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
@@ -1069,6 +1076,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.OSL.value: 512,
                                 Fields.MAX_MODEL_LEN.value: replay_max_model_len,
                                 Fields.INPUT_FILE.value: input_file,
+                                Fields.PUBLIC_DATASET.value: public_dataset,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,

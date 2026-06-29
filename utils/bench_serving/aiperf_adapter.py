@@ -159,7 +159,10 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         "--output-artifact-dir" if args.scenario else "--artifact-dir",
         str(artifact_dir),
     ])
-    agentx_weka = args.scenario == "inferencex-agentx-mvp" and args.custom_dataset_type == "weka_trace"
+    agentx_weka = args.scenario == "inferencex-agentx-mvp" and (
+        args.custom_dataset_type == "weka_trace"
+        or (args.public_dataset or "").startswith("semianalysis_cc_traces_weka")
+    )
 
     # Stop condition: a fixed request count (single-replay / Mode-1 resample) or a
     # wall-clock duration cap (duration-based smoke). At least one is always set

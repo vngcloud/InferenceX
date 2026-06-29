@@ -2,9 +2,13 @@
 
 source "$(dirname "$0")/../benchmark_lib.sh"
 
+export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
+export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
+
 check_env_vars \
     MODEL \
     TP \
+    EP_SIZE \
     CONC \
     MAX_MODEL_LEN \
     CUSTOM_DATASET_TYPE \
@@ -16,14 +20,7 @@ fi
 
 nvidia-smi
 
-export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
-export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
-
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-131072}"
-
-if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
-
 PUBLIC_DATASET="${PUBLIC_DATASET:-}"
 if [[ "$CUSTOM_DATASET_TYPE" == "weka_trace" && -z "${INPUT_FILE:-}" && -z "$PUBLIC_DATASET" ]]; then
     PUBLIC_DATASET="semianalysis_cc_traces_weka_with_subagents_060826"
@@ -31,10 +28,9 @@ fi
 
 SOURCE_ARGS=()
 if [[ -n "${INPUT_FILE:-}" ]]; then
-    # weka_trace is a directory of per-conversation JSON files.
     if [[ ! -e "$INPUT_FILE" ]]; then
-    echo "Error: trace input path not found: $INPUT_FILE (cwd=$(pwd))" >&2
-    exit 1
+        echo "Error: trace input path not found: $INPUT_FILE (cwd=$(pwd))" >&2
+        exit 1
     fi
     SOURCE_ARGS+=(--input-file "$INPUT_FILE")
 elif [[ -n "$PUBLIC_DATASET" ]]; then
@@ -44,26 +40,35 @@ else
     exit 1
 fi
 
+if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
+
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
 start_gpu_monitor
 
 set -x
-vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
---served-model-name "$SERVED_MODEL_NAME" \
---tensor-parallel-size "$TP" \
---dtype bfloat16 \
---gpu-memory-utilization 0.85 \
---max-model-len "$MAX_MODEL_LEN" \
---max-num-seqs "$CONC" \
---trust-remote-code > "$SERVER_LOG" 2>&1 &
+python3 -m sglang.launch_server \
+  --model-path "$MODEL" \
+  --served-model-name "$SERVED_MODEL_NAME" \
+  --host 0.0.0.0 \
+  --port "$PORT" \
+  --tp "$TP" \
+  --ep "$EP_SIZE" \
+  --context-length "$MAX_MODEL_LEN" \
+  --tool-call-parser minimax-m2 \
+  --reasoning-parser minimax \
+  --mem-fraction-static 0.85 \
+  --page-size 64 \
+  --chunked-prefill-size 16384 \
+  --enable-metrics \
+  --trust-remote-code > "$SERVER_LOG" 2>&1 &
 
 SERVER_PID=$!
 
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
-STOP_ARGS=(--benchmark-duration "${BENCHMARK_DURATION:-${DURATION:-90}}")
+STOP_ARGS=(--benchmark-duration "${BENCHMARK_DURATION:-${DURATION:-300}}")
 
 REPLAY_ARGS=()
 if [[ -n "${TOKENIZER:-}" ]]; then

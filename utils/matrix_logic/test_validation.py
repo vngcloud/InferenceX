@@ -658,6 +658,40 @@ class TestAgenticReplayConfig:
         with pytest.raises(Exception):
             AgenticReplayConfig(**bad)
 
+    def test_weka_defaults_to_public_dataset(self):
+        raw = self._config(**{"custom-dataset-type": "weka_trace"})
+        del raw["input-file"]
+
+        cfg = AgenticReplayConfig(**raw)
+
+        assert cfg.public_dataset == "semianalysis_cc_traces_weka_with_subagents_060826"
+        assert cfg.input_file is None
+
+    def test_weka_accepts_explicit_public_dataset(self):
+        raw = self._config(**{
+            "custom-dataset-type": "weka_trace",
+            "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+        })
+        del raw["input-file"]
+
+        cfg = AgenticReplayConfig(**raw)
+
+        assert cfg.public_dataset == "semianalysis_cc_traces_weka_with_subagents_060826"
+
+    def test_rejects_both_input_file_and_public_dataset(self):
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**self._config(**{
+                "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+            }))
+
+    def test_public_dataset_rejected_for_non_weka(self):
+        raw = self._config(**{
+            "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+        })
+        del raw["input-file"]
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**raw)
+
     def test_conc_range_or_list_required(self):
         with pytest.raises(Exception):
             AgenticReplayConfig(**self._config(**{"search-space": [{"tp": 1}]}))

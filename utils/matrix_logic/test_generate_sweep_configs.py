@@ -492,6 +492,21 @@ class TestGenerateFullSweepSingleNode:
         assert result[0]["num-warmup-sessions"] is None
         assert result[0]["request-count"] is None
 
+    def test_agentic_replay_weka_defaults_to_public_dataset(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
+        scenario["custom-dataset-type"] = "weka_trace"
+        del scenario["input-file"]
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["public-dataset"] == "semianalysis_cc_traces_weka_with_subagents_060826"
+        assert result[0]["input-file"] is None
+
     def test_agentic_replay_mode1_fields_flow(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         """Mode 1 capacity-sweep fields flow into one matrix entry per concurrency."""
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]

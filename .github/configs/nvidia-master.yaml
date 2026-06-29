@@ -9614,8 +9614,9 @@ qwen3-4b-weka-smoke-h100-greennode-vllm:
       search-space:
       - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
 
-# Smoke for the GreenNode production-derived MiniMax CC v4 dataset, stored as a
-# local weka_trace directory. Uses Qwen3-4B for fast plumbing validation on H200.
+# Smoke for the default SemiAnalysis public Weka corpus through agentic-replay.
+# `weka_trace` with no input-file defaults to
+# semianalysis_cc_traces_weka_with_subagents_060826.
 qwen3-4b-v4-weka-smoke-h200-greennode-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: Qwen/Qwen3-4B-Instruct-2507
@@ -9626,10 +9627,26 @@ qwen3-4b-v4-weka-smoke-h200-greennode-vllm:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/minimax_cc_v4_weka
-      custom-dataset-type: weka_trace
+    - custom-dataset-type: weka_trace
       max-model-len: 131072
       benchmark-client: [aiperf]
       duration: 90
       search-space:
       - { tp: 1, conc-list: [2] }
+
+minimaxm2.5-weka-fp8-h200-greennode-sglang-smoke:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: MiniMaxAI/MiniMax-M2.5
+  model-prefix: minimaxm2.5-weka       # -> benchmarks/single_node/minimaxm2.5-weka_fp8_h200_sglang.sh
+  runner: h200-greennode_01
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      max-model-len: 196608
+      benchmark-client: [aiperf]
+      duration: 300
+      search-space:
+      - { tp: 8, ep: 8, conc-list: [1] }

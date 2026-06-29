@@ -236,6 +236,25 @@ def test_run_aiperf_agentx_weka_drops_legacy_flags(tmp_path: Path, monkeypatch):
     assert "--use-think-time-only" not in cmd
 
 
+def test_run_aiperf_forwards_public_agentx_weka(tmp_path: Path, monkeypatch):
+    args = _run_aiperf_args(
+        tmp_path,
+        request_count=None,
+        benchmark_duration=900.0,
+        scenario="inferencex-agentx-mvp",
+        endpoint="/v1/chat/completions",
+        public_dataset="semianalysis_cc_traces_weka_with_subagents_060826",
+        custom_dataset_type=None,
+        failed_request_threshold=0.05,
+    )
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    assert cmd[cmd.index("--scenario") + 1] == "inferencex-agentx-mvp"
+    assert cmd[cmd.index("--public-dataset") + 1] == "semianalysis_cc_traces_weka_with_subagents_060826"
+    assert "--custom-dataset-type" not in cmd
+    assert "--no-fixed-schedule" not in cmd
+
+
 def test_main_skips_request_count_validation_in_duration_mode(tmp_path: Path, monkeypatch):
     """In duration mode the completed count is unknown and overflow/errored turns
     are expected, so main() must not call validate_request_counts."""

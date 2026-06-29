@@ -309,6 +309,7 @@ jobs:
             osl: ${{ matrix.config.osl }}
             max-model-len: ${{ matrix.config.max-model-len }}
             input-file: ${{ matrix.config.input-file }}
+            public-dataset: ${{ matrix.config.public-dataset }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
             tokenizer: ${{ matrix.config.tokenizer }}
             no-fixed-schedule: ${{ matrix.config.no-fixed-schedule }}

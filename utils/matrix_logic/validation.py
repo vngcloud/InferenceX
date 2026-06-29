@@ -59,6 +59,7 @@ class Fields(Enum):
 
     # Agentic replay fields (mooncake_trace on official AIPerf)
     INPUT_FILE = 'input-file'
+    PUBLIC_DATASET = 'public-dataset'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
     # Optional HF tokenizer id for AIPerf token counting; defaults to the served
     # model when unset (the standard flow). Set only when served-name != HF id.
@@ -246,7 +247,8 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     isl: int
     osl: int
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
-    input_file: str = Field(alias=Fields.INPUT_FILE.value)
+    input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
+    public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
     # Mode 1 (capacity sweep) controls; defaults preserve single-replay behavior.
@@ -263,6 +265,14 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
+
+    @model_validator(mode='after')
+    def validate_trace_source(self):
+        if self.input_file and self.public_dataset:
+            raise ValueError("agentic-replay matrix entry accepts only one of input-file or public-dataset")
+        if not self.input_file and not self.public_dataset:
+            raise ValueError("agentic-replay matrix entry requires input-file or public-dataset")
+        return self
 
 
 def validate_agentic_matrix_entry(entry: dict) -> dict:
@@ -502,7 +512,8 @@ class AgenticReplayConfig(BaseModel):
     JSONL; the run is bounded by the record count, not a duration sweep."""
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
 
-    input_file: str = Field(alias=Fields.INPUT_FILE.value)
+    input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
+    public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
     benchmark_client: List[Literal["aiperf"]] = Field(
@@ -523,6 +534,19 @@ class AgenticReplayConfig(BaseModel):
         default=None, alias=Fields.TOKENIZER.value)
     search_space: List[AgenticReplaySearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
+
+    @model_validator(mode='after')
+    def validate_trace_source(self):
+        if self.input_file and self.public_dataset:
+            raise ValueError("agentic-replay accepts only one of input-file or public-dataset")
+        if self.custom_dataset_type == "weka_trace":
+            if not self.input_file and not self.public_dataset:
+                self.public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
+        elif self.public_dataset:
+            raise ValueError("public-dataset is only supported for weka_trace agentic-replay")
+        elif not self.input_file:
+            raise ValueError("input-file is required for non-weka_trace agentic-replay")
+        return self
 
     @model_validator(mode='after')
     def validate_request_count_vs_conc(self):

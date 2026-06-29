@@ -24,9 +24,10 @@ Flow: pick dataset + model/serving → write master-config entry + launch script
 |---|---|---|---|---|---|
 | Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | yes | — |
 | Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | no | `strip-trace-delays: true` |
-| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | AgentX scenario | dir input, `--scenario inferencex-agentx-mvp` |
+| SemiAnalysis Weka 060826 | default public dataset | `weka_trace` | `utils/aiperf-mooncake` | AgentX scenario | omit source, `--scenario inferencex-agentx-mvp` |
+| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | AgentX scenario | local dir input |
 
-Mooncake traces use `no-fixed-schedule: true`. Weka traces do not: `benchmark_lib.sh` maps `custom-dataset-type: weka_trace` to the AgentX scenario flags. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
+Mooncake traces use `no-fixed-schedule: true`. Weka traces do not: `benchmark_lib.sh` maps `custom-dataset-type: weka_trace` to the AgentX scenario flags. If Weka has no `input-file` / `public-dataset`, it defaults to `semianalysis_cc_traces_weka_with_subagents_060826` (`semianalysisai/cc-traces-weka-with-subagents-060826` on HF). Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
 
 ## A) Master-config entry
 
@@ -43,7 +44,8 @@ Append to `.github/configs/nvidia-master.yaml`:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/<dataset>
+    - input-file: benchmarks/single_node/agentic/datasets/<dataset>  # omit for default public Weka
+      # public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
       custom-dataset-type: mooncake_trace   # or weka_trace
       max-model-len: 131072
       benchmark-client: [aiperf]

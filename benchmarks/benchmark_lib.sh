@@ -693,6 +693,7 @@ run_client_benchmark() {
     # replays a recorded mooncake_trace JSONL through AIPerf instead of a
     # synthetic isl/osl workload. Only the aiperf client supports this.
     local input_file=""
+    local public_dataset=""
     local custom_dataset_type=""
     local tokenizer=""
     local request_count=""
@@ -727,6 +728,7 @@ run_client_benchmark() {
             --server-pid) server_pid="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
+            --public-dataset) public_dataset="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
             --tokenizer) tokenizer="$2"; shift 2 ;;
             --request-count) request_count="$2"; shift 2 ;;
@@ -753,8 +755,8 @@ run_client_benchmark() {
     if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
     if [[ -z "$backend" ]]; then echo "Error: --backend is required"; return 1; fi
     # isl/osl/random-range-ratio describe a synthetic workload; they are not
-    # required when replaying a recorded trace via --input-file.
-    if [[ -z "$input_file" ]]; then
+    # required when replaying a recorded trace via --input-file/--public-dataset.
+    if [[ -z "$input_file" && -z "$public_dataset" ]]; then
         if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
         if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
         if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
@@ -782,22 +784,27 @@ run_client_benchmark() {
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
-            if [[ -n "$input_file" ]]; then
+            if [[ -n "$input_file" || -n "$public_dataset" ]]; then
                 # Trace replay: replay the recorded dataset. The stop condition is
                 # either a fixed request-count (single-replay / Mode-1 resample) or a
                 # wall-clock --benchmark-duration cap (duration-based smoke). isl/osl
                 # and warmup do not apply (the trace defines per-request lengths).
                 if [[ -z "$request_count" && -z "$benchmark_duration" ]]; then
-                    echo "Error: one of --request-count or --benchmark-duration is required when --input-file is set"; return 1
+                    echo "Error: one of --request-count or --benchmark-duration is required for trace replay"; return 1
                 fi
-                aiperf_args+=(--input-file "$input_file")
+                if [[ -n "$input_file" ]]; then
+                    aiperf_args+=(--input-file "$input_file")
+                fi
+                if [[ -n "$public_dataset" ]]; then
+                    aiperf_args+=(--public-dataset "$public_dataset")
+                fi
                 if [[ -n "$request_count" ]]; then
                     aiperf_args+=(--request-count "$request_count")
                 fi
                 if [[ -n "$benchmark_duration" ]]; then
                     aiperf_args+=(--benchmark-duration "$benchmark_duration")
                 fi
-                if [[ -n "$custom_dataset_type" ]]; then
+                if [[ -n "$custom_dataset_type" && -z "$public_dataset" ]]; then
                     aiperf_args+=(--custom-dataset-type "$custom_dataset_type")
                 fi
                 if [[ "$custom_dataset_type" == "weka_trace" ]]; then
@@ -859,8 +866,8 @@ run_client_benchmark() {
             run_aiperf_benchmark "${aiperf_args[@]}"
             ;;
         inferencex_native)
-            if [[ -n "$input_file" ]]; then
-                echo "Error: --input-file (trace replay) is only supported with BENCHMARK_CLIENT=aiperf"
+            if [[ -n "$input_file" || -n "$public_dataset" ]]; then
+                echo "Error: trace replay is only supported with BENCHMARK_CLIENT=aiperf"
                 return 1
             fi
             local native_args=(
