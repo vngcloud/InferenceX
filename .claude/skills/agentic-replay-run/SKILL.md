@@ -1,33 +1,34 @@
 ---
 name: agentic-replay-run
-description: Configure and dispatch an InferenceX agentic-replay benchmark for integrated trace datasets: mooncake_trace datasets via utils/aiperf-mooncake (agentic-coding and Gemma blend_prod) and Weka-trace datasets via utils/aiperf-mooncake (MiniMax Claude Code v4 Weka). Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, weka_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
+description: Configure and dispatch an InferenceX agentic-replay benchmark for coding trace datasets, especially SemiAnalysis/public Weka datasets via utils/aiperf-mooncake and the AgentX scenario, plus internal MiniMax weka-v4. Use when the user wants to run, dispatch, smoke, or benchmark a model with agentic-replay, weka_trace, mooncake_trace, AIPerf trace replay, SemiAnalysis datasets, HF dataset links, or internal coding traces.
 ---
 
 # Agentic-replay run
 
-Flow: pick dataset + model/serving → write master-config entry + launch script → add `perf-changelog.yaml` entry → add DCGM sidecar → commit on `exp/<name>` → dispatch.
+Flow: pick dataset + model/serving → write or reuse master-config entry + launch script → validate matrix → commit/push the requested branch → dispatch.
 
 > **Inherits from the `bench-config` skill** — read it first for: script-name derivation rule, what-to-edit-where (sweepable `search-space` vs fixed serve flags), runner↔tp rule, exit 127 missing-script failure, and engine gotchas (pre-quantized fp8 → no `--quantization`).
 
 ## Intake (AskUserQuestion)
 
-1. **Dataset** — one of the integrated datasets below.
+1. **Dataset** — prefer Weka coding datasets. Accept a SemiAnalysis/public HF dataset link or repo id, the default SemiAnalysis dataset, or internal MiniMax weka-v4.
 2. **Model + serving config** — HF slug, engine + image, precision, TP/EP, serve flags. User typically pastes a launch line.
    - **Sanity-check `--model`/`--tokenizer`**: must be a plain HF slug (`namespace/repo`). Local paths (`/models/...`, `/mnt/...`) → strip prefix and confirm with user. Raw paths cause `OSError` on the runner.
 3. **Runner** — `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `h200-greennode_01` (8×H200), `rtx5090-greennode_00` (1×RTX5090). Full list in `.github/configs/runners.yaml`. `search-space.tp` MUST match GPU count.
-4. **Duration** — `900` (full, warmup=20) or `90` (smoke, warmup=2). For smoke: set `--warmup-request-count "${WARMUP_REQUEST_COUNT:-2}"` in the script — `WARMUP_REQUEST_COUNT` is not in the launcher's `RUN_ENV` allowlist so it must be hardcoded.
-5. **New branch?** — recommend `exp/<name>` (never dispatch from `main` — see dispatch section).
+4. **Duration** — `900` is canonical AgentX; `300` is acceptable for smoke with `--unsafe-override` added by `benchmark_lib.sh`.
+5. **Branch** — use the branch the user asks for. If unspecified, create `exp/<name>`. Do not switch branches when the user says to stay on `dev`.
 
 ## Datasets
 
-| Dataset | Path | Type | AIPerf source | Think-time | Extra flag |
+| Dataset | Source | Type | AIPerf source | Scenario | How to configure |
 |---|---|---|---|---|---|
-| Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | yes | — |
-| Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | no | `strip-trace-delays: true` |
-| SemiAnalysis Weka 060826 | default public dataset | `weka_trace` | `utils/aiperf-mooncake` | AgentX scenario | omit source, `--scenario inferencex-agentx-mvp` |
-| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | AgentX scenario | local dir input |
+| SemiAnalysis Weka default | `semianalysisai/cc-traces-weka-with-subagents-060826` | `weka_trace` | `utils/aiperf-mooncake` | `inferencex-agentx-mvp` | omit source; matrix defaults `public-dataset` |
+| Any public SemiAnalysis/HF Weka | user link or repo id | `weka_trace` | `utils/aiperf-mooncake` | `inferencex-agentx-mvp` | map to `public-dataset` alias/repo id |
+| Internal MiniMax weka-v4 | local repo dataset dir/file | `weka_trace` | `utils/aiperf-mooncake` | `inferencex-agentx-mvp` | set `input-file` |
+| Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | mooncake replay | set `input-file`, `no-fixed-schedule: true` |
+| Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | mooncake replay | set `input-file`, `strip-trace-delays: true` |
 
-Mooncake traces use `no-fixed-schedule: true`. Weka traces do not: `benchmark_lib.sh` maps `custom-dataset-type: weka_trace` to the AgentX scenario flags. If Weka has no `input-file` / `public-dataset`, it defaults to `semianalysis_cc_traces_weka_with_subagents_060826` (`semianalysisai/cc-traces-weka-with-subagents-060826` on HF). Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
+For Weka, do not depend on committed datasets. Prefer `public-dataset` when the user gives a SemiAnalysis/HF dataset. If Weka has no `input-file` / `public-dataset`, it defaults to `semianalysis_cc_traces_weka_with_subagents_060826` (`semianalysisai/cc-traces-weka-with-subagents-060826` on HF). Weka must not set `no-fixed-schedule`, think-time, fixed-schedule, or warmup flags in the launcher; `benchmark_lib.sh` maps `custom-dataset-type: weka_trace` to `--scenario inferencex-agentx-mvp` and the AgentX flags. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
 
 ## A) Master-config entry
 
@@ -44,28 +45,30 @@ Append to `.github/configs/nvidia-master.yaml`:
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/<dataset>  # omit for default public Weka
+    - # input-file: benchmarks/single_node/agentic/datasets/<dataset>  # local/internal dataset only
       # public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
-      custom-dataset-type: mooncake_trace   # or weka_trace
+      custom-dataset-type: weka_trace       # mooncake_trace only for non-Weka traces
       max-model-len: 131072
       benchmark-client: [aiperf]
-      no-fixed-schedule: true             # mooncake_trace only; omit for weka_trace
+      duration: 300                       # 900 for canonical AgentX; 300 smoke is OK
+      # no-fixed-schedule: true           # mooncake_trace only; omit for weka_trace
       # strip-trace-delays: true           # Gemma blend_prod only
       # tokenizer: <hf-id>                 # only if served-model-name ≠ valid HF tokenizer
       search-space:
       - { tp: 8, ep: 8, conc-list: [4, 8, 16, 24, 32] }
 ```
 
-`duration` is omitted — overridden at dispatch. `ep:` required for MoE models; omit for dense.
+For default SemiAnalysis Weka, omit both `input-file` and `public-dataset`. For a user-supplied HF dataset link/repo, set `public-dataset`. `ep:` required for MoE models; omit for dense.
 
 ## B) Launch script
 
 Script path derived: `benchmarks/single_node/<model-prefix>_<precision>_<hw>[_<framework>].sh`.  
 Reuse if serve flags match; otherwise copy closest template:
 - **Mooncake** → `qwen3-4b-2507_bf16_h100_vllm.sh`
-- **Weka** → `qwen3-4b-v4-weka_bf16_h200_vllm.sh`
+- **Weka vLLM** → `qwen3-4b-v4-weka_bf16_h200_vllm.sh`
+- **Weka SGLang** → `minimaxm2.5-weka_fp8_h200_sglang.sh` or `glm5.2-ep8-deepep_fp8_h200_sglang.sh`
 
-Change **only the serve block**. Keep verbatim: `check_env_vars`, `STOP_ARGS`, `REPLAY_ARGS` block, `run_client_benchmark` call.
+Change **only the serve block** and model-specific env requirements. Keep the public/local dataset source selection, `STOP_ARGS`, and `run_client_benchmark` call shape.
 
 **MANDATORY — pin AIPerf fork** (right after `source ../benchmark_lib.sh`):
 ```bash
@@ -93,49 +96,30 @@ vLLM: use `vllm serve "$MODEL"` with `--tensor-parallel-size "$TP"` and `--max-m
 
 Add `EP_SIZE` to `check_env_vars` when using `$EP_SIZE`.
 
-## C) DCGM sidecar (always on for GreenNode)
+## Known-good Weka coding smoke references
 
-Edit `runners/launch_<hw>-greennode.sh` — paste **right before** the `docker run --rm \` line:
+Use these as patterns for future SemiAnalysis/public Weka coding runs:
 
-```bash
-DCGM_IMAGE="${DCGM_IMAGE:-nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04}"
-DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-greennode}"
-docker rm -f "$DCGM_NAME" 2>/dev/null || true
-docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
-  --name "$DCGM_NAME" "$DCGM_IMAGE"
-trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
-```
+| Model | Config key | Run | Notes |
+|---|---|---|---|
+| MiniMax-M2.5 | `minimaxm2.5-weka-fp8-h200-greennode-sglang-smoke` | https://github.com/vngcloud/InferenceX/actions/runs/28376099323 | default SemiAnalysis Weka, TP8/EP8, conc1, duration 300, ctx196608 |
+| GLM-5.2-FP8 | `glm5.2-weka-fp8-h200-greennode-sglang-smoke` | https://github.com/vngcloud/InferenceX/actions/runs/28378052058 | default SemiAnalysis Weka, TP8/EP8, conc2, duration 300, ctx196608, hicache128 |
 
-Commit on the same `exp/<name>` branch. If port 9400 is already held (`ss -ltn | grep 9400`), surface the conflict — don't retry blindly.
-
-## D) perf-changelog.yaml
-
-Append-only, exact whitespace:
-
-```yaml
-- config-keys:
-    - <your-key>
-  description:
-    - "Agentic-replay <dataset> for <model> (<engine> <precision> TP<n>) on <runner>"
-  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
-  scenario-type:
-    - agentic-replay
-```
-
-## E) Validate → commit → dispatch
+## C) Validate → commit → dispatch
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/configs/nvidia-master.yaml'))"
 bash -n benchmarks/single_node/<script>.sh
-python3 utils/matrix_logic/generate_sweep_configs.py test-config \
+uv run python utils/matrix_logic/generate_sweep_configs.py test-config \
   --config-files .github/configs/nvidia-master.yaml --config-keys <key>
 # Expect: scenario-type=agentic-replay, ep/tp/conc correct
 
-git switch -c exp/<name>
-git add .github/configs/nvidia-master.yaml benchmarks/single_node/<script>.sh \
-        runners/launch_<hw>-greennode.sh perf-changelog.yaml
-git commit && git push -u origin exp/<name>
+git add .github/configs/nvidia-master.yaml benchmarks/single_node/<script>.sh
+git commit -m "feat(agentic): add <model> weka smoke"
+git push origin <branch>
 ```
+
+Do not touch `perf-changelog.yaml`, DCGM sidecars, or runner scripts for a one-off smoke unless the user explicitly asks. Add changelog only for a real sweep/PR trigger.
 
 **Run naming** — `inputs[test-name]` must start with `yyyy/mm/dd`, followed by a short free-form label that identifies what's unique about this run at a glance. No fixed field order — include whatever dimensions matter: model, precision, GPU config, framework, dataset, context size, special flags, smoke vs full, etc.
 
@@ -159,11 +143,11 @@ Dispatch — **top-level `ref` MUST be the branch** (`ref=main` silently falls b
 ```bash
 gh api --method POST -H "Accept: application/vnd.github+json" \
   /repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
-  -f ref=exp/<name> \
-  -f 'inputs[ref]=exp/<name>' \
+  -f ref=<branch> \
+  -f 'inputs[ref]=<branch>' \
   -f 'inputs[generate-cli-command]=test-config --config-keys <key> --config-files .github/configs/nvidia-master.yaml' \
   -f 'inputs[test-name]=yyyy/mm/dd <label>' \
-  -f 'inputs[duration-override]=900'
+  -f 'inputs[duration-override]=300'
 ```
 
 ## Watch
