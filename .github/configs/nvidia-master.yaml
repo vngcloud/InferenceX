@@ -9518,3 +9518,20 @@ glm5.2-weka-fp8-h200-greennode-sglang-smoke:
       duration: 300
       search-space:
       - { tp: 8, ep: 8, conc-list: [2] }
+
+deepseek-v2-lite-weka-bf16-h200-greennode-sglang:
+  image: lmsysorg/sglang:v0.5.14-cu130
+  model: deepseek-ai/DeepSeek-V2-Lite
+  model-prefix: deepseek-v2-lite-weka
+  runner: h200-greennode_01
+  precision: bf16
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      max-model-len: 163840
+      benchmark-client: [aiperf]
+      duration: 900
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [8, 16, 32, 48] }
