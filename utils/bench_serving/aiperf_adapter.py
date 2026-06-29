@@ -139,18 +139,27 @@ def run_aiperf(args: argparse.Namespace) -> Path:
     cmd = [
         "aiperf",
         "profile",
+    ]
+    if args.scenario:
+        cmd.extend(["--scenario", args.scenario])
+    cmd.extend([
         "--model",
         args.model,
         "--url",
         args.url,
+    ])
+    if args.endpoint:
+        cmd.extend(["--endpoint", args.endpoint])
+    cmd.extend([
         "--endpoint-type",
         args.endpoint_type,
         "--streaming",
         "--concurrency",
         str(args.concurrency),
-        "--artifact-dir",
+        "--output-artifact-dir" if args.scenario else "--artifact-dir",
         str(artifact_dir),
-    ]
+    ])
+    agentx_weka = args.scenario == "inferencex-agentx-mvp" and args.custom_dataset_type == "weka_trace"
 
     # Stop condition: a fixed request count (single-replay / Mode-1 resample) or a
     # wall-clock duration cap (duration-based smoke). At least one is always set
@@ -160,9 +169,9 @@ def run_aiperf(args: argparse.Namespace) -> Path:
     if args.benchmark_duration is not None:
         cmd.extend(["--benchmark-duration", str(args.benchmark_duration)])
 
-    if args.warmup_request_count is not None:
+    if args.warmup_request_count is not None and not agentx_weka:
         cmd.extend(["--warmup-request-count", str(args.warmup_request_count)])
-    if args.num_warmup_sessions is not None:
+    if args.num_warmup_sessions is not None and not agentx_weka:
         cmd.extend(["--num-warmup-sessions", str(args.num_warmup_sessions)])
     # Mode 1 (capacity sweep): suppress AIPerf's automatic switch to
     # fixed-schedule mode for trace datasets carrying timestamps, so the run
@@ -170,7 +179,7 @@ def run_aiperf(args: argparse.Namespace) -> Path:
     # inter-turn delays are stripped upstream in the launcher (aiperf 0.9.0 has
     # no CLI flag to ignore mooncake_trace delays); this flag only governs the
     # timing mode, not the per-turn think-time.
-    if args.no_fixed_schedule:
+    if args.no_fixed_schedule and not agentx_weka:
         cmd.append("--no-fixed-schedule")
     if args.server_metrics_url:
         cmd.extend(["--server-metrics", args.server_metrics_url])
@@ -204,9 +213,9 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--goodput", args.goodput])
     if args.temperature is not None:
         cmd.extend(["--temperature", str(args.temperature)])
-    if args.inter_turn_delay_cap_seconds is not None:
+    if args.inter_turn_delay_cap_seconds is not None and not agentx_weka:
         cmd.extend(["--inter-turn-delay-cap-seconds", str(args.inter_turn_delay_cap_seconds)])
-    if args.use_think_time_only:
+    if args.use_think_time_only and not agentx_weka:
         cmd.append("--use-think-time-only")
     if args.dataset_sampling_strategy is not None:
         cmd.extend(["--dataset-sampling-strategy", args.dataset_sampling_strategy])
@@ -214,6 +223,22 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--benchmark-grace-period", str(args.benchmark_grace_period)])
     if args.workers_max is not None:
         cmd.extend(["--workers-max", str(args.workers_max)])
+    if args.failed_request_threshold is not None:
+        cmd.extend(["--failed-request-threshold", str(args.failed_request_threshold)])
+    if args.trajectory_start_min_ratio is not None:
+        cmd.extend(["--trajectory-start-min-ratio", str(args.trajectory_start_min_ratio)])
+    if args.trajectory_start_max_ratio is not None:
+        cmd.extend(["--trajectory-start-max-ratio", str(args.trajectory_start_max_ratio)])
+    if args.use_server_token_count:
+        cmd.append("--use-server-token-count")
+    if args.tokenizer_trust_remote_code:
+        cmd.append("--tokenizer-trust-remote-code")
+    if args.num_dataset_entries is not None:
+        cmd.extend(["--num-dataset-entries", str(args.num_dataset_entries)])
+    if args.slice_duration is not None:
+        cmd.extend(["--slice-duration", str(args.slice_duration)])
+    if args.unsafe_override:
+        cmd.append("--unsafe-override")
 
     subprocess.run(cmd, check=True)
     return artifact_dir
@@ -229,6 +254,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--result-filename", required=True)
     parser.add_argument("--result-dir", required=True, type=Path)
     parser.add_argument("--endpoint-type", default="chat")
+    parser.add_argument("--scenario")
+    parser.add_argument("--endpoint")
     parser.add_argument("--warmup-request-count", type=int)
     parser.add_argument("--num-warmup-sessions", type=int)
     parser.add_argument("--no-fixed-schedule", action="store_true")
@@ -255,6 +282,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-sampling-strategy")
     parser.add_argument("--benchmark-grace-period", type=float)
     parser.add_argument("--workers-max", type=int)
+    parser.add_argument("--failed-request-threshold", type=float)
+    parser.add_argument("--trajectory-start-min-ratio", type=float)
+    parser.add_argument("--trajectory-start-max-ratio", type=float)
+    parser.add_argument("--use-server-token-count", action="store_true")
+    parser.add_argument("--tokenizer-trust-remote-code", action="store_true")
+    parser.add_argument("--num-dataset-entries", type=int)
+    parser.add_argument("--slice-duration", type=float)
+    parser.add_argument("--unsafe-override", action="store_true")
     args = parser.parse_args()
 
     if args.request_count is None and args.benchmark_duration is None:

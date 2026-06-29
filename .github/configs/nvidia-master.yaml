@@ -9631,6 +9631,5 @@ qwen3-4b-v4-weka-smoke-h200-greennode-vllm:
       max-model-len: 131072
       benchmark-client: [aiperf]
       duration: 90
-      no-fixed-schedule: true
       search-space:
       - { tp: 1, conc-list: [2] }

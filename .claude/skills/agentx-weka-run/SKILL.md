@@ -9,7 +9,7 @@ Drives the official SemiAnalysis `inferencex-agentx-mvp` scenario over the upstr
 
 > **Inherits from `bench-config`** — read it first for the generic mechanics: script-name derivation, *what-to-edit-where* (sweepable `search-space` vs fixed serve flags in the script), the `runner`↔`tp` rule, the **exit 127** missing-script failure, and engine gotchas.
 
-> **Sibling skill `agentic-replay-run`** covers the *other* aiperf path (mooncake_trace local JSONL, `utils/aiperf-mooncake` fork, `scenario-type: agentic-replay`). **Do not cross the submodules** — weka uses **`utils/aiperf`** (vngcloud fork, branch `cjq/weka-live-assistant-responses`); mooncake uses `utils/aiperf-mooncake`. Pinning the wrong one silently breaks the run. The shared DCGM-sidecar section and dispatch/watch mechanics in that skill apply verbatim here.
+> **Sibling skill `agentic-replay-run`** covers local trace replay (`mooncake_trace` and local `weka_trace`, `utils/aiperf-mooncake` fork, `scenario-type: agentic-replay`). This skill is only for the public AgentX Weka dataset path (`--public-dataset semianalysis_cc_traces_weka`) through `utils/aiperf`. The shared DCGM-sidecar section and dispatch/watch mechanics in that skill apply verbatim here.
 
 ## Ask the user first (AskUserQuestion)
 

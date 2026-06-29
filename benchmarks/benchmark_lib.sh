@@ -527,6 +527,8 @@ run_aiperf_benchmark() {
     local public_dataset=""
     local input_file=""
     local custom_dataset_type=""
+    local scenario=""
+    local endpoint=""
     local tokenizer=""
     local isl=""
     local osl=""
@@ -541,6 +543,14 @@ run_aiperf_benchmark() {
     local benchmark_grace_period=""
     local workers_max=""
     local use_think_time_only=false
+    local failed_request_threshold=""
+    local trajectory_start_min_ratio=""
+    local trajectory_start_max_ratio=""
+    local use_server_token_count=false
+    local tokenizer_trust_remote_code=false
+    local num_dataset_entries=""
+    local slice_duration=""
+    local unsafe_override=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -561,6 +571,8 @@ run_aiperf_benchmark() {
             --public-dataset) public_dataset="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --scenario) scenario="$2"; shift 2 ;;
+            --endpoint) endpoint="$2"; shift 2 ;;
             --tokenizer) tokenizer="$2"; shift 2 ;;
             --isl) isl="$2"; shift 2 ;;
             --osl) osl="$2"; shift 2 ;;
@@ -573,6 +585,14 @@ run_aiperf_benchmark() {
             --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
             --workers-max) workers_max="$2"; shift 2 ;;
             --use-think-time-only) use_think_time_only=true; shift ;;
+            --failed-request-threshold) failed_request_threshold="$2"; shift 2 ;;
+            --trajectory-start-min-ratio) trajectory_start_min_ratio="$2"; shift 2 ;;
+            --trajectory-start-max-ratio) trajectory_start_max_ratio="$2"; shift 2 ;;
+            --use-server-token-count) use_server_token_count=true; shift ;;
+            --tokenizer-trust-remote-code) tokenizer_trust_remote_code=true; shift ;;
+            --num-dataset-entries) num_dataset_entries="$2"; shift 2 ;;
+            --slice-duration) slice_duration="$2"; shift 2 ;;
+            --unsafe-override) unsafe_override=true; shift ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -608,6 +628,8 @@ run_aiperf_benchmark() {
 
     if [[ -n "$request_count" ]]; then benchmark_cmd+=(--request-count "$request_count"); fi
     if [[ -n "$benchmark_duration" ]]; then benchmark_cmd+=(--benchmark-duration "$benchmark_duration"); fi
+    if [[ -n "$scenario" ]]; then benchmark_cmd+=(--scenario "$scenario"); fi
+    if [[ -n "$endpoint" ]]; then benchmark_cmd+=(--endpoint "$endpoint"); fi
     if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
     if [[ -n "$num_warmup_sessions" ]]; then benchmark_cmd+=(--num-warmup-sessions "$num_warmup_sessions"); fi
     if [[ "$no_fixed_schedule" == true ]]; then benchmark_cmd+=(--no-fixed-schedule); fi
@@ -630,6 +652,14 @@ run_aiperf_benchmark() {
     if [[ -n "$benchmark_grace_period" ]]; then benchmark_cmd+=(--benchmark-grace-period "$benchmark_grace_period"); fi
     if [[ -n "$workers_max" ]]; then benchmark_cmd+=(--workers-max "$workers_max"); fi
     if [[ "$use_think_time_only" == true ]]; then benchmark_cmd+=(--use-think-time-only); fi
+    if [[ -n "$failed_request_threshold" ]]; then benchmark_cmd+=(--failed-request-threshold "$failed_request_threshold"); fi
+    if [[ -n "$trajectory_start_min_ratio" ]]; then benchmark_cmd+=(--trajectory-start-min-ratio "$trajectory_start_min_ratio"); fi
+    if [[ -n "$trajectory_start_max_ratio" ]]; then benchmark_cmd+=(--trajectory-start-max-ratio "$trajectory_start_max_ratio"); fi
+    if [[ "$use_server_token_count" == true ]]; then benchmark_cmd+=(--use-server-token-count); fi
+    if [[ "$tokenizer_trust_remote_code" == true ]]; then benchmark_cmd+=(--tokenizer-trust-remote-code); fi
+    if [[ -n "$num_dataset_entries" ]]; then benchmark_cmd+=(--num-dataset-entries "$num_dataset_entries"); fi
+    if [[ -n "$slice_duration" ]]; then benchmark_cmd+=(--slice-duration "$slice_duration"); fi
+    if [[ "$unsafe_override" == true ]]; then benchmark_cmd+=(--unsafe-override); fi
 
     set -x
     "${benchmark_cmd[@]}"
@@ -739,9 +769,13 @@ run_client_benchmark() {
 
     case "$benchmark_client" in
         aiperf)
+            local aiperf_url="http://0.0.0.0:$port"
+            if [[ "$custom_dataset_type" == "weka_trace" ]]; then
+                aiperf_url="http://localhost:$port"
+            fi
             local aiperf_args=(
                 --model "$model"
-                --url "http://0.0.0.0:$port"
+                --url "$aiperf_url"
                 --endpoint-type "$endpoint_type"
                 --concurrency "$concurrency"
                 --result-filename "$result_filename"
@@ -765,6 +799,24 @@ run_client_benchmark() {
                 fi
                 if [[ -n "$custom_dataset_type" ]]; then
                     aiperf_args+=(--custom-dataset-type "$custom_dataset_type")
+                fi
+                if [[ "$custom_dataset_type" == "weka_trace" ]]; then
+                    export AIPERF_SOURCE_DIR="${AIPERF_SOURCE_DIR:-${INFMAX_CONTAINER_WORKSPACE:-$bench_serving_dir}/utils/aiperf-mooncake}"
+                    export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
+                    aiperf_args+=(
+                        --scenario inferencex-agentx-mvp
+                        --endpoint /v1/chat/completions
+                        --failed-request-threshold 0.05
+                        --trajectory-start-min-ratio 0.25
+                        --trajectory-start-max-ratio 0.75
+                        --use-server-token-count
+                        --tokenizer-trust-remote-code
+                        --num-dataset-entries "${WEKA_NUM_DATASET_ENTRIES:-949}"
+                        --slice-duration 1.0
+                    )
+                    if { [[ -n "$benchmark_duration" ]] && (( ${benchmark_duration%.*} < 900 )); } || [[ "${AIPERF_UNSAFE_OVERRIDE:-false}" == "true" ]]; then
+                        aiperf_args+=(--unsafe-override)
+                    fi
                 fi
                 # Mode 1 capacity-sweep flags (default off → trace replays once
                 # under fixed-schedule, the original agentic-replay behavior).

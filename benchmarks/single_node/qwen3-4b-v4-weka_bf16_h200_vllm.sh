@@ -17,7 +17,8 @@ fi
 
 nvidia-smi
 
-export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf"
+export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
+export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
 
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-$MODEL}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-131072}"
@@ -52,16 +53,6 @@ wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$S
 STOP_ARGS=(--benchmark-duration "${BENCHMARK_DURATION:-${DURATION:-90}}")
 
 REPLAY_ARGS=()
-if [[ "${NO_FIXED_SCHEDULE:-true}" == "true" || "${NO_FIXED_SCHEDULE:-true}" == "1" ]]; then
-    REPLAY_ARGS+=(--no-fixed-schedule)
-fi
-REPLAY_ARGS+=(--inter-turn-delay-cap-seconds "${INTER_TURN_DELAY_CAP_SECONDS:-60}")
-REPLAY_ARGS+=(--use-think-time-only)
-REPLAY_ARGS+=(--warmup-request-count "${WARMUP_REQUEST_COUNT:-2}")
-REPLAY_ARGS+=(--workers-max "${WORKERS_MAX:-64}")
-REPLAY_ARGS+=(--benchmark-grace-period "${BENCHMARK_GRACE_PERIOD:-120}")
-REPLAY_ARGS+=(--extra-inputs "ignore_eos:${IGNORE_EOS:-true}")
-REPLAY_ARGS+=(--extra-inputs "temperature:${TEMPERATURE:-0}")
 if [[ -n "${TOKENIZER:-}" ]]; then
     REPLAY_ARGS+=(--tokenizer "$TOKENIZER")
 fi
@@ -80,7 +71,7 @@ run_client_benchmark \
     --bench-serving-dir "${INFMAX_CONTAINER_WORKSPACE:-$(pwd)}" \
     --trust-remote-code \
     --server-pid "$SERVER_PID" \
-    --random-seed "${RANDOM_SEED:-0}" \
+    --random-seed "${RANDOM_SEED:-42}" \
     "${REPLAY_ARGS[@]}"
 
 stop_gpu_monitor

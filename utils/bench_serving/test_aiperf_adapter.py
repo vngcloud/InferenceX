@@ -55,6 +55,8 @@ def _run_aiperf_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         model="Qwen/Qwen3-4B-Instruct-2507",
         url="http://0.0.0.0:8888",
         endpoint_type="chat",
+        scenario=None,
+        endpoint=None,
         concurrency=8,
         request_count=50,
         benchmark_duration=None,
@@ -80,6 +82,14 @@ def _run_aiperf_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         dataset_sampling_strategy=None,
         benchmark_grace_period=None,
         workers_max=None,
+        failed_request_threshold=None,
+        trajectory_start_min_ratio=None,
+        trajectory_start_max_ratio=None,
+        use_server_token_count=False,
+        tokenizer_trust_remote_code=False,
+        num_dataset_entries=None,
+        slice_duration=None,
+        unsafe_override=False,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -168,6 +178,62 @@ def test_run_aiperf_duration_mode_omits_request_count(tmp_path: Path, monkeypatc
 
     assert "--request-count" not in cmd
     assert cmd[cmd.index("--benchmark-duration") + 1] == "90.0"
+
+
+def test_run_aiperf_forwards_agentx_weka_flags(tmp_path: Path, monkeypatch):
+    args = _run_aiperf_args(
+        tmp_path,
+        request_count=None,
+        benchmark_duration=90.0,
+        scenario="inferencex-agentx-mvp",
+        endpoint="/v1/chat/completions",
+        input_file="trace_dir",
+        custom_dataset_type="weka_trace",
+        random_seed=42,
+        failed_request_threshold=0.05,
+        trajectory_start_min_ratio=0.25,
+        trajectory_start_max_ratio=0.75,
+        use_server_token_count=True,
+        tokenizer_trust_remote_code=True,
+        num_dataset_entries=949,
+        slice_duration=1.0,
+        unsafe_override=True,
+    )
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    assert cmd[cmd.index("--scenario") + 1] == "inferencex-agentx-mvp"
+    assert cmd[cmd.index("--endpoint") + 1] == "/v1/chat/completions"
+    assert "--output-artifact-dir" in cmd
+    assert "--artifact-dir" not in cmd
+    assert cmd[cmd.index("--failed-request-threshold") + 1] == "0.05"
+    assert cmd[cmd.index("--trajectory-start-min-ratio") + 1] == "0.25"
+    assert cmd[cmd.index("--trajectory-start-max-ratio") + 1] == "0.75"
+    assert "--use-server-token-count" in cmd
+    assert "--tokenizer-trust-remote-code" in cmd
+    assert cmd[cmd.index("--num-dataset-entries") + 1] == "949"
+    assert cmd[cmd.index("--slice-duration") + 1] == "1.0"
+    assert "--unsafe-override" in cmd
+
+
+def test_run_aiperf_agentx_weka_drops_legacy_flags(tmp_path: Path, monkeypatch):
+    args = _run_aiperf_args(
+        tmp_path,
+        scenario="inferencex-agentx-mvp",
+        input_file="trace_dir",
+        custom_dataset_type="weka_trace",
+        warmup_request_count=2,
+        num_warmup_sessions=1,
+        no_fixed_schedule=True,
+        inter_turn_delay_cap_seconds=60,
+        use_think_time_only=True,
+    )
+    cmd = _capture_aiperf_cmd(monkeypatch, args)
+
+    assert "--warmup-request-count" not in cmd
+    assert "--num-warmup-sessions" not in cmd
+    assert "--no-fixed-schedule" not in cmd
+    assert "--inter-turn-delay-cap-seconds" not in cmd
+    assert "--use-think-time-only" not in cmd
 
 
 def test_main_skips_request_count_validation_in_duration_mode(tmp_path: Path, monkeypatch):

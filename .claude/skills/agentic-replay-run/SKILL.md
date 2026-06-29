@@ -24,9 +24,9 @@ Flow: pick dataset + model/serving → write master-config entry + launch script
 |---|---|---|---|---|---|
 | Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | yes | — |
 | Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | no | `strip-trace-delays: true` |
-| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | yes | dir input, cap inter-turn delays, `--use-think-time-only` |
+| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | AgentX scenario | dir input, `--scenario inferencex-agentx-mvp` |
 
-All: `no-fixed-schedule: true`. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
+Mooncake traces use `no-fixed-schedule: true`. Weka traces do not: `benchmark_lib.sh` maps `custom-dataset-type: weka_trace` to the AgentX scenario flags. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
 
 ## A) Master-config entry
 
@@ -47,7 +47,7 @@ Append to `.github/configs/nvidia-master.yaml`:
       custom-dataset-type: mooncake_trace   # or weka_trace
       max-model-len: 131072
       benchmark-client: [aiperf]
-      no-fixed-schedule: true
+      no-fixed-schedule: true             # mooncake_trace only; omit for weka_trace
       # strip-trace-delays: true           # Gemma blend_prod only
       # tokenizer: <hf-id>                 # only if served-model-name ≠ valid HF tokenizer
       search-space:
@@ -74,19 +74,9 @@ Change **only the serve block**. Keep verbatim: `check_env_vars`, `STOP_ARGS`, `
 export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
 export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
 ```
-Without `AIPERF_SOURCE_DIR`, the run silently falls back to PyPI and fork patches are lost. Without a fork-specific `AIPERF_VENV_DIR`, self-hosted runners can reuse stale `/tmp/aiperf-venv` installs that predate new CLI flags; symptom: log shows `installing from source: /workspace/utils/aiperf-mooncake` followed by `Unknown parameter: --use-think-time-only`. Do **not** use `utils/aiperf` (vngcloud fork) for weka any more — its `data_collector.py` uses `== float("inf")` which never catches NaN, so the SGLang runtime patch (`patches/aiperf-skip-nonfinite-server-metrics.patch`) would be required.
+Without `AIPERF_SOURCE_DIR`, the run silently falls back to PyPI and fork patches are lost. Without a fork-specific `AIPERF_VENV_DIR`, self-hosted runners can reuse stale `/tmp/aiperf-venv` installs that predate new CLI flags. Do **not** use `utils/aiperf` (vngcloud fork) for weka any more — its `data_collector.py` uses `== float("inf")` which never catches NaN, so the SGLang runtime patch (`patches/aiperf-skip-nonfinite-server-metrics.patch`) would be required.
 
-**MANDATORY — benchmark_lib flag wiring**: if the launch script passes `--use-think-time-only` through `run_client_benchmark`, `benchmarks/benchmark_lib.sh` must parse it and forward it to AIPerf. Required snippets:
-```bash
-local use_think_time_only=false
-...
---use-think-time-only) use_think_time_only=true; shift ;;
-...
-if [[ "$use_think_time_only" == true ]]; then
-    aiperf_args+=(--use-think-time-only)
-fi
-```
-If this is missing, `run_client_benchmark` fails immediately with `Unknown parameter: --use-think-time-only`. If this is present but the AIPerf install is stale, AIPerf itself fails with the same text after `[aiperf] CLI missing; installing from source: ...`.
+**MANDATORY — Weka AgentX wiring**: for `custom-dataset-type: weka_trace`, `benchmarks/benchmark_lib.sh` must add `--scenario inferencex-agentx-mvp` and AgentX flags. Do not pass Weka `--no-fixed-schedule`, `--use-think-time-only`, or warmup flags from the launcher.
 
 SGLang serve block:
 ```bash
