@@ -9650,3 +9650,20 @@ minimaxm2.5-weka-fp8-h200-greennode-sglang-smoke:
       duration: 300
       search-space:
       - { tp: 8, ep: 8, conc-list: [1] }
+
+glm5.2-weka-fp8-h200-greennode-sglang-smoke:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2-ep8-deepep       # -> benchmarks/single_node/glm5.2-ep8-deepep_fp8_h200_sglang.sh
+  runner: h200-greennode_01
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      max-model-len: 196608
+      benchmark-client: [aiperf]
+      duration: 300
+      search-space:
+      - { tp: 8, ep: 8, conc-list: [2] }
