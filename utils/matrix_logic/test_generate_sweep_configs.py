@@ -116,6 +116,31 @@ def sample_runner_config():
         "gb200": ["gb200-nv_0"],
     }
 
+@pytest.fixture
+def sample_agentic_replay_config():
+    """Single-node agentic-replay config without an explicit benchmark client."""
+    return {
+        "qwen-agentic-bf16-h100-vllm": {
+            "image": "vllm/vllm-openai:v0.21.0",
+            "model": "Qwen/Qwen3-4B-Instruct-2507",
+            "model-prefix": "qwen-agentic",
+            "precision": "bf16",
+            "framework": "vllm",
+            "runner": "h100-2x",
+            "multinode": False,
+            "scenarios": {
+                "agentic-replay": [
+                    {
+                        "input-file": "benchmarks/single_node/agentic/datasets/qwen3.5-4b-smoke.jsonl",
+                        "custom-dataset-type": "mooncake_trace",
+                        "max-model-len": 8192,
+                        "search-space": [{"tp": 1, "conc-list": [2]}],
+                    }
+                ]
+            },
+        }
+    }
+
 
 @pytest.fixture
 def full_sweep_args_single_node():
@@ -410,6 +435,87 @@ class TestGenerateFullSweepSingleNode:
         # With step_size=2, conc goes 4, 8, 16, 32, 64 = 5 values per seq-len config
         # 2 seq-len configs * 5 = 10 entries
         assert len(result) == 10
+
+    def test_default_benchmark_client_no_doubling(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
+        """Scenarios without benchmark-client should keep the same count and default to native."""
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_single_node_config,
+            sample_runner_config
+        )
+        assert len(result) == 10
+        assert all(entry["benchmark-client"] == "inferencex_native" for entry in result)
+
+    def test_benchmark_client_opt_in_doubles_entries(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
+        """Opting into native plus AIPerf should emit one entry per client."""
+        seq_config = sample_single_node_config["dsr1-fp8-mi300x-sglang"]["scenarios"]["fixed-seq-len"][0]
+        seq_config["benchmark-client"] = ["inferencex_native", "aiperf"]
+        full_sweep_args_single_node.seq_lens = ["1k1k"]
+        full_sweep_args_single_node.max_conc = 4
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_single_node_config,
+            sample_runner_config
+        )
+
+        assert len(result) == 2
+        assert {entry["benchmark-client"] for entry in result} == {"inferencex_native", "aiperf"}
+        assert {(entry["tp"], entry["conc"], entry["runner"]) for entry in result} == {(8, 4, "mi300x")}
+
+    def test_agentic_replay_defaults_to_aiperf(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """agentic-replay should default to the only supported client: AIPerf."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert len(result) == 1
+        assert result[0]["benchmark-client"] == "aiperf"
+        assert result[0]["input-file"].endswith("qwen3.5-4b-smoke.jsonl")
+
+    def test_agentic_replay_mode1_defaults_off(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """Entries from a plain agentic-replay config carry Mode 1 fields as off."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["no-fixed-schedule"] is False
+        assert result[0]["strip-trace-delays"] is False
+        assert result[0]["num-warmup-sessions"] is None
+        assert result[0]["request-count"] is None
+
+    def test_agentic_replay_mode1_fields_flow(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """Mode 1 capacity-sweep fields flow into one matrix entry per concurrency."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
+        scenario.update({
+            "no-fixed-schedule": True,
+            "strip-trace-delays": True,
+            "num-warmup-sessions": 1,
+            "request-count": 50,
+            "search-space": [{"tp": 1, "conc-list": [8, 16, 32]}],
+        })
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert sorted(e["conc"] for e in result) == [8, 16, 32]
+        for entry in result:
+            assert entry["no-fixed-schedule"] is True
+            assert entry["strip-trace-delays"] is True
+            assert entry["num-warmup-sessions"] == 1
+            assert entry["request-count"] == 50
 
     def test_matrix_entry_structure(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
         """Generated entries should have correct structure."""
@@ -1584,6 +1690,55 @@ def full_sweep_args_both():
 class TestGenerateTestConfigSweep:
     """Tests for exact config-key sweep generation."""
 
+    def test_default_benchmark_client_no_doubling(self, sample_single_node_config):
+        """test-config should keep default scenarios at native-only count."""
+        args = argparse.Namespace(
+            config_keys=["dsr1-fp8-mi300x-sglang"],
+            seq_lens=["1k1k"],
+            conc=[4],
+            runner_node_filter=None,
+            scenario_type=None,
+        )
+
+        result = generate_test_config_sweep(args, sample_single_node_config)
+
+        assert len(result) == 1
+        assert result[0]["benchmark-client"] == "inferencex_native"
+
+    def test_benchmark_client_opt_in_doubles_entries(self, sample_single_node_config):
+        """test-config should multiply entries by scenario-level benchmark clients."""
+        seq_config = sample_single_node_config["dsr1-fp8-mi300x-sglang"]["scenarios"]["fixed-seq-len"][0]
+        seq_config["benchmark-client"] = ["inferencex_native", "aiperf"]
+        args = argparse.Namespace(
+            config_keys=["dsr1-fp8-mi300x-sglang"],
+            seq_lens=["1k1k"],
+            conc=[4],
+            runner_node_filter=None,
+            scenario_type=None,
+        )
+
+        result = generate_test_config_sweep(args, sample_single_node_config)
+
+        assert len(result) == 2
+        assert {entry["benchmark-client"] for entry in result} == {"inferencex_native", "aiperf"}
+        assert {(entry["tp"], entry["conc"], entry["runner"]) for entry in result} == {(8, 4, "mi300x")}
+
+    def test_agentic_replay_defaults_to_aiperf(self, sample_agentic_replay_config):
+        """test-config should default agentic-replay entries to AIPerf."""
+        args = argparse.Namespace(
+            config_keys=["qwen-agentic-bf16-h100-vllm"],
+            seq_lens=None,
+            conc=None,
+            runner_node_filter=None,
+            scenario_type=["agentic-replay"],
+        )
+
+        result = generate_test_config_sweep(args, sample_agentic_replay_config)
+
+        assert len(result) == 1
+        assert result[0]["benchmark-client"] == "aiperf"
+        assert result[0]["scenario-type"] == "agentic-replay"
+
     def test_runner_node_filter_expands_config_runner(self, sample_multinode_config, sample_runner_config):
         """test-config should allow targeting one concrete runner node."""
         args = argparse.Namespace(
@@ -1970,4 +2125,3 @@ class TestE2EConfigSplitting:
         assert all('prefill' in x for x in multi)
         assert all('prefill' not in x for x in single)
         assert all('prefill' not in x for x in evals)
-

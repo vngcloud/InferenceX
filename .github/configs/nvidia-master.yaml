@@ -4764,6 +4764,31 @@ dsr1qwen3-fp8-rtx5090-1x-vllm:
     #   search-space:
     #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
 
+# GreenNode-scoped Gemma4 31B BF16 on 2x H100 (matches the validated local
+# launch_h100-local.sh config: TP=2, bf16). Use h100-2x so TP=2 lands on
+# h100-greennode_01; h100-greennode_00 is the h100-1x runner and only exposes
+# one GPU to jobs.
+gemma4-bf16-h100-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4
+  runner: h100-2x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 32 }
+    - isl: 8192
+      osl: 1024
+      benchmark-client: [aiperf]
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 32 }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5
@@ -9484,3 +9509,128 @@ qwen3.5-fp8-h100-sglang-mtp:
       osl: 1024
       search-space:
       - { tp: 8, ep: 8, conc-start: 4, conc-end: 32, spec-decoding: mtp }
+
+# Plumbing smoke for the mooncake/adapter agentic-replay path on the only live
+# GreenNode runner (h100-greennode_00, 1xH100 80GB). Serves Qwen3-4B-Instruct-2507
+# (dense, 256k native ctx) on vLLM TP=1 and replays the production-derived MiniMax
+# claude-code trace through official AIPerf. Run duration-based: dispatch with
+# duration-override (e.g. 90) so the adapter caps wall-clock and tolerates
+# overflow/errored turns (trace turns longer than max-model-len are rejected by
+# the engine and recorded as errors — expected, not a smoke failure). Validates
+# plumbing + raw-artifact retention, not capacity numbers. MiniMax-M2.5 8xH200
+# capacity runs are deferred until H200 returns (see docs/adr/0002).
+qwen3-4b-2507-bf16-h100-greennode-vllm-smoke:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507          # reuses benchmarks/single_node/qwen3-4b-2507_bf16_h100_vllm.sh
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/minimax_claude_code_prod_v3.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      # Docs methodology: closed-loop WITH think-time. --no-fixed-schedule routes
+      # mooncake_trace through the concurrency/request-rate strategy (recorded
+      # inter-turn delays preserved, capped), which also permits shuffle sampling.
+      # Without it AIPerf auto-selects fixed_schedule, which requires sequential
+      # sampling and conflicts with --dataset-sampling-strategy shuffle.
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [4, 8] }
+
+# Same plumbing as the smoke above, but replays the GreenNode synthetic agentic-
+# coding dataset (1-variant 64k tier, 150 sessions) instead of the MiniMax prod
+# trace. This dataset has a single global L1 prefix (16k tokens = hash_ids 0..31
+# shared by every session), so warm-state prefix-cache hit should run far higher
+# than the mooncake smoke's ~51%. Single conc=4 to spot-check that hit rate. Same
+# mooncake_trace format + closed-loop-with-think-time methodology; reuses the
+# qwen3-4b-2507 launch script. Duration-based — dispatch with duration-override.
+qwen3-4b-2507-bf16-h100-greennode-vllm-smoke-64k:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507          # reuses benchmarks/single_node/qwen3-4b-2507_bf16_h100_vllm.sh
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/agentic_coding_1variant_64k_150s.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [4] }
+
+# Plumbing check for the Gemma-style back-to-back blend trace on the qwen path.
+# Reuses the qwen3-4b-2507 launch script + serving (tokenizer = model, no separate
+# --tokenizer needed). blend_prod.jsonl is mooncake_trace format but single-turn
+# (req-N independent requests, no `delay` field) → zero think-time: strip-trace-delays
+# flips to the capacity-sweep variant so the run is driven purely by concurrency
+# back-pressure (b2b). Single conc=4, duration-based — dispatch with duration-override.
+qwen3-4b-2507-bf16-h100-greennode-vllm-smoke-gemma-blend:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-2507          # reuses benchmarks/single_node/qwen3-4b-2507_bf16_h100_vllm.sh
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/gemma_blend_prod.jsonl
+      custom-dataset-type: mooncake_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      no-fixed-schedule: true
+      strip-trace-delays: true
+      search-space:
+      - { tp: 1, conc-list: [4] }
+
+# AgentX-MVP (cc-traces-weka) smoke for Qwen3-4B-Instruct-2507 on vLLM. Unlike the
+# agentic-replay (mooncake_trace) entries above, this uses scenario-type
+# agentic-coding -> the SemiAnalysis inferencex-agentx-mvp scenario over the weka
+# corpus, driven entirely through aiperf (resolve_trace_source + build_replay_cmd).
+# Launcher: benchmarks/single_node/agentic/qwen3-4b-weka_bf16_h100_vllm.sh
+# (model-prefix qwen3-4b-weka -> qwen3-4b-weka_bf16_h100_vllm.sh). duration 90 (<900
+# => build_replay_cmd auto-adds --unsafe-override, submission_valid=false, expected
+# for a smoke); build_replay_cmd passes no --warmup-* so there is no warmup leg.
+qwen3-4b-weka-smoke-h100-greennode-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-weka          # -> benchmarks/single_node/agentic/qwen3-4b-weka_bf16_h100_vllm.sh
+  runner: h100-greennode_00
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - duration: 90
+      search-space:
+      - { tp: 1, ep: 1, offloading: none, conc-list: [2, 4] }
+
+# Smoke for the GreenNode production-derived MiniMax CC v4 dataset, stored as a
+# local weka_trace directory. Uses Qwen3-4B for fast plumbing validation on H200.
+qwen3-4b-v4-weka-smoke-h200-greennode-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3-4B-Instruct-2507
+  model-prefix: qwen3-4b-v4-weka       # -> benchmarks/single_node/qwen3-4b-v4-weka_bf16_h200_vllm.sh
+  runner: h200-greennode_01
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-replay:
+    - input-file: benchmarks/single_node/agentic/datasets/minimax_cc_v4_weka
+      custom-dataset-type: weka_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      duration: 90
+      no-fixed-schedule: true
+      search-space:
+      - { tp: 1, conc-list: [2] }

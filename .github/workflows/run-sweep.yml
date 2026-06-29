@@ -25,6 +25,7 @@ on:
             - main
             - dev
         types:
+            - opened
             - ready_for_review
             - synchronize
             - labeled
@@ -207,6 +208,7 @@ jobs:
             model: ${{ matrix.config.model }}
             model-prefix: ${{ matrix.config.model-prefix }}
             framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
             precision: ${{ matrix.config.precision }}
             tp: ${{ matrix.config.tp }}
             ep: ${{ matrix.config.ep }}
@@ -247,6 +249,7 @@ jobs:
             model: ${{ matrix.config.model }}
             model-prefix: ${{ matrix.config.model-prefix }}
             framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
             precision: ${{ matrix.config.precision }}
             tp: ${{ matrix.config.tp }}
             ep: ${{ matrix.config.ep }}
@@ -261,6 +264,44 @@ jobs:
             disagg: ${{ 'false' }}
             run-eval: false
             scenario-type: agentic-coding
+
+    sweep-single-node-agentic-replay:
+        needs: setup
+        if: ${{ needs.setup.outputs.reuse-enabled != 'true' && toJson(fromJson(needs.setup.outputs.search-space-config).single_node['agentic-replay']) != 'null' }}
+        uses: ./.github/workflows/benchmark-tmpl.yml
+        name: agentic-replay /
+        strategy:
+            fail-fast: false
+            matrix:
+                config: ${{ fromJson(needs.setup.outputs.search-space-config).single_node['agentic-replay'] }}
+        secrets: inherit
+        with:
+            exp-name: ${{ matrix.config.exp-name }}
+            runner: ${{ matrix.config.runner }}
+            image: ${{ matrix.config.image }}
+            model: ${{ matrix.config.model }}
+            model-prefix: ${{ matrix.config.model-prefix }}
+            framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
+            precision: ${{ matrix.config.precision }}
+            tp: ${{ matrix.config.tp }}
+            ep: ${{ matrix.config.ep }}
+            dp-attn: ${{ matrix.config.dp-attn }}
+            conc: ${{ matrix.config.conc }}
+            isl: ${{ matrix.config.isl }}
+            osl: ${{ matrix.config.osl }}
+            max-model-len: ${{ matrix.config.max-model-len }}
+            input-file: ${{ matrix.config.input-file }}
+            custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
+            no-fixed-schedule: ${{ matrix.config.no-fixed-schedule }}
+            num-warmup-sessions: ${{ matrix.config.num-warmup-sessions }}
+            request-count: ${{ matrix.config.request-count }}
+            strip-trace-delays: ${{ matrix.config.strip-trace-delays }}
+            duration: ${{ matrix.config.duration }}
+            spec-decoding: 'none'
+            disagg: ${{ 'false' }}
+            run-eval: false
+            scenario-type: agentic-replay
 
     sweep-multi-node-agentic:
         needs: setup
@@ -321,6 +362,7 @@ jobs:
             model: ${{ matrix.config.model }}
             model-prefix: ${{ matrix.config.model-prefix }}
             framework: ${{ matrix.config.framework }}
+            benchmark-client: ${{ matrix.config.benchmark-client }}
             precision: ${{ matrix.config.precision }}
             tp: ${{ matrix.config.tp }}
             ep: ${{ matrix.config.ep }}
@@ -377,6 +419,7 @@ jobs:
                 sweep-single-node-1k1k,
                 sweep-single-node-8k1k,
                 sweep-agentic,
+                sweep-single-node-agentic-replay,
                 sweep-multi-node-1k1k,
                 sweep-multi-node-8k1k,
                 sweep-multi-node-agentic,
@@ -389,6 +432,7 @@ jobs:
               (
                 needs.sweep-single-node-1k1k.result != 'skipped' ||
                 needs.sweep-single-node-8k1k.result != 'skipped' ||
+                needs.sweep-single-node-agentic-replay.result != 'skipped' ||
                 needs.sweep-multi-node-1k1k.result != 'skipped' ||
                 needs.sweep-multi-node-8k1k.result != 'skipped'
               )
@@ -530,6 +574,7 @@ jobs:
             always() &&
             github.event_name == 'pull_request' &&
             needs.collect-results.result == 'success'
+        continue-on-error: true
         runs-on: ubuntu-latest
 
         env:
