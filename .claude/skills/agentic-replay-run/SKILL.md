@@ -103,7 +103,7 @@ Use these as patterns for future SemiAnalysis/public Weka coding runs:
 | Model | Config key | Run | Notes |
 |---|---|---|---|
 | MiniMax-M2.5 | `minimaxm2.5-weka-fp8-h200-greennode-sglang-smoke` | https://github.com/vngcloud/InferenceX/actions/runs/28376099323 | default SemiAnalysis Weka, TP8/EP8, conc1, duration 300, ctx196608 |
-| GLM-5.2-FP8 | `glm5.2-weka-fp8-h200-greennode-sglang-smoke` | https://github.com/vngcloud/InferenceX/actions/runs/28378052058 | default SemiAnalysis Weka, TP8/EP8, conc2, duration 300, ctx196608, hicache128 |
+| GLM-5.2-FP8 | `glm5.2-hicache-fp8-h200-sglang` / `glm5.2-weka-fp8-h200-greennode-sglang-smoke` | https://github.com/vngcloud/InferenceX/actions/runs/28279462408 | use SGLang `v0.5.14-cu130`; 0.5.12 fails GLM-5.2-FP8 weight loading |
 
 ## C) Validate → commit → dispatch
 
