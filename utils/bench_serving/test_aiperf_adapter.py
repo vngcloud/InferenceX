@@ -223,6 +223,18 @@ def test_build_result_maps_benchmark_duration_when_present():
     assert result["duration"] == 42.5
 
 
+def test_build_result_reads_model_from_endpoint_config():
+    artifact = _artifact(concurrency=32)
+    artifact["input_config"].pop("models")
+    artifact["input_config"]["endpoint"] = {
+        "model_names": ["Qwen/Qwen3-4B-Instruct-2507"]
+    }
+
+    result = build_result(artifact, max_concurrency=32)
+
+    assert result["model_id"] == "Qwen/Qwen3-4B-Instruct-2507"
+
+
 def test_build_result_omits_duration_when_absent():
     result = build_result(_artifact(concurrency=32), max_concurrency=32)
 
@@ -240,6 +252,14 @@ def test_detect_mode_search_with_search_history(tmp_path: Path):
 
 def test_extract_max_concurrency_fixed_reads_profiling_phase():
     assert extract_max_concurrency(_artifact(concurrency=64), None, "fixed") == 64
+
+
+def test_extract_max_concurrency_fixed_reads_loadgen_concurrency():
+    artifact = _artifact(concurrency=64)
+    artifact["input_config"].pop("phases")
+    artifact["input_config"]["loadgen"] = {"concurrency": 2}
+
+    assert extract_max_concurrency(artifact, None, "fixed") == 2
 
 
 def test_extract_max_concurrency_search_reads_best_trial():

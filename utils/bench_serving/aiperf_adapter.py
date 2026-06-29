@@ -79,9 +79,16 @@ def validate_request_counts(artifact: dict, expected_request_count: int) -> None
 def extract_max_concurrency(artifact: dict, search_history: dict | None, mode: str) -> int:
     """Extract the concurrency value InferenceX should record."""
     if mode == "fixed":
-        for phase in artifact["input_config"]["phases"]:
-            if phase.get("name") == "profiling":
-                return int(phase["concurrency"])
+        input_config = artifact["input_config"]
+        if "phases" in input_config:
+            for phase in input_config["phases"]:
+                if phase.get("name") == "profiling":
+                    return int(phase["concurrency"])
+            raise ValueError("AIPerf artifact is missing the profiling phase")
+
+        concurrency = input_config.get("loadgen", {}).get("concurrency")
+        if concurrency is not None:
+            return int(concurrency)
         raise ValueError("AIPerf artifact is missing the profiling phase")
 
     if mode == "search":
@@ -101,8 +108,12 @@ def build_result(artifact: dict, max_concurrency: int) -> dict:
     # AIPerf reports a single inter-token-latency block; InferenceX records it as
     # both tpot and itl (process_result derives interactivity from the tpot keys).
     itl = artifact["inter_token_latency"]
+    input_config = artifact["input_config"]
+    model_id = input_config.get("models", {}).get("items", [{}])[0].get("name")
+    if model_id is None:
+        model_id = input_config["endpoint"]["model_names"][0]
     result = {
-        "model_id": artifact["input_config"]["models"]["items"][0]["name"],
+        "model_id": model_id,
         "max_concurrency": max_concurrency,
         "total_token_throughput": artifact["total_token_throughput"]["avg"],
         "output_throughput": artifact["output_token_throughput"]["avg"],

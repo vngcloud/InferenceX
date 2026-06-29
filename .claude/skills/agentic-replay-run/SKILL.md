@@ -1,112 +1,98 @@
 ---
 name: agentic-replay-run
-description: Configure and dispatch an InferenceX agentic-replay benchmark on GreenNode's pinned-v0.9.0 AIPerf fork (utils/aiperf-mooncake submodule) for one of the three integrated trace datasets (agentic-coding 64k/128k/167k, Claude-Code MiniMax production, or Gemma blend_prod), on any model + serving stack the user specifies. Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
+description: Configure and dispatch an InferenceX agentic-replay benchmark for integrated trace datasets: mooncake_trace datasets via utils/aiperf-mooncake (agentic-coding and Gemma blend_prod) and Weka-trace datasets via utils/aiperf-mooncake (MiniMax Claude Code v4 Weka). Use when the user wants to run / dispatch / kick off an agentic replay, mooncake_trace, weka_trace, or AIPerf trace-replay benchmark, or asks to benchmark a model against one of those datasets.
 ---
 
 # Agentic-replay run
 
-Flow: pick dataset + model/serving → write a master-config entry **and** its launch script → add a `perf-changelog.yaml` entry → commit on `exp/<name>` → dispatch `e2e-tests.yml`. The three datasets are AIPerf-integrated already; the work is config + (maybe) one launch script.
+Flow: pick dataset + model/serving → write master-config entry + launch script → add `perf-changelog.yaml` entry → add DCGM sidecar → commit on `exp/<name>` → dispatch.
 
-> **Inherits from the `bench-config` skill** — read it first. The generic mechanics live there: script-name **derivation rule**, *what-to-edit-where* (sweepable `search-space` knobs vs fixed serve flags hard-coded in the script), the `runner`↔`tp` rule, the **exit 127** missing-script failure, and the **engine gotchas** (pre-quantized fp8 → no `--quantization`; SGLang multimodal fp8 crash). This skill adds only the agentic-replay specifics: the 3 datasets, the `agentic-replay` scenario fields, `grace-period`, and the **`ref=branch`** dispatch.
+> **Inherits from the `bench-config` skill** — read it first for: script-name derivation rule, what-to-edit-where (sweepable `search-space` vs fixed serve flags), runner↔tp rule, exit 127 missing-script failure, and engine gotchas (pre-quantized fp8 → no `--quantization`).
 
-## Ask the user first (AskUserQuestion)
+## Intake (AskUserQuestion)
 
-1. **Dataset** — one of the three below.
-2. **Model + serving config** — HF model id, engine (vLLM/SGLang) + image, precision, TP, and any special serve flags (gpu-mem-util, kv-dtype, quantization, etc.). The user typically pastes a `vllm serve …` / sglang launch line — that line becomes the serve block in the launch script (step B).
-   - **Sanity-check the `--model` / `--tokenizer` value before using it.** A pasted launch line often carries a value that is correct on *the user's box* but wrong for InferenceX (the runner pulls from HF and validates the form). If the value is **not a plain HF slug** (`namespace/repo_name`) — e.g. an absolute filesystem path (`/models/...`, `/mnt/...`, `~/...`), a bare name with no namespace, or anything that looks copied from a local/patched setup — **do not pass it through.** Ask the user: *"`--model` is `<value>` — that's a local path; should I use the HF slug `<stripped value>` instead?"* Default/fallback to the HF-slug form (strip the leading dirs: `/models/RedHatAI/gemma-4-31B-it-FP8-block` → `RedHatAI/gemma-4-31B-it-FP8-block`). A raw path makes HF raise `OSError: Repo id must be in the form 'repo_name' or 'namespace/repo_name'`. Same check for `--tokenizer`.
-3. **Runner** — which box (`runner:` field). GreenNode options: `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `rtx5090-greennode_00` (1×RTX5090). The `runner:` value is the box label verbatim, and `search-space.tp` MUST match its GPU count. Full list in `.github/configs/runners.yaml`.
-4. **Duration** — `900` (standard, recommended) or `90` (smoke). Passed as `duration-override`.
-5. **New branch?** — recommend **yes**, `exp/<name>`. Edit + commit + dispatch from it (never `main` — see gotcha).
-6. **Bật DCGM không?** — mặc định **không**. Bật thì AIPerf sẽ thu thêm GPU telemetry phong phú hơn nhiều so với `gpu_metrics.csv` mặc định (`gpu_metrics.csv` chỉ có power/temp/util/clocks từ `nvidia-smi`; DCGM mở thêm `DCGM_FI_PROF_*`: SM/tensor-core activity, memory bandwidth, NVLink, …) vì AIPerf scrape trực tiếp endpoint DCGM. Nếu user cần → sửa launch script của runner để dựng container DCGM (xem **section DCGM** bên dưới); không cần → bỏ qua, giữ nguyên launcher.
+1. **Dataset** — one of the integrated datasets below.
+2. **Model + serving config** — HF slug, engine + image, precision, TP/EP, serve flags. User typically pastes a launch line.
+   - **Sanity-check `--model`/`--tokenizer`**: must be a plain HF slug (`namespace/repo`). Local paths (`/models/...`, `/mnt/...`) → strip prefix and confirm with user. Raw paths cause `OSError` on the runner.
+3. **Runner** — `h100-greennode_00` (1×H100), `h100-greennode_01` (2×H100), `h200-greennode_01` (8×H200), `rtx5090-greennode_00` (1×RTX5090). Full list in `.github/configs/runners.yaml`. `search-space.tp` MUST match GPU count.
+4. **Duration** — `900` (full, warmup=20) or `90` (smoke, warmup=2). For smoke: set `--warmup-request-count "${WARMUP_REQUEST_COUNT:-2}"` in the script — `WARMUP_REQUEST_COUNT` is not in the launcher's `RUN_ENV` allowlist so it must be hardcoded.
+5. **New branch?** — recommend `exp/<name>` (never dispatch from `main` — see dispatch section).
 
 ## Datasets
 
-| Dataset | File under `benchmarks/single_node/agentic/datasets/` | Think-time | Extra flag |
-|---|---|---|---|
-| Agentic-coding | `agentic_coding_1variant_64k_150s.jsonl` (64k tier committed; other tiers must be added to this dir first) | **yes** | — |
-| Claude-Code MiniMax production | `minimax_claude_code_prod_v3.jsonl` | **yes** | — |
-| Gemma blend_prod | `gemma_blend_prod.jsonl` | **no** (back-to-back) | `strip-trace-delays: true` |
+| Dataset | Path | Type | AIPerf source | Think-time | Extra flag |
+|---|---|---|---|---|---|
+| Agentic-coding | `agentic/datasets/agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | yes | — |
+| Gemma blend_prod | `agentic/datasets/gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | no | `strip-trace-delays: true` |
+| MiniMax CC v4 Weka | `agentic/datasets/minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | yes | dir input, cap inter-turn delays |
 
-All three: `custom-dataset-type: mooncake_trace`, `no-fixed-schedule: true`. Think-time datasets replay recorded inter-turn delays (capped). Gemma is single-turn with no `delay` field; `strip-trace-delays: true` makes the zero-think-time / pure-concurrency behaviour explicit.
+All: `no-fixed-schedule: true`. Archived: `minimax_claude_code_prod_v3.jsonl` — do not use unless explicitly requested.
 
-## A) Master-config entry — `.github/configs/nvidia-master.yaml`
+## A) Master-config entry
 
-The entry is **declarative metadata only**. It does NOT contain the serve command. Append a new top-level key:
+Append to `.github/configs/nvidia-master.yaml`:
 
 ```yaml
-<model-prefix>-<precision>-<hw>-<framework>[-<tag>]:   # KEY → used in --config-keys
-  image: vllm/vllm-openai:v0.21.0      # engine + version the runner pulls
-  model: Qwen/Qwen3-4B-Instruct-2507   # HF slug (must exist; AIPerf tokenizes with it)
-  model-prefix: qwen3-4b-2507          # dashboard group AND first part of the script name (see B)
-  precision: bf16                      # script-name part
-  framework: vllm                      # vllm | sglang → script-name suffix
-  runner: h100-greennode_00            # physical box (→ runners.yaml); set TP consistently
+<model-prefix>-<precision>-<hw>-<framework>[-<tag>]:
+  image: lmsysorg/sglang:v0.5.12-cu130   # or vllm/vllm-openai:v0.21.0
+  model: Namespace/ModelName             # HF slug
+  model-prefix: short-name              # dashboard group; drives script name (see bench-config)
+  precision: fp8
+  framework: sglang                     # vllm | sglang
+  runner: h200-greennode_01
   multinode: false
   scenarios:
     agentic-replay:
-    - input-file: benchmarks/single_node/agentic/datasets/<dataset>.jsonl
-      custom-dataset-type: mooncake_trace
-      max-model-len: 131072            # must cover the trace's longest turn
+    - input-file: benchmarks/single_node/agentic/datasets/<dataset>
+      custom-dataset-type: mooncake_trace   # or weka_trace
+      max-model-len: 131072
       benchmark-client: [aiperf]
       no-fixed-schedule: true
-      # strip-trace-delays: true       # ONLY for Gemma blend_prod (back-to-back)
-      # tokenizer: <hf-id>             # ONLY if served name != a valid HF tokenizer id; else omit (defaults to model)
+      # strip-trace-delays: true           # Gemma blend_prod only
+      # tokenizer: <hf-id>                 # only if served-model-name ≠ valid HF tokenizer
       search-space:
-      - { tp: 1, conc-list: [4] }      # tp must match the GPU count the runner provides
+      - { tp: 8, ep: 8, conc-list: [4, 8, 16, 24, 32] }
 ```
 
-`duration` defaults to 1800 in the schema but is overridden at dispatch (`duration-override`), so leave it out. Sweepable in `search-space`: `tp`, `ep`, `dp-attn`, concurrency (`conc-list` **or** `conc-start`/`conc-end`). Fixed serve flags (gpu-mem-util, kv-dtype, quantization) go in the script — see bench-config's *what-to-edit-where* table.
+`duration` is omitted — overridden at dispatch. `ep:` required for MoE models; omit for dense.
 
-## B) Launch script — holds the serve command
+## B) Launch script
 
-Script path is **derived** (bench-config rule): `benchmarks/single_node/<model-prefix>_<precision>_h100[_<framework>].sh`. **Reuse** if it exists and its serve flags match; otherwise **create** by copying the closest agentic-replay launcher — `qwen3-4b-2507_bf16_h100_vllm.sh` — adding the `AIPERF_SOURCE_DIR` export below, and changing **only the serve block** to the user's command. Keep everything else verbatim: `check_env_vars`, the trace-subset/`STRIP_TRACE_DELAYS` handling, `STOP_ARGS` (duration), the **`REPLAY_ARGS` block** (`no-fixed-schedule`, `grace-period`, sampling, warmup, tokenizer passthrough), and the `run_client_benchmark` call — these wire up the agentic-replay methodology and must not be dropped.
+Script path derived: `benchmarks/single_node/<model-prefix>_<precision>_<hw>[_<framework>].sh`.  
+Reuse if serve flags match; otherwise copy closest template:
+- **Mooncake** → `qwen3-4b-2507_bf16_h100_vllm.sh`
+- **Weka** → `qwen3-4b-v4-weka_bf16_h200_vllm.sh`
 
-**MANDATORY — pin aiperf to our fork.** Right after `source ../benchmark_lib.sh`, the script MUST export `AIPERF_SOURCE_DIR` so `ensure_aiperf` installs from the `utils/aiperf-mooncake` submodule (clean fork pinned to `v0.9.0`, `thangquang09/aiperf`) into the isolated venv via `pip install <dir>` — instead of stock PyPI `aiperf==0.9.0`. All three datasets run through this path (ADR-0003). Without this export the run silently falls back to PyPI and any fork patch is lost.
+Change **only the serve block**. Keep verbatim: `check_env_vars`, `STOP_ARGS`, `REPLAY_ARGS` block, `run_client_benchmark` call.
 
+**MANDATORY — pin AIPerf fork** (right after `source ../benchmark_lib.sh`):
 ```bash
-source "$(dirname "$0")/../benchmark_lib.sh"
-
-# Pin aiperf to the clean-v0.9.0 fork submodule (ADR-0003) instead of PyPI.
+# Both mooncake_trace AND weka_trace use utils/aiperf-mooncake (thangquang09 fork,
+# branch benchtool/agentx-weka). It carries the weka_trace loader AND the
+# data_collector math.isfinite NaN filter, so SGLang's sglang:fwd_occupancy=NaN
+# no longer drops the /metrics scrape — no runtime patch needed.
 export AIPERF_SOURCE_DIR="${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake"
-
-...
-vllm serve "$MODEL" --host 0.0.0.0 --port "$PORT" \
-  --served-model-name "$SERVED_MODEL_NAME" --tensor-parallel-size "$TP" \
-  --max-model-len "$MAX_MODEL_LEN" --max-num-seqs "$CONC" \
-  <user's serve flags here> --trust-remote-code > "$SERVER_LOG" 2>&1 &
 ```
+Without this, the run silently falls back to PyPI and fork patches are lost. Do **not** use `utils/aiperf` (vngcloud fork) for weka any more — its `data_collector.py` uses `== float("inf")` which never catches NaN, so the SGLang runtime patch (`patches/aiperf-skip-nonfinite-server-metrics.patch`) would be required.
 
-SGLang: swap for `python -m sglang.launch_server …`, keeping `$MODEL`/`$TP`/`$PORT`/`$MAX_MODEL_LEN`/`$CONC` on the same env vars.
-
-## perf-changelog.yaml
-
-Append-only, **exact whitespace**, copy an existing agentic-replay entry at the tail and edit the key/description:
-
-```yaml
-- config-keys:
-    - <your-key>
-  description:
-    - "Agentic-replay <dataset> on AIPerf for <model> (<engine> <precision> TP<n>) on <runner>"
-  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
-  scenario-type:
-    - agentic-replay
+SGLang serve block:
+```bash
+python3 -m sglang.launch_server \
+  --model-path "$MODEL" --served-model-name "$SERVED_MODEL_NAME" \
+  --host 0.0.0.0 --port "$PORT" \
+  --tp "$TP" --ep "$EP_SIZE" \
+  --context-length "$MAX_MODEL_LEN" \
+  <user flags> --trust-remote-code > "$SERVER_LOG" 2>&1 &
 ```
+vLLM: use `vllm serve "$MODEL"` with `--tensor-parallel-size "$TP"` and `--max-model-len "$MAX_MODEL_LEN"`.
 
-## grace-period
+Add `EP_SIZE` to `check_env_vars` when using `$EP_SIZE`.
 
-`--benchmark-grace-period` (launcher default **120s**, env `BENCHMARK_GRACE_PERIOD`) only applies in duration mode: after the cutoff AIPerf stops sending new requests and waits up to this long for in-flight ones to finish (the rest drop). Size it to the **longest single request's E2E latency**, not the run duration — 120s is safe headroom for 64k/128k contexts. Leave it unless tail E2E exceeds ~120s.
+## C) DCGM sidecar (always on for GreenNode)
 
-## DCGM (optional — only if the user said yes in Q6)
-
-DCGM is a **sidecar container on the runner**, not part of the config/script. The model server (vLLM/SGLang) already runs inside one `docker run` in the launcher with `--network host`; adding DCGM means starting a second container on the same host network so AIPerf (inside the model container) reaches `localhost:9400/metrics`. The default `gpu_metrics.csv` (nvidia-smi polling in `benchmark_lib.sh`) is untouched and keeps running in parallel.
-
-Edit the launcher for the chosen runner — `runners/launch_<hw>-greennode.sh` (e.g. `launch_h100-greennode.sh`, `launch_rtx5090-greennode.sh`). Paste this block **right before** the model `docker run --rm \` line, then commit it on the same `exp/<name>` branch:
+Edit `runners/launch_<hw>-greennode.sh` — paste **right before** the `docker run --rm \` line:
 
 ```bash
-# DCGM exporter sidecar. Runs --network host so AIPerf inside the model
-# container (also host network) reaches GPU telemetry at localhost:9400/metrics.
-# SYS_ADMIN needed for DCGM_FI_PROF_* metrics; port 9400 must be free
-# (conflicts with any host-level/k8s dcgm-exporter). Torn down on script exit.
 DCGM_IMAGE="${DCGM_IMAGE:-nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04}"
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-greennode}"
 docker rm -f "$DCGM_NAME" 2>/dev/null || true
@@ -115,44 +101,81 @@ docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
 trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 ```
 
-Notes for the agent:
-- Copy verbatim. The only thing to vary is which `launch_<hw>-greennode.sh` file, matching the `runner:` chosen in Q3.
-- Don't touch `benchmark_lib.sh` or the workflow — reachability on `localhost:9400` is all AIPerf needs; wiring the endpoint into the AIPerf config is the user's side.
-- Reverting = delete the block (or `git checkout` the launcher).
-- First-run check on the box: if a host-level/k8s dcgm-exporter already holds port 9400 (`docker ps | grep dcgm`, `ss -ltn | grep 9400`), the sidecar fails to bind — surface that instead of retrying.
+Commit on the same `exp/<name>` branch. If port 9400 is already held (`ss -ltn | grep 9400`), surface the conflict — don't retry blindly.
 
-## Validate → commit → dispatch
+## D) perf-changelog.yaml
+
+Append-only, exact whitespace:
+
+```yaml
+- config-keys:
+    - <your-key>
+  description:
+    - "Agentic-replay <dataset> for <model> (<engine> <precision> TP<n>) on <runner>"
+  pr-link: https://github.com/vngcloud/InferenceX/pull/TBD
+  scenario-type:
+    - agentic-replay
+```
+
+## E) Validate → commit → dispatch
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/configs/nvidia-master.yaml'))"
 bash -n benchmarks/single_node/<script>.sh
 python3 utils/matrix_logic/generate_sweep_configs.py test-config \
-  --config-files .github/configs/nvidia-master.yaml --config-keys <key>   # expect scenario-type=agentic-replay
-git switch -c exp/<name> && git add -p && git commit && git push -u origin exp/<name>
+  --config-files .github/configs/nvidia-master.yaml --config-keys <key>
+# Expect: scenario-type=agentic-replay, ep/tp/conc correct
+
+git switch -c exp/<name>
+git add .github/configs/nvidia-master.yaml benchmarks/single_node/<script>.sh \
+        runners/launch_<hw>-greennode.sh perf-changelog.yaml
+git commit && git push -u origin exp/<name>
 ```
 
-Dispatch — **top-level `ref` MUST be the branch, not `main`** (agentic-replay routing is missing on `main`; `ref=main` silently falls back to the single-node lane and fails):
+**Run naming** — `inputs[test-name]` must start with `yyyy/mm/dd`, followed by a short free-form label that identifies what's unique about this run at a glance. No fixed field order — include whatever dimensions matter: model, precision, GPU config, framework, dataset, context size, special flags, smoke vs full, etc.
+
+```
+yyyy/mm/dd  <whatever makes this run identifiable>
+```
+
+Examples:
+```
+2026/06/27 MiniMax-M2.5 fp8 8xH200 sglang cc-weka-v4
+2026/06/27 MiniMax-M2.5 fp8 8xH200 sglang cc-weka-v4 ctx192k
+2026/06/27 Gemma4-27B fp8 8xH200 vllm agentic-64k mtp smoke
+2026/06/27 Qwen3-4B bf16 1xH100 vllm cc-weka-v4 gpu-mem0.9
+```
+
+Common shorthands: `cc-weka-v4` · `agentic-64k` · `gemma-blend` for the three integrated datasets.  
+`NxHW` (e.g. `8xH200`) is usually worth including — strip "greennode" from the runner name.
+
+Dispatch — **top-level `ref` MUST be the branch** (`ref=main` silently falls back to single-node lane and fails):
 
 ```bash
 gh api --method POST -H "Accept: application/vnd.github+json" \
   /repos/vngcloud/InferenceX/actions/workflows/e2e-tests.yml/dispatches \
-  -f ref=exp/<name> -f 'inputs[ref]=exp/<name>' \
+  -f ref=exp/<name> \
+  -f 'inputs[ref]=exp/<name>' \
   -f 'inputs[generate-cli-command]=test-config --config-keys <key> --config-files .github/configs/nvidia-master.yaml' \
-  -f 'inputs[test-name]=<label>' \
-  -f 'inputs[duration-override]=<900|90>'
+  -f 'inputs[test-name]=yyyy/mm/dd <label>' \
+  -f 'inputs[duration-override]=900'
 ```
 
 ## Watch
 
 ```bash
-RUN_ID=$(gh run list --repo vngcloud/InferenceX --workflow e2e-tests.yml --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
-gh run view "$RUN_ID" --repo vngcloud/InferenceX --json status,jobs -q '.jobs[] | "\(.status)/\(.conclusion // "-")  \(.name)"'
+RUN_ID=$(gh run list --repo vngcloud/InferenceX --workflow e2e-tests.yml \
+  --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run view "$RUN_ID" --repo vngcloud/InferenceX --json status,jobs \
+  -q '.jobs[] | "\(.status)/\(.conclusion // "-")  \(.name)"'
 ```
 
-**Confirm the fork was used** (not PyPI): the job log should show `ensure_aiperf` source-installing from the submodule —
+**Confirm AIPerf fork** (not PyPI): job log must show:
 ```
 [aiperf] CLI missing; installing from source: /workspace/utils/aiperf-mooncake
 ```
-If you instead see `installing aiperf==0.9.0 from PyPI`, the `AIPERF_SOURCE_DIR` export is missing from the launch script (step B).
+Both mooncake and weka now resolve to `/workspace/utils/aiperf-mooncake`. Seeing `installing aiperf==0.9.0 from PyPI` → `AIPERF_SOURCE_DIR` missing from script. Seeing `/workspace/utils/aiperf` → the script still pins the old vngcloud fork (missing the SGLang NaN fix).
 
-Prefix-cache hit % lives in the separate `server_metrics_export.json` artifact (`prefix_cache_hits / prefix_cache_queries`), not `profile_export_aiperf.json`.
+**grace-period**: `--benchmark-grace-period` (default 120s) = max in-flight drain after duration cutoff. 120s covers 64k–192k contexts; increase only if tail E2E latency exceeds ~120s.
+
+**Prefix-cache hit %**: in `server_metrics_export.json` artifact (`prefix_cache_hits / prefix_cache_queries`), not `profile_export_aiperf.json`.
