@@ -21,11 +21,6 @@ on:
                 required: false
                 type: string
                 default: ""
-            skip-resource-cleanup:
-                description: "Skip Docker/Slurm resource cleanup before benchmark"
-                required: false
-                type: string
-                default: "false"
     workflow_call:
         inputs:
             generate-cli-command:
@@ -45,11 +40,6 @@ on:
                 required: false
                 type: string
                 default: ""
-            skip-resource-cleanup:
-                description: "Skip Docker/Slurm resource cleanup before benchmark"
-                required: false
-                type: string
-                default: "false"
 
 jobs:
     get-jobs:
@@ -312,16 +302,11 @@ jobs:
             public-dataset: ${{ matrix.config.public-dataset }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
             tokenizer: ${{ matrix.config.tokenizer }}
-            no-fixed-schedule: ${{ matrix.config.no-fixed-schedule }}
-            num-warmup-sessions: ${{ matrix.config.num-warmup-sessions }}
-            request-count: ${{ matrix.config.request-count }}
-            strip-trace-delays: ${{ matrix.config.strip-trace-delays }}
             duration: ${{ inputs.duration-override != '' && inputs.duration-override || matrix.config.duration }}
             spec-decoding: 'none'
             disagg: 'false'
             run-eval: false
             scenario-type: agentic-replay
-            skip-resource-cleanup: ${{ inputs.skip-resource-cleanup }}
             ref: ${{ inputs.ref }}
 
     test-sweep-evals:

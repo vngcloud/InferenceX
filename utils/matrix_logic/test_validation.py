@@ -570,24 +570,6 @@ class TestAgenticReplayMatrixEntries:
         assert entry.custom_dataset_type == "mooncake_trace"
         assert entry.duration == 1800  # default
 
-    def test_mode1_fields_default_off(self):
-        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry())
-        assert entry.no_fixed_schedule is False
-        assert entry.strip_trace_delays is False
-        assert entry.num_warmup_sessions is None
-        assert entry.request_count is None
-
-    def test_mode1_fields_accepted(self):
-        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(**{
-            "no-fixed-schedule": True,
-            "strip-trace-delays": True,
-            "num-warmup-sessions": 1,
-            "request-count": 50,
-        }))
-        assert entry.no_fixed_schedule is True
-        assert entry.num_warmup_sessions == 1
-        assert entry.request_count == 50
-
     def test_benchmark_client_defaults_to_aiperf(self):
         raw = self._entry()
         del raw["benchmark-client"]
@@ -695,42 +677,6 @@ class TestAgenticReplayConfig:
     def test_conc_range_or_list_required(self):
         with pytest.raises(Exception):
             AgenticReplayConfig(**self._config(**{"search-space": [{"tp": 1}]}))
-
-    def test_mode1_fields_default_off(self):
-        """Without Mode 1 opt-in, the capacity-sweep fields preserve single-replay."""
-        cfg = AgenticReplayConfig(**self._config())
-        assert cfg.no_fixed_schedule is False
-        assert cfg.strip_trace_delays is False
-        assert cfg.num_warmup_sessions is None
-        assert cfg.request_count is None
-
-    def test_mode1_fields_accepted(self):
-        cfg = AgenticReplayConfig(**self._config(**{
-            "no-fixed-schedule": True,
-            "strip-trace-delays": True,
-            "num-warmup-sessions": 1,
-            "request-count": 50,
-            "search-space": [{"tp": 1, "conc-list": [8, 16, 32]}],
-        }))
-        assert cfg.no_fixed_schedule is True
-        assert cfg.strip_trace_delays is True
-        assert cfg.num_warmup_sessions == 1
-        assert cfg.request_count == 50
-
-    def test_request_count_below_max_conc_rejected(self):
-        """AIPerf requires request-count >= concurrency; guard the smallest count."""
-        with pytest.raises(Exception):
-            AgenticReplayConfig(**self._config(**{
-                "request-count": 50,
-                "search-space": [{"tp": 1, "conc-list": [8, 16, 32, 64]}],
-            }))
-
-    def test_request_count_at_max_conc_allowed(self):
-        cfg = AgenticReplayConfig(**self._config(**{
-            "request-count": 64,
-            "search-space": [{"tp": 1, "conc-list": [8, 16, 32, 64]}],
-        }))
-        assert cfg.request_count == 64
 
 
 # =============================================================================

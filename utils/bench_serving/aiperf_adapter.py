@@ -36,46 +36,6 @@ def detect_mode(artifact_dir: Path) -> str:
     """Return the AIPerf artifact mode for a completed run."""
     return "search" if (artifact_dir / SEARCH_HISTORY).exists() else "fixed"
 
-def _metric_avg(artifact: dict, metric_name: str) -> float | None:
-    metric = artifact.get(metric_name)
-    if not isinstance(metric, dict):
-        return None
-    value = metric.get("avg")
-    return float(value) if value is not None else None
-
-def _whole_count(value: float | None, metric_name: str) -> int | None:
-    if value is None:
-        return None
-    rounded = round(value)
-    if abs(value - rounded) > 1e-6:
-        raise ValueError(f"AIPerf metric {metric_name} is not an integer count: {value}")
-    return int(rounded)
-
-def validate_request_counts(artifact: dict, expected_request_count: int) -> None:
-    """Fail closed when AIPerf produced a partial or error-tainted run."""
-    successful = _whole_count(_metric_avg(artifact, "request_count"), "request_count")
-    errors = _whole_count(_metric_avg(artifact, "error_request_count"), "error_request_count") or 0
-
-    if successful is None:
-        raise ValueError(
-            "AIPerf artifact is missing request_count; refusing to aggregate an "
-            "unverifiable benchmark result."
-        )
-
-    if errors > 0:
-        raise ValueError(
-            f"AIPerf reported {errors} failed requests "
-            f"({successful} successful, expected {expected_request_count}); "
-            "refusing to aggregate partial results."
-        )
-
-    if successful != expected_request_count:
-        raise ValueError(
-            f"AIPerf completed {successful}/{expected_request_count} successful "
-            "requests; refusing to aggregate partial results."
-        )
-
-
 def extract_max_concurrency(artifact: dict, search_history: dict | None, mode: str) -> int:
     """Extract the concurrency value InferenceX should record."""
     if mode == "fixed":
@@ -164,26 +124,7 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         or (args.public_dataset or "").startswith("semianalysis_cc_traces_weka")
     )
 
-    # Stop condition: a fixed request count (single-replay / Mode-1 resample) or a
-    # wall-clock duration cap (duration-based smoke). At least one is always set
-    # (enforced in parse_args).
-    if args.request_count is not None:
-        cmd.extend(["--request-count", str(args.request_count)])
-    if args.benchmark_duration is not None:
-        cmd.extend(["--benchmark-duration", str(args.benchmark_duration)])
-
-    if args.warmup_request_count is not None and not agentx_weka:
-        cmd.extend(["--warmup-request-count", str(args.warmup_request_count)])
-    if args.num_warmup_sessions is not None and not agentx_weka:
-        cmd.extend(["--num-warmup-sessions", str(args.num_warmup_sessions)])
-    # Mode 1 (capacity sweep): suppress AIPerf's automatic switch to
-    # fixed-schedule mode for trace datasets carrying timestamps, so the run
-    # is driven purely by --concurrency back-pressure. The trace's recorded
-    # inter-turn delays are stripped upstream in the launcher (aiperf 0.9.0 has
-    # no CLI flag to ignore mooncake_trace delays); this flag only governs the
-    # timing mode, not the per-turn think-time.
-    if args.no_fixed_schedule and not agentx_weka:
-        cmd.append("--no-fixed-schedule")
+    cmd.extend(["--benchmark-duration", str(args.benchmark_duration)])
     if args.server_metrics_url:
         cmd.extend(["--server-metrics", args.server_metrics_url])
     if args.gpu_telemetry_url:
@@ -203,29 +144,6 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--osl", str(args.osl)])
     if args.random_seed is not None:
         cmd.extend(["--random-seed", str(args.random_seed)])
-    for extra_input in args.extra_inputs:
-        # Repeat the flag per value — `aiperf profile` expects one key:value per
-        # --extra-inputs, not several values sharing a single flag.
-        cmd.extend(["--extra-inputs", extra_input])
-
-    # Placeholder SLA / canonical-command flags. Wired through to `aiperf profile`
-    # but inert in current configs (left unset). The team computes SLA (tok/s/user,
-    # goodput) offline from the retained raw artifact; these exist so a future
-    # config can activate them without another plumbing change.
-    if args.goodput is not None:
-        cmd.extend(["--goodput", args.goodput])
-    if args.temperature is not None:
-        cmd.extend(["--temperature", str(args.temperature)])
-    if args.inter_turn_delay_cap_seconds is not None and not agentx_weka:
-        cmd.extend(["--inter-turn-delay-cap-seconds", str(args.inter_turn_delay_cap_seconds)])
-    if args.use_think_time_only and not agentx_weka:
-        cmd.append("--use-think-time-only")
-    if args.dataset_sampling_strategy is not None:
-        cmd.extend(["--dataset-sampling-strategy", args.dataset_sampling_strategy])
-    if args.benchmark_grace_period is not None:
-        cmd.extend(["--benchmark-grace-period", str(args.benchmark_grace_period)])
-    if args.workers_max is not None:
-        cmd.extend(["--workers-max", str(args.workers_max)])
     if args.failed_request_threshold is not None:
         cmd.extend(["--failed-request-threshold", str(args.failed_request_threshold)])
     if args.trajectory_start_min_ratio is not None:
@@ -252,16 +170,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--url", required=True)
     parser.add_argument("--concurrency", required=True, type=int)
-    parser.add_argument("--request-count", type=int)
-    parser.add_argument("--benchmark-duration", type=float)
+    parser.add_argument("--benchmark-duration", type=float, required=True)
     parser.add_argument("--result-filename", required=True)
     parser.add_argument("--result-dir", required=True, type=Path)
     parser.add_argument("--endpoint-type", default="chat")
     parser.add_argument("--scenario")
     parser.add_argument("--endpoint")
-    parser.add_argument("--warmup-request-count", type=int)
-    parser.add_argument("--num-warmup-sessions", type=int)
-    parser.add_argument("--no-fixed-schedule", action="store_true")
     parser.add_argument("--server-metrics-url")
     parser.add_argument("--gpu-telemetry-url")
     parser.add_argument("--public-dataset")
@@ -271,20 +185,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--isl", type=int)
     parser.add_argument("--osl", type=int)
     parser.add_argument("--random-seed", type=int)
-    parser.add_argument(
-        "--extra-inputs",
-        action="append",
-        default=[],
-        help="Additional key:value inputs to pass through to aiperf profile.",
-    )
-    # Placeholder SLA / canonical-command flags — wired but inert (see run_aiperf).
-    parser.add_argument("--goodput")
-    parser.add_argument("--temperature", type=float)
-    parser.add_argument("--inter-turn-delay-cap-seconds", type=float)
-    parser.add_argument("--use-think-time-only", action="store_true")
-    parser.add_argument("--dataset-sampling-strategy")
-    parser.add_argument("--benchmark-grace-period", type=float)
-    parser.add_argument("--workers-max", type=int)
     parser.add_argument("--failed-request-threshold", type=float)
     parser.add_argument("--trajectory-start-min-ratio", type=float)
     parser.add_argument("--trajectory-start-max-ratio", type=float)
@@ -295,11 +195,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--unsafe-override", action="store_true")
     args = parser.parse_args()
 
-    if args.request_count is None and args.benchmark_duration is None:
-        parser.error("one of --request-count or --benchmark-duration is required")
-    if args.request_count is not None and args.request_count < args.concurrency:
-        parser.error("--request-count must be greater than or equal to --concurrency")
-
     return args
 
 
@@ -309,10 +204,6 @@ def main() -> None:
     artifact_dir = run_aiperf(args)
 
     artifact = json.loads((artifact_dir / PROFILE_EXPORT).read_text())
-    # ponytail: duration mode tolerates overflow/errored turns and an unknown
-    # completed-count — exact request-count validation only applies to fixed replay.
-    if args.request_count is not None:
-        validate_request_counts(artifact, args.request_count)
     mode = detect_mode(artifact_dir)
     search_history = None
     if mode == "search":

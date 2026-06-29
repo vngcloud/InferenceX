@@ -25,7 +25,6 @@ on:
             - main
             - dev
         types:
-            - opened
             - ready_for_review
             - synchronize
             - labeled
@@ -294,10 +293,6 @@ jobs:
             input-file: ${{ matrix.config.input-file }}
             public-dataset: ${{ matrix.config.public-dataset }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
-            no-fixed-schedule: ${{ matrix.config.no-fixed-schedule }}
-            num-warmup-sessions: ${{ matrix.config.num-warmup-sessions }}
-            request-count: ${{ matrix.config.request-count }}
-            strip-trace-delays: ${{ matrix.config.strip-trace-delays }}
             duration: ${{ matrix.config.duration }}
             spec-decoding: 'none'
             disagg: ${{ 'false' }}
@@ -575,7 +570,6 @@ jobs:
             always() &&
             github.event_name == 'pull_request' &&
             needs.collect-results.result == 'success'
-        continue-on-error: true
         runs-on: ubuntu-latest
 
         env:

@@ -502,12 +502,6 @@ def generate_full_sweep(args, all_config_data, runner_data):
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
                 Fields.BENCHMARK_CLIENT.value, ["aiperf"])
-            # Mode 1 (capacity sweep) controls; defaults preserve single-replay.
-            no_fixed_schedule = replay_config.get(Fields.NO_FIXED_SCHEDULE.value, False)
-            num_warmup_sessions = replay_config.get(Fields.NUM_WARMUP_SESSIONS.value)
-            request_count = replay_config.get(Fields.REQUEST_COUNT.value)
-            strip_trace_delays = replay_config.get(Fields.STRIP_TRACE_DELAYS.value, False)
-
             for bmk in bmk_space:
                 tp = bmk[Fields.TP.value]
                 ep = bmk.get(Fields.EP.value)
@@ -563,10 +557,6 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
-                                Fields.NO_FIXED_SCHEDULE.value: no_fixed_schedule,
-                                Fields.NUM_WARMUP_SESSIONS.value: num_warmup_sessions,
-                                Fields.REQUEST_COUNT.value: request_count,
-                                Fields.STRIP_TRACE_DELAYS.value: strip_trace_delays,
                                 Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
                                 Fields.DISAGG.value: disagg,
                                 Fields.SCENARIO_TYPE.value: "agentic-replay",
@@ -1023,12 +1013,6 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
                 Fields.BENCHMARK_CLIENT.value, ["aiperf"])
-            # Mode 1 (capacity sweep) controls; defaults preserve single-replay.
-            no_fixed_schedule = replay_config.get(Fields.NO_FIXED_SCHEDULE.value, False)
-            num_warmup_sessions = replay_config.get(Fields.NUM_WARMUP_SESSIONS.value)
-            request_count = replay_config.get(Fields.REQUEST_COUNT.value)
-            strip_trace_delays = replay_config.get(Fields.STRIP_TRACE_DELAYS.value, False)
-
             for bmk in replay_config[Fields.SEARCH_SPACE.value]:
                 tp = bmk[Fields.TP.value]
                 ep = bmk.get(Fields.EP.value)
@@ -1080,10 +1064,6 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
-                                Fields.NO_FIXED_SCHEDULE.value: no_fixed_schedule,
-                                Fields.NUM_WARMUP_SESSIONS.value: num_warmup_sessions,
-                                Fields.REQUEST_COUNT.value: request_count,
-                                Fields.STRIP_TRACE_DELAYS.value: strip_trace_delays,
                                 Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
                                 Fields.DISAGG.value: disagg,
                                 Fields.SCENARIO_TYPE.value: "agentic-replay",

@@ -477,21 +477,6 @@ class TestGenerateFullSweepSingleNode:
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["input-file"].endswith("qwen3.5-4b-smoke.jsonl")
 
-    def test_agentic_replay_mode1_defaults_off(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
-        """Entries from a plain agentic-replay config carry Mode 1 fields as off."""
-        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
-
-        result = generate_full_sweep(
-            full_sweep_args_single_node,
-            sample_agentic_replay_config,
-            sample_runner_config,
-        )
-
-        assert result[0]["no-fixed-schedule"] is False
-        assert result[0]["strip-trace-delays"] is False
-        assert result[0]["num-warmup-sessions"] is None
-        assert result[0]["request-count"] is None
-
     def test_agentic_replay_weka_defaults_to_public_dataset(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]
         scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
@@ -506,31 +491,6 @@ class TestGenerateFullSweepSingleNode:
 
         assert result[0]["public-dataset"] == "semianalysis_cc_traces_weka_with_subagents_060826"
         assert result[0]["input-file"] is None
-
-    def test_agentic_replay_mode1_fields_flow(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
-        """Mode 1 capacity-sweep fields flow into one matrix entry per concurrency."""
-        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
-        scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
-        scenario.update({
-            "no-fixed-schedule": True,
-            "strip-trace-delays": True,
-            "num-warmup-sessions": 1,
-            "request-count": 50,
-            "search-space": [{"tp": 1, "conc-list": [8, 16, 32]}],
-        })
-
-        result = generate_full_sweep(
-            full_sweep_args_single_node,
-            sample_agentic_replay_config,
-            sample_runner_config,
-        )
-
-        assert sorted(e["conc"] for e in result) == [8, 16, 32]
-        for entry in result:
-            assert entry["no-fixed-schedule"] is True
-            assert entry["strip-trace-delays"] is True
-            assert entry["num-warmup-sessions"] == 1
-            assert entry["request-count"] == 50
 
     def test_matrix_entry_structure(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
         """Generated entries should have correct structure."""
