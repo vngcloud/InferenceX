@@ -9515,6 +9515,6 @@ glm5.2-weka-fp8-h200-greennode-sglang-smoke:
     - custom-dataset-type: weka_trace
       max-model-len: 196608
       benchmark-client: [aiperf]
-      duration: 300
+      duration: 900
       search-space:
-      - { tp: 8, ep: 8, conc-list: [2] }
+      - { tp: 8, ep: 8, conc-list: [4, 8, 12, 16] }
