@@ -19,6 +19,7 @@ class Fields(Enum):
     MODEL_PREFIX = 'model-prefix'
     PRECISION = 'precision'
     FRAMEWORK = 'framework'
+    BENCHMARK_CLIENT = 'benchmark-client'
     RUNNER = 'runner'
     SCENARIOS = 'scenarios'
     MULTINODE = 'multinode'
@@ -26,6 +27,7 @@ class Fields(Enum):
     # Scenario type keys
     FIXED_SEQ_LEN = 'fixed-seq-len'
     AGENTIC_CODING = 'agentic-coding'
+    AGENTIC_REPLAY = 'agentic-replay'
 
     # Seq-len-config fields
     ISL = 'isl'
@@ -54,6 +56,12 @@ class Fields(Enum):
     # Agentic coding fields
     OFFLOADING = 'offloading'
     DURATION = 'duration'
+
+    # Agentic replay fields
+    INPUT_FILE = 'input-file'
+    PUBLIC_DATASET = 'public-dataset'
+    CUSTOM_DATASET_TYPE = 'custom-dataset-type'
+    TOKENIZER = 'tokenizer'
 
     # Matrix entry fields
     CONC = 'conc'
@@ -88,6 +96,9 @@ class SingleNodeMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
@@ -133,6 +144,9 @@ class MultiNodeMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
@@ -159,6 +173,9 @@ class SingleNodeAgenticMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     runner: str
     tp: int
     ep: int
@@ -179,6 +196,9 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
     model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
     precision: str
     framework: str
+    benchmark_client: Literal["inferencex_native", "aiperf"] = Field(
+        default="inferencex_native", alias=Fields.BENCHMARK_CLIENT.value
+    )
     spec_decoding: Literal["mtp", "draft_model", "none"] = Field(
         alias=Fields.SPEC_DECODING.value
     )
@@ -195,6 +215,50 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
 AgenticMatrixEntry = Union[SingleNodeAgenticMatrixEntry, MultiNodeAgenticMatrixEntry]
 
 
+class SingleNodeAgenticReplayMatrixEntry(BaseModel):
+    """Pydantic model for validating single-node agentic-replay matrix entries.
+
+    Agentic-replay drives a recorded mooncake_trace JSONL through official AIPerf
+    (the ``aiperf`` benchmark client) and rides the standard ``process_result.py``
+    aggregation. ``isl``/``osl`` are placeholders required by downstream env
+    checks; the trace defines the real per-request lengths."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    image: str
+    model: str
+    model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
+    precision: str
+    framework: str
+    benchmark_client: Literal["aiperf"] = Field(
+        default="aiperf", alias=Fields.BENCHMARK_CLIENT.value
+    )
+    runner: str
+    tp: int
+    ep: int
+    dp_attn: bool = Field(alias=Fields.DP_ATTN.value)
+    conc: int
+    isl: int
+    osl: int
+    max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
+    input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
+    public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
+    custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
+    duration: int = Field(default=1800, alias=Fields.DURATION.value)
+    tokenizer: Optional[str] = Field(
+        default=None, alias=Fields.TOKENIZER.value)
+    exp_name: str = Field(alias=Fields.EXP_NAME.value)
+    disagg: bool
+    scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
+
+    @model_validator(mode='after')
+    def validate_trace_source(self):
+        if self.input_file and self.public_dataset:
+            raise ValueError("agentic-replay matrix entry accepts only one of input-file or public-dataset")
+        if not self.input_file and not self.public_dataset:
+            raise ValueError("agentic-replay matrix entry requires input-file or public-dataset")
+        return self
+
+
 def validate_agentic_matrix_entry(entry: dict) -> dict:
     """Validate that an agentic matrix entry matches the expected structure."""
     try:
@@ -205,6 +269,16 @@ def validate_agentic_matrix_entry(entry: dict) -> dict:
     except ValidationError as e:
         raise ValueError(
             f"The following parsed agentic matrix entry failed validation:\n{pprint.pformat(entry)}\n{e}")
+    return entry
+
+
+def validate_agentic_replay_matrix_entry(entry: dict) -> dict:
+    """Validate that an agentic-replay matrix entry matches the expected structure."""
+    try:
+        SingleNodeAgenticReplayMatrixEntry(**entry)
+    except ValidationError as e:
+        raise ValueError(
+            f"The following parsed agentic-replay matrix entry failed validation:\n{pprint.pformat(entry)}\n{e}")
     return entry
 
 
@@ -338,6 +412,8 @@ class SingleNodeSeqLenConfig(BaseModel):
 
     isl: int
     osl: int
+    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
+        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
     search_space: List[SingleNodeSearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 
@@ -348,6 +424,8 @@ class MultiNodeSeqLenConfig(BaseModel):
 
     isl: int
     osl: int
+    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
+        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
     search_space: List[MultiNodeSearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 
@@ -391,8 +469,57 @@ class AgenticCodingConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
 
     search_space: List[AgenticCodingSearchSpaceEntry] = Field(alias=Fields.SEARCH_SPACE.value)
+    benchmark_client: List[Literal["inferencex_native", "aiperf"]] = Field(
+        default=["inferencex_native"], alias=Fields.BENCHMARK_CLIENT.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
 
+
+class AgenticReplaySearchSpaceEntry(BaseModel):
+    """Single-node agentic-replay search space configuration."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    tp: int
+    ep: Optional[int] = None
+    dp_attn: Optional[bool] = Field(default=None, alias=Fields.DP_ATTN.value)
+    conc_start: Optional[int] = Field(default=None, alias=Fields.CONC_START.value)
+    conc_end: Optional[int] = Field(default=None, alias=Fields.CONC_END.value)
+    conc_list: Optional[List[int]] = Field(default=None, alias=Fields.CONC_LIST.value)
+
+    @model_validator(mode='after')
+    def validate_conc_fields(self):
+        return _validate_conc_fields(self)
+
+
+class AgenticReplayConfig(BaseModel):
+    """Single-node agentic-replay scenario: a recorded trace replayed once
+    through official AIPerf. ``input-file`` is a repo-relative mooncake_trace
+    JSONL; the run is bounded by the record count, not a duration sweep."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
+    public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
+    custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
+    max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
+    benchmark_client: List[Literal["aiperf"]] = Field(
+        default=["aiperf"], alias=Fields.BENCHMARK_CLIENT.value)
+    duration: int = Field(default=1800, alias=Fields.DURATION.value)
+    tokenizer: Optional[str] = Field(
+        default=None, alias=Fields.TOKENIZER.value)
+    search_space: List[AgenticReplaySearchSpaceEntry] = Field(
+        alias=Fields.SEARCH_SPACE.value)
+
+    @model_validator(mode='after')
+    def validate_trace_source(self):
+        if self.input_file and self.public_dataset:
+            raise ValueError("agentic-replay accepts only one of input-file or public-dataset")
+        if self.custom_dataset_type == "weka_trace":
+            if not self.input_file and not self.public_dataset:
+                self.public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
+        elif self.public_dataset:
+            raise ValueError("public-dataset is only supported for weka_trace agentic-replay")
+        elif not self.input_file:
+            raise ValueError("input-file is required for non-weka_trace agentic-replay")
+        return self
 
 class SingleNodeScenarios(BaseModel):
     """Scenarios wrapper for single-node configs."""
@@ -402,10 +529,12 @@ class SingleNodeScenarios(BaseModel):
         default=None, alias=Fields.FIXED_SEQ_LEN.value)
     agentic_coding: Optional[List[AgenticCodingConfig]] = Field(
         default=None, alias=Fields.AGENTIC_CODING.value)
+    agentic_replay: Optional[List[AgenticReplayConfig]] = Field(
+        default=None, alias=Fields.AGENTIC_REPLAY.value)
 
     @model_validator(mode='after')
     def at_least_one_scenario(self):
-        if not self.fixed_seq_len and not self.agentic_coding:
+        if not self.fixed_seq_len and not self.agentic_coding and not self.agentic_replay:
             raise ValueError("At least one scenario type must be specified")
         return self
 
@@ -529,7 +658,7 @@ class ChangelogMatrixEntry(BaseModel):
     """
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    single_node: dict[str, list[Union[SingleNodeMatrixEntry, SingleNodeAgenticMatrixEntry]]
+    single_node: dict[str, list[Union[SingleNodeMatrixEntry, SingleNodeAgenticMatrixEntry, SingleNodeAgenticReplayMatrixEntry]]
                       ] = Field(default_factory=dict)
     multi_node: dict[str, list[Union[MultiNodeMatrixEntry, MultiNodeAgenticMatrixEntry]]
                      ] = Field(default_factory=dict)
