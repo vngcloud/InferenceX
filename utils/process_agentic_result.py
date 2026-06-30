@@ -37,7 +37,7 @@ from pathlib import Path
 # Trace metadata lookup: conversation_id (= trace id) -> per-turn dict with
 # ``hash_ids`` and ``output_length``. Built lazily from the HF dataset cache.
 _TRACE_METADATA_CACHE: dict[str, list[dict]] | None = None
-_HF_DATASET = "semianalysisai/cc-traces-weka-no-subagents-051226"
+_HF_DATASET = "semianalysisai/cc-traces-weka-042026"
 
 
 # ---- helpers ---------------------------------------------------------------
@@ -485,26 +485,6 @@ def compute_cache_stats(records: list[dict], server_metrics: dict) -> dict:
     cpu_queries = _final_value("vllm:cpu_prefix_cache_queries")
     if cpu_hits is not None and cpu_queries and cpu_queries > 0:
         result["server_cpu_cache_hit_rate"] = cpu_hits / cpu_queries
-
-    # SGLang exposes different metric names than vLLM (prefix ``sglang:``,
-    # confirmed for v0.5.x). Only fill the slot the vLLM keys left empty so
-    # vLLM/Mode-1 runs are untouched. Prefer the cumulative token-weighted
-    # ratio (cached / prompt) — robust over the whole run — over
-    # ``sglang:cache_hit_rate``, which is a "mostrecent" snapshot gauge
-    # reflecting only the final scrape window.
-    if result["server_gpu_cache_hit_rate"] is None:
-        sg_cached = _final_value("sglang:cached_tokens_total")
-        sg_prompt = _final_value("sglang:prompt_tokens_total")
-        if sg_cached is not None and sg_prompt and sg_prompt > 0:
-            result["server_gpu_cache_hit_rate"] = sg_cached / sg_prompt
-        else:
-            sg_rate = _final_value("sglang:cache_hit_rate")
-            if sg_rate is not None:
-                # SGLang reports this gauge as a percentage (0-100); normalize
-                # to a 0-1 fraction to match the vLLM-derived value.
-                result["server_gpu_cache_hit_rate"] = (
-                    sg_rate / 100.0 if sg_rate > 1.0 else sg_rate
-                )
 
     for src_key, dst_key in (
         ("vllm:kv_offload_bytes_gpu_to_cpu", "kv_offload_bytes_gpu_to_cpu"),

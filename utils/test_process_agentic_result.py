@@ -365,55 +365,6 @@ def test_processor_parses_real_server_metrics_schema(tmp_path: Path):
     assert agg["total_generation_tokens"] == 6789
 
 
-def test_processor_sglang_cache_hit_from_token_counters(tmp_path: Path):
-    """SGLang runs: server_gpu_cache_hit_rate = cached_tokens / prompt_tokens."""
-    result_dir = _write_fixture(tmp_path)
-    artifact = result_dir / "trace_replay"
-    server_metrics = {
-        "metrics": {
-            "sglang:cached_tokens_total": {
-                "type": "counter",
-                "series": [{"stats": {"total": 900.0}}],
-            },
-            "sglang:prompt_tokens_total": {
-                "type": "counter",
-                "series": [{"stats": {"total": 1000.0}}],
-            },
-        },
-    }
-    with open(artifact / "server_metrics_export.json", "w") as f:
-        json.dump(server_metrics, f)
-
-    output_dir = tmp_path / "out"
-    agg = _run_processor(result_dir, output_dir)
-    assert agg["server_gpu_cache_hit_rate"] == pytest.approx(0.9)
-
-
-def test_processor_sglang_cache_hit_gauge_fallback_normalizes_percent(tmp_path: Path):
-    """Without token counters, fall back to the sglang:cache_hit_rate gauge.
-
-    SGLang reports the gauge as a percentage (0-100); the processor normalizes
-    it to a 0-1 fraction.
-    """
-    result_dir = _write_fixture(tmp_path)
-    artifact = result_dir / "trace_replay"
-    server_metrics = {
-        "metrics": {
-            "sglang:cache_hit_rate": {
-                "type": "gauge",
-                "series": [{"stats": {"max": 73.0, "avg": 65.0}}],
-            },
-        },
-    }
-    with open(artifact / "server_metrics_export.json", "w") as f:
-        json.dump(server_metrics, f)
-
-    output_dir = tmp_path / "out"
-    agg = _run_processor(result_dir, output_dir)
-    # _final_value prefers max over avg; 73.0% -> 0.73.
-    assert agg["server_gpu_cache_hit_rate"] == pytest.approx(0.73)
-
-
 def test_processor_aggregates_across_multiple_series(tmp_path: Path):
     """Counters with multiple series (multi-endpoint) sum across them."""
     result_dir = _write_fixture(tmp_path)
@@ -454,12 +405,7 @@ def test_processor_loads_traces_jsonl_for_theoretical_cache(tmp_path: Path):
     # Build a fake HF cache with traces.jsonl matching the conv_ids the
     # fixture references (trace-A, trace-B).
     hf_cache = tmp_path / "_hf"
-    snapshot = (
-        hf_cache
-        / "datasets--semianalysisai--cc-traces-weka-no-subagents-051226"
-        / "snapshots"
-        / "abc"
-    )
+    snapshot = hf_cache / "datasets--semianalysisai--cc-traces-weka-042026" / "snapshots" / "abc"
     snapshot.mkdir(parents=True)
     # Real corpus uses the ``out`` alias (Pydantic's external name for
     # output_length). Mix both to verify the loader accepts either.
