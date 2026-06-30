@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validation import (
     validate_matrix_entry,
     validate_agentic_matrix_entry,
+    validate_agentic_replay_matrix_entry,
     load_config_files,
     load_runner_file,
     Fields
@@ -124,7 +125,7 @@ def mark_eval_entries(matrix_values: list[dict]) -> list[dict]:
 
     # Mark the selected entries (skip agentic entries which don't support evals)
     for i, entry in enumerate(matrix_values):
-        if entry.get(Fields.SCENARIO_TYPE.value) == 'agentic-coding':
+        if entry.get(Fields.SCENARIO_TYPE.value) in ('agentic-coding', 'agentic-replay'):
             continue
         entry[Fields.RUN_EVAL.value] = i in eval_indices
         if i in mn_eval_conc:
@@ -207,6 +208,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
         for seq_config in seq_len_configs:
             isl = seq_config[Fields.ISL.value]
             osl = seq_config[Fields.OSL.value]
+            benchmark_clients = seq_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
 
             # Filter by sequence lengths if specified
             if seq_lens_filter and (isl, osl) not in seq_lens_filter:
@@ -272,28 +275,30 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     seq_len_str = seq_len_to_str(isl, osl)
                     runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
 
-                    for runner_value in runners_for_entry:
-                        entry = {
-                            Fields.IMAGE.value: image,
-                            Fields.MODEL.value: model,
-                            Fields.MODEL_PREFIX.value: model_code,
-                            Fields.PRECISION.value: precision,
-                            Fields.FRAMEWORK.value: framework,
-                            Fields.RUNNER.value: runner_value,
-                            Fields.ISL.value: isl,
-                            Fields.OSL.value: osl,
-                            Fields.SPEC_DECODING.value: spec_decoding,
-                            Fields.PREFILL.value: prefill,
-                            Fields.DECODE.value: decode,
-                            Fields.CONC.value: conc_values,  # Pass the entire list for multinode
-                            Fields.MAX_MODEL_LEN.value: isl + osl + 256,
-                            Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
-                            Fields.DISAGG.value: disagg,
-                            Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
-                        }
+                    for benchmark_client in benchmark_clients:
+                        for runner_value in runners_for_entry:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner_value,
+                                Fields.ISL.value: isl,
+                                Fields.OSL.value: osl,
+                                Fields.SPEC_DECODING.value: spec_decoding,
+                                Fields.PREFILL.value: prefill,
+                                Fields.DECODE.value: decode,
+                                Fields.CONC.value: conc_values,  # Pass the entire list for multinode
+                                Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
+                                Fields.DISAGG.value: disagg,
+                                Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
+                            }
 
-                        validate_matrix_entry(entry, is_multinode)
-                        matrix_values.append(entry)
+                            validate_matrix_entry(entry, is_multinode)
+                            matrix_values.append(entry)
                 else:
                     # Single-node configuration
                     tp = bmk[Fields.TP.value]
@@ -343,44 +348,46 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     seq_len_str = seq_len_to_str(isl, osl)
                     runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
 
-                    conc = conc_start
-                    while conc <= conc_end:
-                        for runner_value in runners_for_entry:
-                            entry = {
-                                Fields.IMAGE.value: image,
-                                Fields.MODEL.value: model,
-                                Fields.MODEL_PREFIX.value: model_code,
-                                Fields.PRECISION.value: precision,
-                                Fields.FRAMEWORK.value: framework,
-                                Fields.RUNNER.value: runner_value,
-                                Fields.ISL.value: isl,
-                                Fields.OSL.value: osl,
-                                Fields.TP.value: tp,
-                                Fields.CONC.value: conc,
-                                Fields.MAX_MODEL_LEN.value: isl + osl + 256,
-                                Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
-                                Fields.EP.value: 1,  # Default
-                                Fields.DP_ATTN.value: False,  # Default
-                                Fields.SPEC_DECODING.value: spec_decoding,
-                                Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
-                                Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
-                                Fields.DISAGG.value: disagg,
-                                Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
-                            }
+                    for benchmark_client in benchmark_clients:
+                        conc = conc_start
+                        while conc <= conc_end:
+                            for runner_value in runners_for_entry:
+                                entry = {
+                                    Fields.IMAGE.value: image,
+                                    Fields.MODEL.value: model,
+                                    Fields.MODEL_PREFIX.value: model_code,
+                                    Fields.PRECISION.value: precision,
+                                    Fields.FRAMEWORK.value: framework,
+                                    Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                    Fields.RUNNER.value: runner_value,
+                                    Fields.ISL.value: isl,
+                                    Fields.OSL.value: osl,
+                                    Fields.TP.value: tp,
+                                    Fields.CONC.value: conc,
+                                    Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                    Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                                    Fields.EP.value: 1,  # Default
+                                    Fields.DP_ATTN.value: False,  # Default
+                                    Fields.SPEC_DECODING.value: spec_decoding,
+                                    Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
+                                    Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
+                                    Fields.DISAGG.value: disagg,
+                                    Fields.RUN_EVAL.value: False,  # Default, may be overridden by mark_eval_entries
+                                }
 
-                            if ep is not None:
-                                entry[Fields.EP.value] = ep
-                            if dp_attn is not None:
-                                entry[Fields.DP_ATTN.value] = dp_attn
+                                if ep is not None:
+                                    entry[Fields.EP.value] = ep
+                                if dp_attn is not None:
+                                    entry[Fields.DP_ATTN.value] = dp_attn
 
-                            validate_matrix_entry(entry, is_multinode)
-                            matrix_values.append(entry)
+                                validate_matrix_entry(entry, is_multinode)
+                                matrix_values.append(entry)
 
-                        if conc == conc_end:
-                            break
-                        conc *= args.step_size
-                        if conc > conc_end:
-                            conc = conc_end
+                            if conc == conc_end:
+                                break
+                            conc *= args.step_size
+                            if conc > conc_end:
+                                conc = conc_end
 
         # ---- Agentic-coding scenarios ----
         agentic_configs = scenarios.get(Fields.AGENTIC_CODING.value, []) if (scenario_filter is None or 'agentic-coding' in scenario_filter) else []
@@ -388,6 +395,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
         for agentic_config in agentic_configs:
             bmk_space = agentic_config[Fields.SEARCH_SPACE.value]
             duration = agentic_config.get(Fields.DURATION.value, 1800)
+            benchmark_clients = agentic_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
 
             for bmk in bmk_space:
                 if is_multinode:
@@ -427,48 +436,133 @@ def generate_full_sweep(args, all_config_data, runner_data):
 
                 runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
 
-                for conc in conc_values:
-                    for runner_value in runners_for_entry:
-                        if is_multinode:
+                for benchmark_client in benchmark_clients:
+                    for conc in conc_values:
+                        for runner_value in runners_for_entry:
+                            if is_multinode:
+                                entry = {
+                                    Fields.IMAGE.value: image,
+                                    Fields.MODEL.value: model,
+                                    Fields.MODEL_PREFIX.value: model_code,
+                                    Fields.PRECISION.value: precision,
+                                    Fields.FRAMEWORK.value: framework,
+                                    Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                    Fields.RUNNER.value: runner_value,
+                                    Fields.SPEC_DECODING.value: spec_decoding,
+                                    Fields.PREFILL.value: prefill,
+                                    Fields.DECODE.value: decode,
+                                    Fields.CONC.value: conc,
+                                    Fields.DURATION.value: duration,
+                                    Fields.EXP_NAME.value: (
+                                        f"{model_code}_p{prefill[Fields.NUM_WORKER.value]}x{prefill[Fields.TP.value]}"
+                                        f"_d{decode[Fields.NUM_WORKER.value]}x{decode[Fields.TP.value]}_conc{conc}"
+                                    ),
+                                    Fields.DISAGG.value: disagg,
+                                    Fields.SCENARIO_TYPE.value: "agentic-coding",
+                                }
+                            else:
+                                entry = {
+                                    Fields.IMAGE.value: image,
+                                    Fields.MODEL.value: model,
+                                    Fields.MODEL_PREFIX.value: model_code,
+                                    Fields.PRECISION.value: precision,
+                                    Fields.FRAMEWORK.value: framework,
+                                    Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                    Fields.RUNNER.value: runner_value,
+                                    Fields.TP.value: tp,
+                                    Fields.EP.value: ep if ep is not None else 1,
+                                    Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                    Fields.CONC.value: conc,
+                                    Fields.OFFLOADING.value: offloading,
+                                    Fields.DURATION.value: duration,
+                                    Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}_offload{offloading}",
+                                    Fields.SCENARIO_TYPE.value: "agentic-coding",
+                                }
+
+                            validate_agentic_matrix_entry(entry)
+                            matrix_values.append(entry)
+
+        # ---- Agentic-replay scenarios (single-node only) ----
+        agentic_replay_configs = scenarios.get(Fields.AGENTIC_REPLAY.value, []) if (
+            scenario_filter is None or 'agentic-replay' in scenario_filter) else []
+
+        for replay_config in agentic_replay_configs:
+            # agentic-replay is single-node only; skip if this config is multinode
+            if is_multinode:
+                continue
+
+            bmk_space = replay_config[Fields.SEARCH_SPACE.value]
+            duration = replay_config.get(Fields.DURATION.value, 1800)
+            input_file = replay_config.get(Fields.INPUT_FILE.value)
+            public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
+            custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
+                public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
+            tokenizer = replay_config.get(Fields.TOKENIZER.value)
+            replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
+            benchmark_clients = replay_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["aiperf"])
+            for bmk in bmk_space:
+                tp = bmk[Fields.TP.value]
+                ep = bmk.get(Fields.EP.value)
+                dp_attn = bmk.get(Fields.DP_ATTN.value)
+
+                conc_list = bmk.get(Fields.CONC_LIST.value)
+                if conc_list:
+                    conc_values = conc_list
+                else:
+                    conc_start = bmk[Fields.CONC_START.value]
+                    conc_end = bmk[Fields.CONC_END.value]
+                    conc_values = []
+                    conc = conc_start
+                    while conc <= conc_end:
+                        conc_values.append(conc)
+                        if conc == conc_end:
+                            break
+                        conc *= args.step_size
+                        if conc > conc_end:
+                            conc = conc_end
+
+                if args.min_conc is not None:
+                    conc_values = [c for c in conc_values if c >= args.min_conc]
+                if args.max_conc is not None:
+                    conc_values = [c for c in conc_values if c <= args.max_conc]
+                if not conc_values:
+                    continue
+
+                runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
+
+                for benchmark_client in benchmark_clients:
+                    for conc in conc_values:
+                        for runner_value in runners_for_entry:
                             entry = {
                                 Fields.IMAGE.value: image,
                                 Fields.MODEL.value: model,
                                 Fields.MODEL_PREFIX.value: model_code,
                                 Fields.PRECISION.value: precision,
                                 Fields.FRAMEWORK.value: framework,
-                                Fields.RUNNER.value: runner_value,
-                                Fields.SPEC_DECODING.value: spec_decoding,
-                                Fields.PREFILL.value: prefill,
-                                Fields.DECODE.value: decode,
-                                Fields.CONC.value: conc,
-                                Fields.DURATION.value: duration,
-                                Fields.EXP_NAME.value: (
-                                    f"{model_code}_p{prefill[Fields.NUM_WORKER.value]}x{prefill[Fields.TP.value]}"
-                                    f"_d{decode[Fields.NUM_WORKER.value]}x{decode[Fields.TP.value]}_conc{conc}"
-                                ),
-                                Fields.DISAGG.value: disagg,
-                                Fields.SCENARIO_TYPE.value: "agentic-coding",
-                            }
-                        else:
-                            entry = {
-                                Fields.IMAGE.value: image,
-                                Fields.MODEL.value: model,
-                                Fields.MODEL_PREFIX.value: model_code,
-                                Fields.PRECISION.value: precision,
-                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
                                 Fields.RUNNER.value: runner_value,
                                 Fields.TP.value: tp,
                                 Fields.EP.value: ep if ep is not None else 1,
                                 Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
                                 Fields.CONC.value: conc,
-                                Fields.OFFLOADING.value: offloading,
+                                # ISL/OSL are placeholders to satisfy downstream
+                                # env checks; the trace defines real lengths.
+                                Fields.ISL.value: 4096,
+                                Fields.OSL.value: 512,
+                                Fields.MAX_MODEL_LEN.value: replay_max_model_len,
+                                Fields.INPUT_FILE.value: input_file,
+                                Fields.PUBLIC_DATASET.value: public_dataset,
+                                Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
-                                Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}_offload{offloading}",
-                                Fields.SCENARIO_TYPE.value: "agentic-coding",
+                                Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
+                                Fields.DISAGG.value: disagg,
+                                Fields.SCENARIO_TYPE.value: "agentic-replay",
                             }
-
-                        validate_agentic_matrix_entry(entry)
-                        matrix_values.append(entry)
+                            validate_agentic_replay_matrix_entry(entry)
+                            matrix_values.append(entry)
 
     return matrix_values
 
@@ -535,6 +629,9 @@ def generate_runner_model_sweep_config(args, all_config_data, runner_data):
         if target_config is None:
             continue
 
+        benchmark_clients = target_config.get(
+            Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
+
         if is_multinode:
             # For multinode, find the search space entry with the lowest concurrency
             def get_lowest_conc(search_space_entry):
@@ -561,38 +658,40 @@ def generate_runner_model_sweep_config(args, all_config_data, runner_data):
             prefill_config = lowest_conc_entry[Fields.PREFILL.value]
             decode_config = lowest_conc_entry[Fields.DECODE.value]
 
-            for node in runner_nodes:
-                entry = {
-                    Fields.IMAGE.value: val[Fields.IMAGE.value],
-                    Fields.MODEL.value: val[Fields.MODEL.value],
-                    Fields.MODEL_PREFIX.value: model_code,
-                    Fields.PRECISION.value: val[Fields.PRECISION.value],
-                    Fields.FRAMEWORK.value: val[Fields.FRAMEWORK.value],
-                    Fields.RUNNER.value: node,
-                    Fields.ISL.value: 1024,
-                    Fields.OSL.value: 1024,
-                    Fields.SPEC_DECODING.value: spec_decoding,
-                    Fields.PREFILL.value: {
-                        Fields.NUM_WORKER.value: prefill_config[Fields.NUM_WORKER.value],
-                        Fields.TP.value: prefill_config[Fields.TP.value],
-                        Fields.EP.value: prefill_config[Fields.EP.value],
-                        Fields.DP_ATTN.value: prefill_config[Fields.DP_ATTN.value],
-                        Fields.ADDITIONAL_SETTINGS.value: prefill_config.get(Fields.ADDITIONAL_SETTINGS.value, []),
-                    },
-                    Fields.DECODE.value: {
-                        Fields.NUM_WORKER.value: decode_config[Fields.NUM_WORKER.value],
-                        Fields.TP.value: decode_config[Fields.TP.value],
-                        Fields.EP.value: decode_config[Fields.EP.value],
-                        Fields.DP_ATTN.value: decode_config[Fields.DP_ATTN.value],
-                        Fields.ADDITIONAL_SETTINGS.value: decode_config.get(Fields.ADDITIONAL_SETTINGS.value, []),
-                    },
-                    Fields.CONC.value: [conc_value],
-                    Fields.MAX_MODEL_LEN.value: 2048,
-                    Fields.EXP_NAME.value: f"{model_code}_test",
-                    Fields.DISAGG.value: disagg,
-                    Fields.RUN_EVAL.value: False,
-                }
-                matrix_values.append(validate_matrix_entry(entry, is_multinode=True))
+            for benchmark_client in benchmark_clients:
+                for node in runner_nodes:
+                    entry = {
+                        Fields.IMAGE.value: val[Fields.IMAGE.value],
+                        Fields.MODEL.value: val[Fields.MODEL.value],
+                        Fields.MODEL_PREFIX.value: model_code,
+                        Fields.PRECISION.value: val[Fields.PRECISION.value],
+                        Fields.FRAMEWORK.value: val[Fields.FRAMEWORK.value],
+                        Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                        Fields.RUNNER.value: node,
+                        Fields.ISL.value: 1024,
+                        Fields.OSL.value: 1024,
+                        Fields.SPEC_DECODING.value: spec_decoding,
+                        Fields.PREFILL.value: {
+                            Fields.NUM_WORKER.value: prefill_config[Fields.NUM_WORKER.value],
+                            Fields.TP.value: prefill_config[Fields.TP.value],
+                            Fields.EP.value: prefill_config[Fields.EP.value],
+                            Fields.DP_ATTN.value: prefill_config[Fields.DP_ATTN.value],
+                            Fields.ADDITIONAL_SETTINGS.value: prefill_config.get(Fields.ADDITIONAL_SETTINGS.value, []),
+                        },
+                        Fields.DECODE.value: {
+                            Fields.NUM_WORKER.value: decode_config[Fields.NUM_WORKER.value],
+                            Fields.TP.value: decode_config[Fields.TP.value],
+                            Fields.EP.value: decode_config[Fields.EP.value],
+                            Fields.DP_ATTN.value: decode_config[Fields.DP_ATTN.value],
+                            Fields.ADDITIONAL_SETTINGS.value: decode_config.get(Fields.ADDITIONAL_SETTINGS.value, []),
+                        },
+                        Fields.CONC.value: [conc_value],
+                        Fields.MAX_MODEL_LEN.value: 2048,
+                        Fields.EXP_NAME.value: f"{model_code}_test",
+                        Fields.DISAGG.value: disagg,
+                        Fields.RUN_EVAL.value: False,
+                    }
+                    matrix_values.append(validate_matrix_entry(entry, is_multinode=True))
         else:
             # Single-node: pick highest TP config with lowest concurrency
             highest_tp_bmk = max(
@@ -611,29 +710,31 @@ def generate_runner_model_sweep_config(args, all_config_data, runner_data):
             num_speculative_tokens = highest_tp_bmk.get(Fields.NUM_SPECULATIVE_TOKENS.value)
             max_num_batched_tokens = highest_tp_bmk.get(Fields.MAX_NUM_BATCHED_TOKENS.value)
 
-            for node in runner_nodes:
-                entry = {
-                    Fields.IMAGE.value: val[Fields.IMAGE.value],
-                    Fields.MODEL.value: val[Fields.MODEL.value],
-                    Fields.MODEL_PREFIX.value: model_code,
-                    Fields.PRECISION.value: val[Fields.PRECISION.value],
-                    Fields.FRAMEWORK.value: val[Fields.FRAMEWORK.value],
-                    Fields.RUNNER.value: node,
-                    Fields.ISL.value: 1024,
-                    Fields.OSL.value: 1024,
-                    Fields.TP.value: highest_tp,
-                    Fields.EP.value: ep if ep is not None else 1,
-                    Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
-                    Fields.SPEC_DECODING.value: spec_decoding,
-                    Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
-                    Fields.CONC.value: conc_value,
-                    Fields.MAX_MODEL_LEN.value: 2048,
-                    Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
-                    Fields.EXP_NAME.value: f"{model_code}_test",
-                    Fields.DISAGG.value: disagg,
-                    Fields.RUN_EVAL.value: False,
-                }
-                matrix_values.append(validate_matrix_entry(entry, is_multinode=False))
+            for benchmark_client in benchmark_clients:
+                for node in runner_nodes:
+                    entry = {
+                        Fields.IMAGE.value: val[Fields.IMAGE.value],
+                        Fields.MODEL.value: val[Fields.MODEL.value],
+                        Fields.MODEL_PREFIX.value: model_code,
+                        Fields.PRECISION.value: val[Fields.PRECISION.value],
+                        Fields.FRAMEWORK.value: val[Fields.FRAMEWORK.value],
+                        Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                        Fields.RUNNER.value: node,
+                        Fields.ISL.value: 1024,
+                        Fields.OSL.value: 1024,
+                        Fields.TP.value: highest_tp,
+                        Fields.EP.value: ep if ep is not None else 1,
+                        Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                        Fields.SPEC_DECODING.value: spec_decoding,
+                        Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
+                        Fields.CONC.value: conc_value,
+                        Fields.MAX_MODEL_LEN.value: 2048,
+                        Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                        Fields.EXP_NAME.value: f"{model_code}_test",
+                        Fields.DISAGG.value: disagg,
+                        Fields.RUN_EVAL.value: False,
+                    }
+                    matrix_values.append(validate_matrix_entry(entry, is_multinode=False))
 
     return matrix_values
 
@@ -693,6 +794,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
         for seq_len_config in fixed_configs:
             isl = seq_len_config[Fields.ISL.value]
             osl = seq_len_config[Fields.OSL.value]
+            benchmark_clients = seq_len_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
 
             if seq_lens_filter and (isl, osl) not in seq_lens_filter:
                 continue
@@ -729,26 +832,28 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                             # No intersection with requested conc values; skip
                             continue
 
-                    for runner_value in runners_for_entry:
-                        entry = {
-                            Fields.IMAGE.value: image,
-                            Fields.MODEL.value: model,
-                            Fields.MODEL_PREFIX.value: model_code,
-                            Fields.PRECISION.value: precision,
-                            Fields.FRAMEWORK.value: framework,
-                            Fields.RUNNER.value: runner_value,
-                            Fields.ISL.value: isl,
-                            Fields.OSL.value: osl,
-                            Fields.SPEC_DECODING.value: spec_decoding,
-                            Fields.PREFILL.value: prefill,
-                            Fields.DECODE.value: decode,
-                            Fields.CONC.value: conc_values,
-                            Fields.MAX_MODEL_LEN.value: isl + osl + 256,
-                            Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
-                            Fields.DISAGG.value: disagg,
-                            Fields.RUN_EVAL.value: False,
-                        }
-                        matrix_values.append(validate_matrix_entry(entry, is_multinode=True))
+                    for benchmark_client in benchmark_clients:
+                        for runner_value in runners_for_entry:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner_value,
+                                Fields.ISL.value: isl,
+                                Fields.OSL.value: osl,
+                                Fields.SPEC_DECODING.value: spec_decoding,
+                                Fields.PREFILL.value: prefill,
+                                Fields.DECODE.value: decode,
+                                Fields.CONC.value: conc_values,
+                                Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
+                                Fields.DISAGG.value: disagg,
+                                Fields.RUN_EVAL.value: False,
+                            }
+                            matrix_values.append(validate_matrix_entry(entry, is_multinode=True))
                 else:
                     # Single-node config
                     tp = bmk[Fields.TP.value]
@@ -781,35 +886,39 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                             # No intersection with requested conc values; skip
                             continue
 
-                    for conc in conc_values:
-                        for runner_value in runners_for_entry:
-                            entry = {
-                                Fields.IMAGE.value: image,
-                                Fields.MODEL.value: model,
-                                Fields.MODEL_PREFIX.value: model_code,
-                                Fields.PRECISION.value: precision,
-                                Fields.FRAMEWORK.value: framework,
-                                Fields.RUNNER.value: runner_value,
-                                Fields.ISL.value: isl,
-                                Fields.OSL.value: osl,
-                                Fields.TP.value: tp,
-                                Fields.CONC.value: conc,
-                                Fields.MAX_MODEL_LEN.value: isl + osl + 256,
-                                Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
-                                Fields.EP.value: ep if ep is not None else 1,
-                                Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
-                                Fields.SPEC_DECODING.value: spec_decoding,
-                                Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
-                                Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
-                                Fields.DISAGG.value: disagg,
-                                Fields.RUN_EVAL.value: False,
-                            }
-                            matrix_values.append(validate_matrix_entry(entry, is_multinode=False))
+                    for benchmark_client in benchmark_clients:
+                        for conc in conc_values:
+                            for runner_value in runners_for_entry:
+                                entry = {
+                                    Fields.IMAGE.value: image,
+                                    Fields.MODEL.value: model,
+                                    Fields.MODEL_PREFIX.value: model_code,
+                                    Fields.PRECISION.value: precision,
+                                    Fields.FRAMEWORK.value: framework,
+                                    Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                    Fields.RUNNER.value: runner_value,
+                                    Fields.ISL.value: isl,
+                                    Fields.OSL.value: osl,
+                                    Fields.TP.value: tp,
+                                    Fields.CONC.value: conc,
+                                    Fields.MAX_MODEL_LEN.value: isl + osl + 256,
+                                    Fields.MAX_NUM_BATCHED_TOKENS.value: max_num_batched_tokens,
+                                    Fields.EP.value: ep if ep is not None else 1,
+                                    Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                    Fields.SPEC_DECODING.value: spec_decoding,
+                                    Fields.NUM_SPECULATIVE_TOKENS.value: num_speculative_tokens,
+                                    Fields.EXP_NAME.value: f"{model_code}_{seq_len_str}",
+                                    Fields.DISAGG.value: disagg,
+                                    Fields.RUN_EVAL.value: False,
+                                }
+                                matrix_values.append(validate_matrix_entry(entry, is_multinode=False))
 
         # ---- Agentic-coding scenarios ----
         agentic_configs = val[Fields.SCENARIOS.value].get(Fields.AGENTIC_CODING.value, []) if (scenario_filter is None or 'agentic-coding' in scenario_filter) else []
         for agentic_config in agentic_configs:
             duration = agentic_config.get(Fields.DURATION.value, 1800)
+            benchmark_clients = agentic_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["inferencex_native"])
 
             for bmk in agentic_config[Fields.SEARCH_SPACE.value]:
                 if is_multinode:
@@ -843,45 +952,123 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                 if not conc_values:
                     continue
 
-                for conc in conc_values:
-                    if is_multinode:
-                        entry = {
-                            Fields.IMAGE.value: image,
-                            Fields.MODEL.value: model,
-                            Fields.MODEL_PREFIX.value: model_code,
-                            Fields.PRECISION.value: precision,
-                            Fields.FRAMEWORK.value: framework,
-                            Fields.RUNNER.value: runner,
-                            Fields.SPEC_DECODING.value: spec_decoding,
-                            Fields.PREFILL.value: prefill,
-                            Fields.DECODE.value: decode,
-                            Fields.CONC.value: conc,
-                            Fields.DURATION.value: duration,
-                            Fields.EXP_NAME.value: (
-                                f"{model_code}_p{prefill[Fields.NUM_WORKER.value]}x{prefill[Fields.TP.value]}"
-                                f"_d{decode[Fields.NUM_WORKER.value]}x{decode[Fields.TP.value]}_conc{conc}"
-                            ),
-                            Fields.DISAGG.value: disagg,
-                            Fields.SCENARIO_TYPE.value: "agentic-coding",
-                        }
-                    else:
-                        entry = {
-                            Fields.IMAGE.value: image,
-                            Fields.MODEL.value: model,
-                            Fields.MODEL_PREFIX.value: model_code,
-                            Fields.PRECISION.value: precision,
-                            Fields.FRAMEWORK.value: framework,
-                            Fields.RUNNER.value: runner,
-                            Fields.TP.value: tp,
-                            Fields.EP.value: ep if ep is not None else 1,
-                            Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
-                            Fields.CONC.value: conc,
-                            Fields.OFFLOADING.value: offloading,
-                            Fields.DURATION.value: duration,
-                            Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}_offload{offloading}",
-                            Fields.SCENARIO_TYPE.value: "agentic-coding",
-                        }
-                    matrix_values.append(validate_agentic_matrix_entry(entry))
+                for benchmark_client in benchmark_clients:
+                    for conc in conc_values:
+                        if is_multinode:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner,
+                                Fields.SPEC_DECODING.value: spec_decoding,
+                                Fields.PREFILL.value: prefill,
+                                Fields.DECODE.value: decode,
+                                Fields.CONC.value: conc,
+                                Fields.DURATION.value: duration,
+                                Fields.EXP_NAME.value: (
+                                    f"{model_code}_p{prefill[Fields.NUM_WORKER.value]}x{prefill[Fields.TP.value]}"
+                                    f"_d{decode[Fields.NUM_WORKER.value]}x{decode[Fields.TP.value]}_conc{conc}"
+                                ),
+                                Fields.DISAGG.value: disagg,
+                                Fields.SCENARIO_TYPE.value: "agentic-coding",
+                            }
+                        else:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner,
+                                Fields.TP.value: tp,
+                                Fields.EP.value: ep if ep is not None else 1,
+                                Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                Fields.CONC.value: conc,
+                                Fields.OFFLOADING.value: offloading,
+                                Fields.DURATION.value: duration,
+                                Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}_offload{offloading}",
+                                Fields.SCENARIO_TYPE.value: "agentic-coding",
+                            }
+                        matrix_values.append(validate_agentic_matrix_entry(entry))
+
+        # ---- Agentic-replay scenarios (single-node only) ----
+        agentic_replay_configs = val[Fields.SCENARIOS.value].get(Fields.AGENTIC_REPLAY.value, []) if (
+            scenario_filter is None or 'agentic-replay' in scenario_filter) else []
+        for replay_config in agentic_replay_configs:
+            # agentic-replay is single-node only; skip if this config is multinode
+            if is_multinode:
+                continue
+
+            duration = replay_config.get(Fields.DURATION.value, 1800)
+            input_file = replay_config.get(Fields.INPUT_FILE.value)
+            public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
+            custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
+                public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
+            tokenizer = replay_config.get(Fields.TOKENIZER.value)
+            replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
+            benchmark_clients = replay_config.get(
+                Fields.BENCHMARK_CLIENT.value, ["aiperf"])
+            for bmk in replay_config[Fields.SEARCH_SPACE.value]:
+                tp = bmk[Fields.TP.value]
+                ep = bmk.get(Fields.EP.value)
+                dp_attn = bmk.get(Fields.DP_ATTN.value)
+
+                conc_list = bmk.get(Fields.CONC_LIST.value)
+                if conc_list:
+                    conc_values = conc_list
+                else:
+                    conc_start = bmk[Fields.CONC_START.value]
+                    conc_end = bmk[Fields.CONC_END.value]
+                    conc_values = []
+                    conc = conc_start
+                    while conc <= conc_end:
+                        conc_values.append(conc)
+                        if conc == conc_end:
+                            break
+                        conc *= 2
+                        if conc > conc_end:
+                            conc = conc_end
+
+                if getattr(args, 'conc', None):
+                    conc_values = [c for c in conc_values if c in args.conc]
+                if not conc_values:
+                    continue
+
+                for benchmark_client in benchmark_clients:
+                    for conc in conc_values:
+                        for runner_value in runners_for_entry:
+                            entry = {
+                                Fields.IMAGE.value: image,
+                                Fields.MODEL.value: model,
+                                Fields.MODEL_PREFIX.value: model_code,
+                                Fields.PRECISION.value: precision,
+                                Fields.FRAMEWORK.value: framework,
+                                Fields.BENCHMARK_CLIENT.value: benchmark_client,
+                                Fields.RUNNER.value: runner_value,
+                                Fields.TP.value: tp,
+                                Fields.EP.value: ep if ep is not None else 1,
+                                Fields.DP_ATTN.value: dp_attn if dp_attn is not None else False,
+                                Fields.CONC.value: conc,
+                                # ISL/OSL are placeholders to satisfy downstream
+                                # env checks; the trace defines real lengths.
+                                Fields.ISL.value: 4096,
+                                Fields.OSL.value: 512,
+                                Fields.MAX_MODEL_LEN.value: replay_max_model_len,
+                                Fields.INPUT_FILE.value: input_file,
+                                Fields.PUBLIC_DATASET.value: public_dataset,
+                                Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.TOKENIZER.value: tokenizer,
+                                Fields.DURATION.value: duration,
+                                Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
+                                Fields.DISAGG.value: disagg,
+                                Fields.SCENARIO_TYPE.value: "agentic-replay",
+                            }
+                            matrix_values.append(validate_agentic_replay_matrix_entry(entry))
 
     return matrix_values
 
@@ -959,7 +1146,7 @@ def main():
     parent_parser.add_argument(
         '--scenario-type',
         nargs='+',
-        choices=['fixed-seq-len', 'agentic-coding'],
+        choices=['fixed-seq-len', 'agentic-coding', 'agentic-replay'],
         required=False,
         help='Scenario type(s) to include. If not specified, all scenario types are generated.'
     )

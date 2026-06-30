@@ -20,6 +20,10 @@ on:
       framework:
         required: true
         type: string
+      benchmark-client:
+        required: false
+        type: string
+        default: 'inferencex_native'
       exp-name:
         required: true
         type: string
@@ -97,6 +101,26 @@ on:
         required: false
         type: string
         default: '1800'
+      input-file:
+        description: "Repo-relative trace JSONL for agentic-replay (mooncake_trace)"
+        required: false
+        type: string
+        default: ''
+      public-dataset:
+        description: "AIPerf --public-dataset for agentic-replay Weka"
+        required: false
+        type: string
+        default: ''
+      custom-dataset-type:
+        description: "AIPerf --custom-dataset-type for agentic-replay (e.g. mooncake_trace)"
+        required: false
+        type: string
+        default: ''
+      tokenizer:
+        description: "AIPerf --tokenizer (HF id); empty => default to the served model"
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -109,6 +133,7 @@ env:
   MAX_MODEL_LEN: ${{ inputs.max-model-len }}
   IMAGE: ${{ inputs.image }}
   FRAMEWORK: ${{ inputs.framework }}
+  BENCHMARK_CLIENT: ${{ inputs.benchmark-client }}
   PRECISION: ${{ inputs.precision }}
   TP: ${{ inputs.tp }}
   EP_SIZE: ${{ inputs.ep }}
@@ -126,6 +151,10 @@ env:
   OFFLOADING: ${{ inputs.offloading }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
+  INPUT_FILE: ${{ inputs.input-file }}
+  PUBLIC_DATASET: ${{ inputs.public-dataset }}
+  CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
+  TOKENIZER: ${{ inputs.tokenizer }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache
@@ -188,12 +217,12 @@ jobs:
         env:
           RUNNER_NAME: ${{ runner.name }}
           RUNNER_TYPE: ${{ inputs.runner }}
-          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}_tp{}-ep{}-dpa{}_disagg-{}_spec-{}_n{}_mnbt{}_conc{}_{runner}
+          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}[_CLIENT]_tp{}-ep{}-dpa{}_disagg-{}_spec-{}_n{}_mnbt{}_conc{}_{runner}
           # n / mnbt segments hold the values of NUM_SPECULATIVE_TOKENS and
           # MAX_NUM_BATCHED_TOKENS (see benchmark-tmpl.yml inputs); when those
           # inputs are unset, the segments resolve to 'n' / 'mnbt' with no
           # numeric value, which is intentional and stable across runs.
-          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
+          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}${{ inputs.benchmark-client != 'inferencex_native' && format('_{0}', inputs.benchmark-client) || '' }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
           # Suppress per-job eval markdown from being appended to the step summary.
           # We'll publish a single combined eval table in the collection job instead.
           GITHUB_STEP_SUMMARY: ''
@@ -249,7 +278,7 @@ jobs:
           path: ${{ env.RESULT_FILENAME }}.json
 
       - name: Upload agentic raw results
-        if: ${{ always() && inputs.scenario-type == 'agentic-coding' }}
+        if: ${{ always() && (inputs.scenario-type == 'agentic-coding' || inputs.scenario-type == 'agentic-replay') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agentic_${{ env.RESULT_FILENAME }}
@@ -277,12 +306,26 @@ jobs:
             results/trace_replay/gpu_telemetry_export.jsonl
             results/trace_replay/logs/aiperf.log
             results/trace_replay/logs/*.log
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_timeslices.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_timeslices.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_aggregate.json
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_aggregate.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/profile_export_aiperf_collated.json
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.json
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.csv
+            ${{ env.RESULT_FILENAME }}_aiperf/server_metrics_export.parquet
+            ${{ env.RESULT_FILENAME }}_aiperf/gpu_telemetry_export.jsonl
+            ${{ env.RESULT_FILENAME }}_aiperf/logs/aiperf.log
+            ${{ env.RESULT_FILENAME }}_aiperf/logs/*.log
           # Excluded by design (multi-GB debug artifacts, not consumed by
-          # post-processing): results/trace_replay/inputs.json (pre-formatted
-          # request bodies — the mmap'd binary equivalent is rebuilt from
-          # --public-dataset + --random-seed) and
-          # results/trace_replay/profile_export_raw.jsonl (full HTTP bodies
-          # per request — recoverable by re-running the same trace).
+          # post-processing): inputs.json (pre-formatted request bodies — the
+          # mmap'd binary equivalent is rebuilt from --public-dataset +
+          # --random-seed) and profile_export_raw.jsonl (full HTTP bodies per
+          # request — recoverable by re-running the same trace).
           if-no-files-found: ignore
 
       - name: Upload server logs
