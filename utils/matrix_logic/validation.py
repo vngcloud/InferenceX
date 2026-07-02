@@ -62,6 +62,9 @@ class Fields(Enum):
     PUBLIC_DATASET = 'public-dataset'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
     TOKENIZER = 'tokenizer'
+    REMOTE = 'remote'
+    SERVER_METRICS_URL = 'server-metrics-url'
+    GPU_TELEMETRY_URL = 'gpu-telemetry-url'
 
     # Matrix entry fields
     CONC = 'conc'
@@ -215,6 +218,17 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
 AgenticMatrixEntry = Union[SingleNodeAgenticMatrixEntry, MultiNodeAgenticMatrixEntry]
 
 
+class RemoteConfig(BaseModel):
+    """External OpenAI-compatible endpoint for agentic-replay."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    url: str
+    server_metrics_url: Optional[str] = Field(
+        default=None, alias=Fields.SERVER_METRICS_URL.value)
+    gpu_telemetry_url: Optional[str] = Field(
+        default=None, alias=Fields.GPU_TELEMETRY_URL.value)
+
+
 class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     """Pydantic model for validating single-node agentic-replay matrix entries.
 
@@ -246,6 +260,7 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
     tokenizer: Optional[str] = Field(
         default=None, alias=Fields.TOKENIZER.value)
+    remote: Optional[RemoteConfig] = Field(default=None, alias=Fields.REMOTE.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
@@ -567,7 +582,18 @@ class SingleNodeMasterConfigEntry(BaseModel):
     runner: str
     multinode: Literal[False]
     disagg: bool = Field(default=False)
+    remote: Optional[RemoteConfig] = Field(default=None, alias=Fields.REMOTE.value)
     scenarios: SingleNodeScenarios
+
+    @model_validator(mode='after')
+    def remote_requires_agentic_replay_only(self):
+        if self.remote and (
+            self.scenarios.fixed_seq_len
+            or self.scenarios.agentic_coding
+            or not self.scenarios.agentic_replay
+        ):
+            raise ValueError("remote is only supported for agentic-replay-only single-node configs")
+        return self
 
 
 class MultiNodeMasterConfigEntry(BaseModel):

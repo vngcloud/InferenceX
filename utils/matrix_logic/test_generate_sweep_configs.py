@@ -477,6 +477,22 @@ class TestGenerateFullSweepSingleNode:
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["input-file"].endswith("qwen3.5-4b-smoke.jsonl")
 
+    def test_agentic_replay_threads_remote_config(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": "http://remote:8000",
+            "server-metrics-url": "http://remote:8000/metrics",
+            "gpu-telemetry-url": "http://remote:9400/metrics",
+        }
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["remote"]["url"] == "http://remote:8000"
+
     def test_agentic_replay_weka_defaults_to_public_dataset(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]
         scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
@@ -1713,6 +1729,22 @@ class TestGenerateTestConfigSweep:
         assert len(result) == 1
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["scenario-type"] == "agentic-replay"
+
+    def test_agentic_replay_test_config_threads_remote_config(self, sample_agentic_replay_config):
+        args = argparse.Namespace(
+            config_keys=["qwen-agentic-bf16-h100-vllm"],
+            seq_lens=None,
+            conc=None,
+            runner_node_filter=None,
+            scenario_type=["agentic-replay"],
+        )
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": "http://remote:8000",
+        }
+
+        result = generate_test_config_sweep(args, sample_agentic_replay_config)
+
+        assert result[0]["remote"]["url"] == "http://remote:8000"
 
     def test_runner_node_filter_expands_config_runner(self, sample_multinode_config, sample_runner_config):
         """test-config should allow targeting one concrete runner node."""

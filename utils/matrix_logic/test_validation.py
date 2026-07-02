@@ -578,6 +578,15 @@ class TestAgenticReplayMatrixEntries:
 
         assert entry.benchmark_client == "aiperf"
 
+    def test_remote_allowed(self):
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+            "server-metrics-url": "http://remote:8000/metrics",
+            "gpu-telemetry-url": "http://remote:9400/metrics",
+        }))
+
+        assert entry.remote.url == "http://remote:8000"
+
     def test_validator_passes(self):
         # validator returns the original dict on success
         e = self._entry()
@@ -1097,6 +1106,36 @@ class TestValidateMasterConfig:
         configs = {"dsr1-fp8-mi300x-sglang": valid_single_node_master_config}
         result = validate_master_config(configs)
         assert result == configs
+
+    def test_remote_requires_agentic_replay_only(self, valid_single_node_master_config):
+        valid_single_node_master_config["remote"] = {"url": "http://remote:8000"}
+        configs = {"remote-fixed-seq": valid_single_node_master_config}
+
+        with pytest.raises(ValueError):
+            validate_master_config(configs)
+
+    def test_remote_agentic_replay_config(self):
+        configs = {
+            "remote-replay": {
+                "image": "python:3.12-slim",
+                "model": "served-model",
+                "model-prefix": "served",
+                "precision": "fp8",
+                "framework": "sglang",
+                "runner": "h200-greennode_01",
+                "multinode": False,
+                "remote": {"url": "http://remote:8000"},
+                "scenarios": {
+                    "agentic-replay": [{
+                        "custom-dataset-type": "weka_trace",
+                        "max-model-len": 8192,
+                        "search-space": [{"tp": 1, "conc-list": [2]}],
+                    }]
+                },
+            }
+        }
+
+        assert validate_master_config(configs) == configs
 
     def test_valid_multinode_config(self, valid_multinode_master_config):
         """Valid multinode config should pass."""

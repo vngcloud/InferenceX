@@ -1336,11 +1336,23 @@ build_replay_cmd() {
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
     REPLAY_CMD="aiperf profile --scenario inferencex-agentx-mvp"
-    REPLAY_CMD+=" --url http://localhost:$PORT"
+    REPLAY_CMD+=" --url ${REMOTE_URL:-http://localhost:$PORT}"
     REPLAY_CMD+=" --endpoint /v1/chat/completions"
     REPLAY_CMD+=" --endpoint-type chat"
     REPLAY_CMD+=" --streaming"
     REPLAY_CMD+=" --model $MODEL"
+    if [[ -n "${REMOTE_URL:-}" ]]; then
+        REPLAY_CMD+=" --api-key ${REMOTE_API_KEY:-EMPTY}"
+    fi
+    if [[ -n "${TOKENIZER:-}" ]]; then
+        REPLAY_CMD+=" --tokenizer $TOKENIZER"
+    fi
+    if [[ -n "${REMOTE_SERVER_METRICS_URL:-}" ]]; then
+        REPLAY_CMD+=" --server-metrics $REMOTE_SERVER_METRICS_URL"
+    fi
+    if [[ -n "${REMOTE_GPU_TELEMETRY_URL:-}" ]]; then
+        REPLAY_CMD+=" --gpu-telemetry $REMOTE_GPU_TELEMETRY_URL"
+    fi
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
     REPLAY_CMD+=" --random-seed 42"

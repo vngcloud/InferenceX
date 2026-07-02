@@ -121,6 +121,21 @@ on:
         required: false
         type: string
         default: ''
+      remote-url:
+        description: "Remote OpenAI-compatible endpoint URL for agentic-replay"
+        required: false
+        type: string
+        default: ''
+      remote-server-metrics-url:
+        description: "Remote Prometheus metrics URL"
+        required: false
+        type: string
+        default: ''
+      remote-gpu-telemetry-url:
+        description: "Remote DCGM exporter URL"
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -155,6 +170,10 @@ env:
   PUBLIC_DATASET: ${{ inputs.public-dataset }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
   TOKENIZER: ${{ inputs.tokenizer }}
+  REMOTE_URL: ${{ inputs.remote-url }}
+  REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}
+  REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
+  REMOTE_API_KEY: ${{ inputs.remote-url != '' && secrets.REMOTE_ENDPOINT_API_KEY || 'EMPTY' }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache
@@ -222,7 +241,7 @@ jobs:
           # MAX_NUM_BATCHED_TOKENS (see benchmark-tmpl.yml inputs); when those
           # inputs are unset, the segments resolve to 'n' / 'mnbt' with no
           # numeric value, which is intentional and stable across runs.
-          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}${{ inputs.benchmark-client != 'inferencex_native' && format('_{0}', inputs.benchmark-client) || '' }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
+          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}${{ inputs.benchmark-client != 'inferencex_native' && format('_{0}', inputs.benchmark-client) || '' }}${{ inputs.remote-url != '' && '_remote' || '' }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
           # Suppress per-job eval markdown from being appended to the step summary.
           # We'll publish a single combined eval table in the collection job instead.
           GITHUB_STEP_SUMMARY: ''
@@ -230,7 +249,11 @@ jobs:
           # Export RESULT_FILENAME early so it's available for artifact uploads even if cancelled
           echo "RESULT_FILENAME=${RESULT_FILENAME}" >> $GITHUB_ENV
 
-          bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          if [ -n "${REMOTE_URL:-}" ]; then
+            bash ./runners/launch_remote.sh
+          else
+            bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          fi
 
           if [ "${{ inputs.eval-only }}" = "true" ]; then
             echo "Eval-only mode: skipping benchmark result file check"

@@ -194,6 +194,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
         framework = val[Fields.FRAMEWORK.value]
         runner = val[Fields.RUNNER.value]
         model_code = val[Fields.MODEL_PREFIX.value]
+        remote = val.get(Fields.REMOTE.value)
 
         # Compute filtered runner nodes for this config if filter is specified
         runner_nodes_to_use = None
@@ -561,6 +562,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.DISAGG.value: disagg,
                                 Fields.SCENARIO_TYPE.value: "agentic-replay",
                             }
+                            if remote:
+                                entry[Fields.REMOTE.value] = remote
                             validate_agentic_replay_matrix_entry(entry)
                             matrix_values.append(entry)
 
@@ -778,6 +781,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
         precision = val[Fields.PRECISION.value]
         framework = val[Fields.FRAMEWORK.value]
         runner = val[Fields.RUNNER.value]
+        remote = val.get(Fields.REMOTE.value)
         runners_for_entry = _runner_values_for_filter(
             runner, runner_data, getattr(args, 'runner_node_filter', None))
         if not runners_for_entry:
@@ -1068,6 +1072,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.DISAGG.value: disagg,
                                 Fields.SCENARIO_TYPE.value: "agentic-replay",
                             }
+                            if remote:
+                                entry[Fields.REMOTE.value] = remote
                             matrix_values.append(validate_agentic_replay_matrix_entry(entry))
 
     return matrix_values
