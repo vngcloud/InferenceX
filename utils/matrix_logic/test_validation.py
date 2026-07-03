@@ -587,6 +587,24 @@ class TestAgenticReplayMatrixEntries:
 
         assert entry.remote.url == "http://remote:8000"
 
+    def test_remote_url_list_joined_to_comma_separated_string(self):
+        """A model hosted across multiple endpoints may be declared as a list;
+        RemoteConfig normalizes it to aiperf's comma-separated multi-URL
+        syntax."""
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": ["http://a:8000", "http://b:8000"],
+            "server-metrics-url": ["http://a:8000/metrics", "http://b:8000/metrics"],
+            "gpu-telemetry-url": "http://a:9400/metrics",
+        }))
+
+        assert entry.remote.url == "http://a:8000,http://b:8000"
+        assert entry.remote.server_metrics_url == "http://a:8000/metrics,http://b:8000/metrics"
+        assert entry.remote.gpu_telemetry_url == "http://a:9400/metrics"
+
+    def test_remote_url_empty_list_rejected(self):
+        with pytest.raises(Exception):
+            SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={"url": []}))
+
     def test_validator_passes(self):
         # validator returns the original dict on success
         e = self._entry()

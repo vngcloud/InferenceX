@@ -27,6 +27,25 @@ MIN_EVAL_CONC = 16
 seq_len_itos = {v: k for k, v in seq_len_stoi.items()}
 
 
+def normalize_remote_config(remote):
+    """Join any list-valued URL fields on a ``remote`` mapping into aiperf's
+    own comma-separated multi-URL syntax.
+
+    Master-config authors may write ``url`` (and the metrics/telemetry URL
+    fields) as a YAML list when a model spans multiple endpoints; the
+    generated matrix JSON and downstream GitHub Actions inputs are
+    string-typed, so lists must be flattened before they leave this module.
+    """
+    if not remote:
+        return remote
+    normalized = dict(remote)
+    for key in ("url", Fields.SERVER_METRICS_URL.value, Fields.GPU_TELEMETRY_URL.value):
+        value = normalized.get(key)
+        if isinstance(value, list):
+            normalized[key] = ",".join(value)
+    return normalized
+
+
 def seq_len_to_str(isl: int, osl: int) -> str:
     """Convert sequence lengths to short string representation.
 
@@ -194,7 +213,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
         framework = val[Fields.FRAMEWORK.value]
         runner = val[Fields.RUNNER.value]
         model_code = val[Fields.MODEL_PREFIX.value]
-        remote = val.get(Fields.REMOTE.value)
+        remote = normalize_remote_config(val.get(Fields.REMOTE.value))
 
         # Compute filtered runner nodes for this config if filter is specified
         runner_nodes_to_use = None
@@ -781,7 +800,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
         precision = val[Fields.PRECISION.value]
         framework = val[Fields.FRAMEWORK.value]
         runner = val[Fields.RUNNER.value]
-        remote = val.get(Fields.REMOTE.value)
+        remote = normalize_remote_config(val.get(Fields.REMOTE.value))
         runners_for_entry = _runner_values_for_filter(
             runner, runner_data, getattr(args, 'runner_node_filter', None))
         if not runners_for_entry:

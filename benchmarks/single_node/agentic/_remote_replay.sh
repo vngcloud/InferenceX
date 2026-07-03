@@ -7,6 +7,7 @@ export AIPERF_DIR="${AIPERF_DIR:-${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
 check_env_vars MODEL CONC RESULT_DIR REMOTE_URL
+check_remote_endpoints
 
 PUBLIC_DATASET="${PUBLIC_DATASET:-}"
 if [[ "${CUSTOM_DATASET_TYPE:-}" == "weka_trace" && -z "${INPUT_FILE:-}" && -z "$PUBLIC_DATASET" ]]; then
@@ -36,8 +37,21 @@ build_replay_cmd "$RESULT_DIR"
 echo "${REPLAY_CMD/${REMOTE_API_KEY:-EMPTY}/<redacted>}" > "$RESULT_DIR/benchmark_command.txt"
 
 set +x
-$REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+# A remote-replay run once hung silently for ~16 min until the runner itself
+# was killed, with no client-side timeout or exit-code check to catch it.
+# AIPERF_MAX_RUNTIME bounds that: dataset configuration can take up to
+# AIPERF_DATASET_CONFIGURATION_TIMEOUT (1800s, see build_replay_cmd) plus the
+# benchmark duration itself, so the default here leaves headroom above that.
+AIPERF_MAX_RUNTIME="${AIPERF_MAX_RUNTIME:-2400}"
+timeout --signal=TERM --kill-after=60 "$AIPERF_MAX_RUNTIME" $REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+replay_exit="${PIPESTATUS[0]}"
 set -x
+
+if [[ "$replay_exit" -eq 124 ]]; then
+    echo "Error: aiperf exceeded AIPERF_MAX_RUNTIME=${AIPERF_MAX_RUNTIME}s against REMOTE_URL=$REMOTE_URL and was killed." >&2
+elif [[ "$replay_exit" -ne 0 ]]; then
+    echo "WARNING: aiperf exited with code $replay_exit; attempting result aggregation anyway." >&2
+fi
 
 write_agentic_result_json "$RESULT_DIR"
 

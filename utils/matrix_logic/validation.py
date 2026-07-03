@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ValidationError, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ValidationError, ConfigDict, model_validator, field_validator
 from typing import List, Optional, Union, Literal
 from enum import Enum
 
@@ -219,14 +219,31 @@ AgenticMatrixEntry = Union[SingleNodeAgenticMatrixEntry, MultiNodeAgenticMatrixE
 
 
 class RemoteConfig(BaseModel):
-    """External OpenAI-compatible endpoint for agentic-replay."""
+    """External OpenAI-compatible endpoint for agentic-replay.
+
+    ``url`` (and the metrics/telemetry URLs) may be given as a single string
+    or a YAML list, for a model hosted across multiple endpoints/replicas.
+    aiperf round-robins across comma-separated URLs, so list inputs are
+    normalized to that form here.
+    """
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
 
-    url: str
-    server_metrics_url: Optional[str] = Field(
+    url: Union[str, List[str]]
+    server_metrics_url: Optional[Union[str, List[str]]] = Field(
         default=None, alias=Fields.SERVER_METRICS_URL.value)
-    gpu_telemetry_url: Optional[str] = Field(
+    gpu_telemetry_url: Optional[Union[str, List[str]]] = Field(
         default=None, alias=Fields.GPU_TELEMETRY_URL.value)
+
+    @field_validator('url', 'server_metrics_url', 'gpu_telemetry_url', mode='before')
+    @classmethod
+    def _join_url_list(cls, value):
+        if value is None or isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            if not value or not all(isinstance(v, str) and v for v in value):
+                raise ValueError("must be a non-empty list of non-empty URL strings")
+            return ",".join(value)
+        return value
 
 
 class SingleNodeAgenticReplayMatrixEntry(BaseModel):

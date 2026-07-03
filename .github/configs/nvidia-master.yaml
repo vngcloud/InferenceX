@@ -9541,3 +9541,32 @@ qwen3-4b-weka-bf16-bench-client-sglang-remote-smoke:
       duration: 90
       search-space:
       - { tp: 1, ep: 1, conc-list: [1] }
+
+# Model hosted by two vLLM instances. `remote.url` and `server-metrics-url`
+# are flattened to aiperf's comma-separated multi-URL syntax; aiperf
+# round-robins requests across the model endpoints by default.
+deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
+  image: vllm/vllm-openai:v0.21.0
+  model: deepseek-coder-v2-lite-fp8
+  model-prefix: deepseek-coder-v2-lite-weka
+  runner: benchmark-client
+  precision: fp8
+  framework: vllm
+  multinode: false
+  remote:
+    url:
+    - http://192.168.4.13:8000
+    - http://192.168.4.13:8001
+    server-metrics-url:
+    - http://192.168.4.13:8000/metrics
+    - http://192.168.4.13:8001/metrics
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
+      max-model-len: 40960
+      benchmark-client: [aiperf]
+      tokenizer: RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8
+      duration: 90
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [1] }

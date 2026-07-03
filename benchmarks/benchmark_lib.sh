@@ -1289,6 +1289,18 @@ resolve_trace_source() {
 }
 
 install_agentic_deps() {
+    # AIPERF_DIR is installed with no ref pin (see below) -- if the submodule
+    # is uninitialized (empty dir) this fails as an opaque pip error ("no
+    # pyproject.toml"). A commit that switched AIPERF_DIR to the wrong fork
+    # once passed this step silently and only failed later with a confusing
+    # dataset-enum validation error deep inside aiperf. Fail here instead,
+    # naming the exact path and the fix.
+    if [[ ! -f "$AIPERF_DIR/pyproject.toml" ]]; then
+        echo "Error: aiperf submodule not found at AIPERF_DIR=$AIPERF_DIR (no pyproject.toml)." >&2
+        echo "  Run: git submodule update --init $AIPERF_DIR" >&2
+        return 1
+    fi
+
     agentic_pip_install --quiet urllib3 requests 2>/dev/null || true
     agentic_pip_install -q -r "$AGENTIC_DIR/requirements.txt"
     # Editable install of aiperf from the submodule — gives us the
@@ -1306,6 +1318,87 @@ install_agentic_deps() {
     # in datasets 4.7.0 (March 2025). Unpinned installs won't upgrade an
     # already-present package.
     agentic_pip_install --upgrade "datasets>=4.7.0"
+}
+
+# Probe an HTTP endpoint with a short timeout, retrying a few times to absorb
+# transient blips. Returns 0 if any attempt succeeds.
+_probe_endpoint() {
+    local url="$1" max_time="$2" retries="$3" attempt
+
+    for (( attempt=1; attempt<=retries; attempt++ )); do
+        if curl --output /dev/null --silent --fail --max-time "$max_time" "$url"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Probe every comma-separated URL in $value (aiperf's own list syntax), logging
+# each result. Never fails the run -- used for the metrics/telemetry endpoints,
+# which aiperf can operate without.
+_check_optional_remote_urls() {
+    local label="$1" value="$2" max_time="$3" retries="$4"
+    local url
+
+    [[ -z "$value" ]] && return 0
+
+    IFS=',' read -ra urls <<< "$value"
+    for url in "${urls[@]}"; do
+        url="${url// /}"
+        [[ -z "$url" ]] && continue
+        if _probe_endpoint "$url" "$max_time" "$retries"; then
+            echo "[precheck] $label reachable: $url"
+        else
+            echo "[precheck] WARNING: $label unreachable, continuing without it: $url" >&2
+        fi
+    done
+}
+
+# Pre-flight reachability check for the remote-replay endpoints.
+#
+# A remote-replay run once hung for ~16 minutes and took the runner down with
+# it ("lost communication with the server"), with no logs surviving to show
+# why. The benchmark window was 90s, so 16 minutes strongly suggests aiperf
+# was stuck connecting to an unreachable REMOTE_URL rather than genuinely
+# benchmarking. There was no check anywhere that the client runner could
+# actually route to the model host before handing it to aiperf.
+#
+# Model endpoint(s): REMOTE_URL may be a single URL or aiperf's own
+# comma-separated multi-URL syntax (see build_replay_cmd). Hard-fail only if
+# NONE of the configured URLs answer GET /v1/models -- a single unreachable
+# member of an otherwise-healthy round-robin set is logged but not fatal.
+# Metrics/telemetry endpoints are optional to aiperf, so those are warn-only.
+check_remote_endpoints() {
+    local max_time="${REMOTE_HEALTHCHECK_TIMEOUT:-10}"
+    local retries="${REMOTE_HEALTHCHECK_RETRIES:-3}"
+    local url reachable=0
+
+    if [[ -z "${REMOTE_URL:-}" ]]; then
+        return 0
+    fi
+
+    IFS=',' read -ra model_urls <<< "$REMOTE_URL"
+    for url in "${model_urls[@]}"; do
+        url="${url// /}"
+        [[ -z "$url" ]] && continue
+        if _probe_endpoint "${url%/}/v1/models" "$max_time" "$retries"; then
+            echo "[precheck] model endpoint reachable: $url"
+            reachable=1
+        else
+            echo "[precheck] WARNING: model endpoint unreachable: $url" >&2
+        fi
+    done
+
+    if [[ "$reachable" -eq 0 ]]; then
+        echo "Error: none of the configured REMOTE_URL endpoint(s) responded to GET /v1/models" >&2
+        echo "  within ${max_time}s (${retries} attempts each): $REMOTE_URL" >&2
+        echo "  Confirm the benchmark-client runner can route to the model host and that the server is up." >&2
+        return 1
+    fi
+
+    _check_optional_remote_urls "server-metrics endpoint" "${REMOTE_SERVER_METRICS_URL:-}" "$max_time" "$retries"
+    _check_optional_remote_urls "gpu-telemetry endpoint" "${REMOTE_GPU_TELEMETRY_URL:-}" "$max_time" "$retries"
 }
 
 build_replay_cmd() {
@@ -1336,6 +1429,12 @@ build_replay_cmd() {
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
     REPLAY_CMD="aiperf profile --scenario inferencex-agentx-mvp"
+    # REMOTE_URL may itself be a comma-separated list of endpoints -- aiperf's
+    # --url accepts that syntax directly (also --server-metrics and
+    # --gpu-telemetry below) and round-robins across them by default (see
+    # --url-strategy in aiperf-mooncake), so no splitting/looping is needed
+    # here. generate_sweep_configs.py is what joins a YAML list of URLs into
+    # this comma-separated form before it reaches this script.
     REPLAY_CMD+=" --url ${REMOTE_URL:-http://localhost:$PORT}"
     REPLAY_CMD+=" --endpoint /v1/chat/completions"
     REPLAY_CMD+=" --endpoint-type chat"

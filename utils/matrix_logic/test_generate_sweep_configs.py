@@ -493,6 +493,28 @@ class TestGenerateFullSweepSingleNode:
 
         assert result[0]["remote"]["url"] == "http://remote:8000"
 
+    def test_agentic_replay_remote_config_url_list_is_comma_joined(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """A model hosted across multiple endpoints can be declared as a YAML
+        list; it must be flattened to aiperf's comma-separated multi-URL
+        syntax before landing in the generated matrix entry (GitHub Actions
+        inputs are string-typed)."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": ["http://a:8000", "http://b:8000"],
+            "server-metrics-url": ["http://a:8000/metrics", "http://b:8000/metrics"],
+            "gpu-telemetry-url": "http://a:9400/metrics",
+        }
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["remote"]["url"] == "http://a:8000,http://b:8000"
+        assert result[0]["remote"]["server-metrics-url"] == "http://a:8000/metrics,http://b:8000/metrics"
+        assert result[0]["remote"]["gpu-telemetry-url"] == "http://a:9400/metrics"
+
     def test_agentic_replay_weka_defaults_to_public_dataset(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]
         scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
