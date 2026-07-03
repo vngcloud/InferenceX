@@ -1264,6 +1264,44 @@ agentic_pip_install() {
     "${pip_install[@]}" "$@"
 }
 
+ensure_git() {
+    if command -v git >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # aiperf currently depends on transformers directly from GitHub, so pip
+    # needs the git executable even though aiperf itself is mounted locally.
+    # Several lean inference images omit it.
+    local privilege=()
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if ! command -v sudo >/dev/null 2>&1; then
+            echo "Error: git is required to install aiperf, but this container is not root and has no sudo." >&2
+            return 1
+        fi
+        privilege=(sudo)
+    fi
+
+    echo "git is not installed; installing it for aiperf's Git-based dependencies..."
+    if command -v apt-get >/dev/null 2>&1; then
+        "${privilege[@]}" apt-get update -qq
+        "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+    elif command -v apk >/dev/null 2>&1; then
+        "${privilege[@]}" apk add --no-cache git
+    elif command -v dnf >/dev/null 2>&1; then
+        "${privilege[@]}" dnf install -y git
+    elif command -v yum >/dev/null 2>&1; then
+        "${privilege[@]}" yum install -y git
+    else
+        echo "Error: git is required to install aiperf, and no supported package manager was found." >&2
+        return 1
+    fi
+
+    command -v git >/dev/null 2>&1 || {
+        echo "Error: git installation completed but git is still not in PATH." >&2
+        return 1
+    }
+}
+
 ensure_hf_cli() {
     if command -v hf >/dev/null 2>&1; then
         return 0
@@ -1301,6 +1339,7 @@ install_agentic_deps() {
         return 1
     fi
 
+    ensure_git
     agentic_pip_install --quiet urllib3 requests 2>/dev/null || true
     agentic_pip_install -q -r "$AGENTIC_DIR/requirements.txt"
     # Editable install of aiperf from the submodule — gives us the
