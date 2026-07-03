@@ -33,6 +33,9 @@ fi
 mkdir -p "$RESULT_DIR"
 install_agentic_deps
 build_replay_cmd "$RESULT_DIR"
+if [[ "$AIPERF_USE_DOCKER" == "true" ]]; then
+    build_docker_replay_args "$RESULT_DIR"
+fi
 
 echo "${REPLAY_CMD/${REMOTE_API_KEY:-EMPTY}/<redacted>}" > "$RESULT_DIR/benchmark_command.txt"
 
@@ -43,7 +46,11 @@ set +x
 # AIPERF_DATASET_CONFIGURATION_TIMEOUT (1800s, see build_replay_cmd) plus the
 # benchmark duration itself, so the default here leaves headroom above that.
 AIPERF_MAX_RUNTIME="${AIPERF_MAX_RUNTIME:-2400}"
-timeout --signal=TERM --kill-after=60 "$AIPERF_MAX_RUNTIME" $REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+if [[ "$AIPERF_USE_DOCKER" == "true" ]]; then
+    timeout --signal=TERM --kill-after=60 "$AIPERF_MAX_RUNTIME" "${DOCKER_REPLAY_ARGS[@]}" 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+else
+    timeout --signal=TERM --kill-after=60 "$AIPERF_MAX_RUNTIME" $REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+fi
 replay_exit="${PIPESTATUS[0]}"
 set -x
 

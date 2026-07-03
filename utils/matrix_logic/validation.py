@@ -66,6 +66,7 @@ class Fields(Enum):
     REMOTE = 'remote'
     SERVER_METRICS_URL = 'server-metrics-url'
     GPU_TELEMETRY_URL = 'gpu-telemetry-url'
+    AIPERF_DOCKER_IMAGE = 'aiperf-docker-image'
 
     # Matrix entry fields
     CONC = 'conc'
@@ -234,6 +235,13 @@ class RemoteConfig(BaseModel):
         default=None, alias=Fields.SERVER_METRICS_URL.value)
     gpu_telemetry_url: Optional[Union[str, List[str]]] = Field(
         default=None, alias=Fields.GPU_TELEMETRY_URL.value)
+    # Pre-built aiperf docker image (name:tag) on the benchmark-client runner.
+    # When set, the remote-replay driver runs aiperf via `docker run` against
+    # this image instead of pip-installing the client on every job; unset =>
+    # the runner falls back to the editable install (see
+    # benchmark_lib.sh install_agentic_deps).
+    aiperf_docker_image: Optional[str] = Field(
+        default=None, alias=Fields.AIPERF_DOCKER_IMAGE.value)
 
     @field_validator('url', 'server_metrics_url', 'gpu_telemetry_url', mode='before')
     @classmethod

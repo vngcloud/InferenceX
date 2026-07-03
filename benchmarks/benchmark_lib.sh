@@ -1327,6 +1327,29 @@ resolve_trace_source() {
 }
 
 install_agentic_deps() {
+    AIPERF_USE_DOCKER=false
+
+    # Opt-in bypass: if the runner already has a pre-built aiperf image
+    # (see utils/aiperf-mooncake's `make docker`), skip the pip install
+    # entirely instead of re-running the (slow, transformers-from-git)
+    # editable install on every job. Only engages when AIPERF_DOCKER_IMAGE
+    # is explicitly set, so runners that haven't built an image keep the
+    # existing pip-install behavior unchanged.
+    if [[ -n "${AIPERF_DOCKER_IMAGE:-}" ]]; then
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "Error: AIPERF_DOCKER_IMAGE=$AIPERF_DOCKER_IMAGE is set but docker is not installed on this runner." >&2
+            return 1
+        fi
+        if ! docker image inspect "$AIPERF_DOCKER_IMAGE" >/dev/null 2>&1; then
+            echo "Error: AIPERF_DOCKER_IMAGE=$AIPERF_DOCKER_IMAGE is set but no local image with that name/tag exists." >&2
+            echo "  Build it first: (cd $AIPERF_DIR && make docker), or unset AIPERF_DOCKER_IMAGE to fall back to pip install." >&2
+            return 1
+        fi
+        echo "[aiperf] using pre-built docker image $AIPERF_DOCKER_IMAGE; skipping pip install."
+        AIPERF_USE_DOCKER=true
+        return 0
+    fi
+
     # AIPERF_DIR is installed with no ref pin (see below) -- if the submodule
     # is uninitialized (empty dir) this fails as an opaque pip error ("no
     # pyproject.toml"). A commit that switched AIPERF_DIR to the wrong fork
@@ -1543,6 +1566,41 @@ build_replay_cmd() {
         REPLAY_CMD+=" --unsafe-override"
     fi
     REPLAY_CMD+=" $TRACE_SOURCE_FLAG"
+}
+
+# Wrap $REPLAY_CMD (built by build_replay_cmd) in a `docker run` invocation
+# against $AIPERF_DOCKER_IMAGE. Only called when install_agentic_deps found
+# the image and set AIPERF_USE_DOCKER=true. Mirrors the bare-metal
+# environment so results are consistent either way:
+#   --network host    REPLAY_CMD's --url/--server-metrics/--gpu-telemetry
+#                      often point at localhost:<port> on this runner; host
+#                      networking makes those resolve exactly as they would
+#                      for a native process.
+#   --user <host uid> Files written under the mounted $RESULT_DIR and HF
+#                      cache come out owned by the invoking user, not the
+#                      image's baked-in appuser (uid 1000).
+#   HF cache mount     Reuses the same on-disk dataset/token cache as the
+#                      pip-install path so the 949-trace weka corpus isn't
+#                      re-downloaded on every run.
+# Populates the DOCKER_REPLAY_ARGS array (mirrors REPLAY_CMD's global-string
+# convention) for the caller to pass to `timeout ... "${DOCKER_REPLAY_ARGS[@]}"`.
+build_docker_replay_args() {
+    local result_dir="$1"
+    local hf_cache_dir="${HF_HOME:-$HOME/.cache/huggingface}"
+    mkdir -p "$hf_cache_dir"
+
+    DOCKER_REPLAY_ARGS=(
+        docker run --rm --network host
+        --user "$(id -u):$(id -g)"
+        -e HF_TOKEN
+        -e AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES
+        -e AIPERF_DATASET_CONFIGURATION_TIMEOUT
+        -e AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
+        -v "$result_dir:$result_dir"
+        -v "$hf_cache_dir:/app/.cache/huggingface"
+        "$AIPERF_DOCKER_IMAGE"
+        "$REPLAY_CMD"
+    )
 }
 
 write_agentic_result_json() {

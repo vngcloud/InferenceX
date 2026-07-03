@@ -141,6 +141,11 @@ on:
         required: false
         type: string
         default: ''
+      aiperf-docker-image:
+        description: "Pre-built aiperf image (name:tag) on the runner; empty => pip-install the client"
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -180,6 +185,7 @@ env:
   REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}
   REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
   REMOTE_API_KEY: ${{ inputs.remote-url != '' && secrets.REMOTE_ENDPOINT_API_KEY || 'EMPTY' }}
+  AIPERF_DOCKER_IMAGE: ${{ inputs.aiperf-docker-image }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache

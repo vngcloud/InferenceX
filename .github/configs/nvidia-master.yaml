@@ -9561,6 +9561,7 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
     - http://192.168.4.13:8000/metrics
     - http://192.168.4.13:8001/metrics
     gpu-telemetry-url: http://192.168.4.13:9400/metrics
+    aiperf-docker-image: aiperf:0.8.0
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
