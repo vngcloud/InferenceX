@@ -116,6 +116,11 @@ on:
         required: false
         type: string
         default: ''
+      num-dataset-entries:
+        description: "Maximum Weka dataset rows to reconstruct for agentic replay"
+        required: false
+        type: string
+        default: ''
       tokenizer:
         description: "AIPerf --tokenizer (HF id); empty => default to the served model"
         required: false
@@ -169,6 +174,7 @@ env:
   INPUT_FILE: ${{ inputs.input-file }}
   PUBLIC_DATASET: ${{ inputs.public-dataset }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
+  WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}
   REMOTE_URL: ${{ inputs.remote-url }}
   REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}

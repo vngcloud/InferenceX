@@ -516,6 +516,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
             input_file = replay_config.get(Fields.INPUT_FILE.value)
             public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            num_dataset_entries = replay_config.get(Fields.NUM_DATASET_ENTRIES.value)
             if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
                 public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
             tokenizer = replay_config.get(Fields.TOKENIZER.value)
@@ -575,6 +576,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.INPUT_FILE.value: input_file,
                                 Fields.PUBLIC_DATASET.value: public_dataset,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.NUM_DATASET_ENTRIES.value: num_dataset_entries,
                                 Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
                                 Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
@@ -1030,6 +1032,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
             input_file = replay_config.get(Fields.INPUT_FILE.value)
             public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
+            num_dataset_entries = replay_config.get(Fields.NUM_DATASET_ENTRIES.value)
             if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
                 public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
             tokenizer = replay_config.get(Fields.TOKENIZER.value)
@@ -1085,6 +1088,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.INPUT_FILE.value: input_file,
                                 Fields.PUBLIC_DATASET.value: public_dataset,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
+                                Fields.NUM_DATASET_ENTRIES.value: num_dataset_entries,
                                 Fields.TOKENIZER.value: tokenizer,
                                 Fields.DURATION.value: duration,
                                 Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",

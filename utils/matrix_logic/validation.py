@@ -61,6 +61,7 @@ class Fields(Enum):
     INPUT_FILE = 'input-file'
     PUBLIC_DATASET = 'public-dataset'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
+    NUM_DATASET_ENTRIES = 'num-dataset-entries'
     TOKENIZER = 'tokenizer'
     REMOTE = 'remote'
     SERVER_METRICS_URL = 'server-metrics-url'
@@ -274,6 +275,8 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
     public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
+    num_dataset_entries: Optional[int] = Field(
+        default=None, ge=1, alias=Fields.NUM_DATASET_ENTRIES.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
     tokenizer: Optional[str] = Field(
         default=None, alias=Fields.TOKENIZER.value)
@@ -531,6 +534,8 @@ class AgenticReplayConfig(BaseModel):
     input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
     public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
+    num_dataset_entries: Optional[int] = Field(
+        default=None, ge=1, alias=Fields.NUM_DATASET_ENTRIES.value)
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
     benchmark_client: List[Literal["aiperf"]] = Field(
         default=["aiperf"], alias=Fields.BENCHMARK_CLIENT.value)

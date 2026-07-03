@@ -301,6 +301,7 @@ jobs:
             input-file: ${{ matrix.config.input-file }}
             public-dataset: ${{ matrix.config.public-dataset }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
+            num-dataset-entries: ${{ matrix.config.num-dataset-entries }}
             tokenizer: ${{ matrix.config.tokenizer }}
             remote-url: ${{ matrix.config.remote.url }}
             remote-server-metrics-url: ${{ matrix.config.remote.server-metrics-url }}
