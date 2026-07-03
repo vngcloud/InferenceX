@@ -9569,6 +9569,6 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
       benchmark-client: [aiperf]
       tokenizer: RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8
       num-dataset-entries: 949
-      duration: 90
+      duration: 900
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2] }
+      - { tp: 1, ep: 1, conc-list: [2, 4, 8, 16] }
