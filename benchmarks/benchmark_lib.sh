@@ -1329,6 +1329,16 @@ resolve_trace_source() {
 install_agentic_deps() {
     AIPERF_USE_DOCKER=false
 
+    # Full-image bypass: when the remote client runs from a pre-built full
+    # AIPerf image (the remote config points image: at it — see
+    # docs/REMOTE_AIPERF_DOCKER.md), aiperf is already installed. Skip the slow
+    # editable install; results are identical since it's the same build. Set
+    # AIPERF_FORCE_PIP_INSTALL=true to force the source install anyway.
+    if [[ "${AIPERF_FORCE_PIP_INSTALL:-}" != "true" ]] && command -v aiperf >/dev/null 2>&1; then
+        echo "[aiperf] aiperf already installed ($(command -v aiperf)); skipping pip install."
+        return 0
+    fi
+
     # Opt-in bypass: if the runner already has a pre-built aiperf image
     # (see utils/aiperf-mooncake's `make docker`), skip the pip install
     # entirely instead of re-running the (slow, transformers-from-git)
@@ -1388,7 +1398,13 @@ _probe_endpoint() {
     local url="$1" max_time="$2" retries="$3" attempt
 
     for (( attempt=1; attempt<=retries; attempt++ )); do
-        if curl --output /dev/null --silent --fail --max-time "$max_time" "$url"; then
+        if command -v curl >/dev/null 2>&1; then
+            if curl --output /dev/null --silent --fail --max-time "$max_time" "$url"; then
+                return 0
+            fi
+        # The pre-built AIPerf image is distroless: it ships busybox wget but
+        # not curl. wget's exit status is a good-enough reachability signal.
+        elif wget -q -T "$max_time" -O /dev/null "$url"; then
             return 0
         fi
         sleep 1

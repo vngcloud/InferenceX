@@ -196,20 +196,27 @@ set từ secret `REMOTE_ENDPOINT_API_KEY` khi `remote-url` khác rỗng (xem
 `.github/workflows/benchmark-tmpl.yml`). Nếu endpoint remote không cần API
 key, có thể để trống secret này — hệ thống sẽ fallback về giá trị `EMPTY`.
 
-## 7. Giới hạn hiện tại (aiperf-docker-image)
+## 7. `aiperf-docker-image` đã deprecated — dùng full-image approach
 
-Field `aiperf-docker-image` đã được plumbing đầy đủ từ config → matrix →
-workflow inputs → env var `AIPERF_DOCKER_IMAGE` → `install_agentic_deps` trong
-`benchmark_lib.sh`, nhưng **hiện tại không có tác dụng thực tế**:
-`runners/launch_remote.sh` (script khởi chạy container client) chưa forward
-biến `AIPERF_DOCKER_IMAGE` vào bên trong container, nên `install_agentic_deps`
-luôn thấy biến này unset và đi theo nhánh pip-install như cũ. Vì vậy:
+Field `remote.aiperf-docker-image` **vô tác dụng** (inert): `runners/launch_remote.sh`
+không forward biến `AIPERF_DOCKER_IMAGE` vào container, nên `install_agentic_deps`
+luôn thấy biến này unset. Kể cả khi forward được, cách này cần `docker run` lồng
+trong container đang chạy (Docker-in-Docker) — điều `launch_remote.sh` chưa hỗ trợ.
+Đừng dùng field này.
 
-- Có thể khai báo `aiperf-docker-image` trong config mà **không gây lỗi hay
-  ảnh hưởng gì** đến job hiện tại (an toàn, nhưng vô tác dụng).
-- Cho tới khi tính năng này được nối dây đầy đủ (xem phần "Future work" trong
-  `docs/REMOTE_AIPERF_DOCKER.md`), mọi job remote đều sẽ tự cài AIPerf qua pip
-  trên mỗi lần chạy như bình thường.
+Thay vào đó, dùng **full-image approach** (xem chi tiết trong
+`docs/REMOTE_AIPERF_DOCKER.md`): trỏ thẳng `image:` của config vào một image
+AIPerf đã build sẵn (`make docker` trong `utils/aiperf-mooncake`) thay vì image
+serving, và bỏ hẳn field `aiperf-docker-image`:
+
+- `install_agentic_deps` tự phát hiện `aiperf` đã có sẵn trên `PATH` (qua
+  `command -v aiperf`) và bỏ qua bước pip-install chậm.
+- `_probe_endpoint` (bước kiểm tra endpoint trước khi chạy) tự fallback sang
+  `wget` (busybox) nếu container không có `curl` — image distroless mặc định
+  không có `curl`.
+- Không cần Docker-in-Docker, không cần rebuild thêm gì khác.
+- Muốn ép chạy lại pip-install (ví dụ khi submodule `utils/aiperf-mooncake` có
+  thay đổi chưa được bake vào image), set `AIPERF_FORCE_PIP_INSTALL=true`.
 
 ## 8. Checklist nhanh
 
