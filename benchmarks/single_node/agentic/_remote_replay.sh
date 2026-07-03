@@ -46,10 +46,14 @@ set +x
 # AIPERF_DATASET_CONFIGURATION_TIMEOUT (1800s, see build_replay_cmd) plus the
 # benchmark duration itself, so the default here leaves headroom above that.
 AIPERF_MAX_RUNTIME="${AIPERF_MAX_RUNTIME:-2400}"
+# Use the short flags -s/-k rather than --signal/--kill-after: the pre-built
+# full AIPerf image is distroless and ships busybox timeout, which only accepts
+# `timeout [-s SIG] [-k KILL_SECS] SECS PROG`. GNU timeout accepts these too, so
+# this is portable across both the full-image and pip-install paths.
 if [[ "$AIPERF_USE_DOCKER" == "true" ]]; then
-    timeout --signal=TERM --kill-after=60 "$AIPERF_MAX_RUNTIME" "${DOCKER_REPLAY_ARGS[@]}" 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+    timeout -s TERM -k 60 "$AIPERF_MAX_RUNTIME" "${DOCKER_REPLAY_ARGS[@]}" 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
 else
-    timeout --signal=TERM --kill-after=60 "$AIPERF_MAX_RUNTIME" $REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
+    timeout -s TERM -k 60 "$AIPERF_MAX_RUNTIME" $REPLAY_CMD 2>&1 | tee "$RESULT_DIR/benchmark.log" || true
 fi
 replay_exit="${PIPESTATUS[0]}"
 set -x
