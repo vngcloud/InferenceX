@@ -23,11 +23,19 @@ for v in "${RUN_ENV[@]}"; do
   ENV_ARGS+=(-e "$v")
 done
 
+# The pre-built full AIPerf image is distroless and runs as non-root UID 1000,
+# so it can't write into the bind-mounted workspace (owned by the runner user).
+# Map the container to the host runner's uid/gid so mkdir/results writes succeed
+# and result files stay runner-owned for the upload/cleanup steps. HOME=/app is
+# owned by 1000 and unwritable under the remapped uid, so point HOME at the
+# writable workspace (matplotlib is the only remaining HOME writer).
 docker run --rm \
   --init \
   --ipc=host \
   --network host \
   --shm-size=32g \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/workspace \
   -v "$GITHUB_WORKSPACE:/workspace" \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
   -w /workspace \
