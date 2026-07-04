@@ -9546,7 +9546,7 @@ qwen3-4b-weka-bf16-bench-client-sglang-remote-smoke:
 # are flattened to aiperf's comma-separated multi-URL syntax; aiperf
 # round-robins requests across the model endpoints by default.
 deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
-  image: vllm/vllm-openai:v0.21.0
+  image: aiperf:0.8.0
   model: deepseek-coder-v2-lite-fp8
   model-prefix: deepseek-coder-v2-lite-weka
   runner: benchmark-client
@@ -9561,7 +9561,6 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
     - http://192.168.4.13:8000/metrics
     - http://192.168.4.13:8001/metrics
     gpu-telemetry-url: http://192.168.4.13:9400/metrics
-    aiperf-docker-image: aiperf:0.8.0
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9572,4 +9571,4 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
       num-dataset-entries: 949
       duration: 900
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2, 4, 8, 16] }
+      - { tp: 1, ep: 1, conc-list: [2, 4, 8] }

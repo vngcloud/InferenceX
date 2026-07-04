@@ -1,8 +1,7 @@
 # Remote agentic-replay: running AIPerf from a pre-built image
 
-How the remote-replay benchmark client runs, why it re-installs AIPerf on every
-job today, and the future-work plan for using a pre-built AIPerf image on the
-`benchmark-client` runner to skip that install.
+How the remote-replay benchmark client runs, and how to use a pre-built full
+AIPerf image on the `benchmark-client` runner to skip the per-job install.
 
 ## How the remote path runs the client
 
@@ -31,10 +30,10 @@ which pip-installs AIPerf from the `utils/aiperf-mooncake` submodule on **every
 job**. The slow part is the editable install of AIPerf plus its
 transformers-from-git dependency.
 
-## The `aiperf-docker-image` config option
+## The `aiperf-docker-image` config option (deprecated, inert)
 
-The config schema and CI plumbing already carry an optional pre-built-image name
-end to end:
+The config schema and CI plumbing carry an optional pre-built-image name end to
+end:
 
 - `.github/configs/nvidia-master.yaml` — `remote.aiperf-docker-image: <name:tag>`
 - `utils/matrix_logic/validation.py` — `RemoteConfig.aiperf_docker_image`
@@ -44,51 +43,45 @@ end to end:
   the image exists locally, it skips the pip install and marks the run to invoke
   AIPerf via `docker run <image>` instead.
 
-**Known limitation (not yet wired end to end).** With the current
-`launch_remote.sh`, the whole orchestration already runs *inside* the top-level
-`image:` container, so that `docker run <aiperf-image>` would be a **nested**
-docker call (Docker-in-Docker). That needs a `docker` CLI inside the serving
-image and the host's `/var/run/docker.sock` mounted into the container — neither
-of which `launch_remote.sh` sets up. Until that is addressed, leave
-`aiperf-docker-image` unset so the runner keeps the pip-install path.
+**This field is inert and should not be used.** `runners/launch_remote.sh` passes
+an explicit allowlist of env vars into the container (`RUN_ENV`), which does not
+include `AIPERF_DOCKER_IMAGE` — so the value never reaches the job. Even if it
+did, the whole orchestration already runs *inside* the top-level `image:`
+container, so `docker run <aiperf-image>` would be a **nested** docker call
+(Docker-in-Docker), which would need a `docker` CLI inside the container and the
+host's `/var/run/docker.sock` mounted in — neither of which `launch_remote.sh`
+sets up. Use the full-image approach below instead.
 
-## Why not just point `image:` at the AIPerf image
+## The full-image approach (implemented)
 
-This is the clean idea: since `image:` is the client runtime in the remote path,
-set it to an AIPerf image that already has the client installed, and drop the
-per-job install entirely. It would also avoid pulling the heavy vLLM image onto
-the `benchmark-client` runner, which never serves a model in this path.
+Since `image:` is already the client runtime in the remote path, point it
+directly at a pre-built AIPerf image and drop the per-job install entirely. This
+also avoids pulling the heavy vLLM image onto the `benchmark-client` runner,
+which never serves a model in this path.
 
-The blocker is *which* AIPerf image. `make docker` in `utils/aiperf-mooncake`
-builds the default `runtime` target, which is **distroless**
-([Dockerfile](../utils/aiperf-mooncake/Dockerfile) `runtime` stage): it ships only
-`/bin/bash`, the AIPerf venv, and ffmpeg. It has no `mkdir`, `timeout`, `tee`,
-`id`, `git`, `curl`, or `sleep`. Its `ENTRYPOINT ["/bin/bash", "-c"]` is built to
-run a single `aiperf …` command string.
+`make docker` in `utils/aiperf-mooncake` builds the default `runtime` target,
+which is **distroless** ([Dockerfile](../utils/aiperf-mooncake/Dockerfile)
+`runtime` stage). It's built around `ENTRYPOINT ["/bin/bash", "-c"]` to run a
+single `aiperf …` command, but it turns out to be enough to host the whole
+orchestration too: on top of `/bin/bash`, the AIPerf venv, and `python3`, the
+base distroless image ships busybox, which provides `mkdir`, `timeout`, `tee`,
+`sleep`, `id`, and `wget`. The only orchestration dependency it's missing is
+`curl` (used only for the endpoint reachability pre-check) and `git` (used only
+by the pip-install path, which the full image skips). No rebuild needed:
 
-But `image:` has to host the **whole** orchestration, not just AIPerf:
-`_remote_replay.sh` needs `mkdir`/`timeout`/`tee` and `python3` for result
-aggregation and `analyze_benchmark_distributions.py`; the pre-check and pip paths
-in `benchmark_lib.sh` need `curl`/`sleep`/`git`. The distroless image would fail
-on the first line. It is perfect for running a single AIPerf command, and
-unusable as the orchestration host.
+1. **`_probe_endpoint`** ([benchmark_lib.sh](../benchmarks/benchmark_lib.sh))
+   prefers `curl` and falls back to busybox `wget` when `curl` is absent.
+2. **`install_agentic_deps`** short-circuits with `command -v aiperf` (mirroring
+   the reuse check `ensure_aiperf` already has) — when the image already has
+   `aiperf` on `PATH`, the pip install is skipped entirely. Set
+   `AIPERF_FORCE_PIP_INSTALL=true` to force the source install anyway (e.g. to
+   pick up submodule changes not yet baked into the image).
+3. The remote config's top-level `image:` points at the pre-built AIPerf image
+   (e.g. `aiperf:0.8.0`) instead of the serving image, and
+   `remote.aiperf-docker-image` is removed.
 
-## Future work (decided: defer)
-
-Preferred direction, to avoid pulling the unused vLLM image on the remote client
-runner:
-
-1. Build a **full** AIPerf image instead of the distroless `runtime` target —
-   e.g. base it on the Dockerfile's `test`/`local-dev` (Debian) stage, or add
-   `coreutils`, `git`, and `curl` to a runtime variant. It must have AIPerf
-   pre-installed plus the shell utilities and `python3` the orchestration uses.
-2. Point the remote config's top-level `image:` at that full AIPerf image.
-3. Add a one-line "AIPerf already installed → skip the slow editable install"
-   bypass to `install_agentic_deps` (mirroring the reuse check `ensure_aiperf`
-   already has). AIPerf then runs directly in the container — no nested docker,
-   no Docker-in-Docker, results identical to the pip path since it is the same
-   AIPerf build.
-
-This is deferred for now. Until it lands, remote-replay configs continue to use
-the serving `image:` and pip-install AIPerf per job; leave `aiperf-docker-image`
-unset.
+AIPerf then runs directly in the container — no nested docker, no
+Docker-in-Docker, results identical to the pip path since it's the same AIPerf
+build. Rebuilding/re-tagging the image is only needed to pick up
+`utils/aiperf-mooncake` submodule changes, since the full image pins whatever
+AIPerf version was baked in at build time.
