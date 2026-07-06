@@ -1393,18 +1393,23 @@ install_agentic_deps() {
 }
 
 # Probe an HTTP endpoint with a short timeout, retrying a few times to absorb
-# transient blips. Returns 0 if any attempt succeeds.
+# transient blips. Returns 0 if any attempt succeeds. Optional 4th arg is an
+# API key sent as a Bearer token -- required by endpoints (like hosted MaaS
+# providers) that reject unauthenticated requests with 401 before we even get
+# to check reachability.
 _probe_endpoint() {
-    local url="$1" max_time="$2" retries="$3" attempt
+    local url="$1" max_time="$2" retries="$3" api_key="${4:-}" attempt
 
     for (( attempt=1; attempt<=retries; attempt++ )); do
         if command -v curl >/dev/null 2>&1; then
-            if curl --output /dev/null --silent --fail --max-time "$max_time" "$url"; then
+            if curl --output /dev/null --silent --fail --max-time "$max_time" \
+                ${api_key:+-H "Authorization: Bearer $api_key"} "$url"; then
                 return 0
             fi
         # The pre-built AIPerf image is distroless: it ships busybox wget but
         # not curl. wget's exit status is a good-enough reachability signal.
-        elif wget -q -T "$max_time" -O /dev/null "$url"; then
+        elif wget -q -T "$max_time" -O /dev/null \
+            ${api_key:+--header "Authorization: Bearer $api_key"} "$url"; then
             return 0
         fi
         sleep 1
@@ -1416,7 +1421,7 @@ _probe_endpoint() {
 # each result. Never fails the run -- used for the metrics/telemetry endpoints,
 # which aiperf can operate without.
 _check_optional_remote_urls() {
-    local label="$1" value="$2" max_time="$3" retries="$4"
+    local label="$1" value="$2" max_time="$3" retries="$4" api_key="${5:-}"
     local url
 
     [[ -z "$value" ]] && return 0
@@ -1425,7 +1430,7 @@ _check_optional_remote_urls() {
     for url in "${urls[@]}"; do
         url="${url// /}"
         [[ -z "$url" ]] && continue
-        if _probe_endpoint "$url" "$max_time" "$retries"; then
+        if _probe_endpoint "$url" "$max_time" "$retries" "$api_key"; then
             echo "[precheck] $label reachable: $url"
         else
             echo "[precheck] WARNING: $label unreachable, continuing without it: $url" >&2
@@ -1460,7 +1465,7 @@ check_remote_endpoints() {
     for url in "${model_urls[@]}"; do
         url="${url// /}"
         [[ -z "$url" ]] && continue
-        if _probe_endpoint "${url%/}/v1/models" "$max_time" "$retries"; then
+        if _probe_endpoint "${url%/}/v1/models" "$max_time" "$retries" "${REMOTE_API_KEY:-}"; then
             echo "[precheck] model endpoint reachable: $url"
             reachable=1
         else
