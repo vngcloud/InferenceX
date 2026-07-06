@@ -9574,3 +9574,26 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
       duration: 900
       search-space:
       - { tp: 1, ep: 1, conc-list: [2, 4] }
+
+# Hosted MaaS endpoint (VNGCloud AI Platform) serving GLM-5.2 — no
+# server-metrics/gpu-telemetry access since it's not our own infra.
+glm5-2-bench-client-remote-smoke:
+  image: aiperf:0.8.0
+  model: z-ai/glm-5.2
+  model-prefix: glm5-2
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: z-ai/glm-5.2
+      num-dataset-entries: 50
+      duration: 90
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [1] }
