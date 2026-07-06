@@ -9571,4 +9571,4 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
       num-dataset-entries: 949
       duration: 900
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2, 4, 8] }
+      - { tp: 1, ep: 1, conc-list: [2, 4] }
