@@ -9592,7 +9592,7 @@ glm5-2-bench-client-remote-smoke:
     - custom-dataset-type: weka_trace
       max-model-len: 131072
       benchmark-client: [aiperf]
-      tokenizer: z-ai/glm-5.2
+      tokenizer: zai-org/GLM-5.2
       num-dataset-entries: 50
       duration: 90
       search-space:
