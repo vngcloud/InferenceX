@@ -37,7 +37,7 @@ tương ứng), bên trong entry của bạn, ngang hàng với `scenarios:`:
 | `url` | Có | (Các) endpoint OpenAI-compatible của model đang serve, ví dụ `http://192.168.4.13:8000`. Có thể là 1 string hoặc 1 list nhiều URL. |
 | `server-metrics-url` | Không | (Các) URL Prometheus metrics của server serving, cùng format với `url`. |
 | `gpu-telemetry-url` | Không | URL DCGM exporter để lấy GPU telemetry. |
-| `aiperf-docker-image` | Không | Tên:tag một image AIPerf đã build sẵn trên runner `benchmark-client` (ví dụ `aiperf:0.8.0`). **Lưu ý:** trường này hiện đang *inert* — xem mục "Giới hạn hiện tại" bên dưới. |
+| `aiperf-docker-image` | Không | Trường legacy vẫn được schema/workflow chấp nhận, nhưng hiện không thay đổi image thực thi. Không dùng cho config mới; xem mục 7. |
 
 Nếu `url` (hoặc `server-metrics-url`) là một **list nhiều URL** (model được
 serve bởi nhiều instance), `validation.py` sẽ tự nối chúng thành chuỗi
@@ -196,16 +196,27 @@ set từ secret `REMOTE_ENDPOINT_API_KEY` khi `remote-url` khác rỗng (xem
 `.github/workflows/benchmark-tmpl.yml`). Nếu endpoint remote không cần API
 key, có thể để trống secret này — hệ thống sẽ fallback về giá trị `EMPTY`.
 
-## 7. `aiperf-docker-image` đã deprecated — dùng full-image approach
+## 7. `aiperf-docker-image`
 
-Field `remote.aiperf-docker-image` **vô tác dụng** (inert): `runners/launch_remote.sh`
-không forward biến `AIPERF_DOCKER_IMAGE` vào container, nên `install_agentic_deps`
-luôn thấy biến này unset. Kể cả khi forward được, cách này cần `docker run` lồng
-trong container đang chạy (Docker-in-Docker) — điều `launch_remote.sh` chưa hỗ trợ.
-Đừng dùng field này.
+Đường dẫn config `remote.aiperf-docker-image` **vẫn còn hợp lệ**:
+
+- `validation.py` vẫn khai báo field này.
+- `e2e-tests.yml` và `benchmark-tmpl.yml` vẫn truyền giá trị thành biến
+  `AIPERF_DOCKER_IMAGE`.
+
+Tuy nhiên, field này hiện không có hiệu lực ở bước chạy cuối:
+`runners/launch_remote.sh` dùng allowlist biến môi trường khi tạo container và
+không forward `AIPERF_DOCKER_IMAGE`. Vì vậy, `install_agentic_deps` bên trong
+container không nhận được giá trị này. Nếu chỉ thêm `aiperf-docker-image` vào
+config, job vẫn dùng top-level `image:` và chạy theo luồng cài AIPerf thông
+thường.
+
+Field này có thể vẫn xuất hiện trong config cũ vì validation còn chấp nhận,
+nhưng nên xoá khi cập nhật config để tránh gây hiểu nhầm. Không dùng field này
+cho config mới hoặc dựa vào nó để chọn image thực thi.
 
 Thay vào đó, dùng **full-image approach** (xem chi tiết trong
-`docs/REMOTE_AIPERF_DOCKER.md`): trỏ thẳng `image:` của config vào một image
+`docs/REMOTE_AIPERF_DOCKER.md`): trỏ thẳng top-level `image:` của config vào một image
 AIPerf đã build sẵn (`make docker` trong `utils/aiperf-mooncake`) thay vì image
 serving, và bỏ hẳn field `aiperf-docker-image`:
 
