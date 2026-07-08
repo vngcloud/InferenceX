@@ -9627,6 +9627,32 @@ glm5-2-byteplus-bench-client-remote:
       search-space:
       - { tp: 1, ep: 1, conc-list: [4, 8] }
 
+# Smoke variant of glm5-2-byteplus-bench-client-remote: same BytePlus Model Ark
+# endpoint, but conc=2 and a short 90s window for a quick reachability/path check
+# without burning the full 600s sweep.
+glm5-2-byteplus-bench-client-remote-smoke:
+  image: aiperf:0.8.0
+  model: glm-5-2-260617
+  model-prefix: glm5-2
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://ark.ap-southeast.bytepluses.com/api/v3
+    endpoint: /chat/completions
+    api-key-secret-name: BYTEPLUS_API_KEY
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      duration: 90
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [2] }
+
 # Hosted MaaS endpoint (VNGCloud AI Platform, GreenNode) serving GLM-5.2 — no
 # server-metrics/gpu-telemetry access since it's not our own infra. Same host
 # as the -smoke config but a full run (full weka corpus, 1000 entries) and the
