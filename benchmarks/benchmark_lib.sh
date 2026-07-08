@@ -1673,6 +1673,36 @@ build_docker_replay_args() {
     )
 }
 
+# Surface an early --failed-request-threshold abort prominently in the job log.
+# AIPerf already records the reason in aiperf.log at WARNING level, but from the
+# run summary a threshold abort is indistinguishable from any other cancel
+# (was_cancelled=true) and the reported Benchmark Duration collapses to just the
+# successful-request window before the abort. Echo an unmissable banner and
+# stash the reason to abort_reason.txt so the stop cause is obvious without
+# grepping the artifact tree. Reads what AIPerf already logs -- no AIPerf change.
+report_failed_request_abort() {
+    local result_dir="$1"
+    local abort_line reason
+    abort_line="$(grep -rh -- '--failed-request-threshold exceeded' \
+        "$result_dir/trace_replay" "$result_dir/benchmark.log" 2>/dev/null \
+        | head -1 || true)"
+    [[ -z "$abort_line" ]] && return 0
+
+    reason="${abort_line#*--failed-request-threshold exceeded: }"
+    reason="${reason%% Broadcasting*}"
+    {
+        echo "=============================================================="
+        echo "RUN ABORTED EARLY - TOO MANY FAILED REQUESTS"
+        echo "  --failed-request-threshold exceeded: ${reason}"
+        echo "  The benchmark did NOT run to --benchmark-duration. The"
+        echo "  reported Benchmark Duration covers only the successful-request"
+        echo "  window before the abort; treat these metrics as invalid."
+        echo "=============================================================="
+    } >&2
+    printf 'failed-request-threshold exceeded: %s\n' "$reason" \
+        > "$result_dir/abort_reason.txt"
+}
+
 write_agentic_result_json() {
     # Aggregate aiperf's profile_export.{json,jsonl} + server_metrics_export.json
     # into $AGENTIC_OUTPUT_DIR/$RESULT_FILENAME.json. The workflow's existing

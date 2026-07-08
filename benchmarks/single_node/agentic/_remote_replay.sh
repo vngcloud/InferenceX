@@ -64,6 +64,8 @@ elif [[ "$replay_exit" -ne 0 ]]; then
     echo "WARNING: aiperf exited with code $replay_exit; attempting result aggregation anyway." >&2
 fi
 
+report_failed_request_abort "$RESULT_DIR"
+
 write_agentic_result_json "$RESULT_DIR"
 
 python3 "$AGENTIC_DIR/scripts/analyze_benchmark_distributions.py" \
