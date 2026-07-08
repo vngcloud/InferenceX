@@ -9626,3 +9626,31 @@ glm5-2-byteplus-bench-client-remote:
       duration: 600
       search-space:
       - { tp: 1, ep: 1, conc-list: [4, 8] }
+
+# Hosted MaaS endpoint (VNGCloud AI Platform, GreenNode) serving GLM-5.2 — no
+# server-metrics/gpu-telemetry access since it's not our own infra. Same host
+# as the -smoke config but a full run (full weka corpus, 1000 entries) and the
+# GREENNODE_API_KEY secret. url has no /v1 so the default endpoint
+# (/v1/chat/completions) resolves to the .../v1/chat/completions request path.
+glm5-2-greennode-bench-client-remote:
+  image: aiperf:0.8.0
+  model: z-ai/glm-5.2
+  model-prefix: glm5-2
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: GREENNODE_API_KEY
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      num-dataset-entries: 1000
+      duration: 90
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [2] }
