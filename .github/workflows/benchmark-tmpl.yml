@@ -131,6 +131,11 @@ on:
         required: false
         type: string
         default: ''
+      remote-endpoint:
+        description: "Remote request path appended to remote-url (aiperf --endpoint); empty => /v1/chat/completions"
+        required: false
+        type: string
+        default: ''
       remote-server-metrics-url:
         description: "Remote Prometheus metrics URL"
         required: false
@@ -138,6 +143,11 @@ on:
         default: ''
       remote-gpu-telemetry-url:
         description: "Remote DCGM exporter URL"
+        required: false
+        type: string
+        default: ''
+      remote-api-key-secret:
+        description: "Name of the GitHub secret holding the remote endpoint API key; empty => no key"
         required: false
         type: string
         default: ''
@@ -182,9 +192,14 @@ env:
   WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}
   REMOTE_URL: ${{ inputs.remote-url }}
+  REMOTE_ENDPOINT: ${{ inputs.remote-endpoint }}
   REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}
   REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
-  REMOTE_API_KEY: ${{ inputs.remote-url != '' && secrets.REMOTE_ENDPOINT_API_KEY || 'EMPTY' }}
+  # Resolve the API key from the secret named by the config's remote.api-key-secret-name.
+  # Empty when no name is given or the named secret is unset; downstream treats empty as
+  # EMPTY (see benchmark_lib.sh). The "Validate remote API key secret" step fails early
+  # when a name is given but the secret is unset/empty.
+  REMOTE_API_KEY: ${{ secrets[inputs.remote-api-key-secret] }}
   AIPERF_DOCKER_IMAGE: ${{ inputs.aiperf-docker-image }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
@@ -199,6 +214,18 @@ jobs:
     timeout-minutes: 500
     name: "${{ inputs.exp-name }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework }} | tp=${{ inputs.tp }} ep=${{ inputs.ep }} dpa=${{ inputs.dp-attn }} | disagg-${{ inputs.disagg }} spec-${{ inputs.spec-decoding }} conc-${{ inputs.conc }}${{ inputs.eval-only && ' | eval-only' || (inputs.run-eval && ' | eval' || '') }}"
     steps:
+      - name: Validate remote API key secret
+        if: ${{ inputs.remote-url != '' && inputs.remote-api-key-secret != '' }}
+        env:
+          RESOLVED_KEY: ${{ secrets[inputs.remote-api-key-secret] }}
+          SECRET_NAME: ${{ inputs.remote-api-key-secret }}
+        run: |
+          if [ -z "${RESOLVED_KEY}" ]; then
+            echo "::error::Config requested API key secret '${SECRET_NAME}' but it is unset or empty in this repository. Add it under Settings → Secrets → Actions." >&2
+            exit 1
+          fi
+          echo "Remote API key secret '${SECRET_NAME}' is present."
+
       - name: Resource cleanup (pre-run)
         run: &resource-cleanup |
           # Cleanup Docker resources

@@ -9587,6 +9587,7 @@ glm5-2-bench-client-remote-smoke:
   multinode: false
   remote:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: REMOTE_ENDPOINT_API_KEY
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9597,3 +9598,31 @@ glm5-2-bench-client-remote-smoke:
       duration: 90
       search-space:
       - { tp: 1, ep: 1, conc-list: [1] }
+
+# BytePlus Model Ark (ap-southeast) hosted endpoint serving GLM-5.2 — no
+# server-metrics/gpu-telemetry access since it's not our own infra. BytePlus
+# serves its OpenAI-compatible API under /api/v3, not /v1, so the request path
+# is overridden via remote.endpoint (default is /v1/chat/completions).
+glm5-2-byteplus-bench-client-remote:
+  image: aiperf:0.8.0
+  model: glm-5-2-260617
+  model-prefix: glm5-2
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://ark.ap-southeast.bytepluses.com/api/v3
+    endpoint: /chat/completions
+    api-key-secret-name: BYTEPLUS_API_KEY
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      num-dataset-entries: 1000
+      duration: 600
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [4, 8] }

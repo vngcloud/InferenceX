@@ -1417,6 +1417,38 @@ _probe_endpoint() {
     return 1
 }
 
+# Reachability probe that treats ANY HTTP response (including 4xx/5xx) as
+# success. Its job is to catch an unroutable host / silent hang before handing
+# off to aiperf, not to validate the API contract -- so a provider whose
+# /models path 401s or 404s (e.g. BytePlus Model Ark) but whose chat endpoint
+# is fine still counts as reachable. Only a transport failure (DNS, connect
+# refused, timeout) counts as unreachable.
+_probe_reachable() {
+    local url="$1" max_time="$2" retries="$3" api_key="${4:-}" attempt resp
+    for (( attempt=1; attempt<=retries; attempt++ )); do
+        if command -v curl >/dev/null 2>&1; then
+            # No --fail: curl exits 0 on any HTTP status, non-zero only on
+            # transport errors.
+            if curl --output /dev/null --silent --max-time "$max_time" \
+                ${api_key:+-H "Authorization: Bearer $api_key"} "$url"; then
+                return 0
+            fi
+        else
+            # busybox wget (distroless AIPerf image) exits non-zero on 4xx, so
+            # exit status alone can't distinguish "server said 404" from "host
+            # unreachable". -S prints the response status line to stderr even on
+            # error; an "HTTP/" line means the host answered.
+            resp="$(wget -S -T "$max_time" -O /dev/null \
+                ${api_key:+--header "Authorization: Bearer $api_key"} "$url" 2>&1 || true)"
+            if [[ "$resp" == *"HTTP/"* ]]; then
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 # Probe every comma-separated URL in $value (aiperf's own list syntax), logging
 # each result. Never fails the run -- used for the metrics/telemetry endpoints,
 # which aiperf can operate without.
@@ -1448,10 +1480,12 @@ _check_optional_remote_urls() {
 # actually route to the model host before handing it to aiperf.
 #
 # Model endpoint(s): REMOTE_URL may be a single URL or aiperf's own
-# comma-separated multi-URL syntax (see build_replay_cmd). Hard-fail only if
-# NONE of the configured URLs answer GET /v1/models -- a single unreachable
-# member of an otherwise-healthy round-robin set is logged but not fatal.
-# Metrics/telemetry endpoints are optional to aiperf, so those are warn-only.
+# comma-separated multi-URL syntax (see build_replay_cmd). The probe hits a
+# models-list path derived from REMOTE_ENDPOINT and, via _probe_reachable,
+# treats ANY HTTP response as proof the host is routable (a 401/404 from the
+# probe path is fine). Hard-fail only if NONE of the configured URLs answer at
+# all -- a single unreachable member of an otherwise-healthy round-robin set is
+# logged but not fatal. Metrics/telemetry endpoints are optional, so warn-only.
 check_remote_endpoints() {
     local max_time="${REMOTE_HEALTHCHECK_TIMEOUT:-10}"
     local retries="${REMOTE_HEALTHCHECK_RETRIES:-3}"
@@ -1461,11 +1495,22 @@ check_remote_endpoints() {
         return 0
     fi
 
+    # Derive the models-list path from the configured request endpoint so the
+    # probe matches the provider's base path (default /v1/chat/completions ->
+    # /v1/models; BytePlus /chat/completions -> /models under url's /api/v3).
+    local endpoint="${REMOTE_ENDPOINT:-/v1/chat/completions}"
+    local models_path
+    if [[ "$endpoint" == */chat/completions ]]; then
+        models_path="${endpoint%/chat/completions}/models"
+    else
+        models_path="/v1/models"
+    fi
+
     IFS=',' read -ra model_urls <<< "$REMOTE_URL"
     for url in "${model_urls[@]}"; do
         url="${url// /}"
         [[ -z "$url" ]] && continue
-        if _probe_endpoint "${url%/}/v1/models" "$max_time" "$retries" "${REMOTE_API_KEY:-}"; then
+        if _probe_reachable "${url%/}${models_path}" "$max_time" "$retries" "${REMOTE_API_KEY:-}"; then
             echo "[precheck] model endpoint reachable: $url"
             reachable=1
         else
@@ -1474,7 +1519,7 @@ check_remote_endpoints() {
     done
 
     if [[ "$reachable" -eq 0 ]]; then
-        echo "Error: none of the configured REMOTE_URL endpoint(s) responded to GET /v1/models" >&2
+        echo "Error: none of the configured REMOTE_URL endpoint(s) responded to GET ${models_path}" >&2
         echo "  within ${max_time}s (${retries} attempts each): $REMOTE_URL" >&2
         echo "  Confirm the benchmark-client runner can route to the model host and that the server is up." >&2
         return 1
@@ -1519,7 +1564,11 @@ build_replay_cmd() {
     # here. generate_sweep_configs.py is what joins a YAML list of URLs into
     # this comma-separated form before it reaches this script.
     REPLAY_CMD+=" --url ${REMOTE_URL:-http://localhost:$PORT}"
-    REPLAY_CMD+=" --endpoint /v1/chat/completions"
+    # Request path appended to --url. Defaults to the OpenAI-compatible
+    # /v1/chat/completions; override via remote.endpoint (REMOTE_ENDPOINT) for
+    # providers on a non-/v1 base path (e.g. BytePlus Model Ark: url ends in
+    # /api/v3, endpoint = /chat/completions).
+    REPLAY_CMD+=" --endpoint ${REMOTE_ENDPOINT:-/v1/chat/completions}"
     REPLAY_CMD+=" --endpoint-type chat"
     REPLAY_CMD+=" --streaming"
     REPLAY_CMD+=" --model $MODEL"

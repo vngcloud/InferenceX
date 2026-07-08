@@ -587,6 +587,23 @@ class TestAgenticReplayMatrixEntries:
 
         assert entry.remote.url == "http://remote:8000"
 
+    def test_remote_api_key_secret_name_allowed(self):
+        """A remote config may name the GitHub secret holding its API key; the
+        reusable workflow resolves that name dynamically at run time."""
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+            "api-key-secret-name": "MAAS_HCM_API_KEY",
+        }))
+
+        assert entry.remote.api_key_secret_name == "MAAS_HCM_API_KEY"
+
+    def test_remote_api_key_secret_name_defaults_none(self):
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+        }))
+
+        assert entry.remote.api_key_secret_name is None
+
     def test_remote_url_list_joined_to_comma_separated_string(self):
         """A model hosted across multiple endpoints may be declared as a list;
         RemoteConfig normalizes it to aiperf's comma-separated multi-URL

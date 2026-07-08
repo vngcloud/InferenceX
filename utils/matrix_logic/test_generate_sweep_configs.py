@@ -493,6 +493,23 @@ class TestGenerateFullSweepSingleNode:
 
         assert result[0]["remote"]["url"] == "http://remote:8000"
 
+    def test_agentic_replay_threads_remote_api_key_secret_name(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """The name of the API key secret must survive into the generated matrix
+        entry so the reusable workflow can resolve it against repo secrets."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": "http://remote:8000",
+            "api-key-secret-name": "MAAS_HCM_API_KEY",
+        }
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["remote"]["api-key-secret-name"] == "MAAS_HCM_API_KEY"
+
     def test_agentic_replay_remote_config_url_list_is_comma_joined(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         """A model hosted across multiple endpoints can be declared as a YAML
         list; it must be flattened to aiperf's comma-separated multi-URL

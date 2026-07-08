@@ -64,8 +64,10 @@ class Fields(Enum):
     NUM_DATASET_ENTRIES = 'num-dataset-entries'
     TOKENIZER = 'tokenizer'
     REMOTE = 'remote'
+    ENDPOINT = 'endpoint'
     SERVER_METRICS_URL = 'server-metrics-url'
     GPU_TELEMETRY_URL = 'gpu-telemetry-url'
+    API_KEY_SECRET_NAME = 'api-key-secret-name'
     AIPERF_DOCKER_IMAGE = 'aiperf-docker-image'
 
     # Matrix entry fields
@@ -231,10 +233,21 @@ class RemoteConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
 
     url: Union[str, List[str]]
+    # OpenAI-compatible request path appended to ``url`` (aiperf's --endpoint).
+    # Unset => the remote driver defaults to /v1/chat/completions. Override for
+    # providers that serve under a non-/v1 base path, e.g. BytePlus Model Ark
+    # (url ends in /api/v3, endpoint = /chat/completions).
+    endpoint: Optional[str] = Field(default=None, alias=Fields.ENDPOINT.value)
     server_metrics_url: Optional[Union[str, List[str]]] = Field(
         default=None, alias=Fields.SERVER_METRICS_URL.value)
     gpu_telemetry_url: Optional[Union[str, List[str]]] = Field(
         default=None, alias=Fields.GPU_TELEMETRY_URL.value)
+    # Name of the GitHub secret holding the endpoint API key. Unset => no key is
+    # sent (the request goes out unauthenticated). The reusable workflow resolves
+    # this name dynamically against the repo's secrets and fails early if a name
+    # is given but the secret is unset/empty.
+    api_key_secret_name: Optional[str] = Field(
+        default=None, alias=Fields.API_KEY_SECRET_NAME.value)
     # Pre-built aiperf docker image (name:tag) on the benchmark-client runner.
     # When set, the remote-replay driver runs aiperf via `docker run` against
     # this image instead of pip-installing the client on every job; unset =>

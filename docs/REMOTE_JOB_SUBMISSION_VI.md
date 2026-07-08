@@ -191,10 +191,24 @@ Một số lỗi thường gặp:
 
 ## 6. Secret cần thiết
 
-Nếu remote endpoint yêu cầu xác thực, biến môi trường `REMOTE_API_KEY` được
-set từ secret `REMOTE_ENDPOINT_API_KEY` khi `remote-url` khác rỗng (xem
-`.github/workflows/benchmark-tmpl.yml`). Nếu endpoint remote không cần API
-key, có thể để trống secret này — hệ thống sẽ fallback về giá trị `EMPTY`.
+Mỗi config remote tự khai báo **tên** secret GitHub chứa API key của endpoint
+đó, qua field `remote.api-key-secret-name`:
+
+```yaml
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: REMOTE_ENDPOINT_API_KEY
+```
+
+- Secret được tạo trên GitHub (Settings → Secrets → Actions). Config chỉ tham
+  chiếu tới nó bằng tên; workflow (`.github/workflows/benchmark-tmpl.yml`) resolve
+  động qua `secrets[<tên>]` và đặt vào biến môi trường `REMOTE_API_KEY`.
+- **Bỏ trống field** (không khai báo `api-key-secret-name`) => không gửi key nào
+  (`REMOTE_API_KEY` rỗng, downstream hiểu là `EMPTY`). Dùng cho endpoint không
+  cần xác thực.
+- **Fail early:** nếu config có khai báo `api-key-secret-name` nhưng secret đó
+  chưa được set / rỗng trên repo, job dừng ngay ở bước đầu ("Validate remote API
+  key secret") với thông báo lỗi rõ ràng — thay vì chạy sâu rồi mới 401.
 
 ## 7. `aiperf-docker-image`
 
