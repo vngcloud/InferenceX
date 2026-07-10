@@ -9575,6 +9575,42 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-multi-endpoint-smoke:
       search-space:
       - { tp: 1, ep: 1, conc-list: [2, 4] }
 
+# Single-URL variant of the weka remote smoke: AIPerf points ONLY at the P2P
+# split router (:8080) instead of the two vLLM URLs directly. The router keys on
+# the AIPerf-stamped correlation id and fans each session's consecutive turns
+# across vllm-a/vllm-b, forcing the LMCache P2P cross-instance KV path that
+# ordinary round-robin never exercises. Request traffic goes through the router;
+# server-metrics/gpu-telemetry still scrape the two vLLM instances (8000/8001),
+# both lmcache servers (7555/7556) and DCGM (9400) directly. Smoke sizing:
+# 50 entries, conc 2, 90s.
+deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-router-p2p-smoke:
+  image: aiperf:0.8.0
+  model: deepseek-coder-v2-lite-fp8
+  model-prefix: deepseek-coder-v2-lite-weka
+  runner: benchmark-client
+  precision: fp8
+  framework: vllm
+  multinode: false
+  remote:
+    url: http://192.168.4.13:8080
+    server-metrics-url:
+    - http://192.168.4.13:8000/metrics
+    - http://192.168.4.13:8001/metrics
+    - http://192.168.4.13:7555/metrics
+    - http://192.168.4.13:7556/metrics
+    gpu-telemetry-url: http://192.168.4.13:9400/metrics
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
+      max-model-len: 40960
+      benchmark-client: [aiperf]
+      tokenizer: RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8
+      num-dataset-entries: 50
+      duration: 90
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [2] }
+
 # Hosted MaaS endpoint (VNGCloud AI Platform) serving GLM-5.2 — no
 # server-metrics/gpu-telemetry access since it's not our own infra.
 glm5-2-bench-client-remote-smoke:
