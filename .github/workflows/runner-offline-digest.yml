@@ -12,7 +12,7 @@ name: Runner Offline Digest
 
 on:
   schedule:
-    - cron: '13 14 * * *'  # daily 14:13 UTC ≈ 8:13 AM CST (9:13 AM CDT during DST)
+    - cron: '30 14 * * *'  # daily 14:30 UTC ≈ 21:30 +07
   workflow_dispatch:
 
 permissions:
