@@ -1,0 +1,64 @@
+# Post-deploy smoke-test matrix. See design/smoke-test-matrix.md and
+# design/throughput-test.md for the full design.
+#
+# This is NOT a benchmark master config (compare nvidia-master.yaml /
+# amd-master.yaml) -- those describe ephemeral servers this repo launches
+# itself. Entries here describe an already-deployed stack managed by
+# inference-cicd: only what to run against it, keyed by stack *name* so it
+# can be cross-referenced against whatever inference-cicd's live /discover
+# endpoint reports at run time.
+#
+# Never declare base_url/model/framework/precision/tp/endpoint here -- those
+# come from /discover live specifically so config-vs-reality drift can be
+# detected, not assumed away.
+#
+# Fields:
+#   test-cases: which smoke_tests probes to run for this stack.
+#     - metadata:      query version_url, verify served model/framework/
+#                      precision/tp against `expect` below (if set)
+#     - tool-calling:  send a tool-enabled chat completion, verify a
+#                      tool_calls response
+#     - throughput:    aiperf-based concurrency sweep against the live
+#                      endpoint (client-only, no server launch)
+#   expect: (optional) values to diff metadata probe results against.
+#     Omit any sub-field to skip checking it.
+#   throughput: (required if `throughput` is in test-cases)
+#     isl / osl:            synthetic prompt/output token lengths
+#     conc-list:            concurrency levels to sweep, sequentially
+#     benchmark-duration-s: seconds per concurrency level
+
+sglang-vanilla:
+  test-cases: [metadata, tool-calling, throughput]
+  expect:
+    framework: sglang
+    precision: fp8
+    tp: 2
+  throughput:
+    isl: 128
+    osl: 128
+    conc-list: [1, 8, 32]
+    benchmark-duration-s: 20
+
+sglang-mooncake-store:
+  test-cases: [metadata, tool-calling, throughput]
+  expect:
+    framework: sglang
+    precision: fp8
+    tp: 1
+  throughput:
+    isl: 128
+    osl: 128
+    conc-list: [1, 8, 32]
+    benchmark-duration-s: 20
+
+sglang-pd-disaggregation:
+  test-cases: [metadata, tool-calling, throughput]
+  expect:
+    framework: sglang
+    precision: fp8
+    tp: 1
+  throughput:
+    isl: 128
+    osl: 128
+    conc-list: [1, 8, 32]
+    benchmark-duration-s: 20
