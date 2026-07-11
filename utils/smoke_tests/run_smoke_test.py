@@ -17,13 +17,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from probes import metadata, tool_calling  # noqa: E402
+from probes import metadata, throughput, tool_calling  # noqa: E402
 from result import ProbeResult  # noqa: E402
-
-try:
-    from probes import throughput
-except ImportError:
-    throughput = None
 
 
 def run_probes(entry: dict) -> dict[str, ProbeResult]:
@@ -39,12 +34,7 @@ def run_probes(entry: dict) -> dict[str, ProbeResult]:
         )
 
     if "throughput" in test_cases:
-        if throughput is None:
-            results["throughput"] = ProbeResult(
-                ok=False, detail="throughput probe not available (aiperf not installed)"
-            )
-        else:
-            results["throughput"] = throughput.run(entry, entry["throughput"])
+        results["throughput"] = throughput.run(entry, entry["throughput"])
 
     return results
 
