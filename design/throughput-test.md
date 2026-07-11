@@ -22,6 +22,7 @@ should be hand-declared in `smoke-tests.yaml` — that all comes from the live
 | `--endpoint` | `discover.endpoint` (pass through explicitly — see below) |
 | `--model` | `discover.model` |
 | `--endpoint-type` | derived from `discover.endpoint` shape (see below) |
+| `--gpu-telemetry-url` | `discover.gpu_metrics_url` (per-stack, pre-filtered — see below) |
 | result-row labels (framework/precision/tp) | `discover.framework` / `discover.precision` / `discover.tp` |
 | `--isl` / `--osl` / `--concurrency` / `--benchmark-duration` | `smoke-tests.yaml` per-stack `throughput:` block (not discoverable) |
 
@@ -44,40 +45,20 @@ through as `--gpu-telemetry-url`. This is what powers-normalized metrics
 like tokens/watt need — request-level metrics alone (tokens/sec, TTFT, ITL)
 can't derive actual GPU power draw.
 
-`/discover` now includes a top-level `gpu_metrics_url` (e.g.
-`http://116.118.91.176.nip.io/gpu-metrics`), which returns an index of the
-two GPU nodes with a per-node metrics URL each
-(`/gpu-metrics/<node>`, real DCGM Prometheus text, `404` for unknown nodes).
-This is genuine, live, per-GPU power data (`DCGM_FI_DEV_POWER_USAGE`),
-already labeled with `pod`/`namespace` so power draw can be attributed to a
-specific stack's pod.
+Each `/discover` stack entry includes a **per-stack** `gpu_metrics_url`
+(`http://116.118.91.176.nip.io/gpu-metrics/by-stack/<name>`, same
+convention as `version_url`; `404` for an unknown stack name), pre-filtered
+server-side to just that stack's own pod's GPU lines. Two of the three
+stacks (`sglang-vanilla`, `sglang-mooncake-store`) share a physical 4-GPU
+node, but the per-stack endpoint already excludes the other stack's GPUs
+(and an idle GPU on that node) — verified live, each `by-stack` URL returns
+only the requesting stack's own `DCGM_FI_DEV_POWER_USAGE` lines. So this
+plugs straight into `aiperf --gpu-telemetry-url` (via `discover.gpu_metrics_url`)
+with no InferenceX-side filtering needed, for all three stacks.
 
-**Nodes are multi-tenant — a raw per-node URL cannot be fed to
-`--gpu-telemetry` unfiltered.** `aiperf` scrapes and aggregates every GPU
-line at the URL it's given; it has no pod-label filter. Checked both nodes
-live:
-
-- `vks-ai-infrence-dev-5090-2x-eb1e0`: both GPUs belong to
-  `sglang-pd-disaggregation` only (prefill + decode pods). Safe to point
-  `--gpu-telemetry-url` straight at this node.
-- `vks-ai-infrence-dev-5090-4x-3a11b`: **4 GPUs, shared** — GPU 0-1 →
-  `sglang-vanilla`, GPU 2 → idle/unlabeled, GPU 3 →
-  `sglang-mooncake-store`. Pointing this node's URL at either stack's
-  `--gpu-telemetry-url` would silently mix in the other stack's (and an
-  idle GPU's) power draw — wrong tokens/watt for both.
-
-So today: safe to wire up for `sglang-pd-disaggregation`; **not** safe for
-`sglang-vanilla`/`sglang-mooncake-store` without a change, since they share
-a node.
-
-The fix that keeps using `aiperf`'s native ingestion unchanged (rather than
-bypassing it to hand-filter DCGM lines by pod label ourselves) is a request
-to `inference-cicd`: add a **per-stack** `gpu_metrics_url` to each
-`/discover` entry (same convention as `version_url`) that's already
-pre-filtered to that stack's own pod's GPU lines. Until that exists, the
-probe should only pass `--gpu-telemetry-url` through for stacks it can
-verify are alone on their node (`sglang-pd-disaggregation` today), and skip
-the metric for the rest rather than report a contaminated number.
+A top-level `gpu_metrics_url` also still exists on the `/discover` response
+(index of raw per-node URLs) — not used by this probe; the per-stack field
+is what to read.
 
 ## Probe flow
 
@@ -93,6 +74,7 @@ the metric for the rest rather than report a contaminated number.
      --url <discover.base_url> \
      --endpoint <discover.endpoint> \
      --endpoint-type chat \
+     --gpu-telemetry-url <discover.gpu_metrics_url> \
      --concurrency <conc> \
      --benchmark-duration <short-duration-seconds> \
      --isl <isl> --osl <osl> \
