@@ -10,25 +10,22 @@ endpoint. This design covers a new, separate workflow: a fast correctness +
 light-throughput check against live deployments, triggered by `inference-cicd`
 on deploy.
 
-This is deliberately *not* a benchmark. It reuses one piece of existing
-plumbing (`utils/bench_serving/benchmark_serving.py`'s `--base-url`/`--endpoint`
-flags, which already support pointing the client at an arbitrary remote host)
-and otherwise is new code — the closest existing system
-(`remote:`/`RemoteConfig` agentic-replay in `utils/matrix_logic/validation.py`)
-solves a different problem: human-dispatched, private-LAN-only,
-agentic-trace-throughput benchmarking that requires a self-hosted
-`benchmark-client` runner. It explicitly rejects plain fixed-seq-len throughput
-against a remote endpoint, has no deploy trigger, and no correctness checks.
-None of it applies here.
+This is deliberately *not* a benchmark, and it's new code rather than an
+extension of the closest existing system
+(`remote:`/`RemoteConfig` agentic-replay in `utils/matrix_logic/validation.py`).
+That system solves a different problem: human-dispatched,
+private-LAN-only, agentic-trace-throughput benchmarking that requires a
+self-hosted `benchmark-client` runner. It explicitly rejects plain
+fixed-seq-len throughput against a remote endpoint, has no deploy trigger,
+and no correctness checks. None of it applies here.
 
 ## Input
 
 The source of truth for "what's deployed and where" is `inference-cicd`'s live
 `/discover` endpoint — **not** a hand-maintained catalog in this repo (this
 matches the "self-report, no-catalog" design referenced in
-`inference-cicd`'s `design/inferencex-integration.md`). Verified live today —
-**all three deployed stacks are now registered** (updated from an earlier
-version of this doc, when only `sglang-vanilla` was reachable):
+`inference-cicd`'s `design/inferencex-integration.md`). All three deployed
+stacks are registered:
 
 ```bash
 $ curl -s http://116.118.91.176.nip.io/discover | jq .
@@ -78,14 +75,13 @@ $ curl -s http://116.118.91.176.nip.io/discover | jq .
 }
 ```
 
-Note `sglang-pd-disaggregation` carries an extra `disaggregation: true`
-field not present on the other two entries — the schema isn't fully uniform
-across stacks, so probes/config should treat unlisted fields as optional,
-not assume every stack entry has the exact same key set.
+The schema isn't fully uniform across stacks — `sglang-pd-disaggregation`
+carries an extra `disaggregation: true` field the other two don't have.
+Probes/config should treat unlisted fields as optional, not assume every
+stack entry has the exact same key set.
 
 Each `version_url` (per-stack self-report, no cluster credentials needed)
-independently returns `200` and the same metadata directly, confirmed for
-all three stacks.
+independently returns `200` and the same metadata directly.
 
 Input InferenceX still needs to declare itself (not derivable from
 `/discover`): which probes to run per stack, throughput concurrency levels,
@@ -116,12 +112,11 @@ from `/discover` live and would otherwise drift out of sync with reality.
      catch config-vs-reality drift (not just "did it respond").
    - `tool-calling`: real chat-completion request with `tools=[...]`, assert
      a `tool_calls` response.
-   - `throughput`: `utils/bench_serving/benchmark_serving.py --base-url
-     <base_url> --endpoint <endpoint>` — client-only, no server launch —
-     small concurrency sweep from `smoke-tests.yaml` (e.g. `[1, 8, 32]`,
-     short duration/num-prompts). Runs on a normal hosted `ubuntu-latest`
-     runner: no self-hosted `benchmark-client` runner needed, no cluster
-     credentials, since it only ever talks to the public Ingress.
+   - `throughput`: `aiperf`-based sweep against the live endpoint — see
+     `design/throughput-test.md` for the full design. Runs on a normal
+     hosted `ubuntu-latest` runner: no self-hosted `benchmark-client` runner
+     needed, no cluster credentials, since it only ever talks to the public
+     Ingress.
 4. **Report**: `$GITHUB_STEP_SUMMARY` table, one row per stack; job fails
    (non-zero exit) if any probe fails. DB ingest (same portal as sweep
    results, tagged `run_type: live-check`) is a deliberately separate
@@ -151,10 +146,6 @@ that as a request to the `inference-cicd` owner, not a workaround here.
 
 ## Open items
 
-- ~~`sglang-mooncake-store` / `sglang-pd-disaggregation`: not discoverable via
-  public Ingress yet.~~ Resolved — all three stacks are now registered in
-  `/discover` with working `version_url`s (verified above). The matrix
-  should cover all three from the start.
 - `sglang-pd-disaggregation`'s single flat `tp: 1` doesn't capture that
   disaggregated serving actually has separate prefill/decode parallelism —
   worth a follow-up question to `inference-cicd` on whether `/discover`
@@ -164,5 +155,4 @@ that as a request to the `inference-cicd` owner, not a workaround here.
 - DB ingest tagging (`run_type: live-check`) deferred pending coordination
   with `InferenceX-app`.
 - Exact `repository_dispatch` event name/payload shape needs to be agreed
-  with whoever owns the `inference-cicd` side of this (mirrors the original
-  paused decision recorded before this design).
+  with whoever owns the `inference-cicd` side of this.

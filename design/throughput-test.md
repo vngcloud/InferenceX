@@ -4,14 +4,12 @@ Companion to `design/smoke-test-matrix.md` — this covers just the
 `throughput` probe in that matrix: what it runs, where its parameters come
 from, and what's reusable from existing team work.
 
-**Revision note**: an earlier version of this doc proposed
-`utils/bench_serving/benchmark_serving.py` directly. That's wrong for this
-team — throughput testing here is standardized on `aiperf`
-(`utils/bench_serving/aiperf_adapter.py` + `benchmarks/benchmark_lib.sh`'s
-`run_aiperf_benchmark`, both on `dev`, not yet on `main`). This revision
-uses that path instead.
+Throughput testing on this team is standardized on `aiperf` — this probe
+uses `utils/bench_serving/aiperf_adapter.py` (a wrapper around `aiperf
+profile`) plus the install pattern in `benchmarks/benchmark_lib.sh`'s
+`ensure_aiperf()`. Both currently live on the `dev` branch, not `main`.
 
-## /discover and /version still drive almost all of it
+## /discover and /version drive almost all of it
 
 Nothing about *where to send requests* or *what model is being served*
 should be hand-declared in `smoke-tests.yaml` — that all comes from the live
@@ -28,10 +26,10 @@ should be hand-declared in `smoke-tests.yaml` — that all comes from the live
 | `--isl` / `--osl` / `--concurrency` / `--benchmark-duration` | `smoke-tests.yaml` per-stack `throughput:` block (not discoverable) |
 
 `--endpoint-type chat` makes `aiperf` default to appending
-`/v1/chat/completions` to `--url` on its own — which happens to match
-`sglang-vanilla`'s discovered `endpoint` exactly. Still pass `--endpoint`
-explicitly from `discover.endpoint` rather than relying on the default: some
-future stack may serve under a non-standard path (a Bailian/BytePlus-style
+`/v1/chat/completions` to `--url` on its own — which happens to match every
+current stack's discovered `endpoint`. Still pass `--endpoint` explicitly
+from `discover.endpoint` rather than relying on the default: some future
+stack may serve under a non-standard path (a Bailian/BytePlus-style
 provider serving under `/api/v3/...`, as already seen in the team's other
 remote configs), and passing it through makes that not our problem to
 special-case. Derive `--endpoint-type` from the discovered path's suffix:
@@ -62,10 +60,10 @@ ends with `chat/completions` → `chat`; ends with `completions` (not chat) →
    `aiperf profile ...` and writes InferenceX-schema JSON
    (`utils/process_result.py`-compatible: `model_id`, `max_concurrency`,
    `total_token_throughput`, `output_throughput`, ttft/tpot/itl/e2el
-   percentiles) directly, no separate conversion step needed. `--benchmark-duration`
-   should be short (e.g. 15-30s per concurrency level) — a smoke check wants
-   a fast sanity signal on a shared production endpoint, not a rigorous
-   steady-state sweep.
+   percentiles) directly, no separate conversion step needed.
+   `--benchmark-duration` should be short (e.g. 15-30s per concurrency
+   level) — a smoke check wants a fast sanity signal on a shared production
+   endpoint, not a rigorous steady-state sweep.
 4. `GET <version_url>` again — snapshot **after**. If `chart`/`image`/`model`
    differs from the **before** snapshot, the stack redeployed mid-probe —
    flag the throughput result as `invalid_redeployed_mid_run: true` rather
@@ -76,11 +74,11 @@ ends with `chat/completions` → `chat`; ends with `completions` (not chat) →
 ## Runner / install requirements
 
 `aiperf_adapter.py` only requires the `aiperf` CLI on `PATH`.
-`benchmark_lib.sh`'s `ensure_aiperf()` (on `dev`) resolves that with, in
-order: (1) already on PATH — no-op; (2) `AIPERF_SOURCE_DIR` set to a local
-checkout — editable install from there; (3) otherwise, plain
-`pip install aiperf==0.9.0` from PyPI into a throwaway venv. Path (3) is all
-the smoke-test workflow needs — **no submodule, no Docker, no self-hosted
+`benchmark_lib.sh`'s `ensure_aiperf()` resolves that with, in order: (1)
+already on PATH — no-op; (2) `AIPERF_SOURCE_DIR` set to a local checkout —
+editable install from there; (3) otherwise, plain `pip install
+aiperf==0.9.0` from PyPI into a throwaway venv. Path (3) is all the
+smoke-test workflow needs — **no submodule, no Docker, no self-hosted
 runner required.** This is a real difference from the `remote:`/agentic-replay
 path (`runners/launch_remote.sh`), which needs a self-hosted
 `benchmark-client` runner reaching a private LAN and a heavier
