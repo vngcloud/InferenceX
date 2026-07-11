@@ -26,12 +26,41 @@ None of it applies here.
 The source of truth for "what's deployed and where" is `inference-cicd`'s live
 `/discover` endpoint — **not** a hand-maintained catalog in this repo (this
 matches the "self-report, no-catalog" design referenced in
-`inference-cicd`'s `design/inferencex-integration.md`). Verified live today:
+`inference-cicd`'s `design/inferencex-integration.md`). Verified live today —
+**all three deployed stacks are now registered** (updated from an earlier
+version of this doc, when only `sglang-vanilla` was reachable):
 
 ```bash
 $ curl -s http://116.118.91.176.nip.io/discover | jq .
 {
   "stacks": [
+    {
+      "name": "sglang-mooncake-store",
+      "base_url": "http://116.118.91.176.nip.io/sglang-mooncake-store",
+      "endpoint": "/v1/chat/completions",
+      "version_url": "http://116.118.91.176.nip.io/sglang-mooncake-store-version",
+      "chart": "sglang-mooncake-store-0.1.0",
+      "framework": "sglang",
+      "image": "lmsysorg/sglang:v0.5.14",
+      "model": "RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "precision": "fp8",
+      "servedName": "DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "tp": 1
+    },
+    {
+      "name": "sglang-pd-disaggregation",
+      "base_url": "http://116.118.91.176.nip.io/sglang-pd-disaggregation",
+      "endpoint": "/v1/chat/completions",
+      "version_url": "http://116.118.91.176.nip.io/sglang-pd-disaggregation-version",
+      "chart": "sglang-pd-disaggregation-0.1.0",
+      "disaggregation": true,
+      "framework": "sglang",
+      "image": "lmsysorg/sglang:v0.5.14",
+      "model": "RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "precision": "fp8",
+      "servedName": "DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "tp": 1
+    },
     {
       "name": "sglang-vanilla",
       "base_url": "http://116.118.91.176.nip.io/sglang-vanilla",
@@ -49,24 +78,14 @@ $ curl -s http://116.118.91.176.nip.io/discover | jq .
 }
 ```
 
-`version_url` (a per-stack self-report, no cluster credentials needed) returns
-the same metadata directly:
+Note `sglang-pd-disaggregation` carries an extra `disaggregation: true`
+field not present on the other two entries — the schema isn't fully uniform
+across stacks, so probes/config should treat unlisted fields as optional,
+not assume every stack entry has the exact same key set.
 
-```bash
-$ curl -s http://116.118.91.176.nip.io/sglang-vanilla-version | jq .
-{"chart": "sglang-vanilla-0.1.0", "framework": "sglang", "image": "lmsysorg/sglang:v0.5.14",
- "model": "RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8", "precision": "fp8",
- "servedName": "DeepSeek-Coder-V2-Lite-Instruct-FP8", "tp": 2}
-```
-
-**Important gap found while verifying this**: `kubectl get pods -n inference`
-shows *three* deployed stacks (`sglang-vanilla`, `sglang-mooncake-store`,
-`sglang-pd-disaggregation`), but only `sglang-vanilla` has a public Ingress
-and is registered in `/discover`. The other two have no external endpoint at
-all today, so they are not reachable from a hosted, credential-free GH Actions
-runner. This is not something InferenceX can fix — it needs `inference-cicd`
-to expose them (Ingress + `/discover` registration) before they can join the
-smoke-test matrix.
+Each `version_url` (per-stack self-report, no cluster credentials needed)
+independently returns `200` and the same metadata directly, confirmed for
+all three stacks.
 
 Input InferenceX still needs to declare itself (not derivable from
 `/discover`): which probes to run per stack, throughput concurrency levels,
@@ -132,9 +151,16 @@ that as a request to the `inference-cicd` owner, not a workaround here.
 
 ## Open items
 
-- `sglang-mooncake-store` / `sglang-pd-disaggregation`: not discoverable via
-  public Ingress yet. Matrix will simply not cover them until
-  `inference-cicd` exposes them.
+- ~~`sglang-mooncake-store` / `sglang-pd-disaggregation`: not discoverable via
+  public Ingress yet.~~ Resolved — all three stacks are now registered in
+  `/discover` with working `version_url`s (verified above). The matrix
+  should cover all three from the start.
+- `sglang-pd-disaggregation`'s single flat `tp: 1` doesn't capture that
+  disaggregated serving actually has separate prefill/decode parallelism —
+  worth a follow-up question to `inference-cicd` on whether `/discover`
+  should report `prefill_tp`/`decode_tp` for disagg stacks, but not a
+  blocker for metadata/tool-calling/throughput probes, which don't need that
+  breakdown.
 - DB ingest tagging (`run_type: live-check`) deferred pending coordination
   with `InferenceX-app`.
 - Exact `repository_dispatch` event name/payload shape needs to be agreed
