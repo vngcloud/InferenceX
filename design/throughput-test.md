@@ -36,6 +36,31 @@ special-case. Derive `--endpoint-type` from the discovered path's suffix:
 ends with `chat/completions` → `chat`; ends with `completions` (not chat) →
 `completions`; anything else → fail loudly rather than guess.
 
+## GPU telemetry (tokens/watt) — not available yet
+
+`aiperf` natively supports a `--gpu-telemetry <url>` flag pointed at a DCGM
+exporter's `/metrics` endpoint, and `aiperf_adapter.py` already threads it
+through as `--gpu-telemetry-url`. This is what powers-normalized metrics
+like tokens/watt need — request-level metrics alone (tokens/sec, TTFT, ITL)
+can't derive actual GPU power draw.
+
+A DCGM exporter does run in the cluster (`gpu-operator` namespace,
+`nvidia-dcgm-exporter` service, port 9400) — but it's ClusterIP-only, not
+exposed via a public Ingress, and none of the three `/discover` stack
+entries include a `gpu_telemetry_url` field. So today the smoke throughput
+probe can report tokens/sec and tokens/GPU (throughput ÷ `discover.tp`, no
+telemetry needed — same approach `utils/process_result.py` already uses for
+multi-node GPU-normalized metrics) but **not** tokens/watt.
+
+Wiring tokens/watt up later is a small addition once available, not a
+redesign: `smoke-tests.yaml`/probe code should read a `gpu_telemetry_url`
+field from `/discover` if present and pass it straight through as
+`--gpu-telemetry-url`; if absent, skip that metric rather than fail the
+probe. Getting that field added is a request to file with the
+`inference-cicd` owner (expose the existing DCGM service via Ingress +
+register its URL in `/discover`), not something to work around from
+InferenceX.
+
 ## Probe flow
 
 1. `GET /discover`, select the stack entry by name (shared fetch across all
