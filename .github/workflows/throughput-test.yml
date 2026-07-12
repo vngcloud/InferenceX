@@ -61,14 +61,18 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  pip install -q requests pyyaml
+                  # bench-client_00 is a bare self-hosted runner (no venv, no
+                  # preinstalled pip on PATH) -- use python3 -m pip with
+                  # --break-system-packages, same as
+                  # benchmarks/benchmark_lib.sh's install helpers.
+                  python3 -m pip install -q --break-system-packages requests pyyaml
                   # The semianalysis_cc_traces_weka public-dataset loader is a
                   # vngcloud/aiperf fork addition, not (yet) in the upstream
                   # PyPI aiperf release -- needs an editable install from the
                   # submodule, same pattern as
                   # benchmarks/benchmark_lib.sh:install_agentic_deps().
-                  pip install -q -e utils/aiperf
-                  pip install -q --upgrade "datasets>=4.7.0"
+                  python3 -m pip install -q --break-system-packages -e utils/aiperf
+                  python3 -m pip install -q --break-system-packages --upgrade "datasets>=4.7.0"
 
             - name: Run throughput test
               run: |
