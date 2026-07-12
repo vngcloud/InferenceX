@@ -61,10 +61,16 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  # bench-client_00 is a bare self-hosted runner (no venv, no
-                  # preinstalled pip on PATH) -- use python3 -m pip with
+                  # bench-client_00 is a bare self-hosted runner: no venv, and
+                  # python3 has no pip module at all (not just missing from
+                  # PATH) -- bootstrap it before using python3 -m pip with
                   # --break-system-packages, same as
                   # benchmarks/benchmark_lib.sh's install helpers.
+                  if ! python3 -m pip --version >/dev/null 2>&1; then
+                      python3 -m ensurepip --upgrade --break-system-packages || \
+                          (curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
+                           python3 /tmp/get-pip.py --break-system-packages)
+                  fi
                   python3 -m pip install -q --break-system-packages requests pyyaml
                   # The semianalysis_cc_traces_weka public-dataset loader is a
                   # vngcloud/aiperf fork addition, not (yet) in the upstream
