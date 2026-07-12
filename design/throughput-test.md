@@ -13,8 +13,9 @@ metadata + tool-calling only) smoke test.
 
 Throughput testing on this team is standardized on `aiperf` — this workflow
 uses `utils/bench_serving/aiperf_adapter.py` (a wrapper around `aiperf
-profile`) plus the install pattern in `benchmarks/benchmark_lib.sh`'s
-`ensure_aiperf()`.
+profile`). Install requirements are more involved than the old synthetic
+sweep needed — see "Runner / install requirements" below, corrected
+2026-07-12 after a live run failure.
 
 ## Why the dataset changed
 
@@ -143,13 +144,36 @@ sweep.
 
 ## Runner / install requirements
 
-Same as before: `ensure_aiperf()`'s PyPI-fallback (`pip install
-aiperf==0.9.0`) is all this workflow needs — no submodule, no Docker, no
-self-hosted runner. Unlike the smoke-test workflow (which no longer runs any
-`aiperf` at all after throughput moved out), this workflow **does** need
-`HF_TOKEN` wired in (`secrets.HF_TOKEN`, mirroring `benchmark-tmpl.yml`/
-`profile.yml`) — the `semianalysis_cc_traces_weka` dataset itself needs no
-auth, but the model's own tokenizer download (e.g.
+**Corrected 2026-07-12, after the first live run failed**: a plain `pip
+install aiperf==0.9.0` (or any current PyPI release, checked up to 0.11.0)
+does **not** work for this dataset. `semianalysis_cc_traces_weka` is a
+`vngcloud/aiperf` fork addition (`utils/aiperf`'s submodule remote is
+`https://github.com/vngcloud/aiperf.git`, not upstream NVIDIA) — the PyPI
+package is upstream NVIDIA's `aiperf` and rejects the dataset name outright
+(`pydantic` enum validation error listing every dataset it *does* know
+about, `semianalysis_cc_traces_weka` absent). Confirmed live: run
+29196983273 failed at conc=1 with exactly this error after switching to
+`pip install aiperf==0.9.0`.
+
+The fix: an **editable install of the `utils/aiperf` submodule** instead of
+the PyPI package, mirroring `benchmarks/benchmark_lib.sh`'s
+`install_agentic_deps()` (there is no separate `ensure_aiperf()` function —
+that was this doc's earlier, incorrect assumption). `throughput-test.yml`'s
+`Install dependencies` step now does:
+
+```bash
+pip install -q -e utils/aiperf
+pip install -q --upgrade "datasets>=4.7.0"  # HF `Json` feature type, needed by this dataset
+```
+
+with `actions/checkout` using `submodules: true` so `utils/aiperf` is
+actually present to install from. No Docker, no self-hosted runner needed —
+this is still a normal hosted `ubuntu-latest` runner job, just with an
+editable submodule install instead of a PyPI package.
+
+This workflow also needs `HF_TOKEN` wired in (`secrets.HF_TOKEN`, mirroring
+`benchmark-tmpl.yml`/`profile.yml`) — the `semianalysis_cc_traces_weka`
+dataset itself needs no auth, but the model's own tokenizer download (e.g.
 `RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8`) still hits HF Hub, and
 running 3 stacks as parallel matrix jobs without a token risks the same
 rate-limit crash the old smoke-test throughput probe hit (see the
@@ -162,17 +186,18 @@ in the same run succeeded).
 - **Reuse directly**: `utils/bench_serving/aiperf_adapter.py` — already on
   `main`, already supports `--public-dataset`/`--num-dataset-entries`/
   `--tokenizer-trust-remote-code`/`--random-seed` with no changes needed.
-- **Reuse the install pattern, not the runner wiring**: `ensure_aiperf()` in
-  `benchmarks/benchmark_lib.sh` for the PyPI-fallback install logic. Skip
-  `run_client_benchmark`'s `BENCHMARK_CLIENT=aiperf` branch and
+- **Reuse the install pattern, not the runner wiring**:
+  `install_agentic_deps()`'s editable-submodule-install logic in
+  `benchmarks/benchmark_lib.sh` (see "Runner / install requirements" above).
+  Skip `run_client_benchmark`'s `BENCHMARK_CLIENT=aiperf` branch and
   `runners/launch_remote.sh` entirely — both assume a server was (or will
   be) launched by the same job, or a self-hosted runner on the target's
   private network. Neither applies: this workflow never launches a server
   and the target is a public Ingress.
 - **Not needed**: `--scenario inferencex-agentx-mvp`, `--custom-dataset-type
   weka_trace`/`--input-file` (file-based trace replay with subagent
-  fan-out), `utils/aiperf-mooncake` submodule — all agentic-replay-specific,
-  irrelevant to this workflow's plain concurrency-sweep-over-a-public-dataset
+  fan-out) — agentic-replay-specific, irrelevant to this workflow's plain
+  concurrency-sweep-over-a-public-dataset
   mode.
 - **Revisit later, not now**: `utils/process_result.py` /
   `utils/collect_results.py` for the deferred DB-ingest tagging
