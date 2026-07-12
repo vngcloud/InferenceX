@@ -42,6 +42,13 @@ DEFAULT_NUM_DATASET_ENTRIES = 100
 
 RANDOM_SEED = 42
 
+# Buffer added on top of --benchmark-duration for aiperf's own setup
+# (tokenizer/dataset download + reconstruction, observed to take several
+# minutes even for a 100-trace subset) and in-flight request drain at the
+# end of the window. A stuck subprocess raises after this instead of
+# hanging indefinitely.
+SUBPROCESS_TIMEOUT_BUFFER_S = 600
+
 
 def endpoint_type_for(endpoint: str) -> str:
     """Derive aiperf's --endpoint-type from the discovered endpoint path.
@@ -98,7 +105,22 @@ def run_one_concurrency(
     if entry.get("gpu_metrics_url"):
         cmd.extend(["--gpu-telemetry-url", entry["gpu_metrics_url"]])
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    # Bounded, not indefinite: dataset load/tokenizer setup can reasonably
+    # take a few minutes (see SUBPROCESS_TIMEOUT_BUFFER_S), but this must
+    # eventually fail loud rather than hang -- a GH Actions cancel doesn't
+    # reliably interrupt this subprocess (observed: a cancelled run left the
+    # job stuck ~30min with logs never persisted), so a stuck run needs to
+    # surface as a clear timeout error, not an unobservable hang.
+    timeout_s = duration + SUBPROCESS_TIMEOUT_BUFFER_S
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"aiperf_adapter.py timed out after {timeout_s}s for conc={conc} "
+            f"(benchmark-duration={duration}s + {SUBPROCESS_TIMEOUT_BUFFER_S}s setup/drain buffer):\n"
+            f"--- stdout ---\n{(exc.stdout or '')[-2000:]}\n"
+            f"--- stderr ---\n{(exc.stderr or '')[-2000:]}"
+        ) from exc
     if proc.returncode != 0:
         # Surface both streams -- aiperf's own failure text can land on
         # either, and swallowing one silently hides the real root cause
