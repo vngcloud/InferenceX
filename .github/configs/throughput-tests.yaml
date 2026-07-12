@@ -24,9 +24,8 @@
 #   benchmark-duration-s: seconds per concurrency level.
 
 sglang-vanilla:
-  conc-list: [1]
-  benchmark-duration-s: 15
-  num-dataset-entries: 5
+  conc-list: [1, 8, 32]
+  benchmark-duration-s: 30
 
 sglang-mooncake-store:
   conc-list: [1, 8, 32]
