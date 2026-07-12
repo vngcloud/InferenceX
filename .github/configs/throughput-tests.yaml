@@ -18,22 +18,39 @@
 #   num-dataset-entries: (optional) how many trace rows to load, default 100.
 #     Raise (up to 949 for the full corpus) for a fuller run, at the cost of
 #     a slower sweep.
+#
+#     IMPORTANT, learned 2026-07-13: aiperf's semianalysis_cc_traces_weka
+#     loader appears to reconstruct/tokenize the FULL 949-trace corpus before
+#     subsetting down to this value -- memory scales with the full corpus
+#     size, not (only) with num-dataset-entries or --max-workers. At the old
+#     default of 100 with conc-list up to 32, this OOM-killed our
+#     self-hosted benchmark-client runner's systemd service outright (host
+#     was 31GB RAM / 16 cores, process grew to ~31.6GB RSS), twice, on two
+#     separate runner registrations on the same physical box. Deliberately
+#     lowered here to reduce that risk on future automatic
+#     (repository_dispatch: stack-deployed) runs -- this is a conservative
+#     stopgap, not a fix for the underlying memory scaling, and may still
+#     produce sparse-to-empty per-point stats at low concurrency (AIPerf
+#     omits metric blocks it can't compute rather than erroring, see
+#     aiperf_adapter.py's build_result()). See design/throughput-test.md and
+#     project_throughput_test_standalone.md (session memory) for the full
+#     investigation.
 #   conc-list: concurrency levels to sweep, sequentially -- these share one
 #     live deployment's capacity, so concurrent runs would contaminate each
 #     other's numbers.
 #   benchmark-duration-s: seconds per concurrency level.
 
 sglang-vanilla:
-  # TEMP diagnostic: isolate whether memory blowup scales with dataset size
-  # (not for main -- revert before merging PR #21).
-  conc-list: [1]
+  conc-list: [1, 8, 32]
   benchmark-duration-s: 30
-  num-dataset-entries: 10
+  num-dataset-entries: 20
 
 sglang-mooncake-store:
   conc-list: [1, 8, 32]
   benchmark-duration-s: 30
+  num-dataset-entries: 20
 
 sglang-pd-disaggregation:
   conc-list: [1, 8, 32]
   benchmark-duration-s: 30
+  num-dataset-entries: 20
