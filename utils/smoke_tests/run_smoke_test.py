@@ -110,6 +110,9 @@ def main() -> None:
     if args.results_file:
         raw = {
             "stack": entry["name"],
+            # Lets InferenceX-app file these into its own "live-check" tab,
+            # separate from full sweep runs -- see design/smoke-test-matrix.md.
+            "run_type": "live-check",
             "probes": {
                 name: {"ok": r.ok, "detail": r.detail, "data": r.data}
                 for name, r in results.items()

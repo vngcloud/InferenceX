@@ -118,10 +118,14 @@ from `/discover` live and would otherwise drift out of sync with reality.
      needed, no cluster credentials, since it only ever talks to the public
      Ingress.
 4. **Report**: `$GITHUB_STEP_SUMMARY` table, one row per stack; job fails
-   (non-zero exit) if any probe fails. DB ingest (same portal as sweep
-   results, tagged `run_type: live-check`) is a deliberately separate
-   follow-up — needs `InferenceX-app` (a different repo) to agree on how it
-   renders/filters that field before we wire `trigger-ingest` to it.
+   (non-zero exit) if any probe fails. The raw `--results-file` JSON is
+   tagged `"run_type": "live-check"` so `InferenceX-app` can file these into
+   their own dedicated tab (showing what's currently live, separate from
+   full sweep history) instead of mixing them into the regular results view.
+   Per 2026-07-12 sync with `InferenceX-app`: **this repo does not call
+   `trigger-ingest`** — `InferenceX-app` owns pulling/ingesting the tagged
+   results on its own schedule/trigger. Retention/pruning of live-check
+   results is on InferenceX's side, not `InferenceX-app`'s.
 
 ## Commands to run before writing/editing `smoke-tests.yaml`
 
@@ -152,7 +156,8 @@ that as a request to the `inference-cicd` owner, not a workaround here.
   should report `prefill_tp`/`decode_tp` for disagg stacks, but not a
   blocker for metadata/tool-calling/throughput probes, which don't need that
   breakdown.
-- DB ingest tagging (`run_type: live-check`) deferred pending coordination
-  with `InferenceX-app`.
+- ~~DB ingest tagging (`run_type: live-check`) deferred pending coordination
+  with `InferenceX-app`~~ — resolved 2026-07-12: results JSON is tagged,
+  `InferenceX-app` pulls/ingests on its own side (see Report step above).
 - Exact `repository_dispatch` event name/payload shape needs to be agreed
   with whoever owns the `inference-cicd` side of this.
