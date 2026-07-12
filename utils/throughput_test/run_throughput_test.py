@@ -42,6 +42,15 @@ DEFAULT_NUM_DATASET_ENTRIES = 100
 
 RANDOM_SEED = 42
 
+# AIPerf auto-scales worker processes with CPU count (up to 32), and each
+# worker appears to hold its own copy of the reconstructed dataset in memory.
+# Confirmed live: on a 16-core, 31GB-RAM client host, a 100-entry
+# semianalysis_cc_traces_weka sweep grew to ~31.6GB RSS and got OOM-killed by
+# the kernel, twice, taking the whole runner service down with it. Cap
+# workers hard for this lightweight live-check sweep -- it doesn't need
+# aiperf's full auto-scaled worker pool to sustain conc up to 32.
+MAX_AIPERF_WORKERS = 4
+
 # Buffer added on top of --benchmark-duration for aiperf's own setup
 # (tokenizer/dataset download + reconstruction, observed to take several
 # minutes even for a 100-trace subset) and in-flight request drain at the
@@ -97,6 +106,8 @@ def run_one_concurrency(
         "--tokenizer-trust-remote-code",
         "--random-seed",
         str(RANDOM_SEED),
+        "--max-workers",
+        str(MAX_AIPERF_WORKERS),
         "--result-filename",
         result_filename,
         "--result-dir",

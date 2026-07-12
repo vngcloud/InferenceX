@@ -45,7 +45,7 @@ jobs:
 
     throughput-test:
         needs: get-jobs
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, benchmark-client]
         strategy:
             fail-fast: false
             matrix:
@@ -61,14 +61,30 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  pip install -q requests pyyaml
+                  # bench-client_00 is a bare self-hosted runner: no venv, and
+                  # python3 has no pip module at all (not just missing from
+                  # PATH) -- bootstrap it before using python3 -m pip with
+                  # --break-system-packages, same as
+                  # benchmarks/benchmark_lib.sh's install helpers.
+                  if ! python3 -m pip --version >/dev/null 2>&1; then
+                      python3 -m ensurepip --upgrade --break-system-packages || \
+                          (curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
+                           python3 /tmp/get-pip.py --break-system-packages)
+                  fi
+                  python3 -m pip install -q --break-system-packages requests pyyaml
                   # The semianalysis_cc_traces_weka public-dataset loader is a
                   # vngcloud/aiperf fork addition, not (yet) in the upstream
                   # PyPI aiperf release -- needs an editable install from the
                   # submodule, same pattern as
                   # benchmarks/benchmark_lib.sh:install_agentic_deps().
-                  pip install -q -e utils/aiperf
-                  pip install -q --upgrade "datasets>=4.7.0"
+                  python3 -m pip install -q --break-system-packages -e utils/aiperf
+                  python3 -m pip install -q --break-system-packages --upgrade "datasets>=4.7.0"
+                  # This non-root user can't write to the system site-packages
+                  # bin dir, so pip installs console scripts (aiperf, pip
+                  # itself) under ~/.local/bin instead -- not on PATH by
+                  # default. Add it for the "Run throughput test" step, which
+                  # shells out to the bare `aiperf` command.
+                  echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
             - name: Run throughput test
               run: |
