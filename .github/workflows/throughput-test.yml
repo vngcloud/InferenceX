@@ -79,6 +79,12 @@ jobs:
                   # benchmarks/benchmark_lib.sh:install_agentic_deps().
                   python3 -m pip install -q --break-system-packages -e utils/aiperf
                   python3 -m pip install -q --break-system-packages --upgrade "datasets>=4.7.0"
+                  # This non-root user can't write to the system site-packages
+                  # bin dir, so pip installs console scripts (aiperf, pip
+                  # itself) under ~/.local/bin instead -- not on PATH by
+                  # default. Add it for the "Run throughput test" step, which
+                  # shells out to the bare `aiperf` command.
+                  echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
             - name: Run throughput test
               run: |
