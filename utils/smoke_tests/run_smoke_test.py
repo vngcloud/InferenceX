@@ -39,11 +39,44 @@ def run_probes(entry: dict) -> dict[str, ProbeResult]:
     return results
 
 
+THROUGHPUT_COLUMNS = [
+    ("conc", "conc"),
+    ("total_token_throughput", "total tok/s"),
+    ("output_throughput", "output tok/s"),
+    ("mean_ttft_ms", "TTFT (ms)"),
+    ("mean_tpot_ms", "ITL (ms)"),
+    ("mean_e2el_ms", "e2e latency (ms)"),
+]
+
+
+def render_throughput_table(result: ProbeResult) -> list[str]:
+    sweep = result.data.get("sweep")
+    if not sweep:
+        return []
+
+    headers = [label for _, label in THROUGHPUT_COLUMNS]
+    lines = [
+        "",
+        "**throughput sweep:**",
+        "",
+        "| " + " | ".join(headers) + " |",
+        "|" + "|".join(["---"] * len(headers)) + "|",
+    ]
+    for point in sweep:
+        row = [f"{point.get(key, ''):.2f}" if isinstance(point.get(key), float) else str(point.get(key, "")) for key, _ in THROUGHPUT_COLUMNS]
+        lines.append("| " + " | ".join(row) + " |")
+    return lines
+
+
 def render_summary(stack_name: str, results: dict[str, ProbeResult]) -> str:
     lines = [f"## Smoke test: `{stack_name}`", "", "| Probe | Result | Detail |", "|---|---|---|"]
     for probe_name, result in results.items():
         icon = "✅" if result.ok else "❌"
         lines.append(f"| {probe_name} | {icon} | {result.detail} |")
+
+    if "throughput" in results:
+        lines.extend(render_throughput_table(results["throughput"]))
+
     return "\n".join(lines) + "\n"
 
 
@@ -53,6 +86,12 @@ def parse_args() -> argparse.Namespace:
         "--matrix-entry", required=True, help="One JSON matrix entry (see generate_matrix.py)"
     )
     parser.add_argument("--summary-file", default=None, help="Path to append the Markdown summary to")
+    parser.add_argument(
+        "--results-file",
+        default=None,
+        help="Path to write the full raw results as JSON (all probe data, e.g. every "
+        "throughput sweep point), for upload as a build artifact",
+    )
     return parser.parse_args()
 
 
@@ -67,6 +106,17 @@ def main() -> None:
     if args.summary_file:
         with open(args.summary_file, "a") as f:
             f.write(summary)
+
+    if args.results_file:
+        raw = {
+            "stack": entry["name"],
+            "probes": {
+                name: {"ok": r.ok, "detail": r.detail, "data": r.data}
+                for name, r in results.items()
+            },
+        }
+        with open(args.results_file, "w") as f:
+            json.dump(raw, f, indent=2)
 
     for probe_name, result in results.items():
         if not result.ok:
