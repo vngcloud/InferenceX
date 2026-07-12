@@ -2,9 +2,15 @@
 """Run the full smoke-test probe battery for one stack and report results.
 
 Takes one matrix entry (as produced by generate_matrix.py) and runs
-whichever probes are listed in its test_cases: metadata, tool-calling,
-throughput. Writes a human-readable summary (Markdown, suitable for
+whichever probes are listed in its test_cases: metadata, tool-calling.
+Writes a human-readable summary (Markdown, suitable for
 $GITHUB_STEP_SUMMARY) and exits non-zero if any probe failed.
+
+Throughput is a separate, standalone workflow (see
+utils/throughput_test/ and design/throughput-test.md) -- it is NOT one of
+this battery's probes. It moved out because it's a heavier check against a
+shared production endpoint and deserves its own cadence/dataset/schema,
+not a quick correctness gate bundled with metadata/tool-calling.
 
 Usage:
     python3 utils/smoke_tests/run_smoke_test.py --matrix-entry '<json>'
@@ -17,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from probes import metadata, throughput, tool_calling  # noqa: E402
+from probes import metadata, tool_calling  # noqa: E402
 from result import ProbeResult  # noqa: E402
 
 
@@ -33,39 +39,7 @@ def run_probes(entry: dict) -> dict[str, ProbeResult]:
             entry["base_url"], entry["endpoint"], entry["model"]
         )
 
-    if "throughput" in test_cases:
-        results["throughput"] = throughput.run(entry, entry["throughput"])
-
     return results
-
-
-THROUGHPUT_COLUMNS = [
-    ("conc", "conc"),
-    ("total_token_throughput", "total tok/s"),
-    ("output_throughput", "output tok/s"),
-    ("mean_ttft_ms", "TTFT (ms)"),
-    ("mean_tpot_ms", "ITL (ms)"),
-    ("mean_e2el_ms", "e2e latency (ms)"),
-]
-
-
-def render_throughput_table(result: ProbeResult) -> list[str]:
-    sweep = result.data.get("sweep")
-    if not sweep:
-        return []
-
-    headers = [label for _, label in THROUGHPUT_COLUMNS]
-    lines = [
-        "",
-        "**throughput sweep:**",
-        "",
-        "| " + " | ".join(headers) + " |",
-        "|" + "|".join(["---"] * len(headers)) + "|",
-    ]
-    for point in sweep:
-        row = [f"{point.get(key, ''):.2f}" if isinstance(point.get(key), float) else str(point.get(key, "")) for key, _ in THROUGHPUT_COLUMNS]
-        lines.append("| " + " | ".join(row) + " |")
-    return lines
 
 
 def render_summary(stack_name: str, results: dict[str, ProbeResult]) -> str:
@@ -73,9 +47,6 @@ def render_summary(stack_name: str, results: dict[str, ProbeResult]) -> str:
     for probe_name, result in results.items():
         icon = "✅" if result.ok else "❌"
         lines.append(f"| {probe_name} | {icon} | {result.detail} |")
-
-    if "throughput" in results:
-        lines.extend(render_throughput_table(results["throughput"]))
 
     return "\n".join(lines) + "\n"
 
@@ -89,8 +60,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-file",
         default=None,
-        help="Path to write the full raw results as JSON (all probe data, e.g. every "
-        "throughput sweep point), for upload as a build artifact",
+        help="Path to write the full raw results as JSON (all probe data), for "
+        "upload as a build artifact",
     )
     return parser.parse_args()
 

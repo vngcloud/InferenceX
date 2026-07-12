@@ -6,9 +6,17 @@
 cluster. Nothing today verifies "did the last deploy still serve correctly" —
 `e2e-tests.yml`/`run-sweep.yml` only exercise ephemeral servers this repo
 launches itself; they never talk to an already-deployed, externally-managed
-endpoint. This design covers a new, separate workflow: a fast correctness +
-light-throughput check against live deployments, triggered by `inference-cicd`
-on deploy.
+endpoint. This design covers a new, separate workflow: a fast correctness
+check against live deployments, triggered by `inference-cicd` on deploy.
+
+**Smoke test and throughput test are two unrelated tests.** This doc covers
+only the fast correctness gate (`metadata` + `tool-calling`). Throughput
+testing against live deployments is its own standalone workflow — see
+`design/throughput-test.md` — with its own cadence, its own real-trace
+dataset, and its own ingest schema. It used to be a third probe bundled into
+this same job; it moved out because it's a heavier check against a shared
+production endpoint and deserved its own design, not a quick correctness
+gate's leftover slot.
 
 This is deliberately *not* a benchmark, and it's new code rather than an
 extension of the closest existing system
@@ -84,12 +92,12 @@ Each `version_url` (per-stack self-report, no cluster credentials needed)
 independently returns `200` and the same metadata directly.
 
 Input InferenceX still needs to declare itself (not derivable from
-`/discover`): which probes to run per stack, throughput concurrency levels,
-and the tool-calling schema to test with. This lives in
-`.github/configs/smoke-tests.yaml`, keyed by stack `name` so it can be
-cross-referenced against whatever `/discover` reports at run time — the
-config never hardcodes `base_url`/`model`/`framework`/`tp`, since those come
-from `/discover` live and would otherwise drift out of sync with reality.
+`/discover`): which probes to run per stack, and the tool-calling schema to
+test with. This lives in `.github/configs/smoke-tests.yaml`, keyed by stack
+`name` so it can be cross-referenced against whatever `/discover` reports at
+run time — the config never hardcodes `base_url`/`model`/`framework`/`tp`,
+since those come from `/discover` live and would otherwise drift out of sync
+with reality.
 
 ## Process
 
@@ -101,8 +109,8 @@ from `/discover` live and would otherwise drift out of sync with reality.
    returned stack against `smoke-tests.yaml`'s test-params keyed by name.
    - Stack in both `/discover` and `smoke-tests.yaml` → full matrix entry.
    - Stack in `/discover` but not `smoke-tests.yaml` → still run a default
-     probe set (`metadata` + `tool-calling`, skip `throughput`), logged
-     explicitly — no silent skip of a live, discoverable stack.
+     probe set (`metadata` + `tool-calling`), logged explicitly — no silent
+     skip of a live, discoverable stack.
    - Stack named in a `repository_dispatch`/`workflow_dispatch` input but
      absent from `/discover` → fail loudly (deploy claims to exist but isn't
      discoverable — that's itself a signal worth surfacing).
@@ -112,11 +120,6 @@ from `/discover` live and would otherwise drift out of sync with reality.
      catch config-vs-reality drift (not just "did it respond").
    - `tool-calling`: real chat-completion request with `tools=[...]`, assert
      a `tool_calls` response.
-   - `throughput`: `aiperf`-based sweep against the live endpoint — see
-     `design/throughput-test.md` for the full design. Runs on a normal
-     hosted `ubuntu-latest` runner: no self-hosted `benchmark-client` runner
-     needed, no cluster credentials, since it only ever talks to the public
-     Ingress.
 4. **Report**: `$GITHUB_STEP_SUMMARY` table, one row per stack; job fails
    (non-zero exit) if any probe fails. The raw `--results-file` JSON is
    tagged `"run_type": "live-check"` so `InferenceX-app` can file these into
@@ -154,8 +157,10 @@ that as a request to the `inference-cicd` owner, not a workaround here.
   disaggregated serving actually has separate prefill/decode parallelism —
   worth a follow-up question to `inference-cicd` on whether `/discover`
   should report `prefill_tp`/`decode_tp` for disagg stacks, but not a
-  blocker for metadata/tool-calling/throughput probes, which don't need that
+  blocker for the metadata/tool-calling probes, which don't need that
   breakdown.
+- ~~Throughput was a third probe here (`aiperf`-based sweep).~~ Moved out
+  2026-07-12 to its own standalone workflow — see `design/throughput-test.md`.
 - ~~DB ingest tagging (`run_type: live-check`) deferred pending coordination
   with `InferenceX-app`~~ — resolved 2026-07-12: results JSON is tagged,
   `InferenceX-app` pulls/ingests on its own side (see Report step above).
