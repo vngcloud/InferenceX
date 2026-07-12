@@ -45,7 +45,7 @@ jobs:
 
     throughput-test:
         needs: get-jobs
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, benchmark-client]
         strategy:
             fail-fast: false
             matrix:
