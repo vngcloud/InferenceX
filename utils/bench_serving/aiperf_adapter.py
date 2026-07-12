@@ -132,6 +132,8 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         "--output-artifact-dir" if args.scenario else "--artifact-dir",
         str(artifact_dir),
     ])
+    if args.max_workers is not None:
+        cmd.extend(["--workers-max", str(args.max_workers)])
     agentx_weka = args.scenario == "inferencex-agentx-mvp" and (
         args.custom_dataset_type == "weka_trace"
         or (args.public_dataset or "").startswith("semianalysis_cc_traces_weka")
@@ -204,6 +206,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-server-token-count", action="store_true")
     parser.add_argument("--tokenizer-trust-remote-code", action="store_true")
     parser.add_argument("--num-dataset-entries", type=int)
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        help=(
+            "Passed through as aiperf's --workers-max. AIPerf's default "
+            "auto-scales worker count with CPU count, and each worker "
+            "appears to hold its own copy of the reconstructed dataset -- on "
+            "a memory-constrained client host this can OOM-kill the whole "
+            "process (observed: a 16-core client host, 31GB RAM, killed by "
+            "the OOM killer after growing to ~31.6GB RSS running a 100-entry "
+            "semianalysis_cc_traces_weka sweep). Cap this on such hosts."
+        ),
+    )
     parser.add_argument("--slice-duration", type=float)
     parser.add_argument("--unsafe-override", action="store_true")
     args = parser.parse_args()
