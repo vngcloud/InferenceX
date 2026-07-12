@@ -54,15 +54,6 @@ jobs:
         env:
             HF_TOKEN: ${{ secrets.HF_TOKEN }}
         steps:
-            - name: TEMP runner health diagnostic (not for main)
-              run: |
-                  echo "--- uptime/load ---"; uptime || true
-                  echo "--- free -h ---"; free -h || true
-                  echo "--- nproc ---"; nproc || true
-                  echo "--- df -h /tmp ---"; df -h /tmp || true
-                  echo "--- top procs by CPU ---"; ps aux --sort=-%cpu 2>/dev/null | head -20 || true
-                  echo "--- top procs by MEM ---"; ps aux --sort=-%mem 2>/dev/null | head -20 || true
-
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
