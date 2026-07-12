@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Build the smoke-test job matrix from inference-cicd's live /discover
-endpoint, cross-referenced against .github/configs/smoke-tests.yaml.
+"""Build the throughput-test job matrix from inference-cicd's live /discover
+endpoint, cross-referenced against .github/configs/throughput-tests.yaml.
 
-See design/smoke-test-matrix.md for the full design. Usage:
+See design/throughput-test.md for the full design. Usage:
 
-    python3 utils/smoke_tests/generate_matrix.py \
-        --config .github/configs/smoke-tests.yaml \
+    python3 utils/throughput_test/generate_matrix.py \
+        --config .github/configs/throughput-tests.yaml \
         [--stack sglang-vanilla] \
         [--discover-url http://.../discover]
 
 Prints a JSON array to stdout, one entry per stack, suitable for a GitHub
 Actions `strategy.matrix.include`.
+
+Unlike smoke-test's matrix (which runs a default probe set against every
+discovered stack), throughput testing is opt-in per stack: a discovered
+stack with no entry in throughput-tests.yaml is silently skipped, not given
+a default. Requesting a specific --stack that has no config entry fails
+loudly instead, so a typo in a manual dispatch doesn't quietly no-op.
 """
 from __future__ import annotations
 
@@ -23,8 +29,6 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from discover import DEFAULT_DISCOVER_URL, fetch_discover  # noqa: E402
-
-DEFAULT_TEST_CASES = ["metadata", "tool-calling"]
 
 
 def build_matrix(discover_payload: dict, config: dict, requested_stack: str | None) -> list[dict]:
@@ -44,19 +48,19 @@ def build_matrix(discover_payload: dict, config: dict, requested_stack: str | No
         if requested_stack is not None and name != requested_stack:
             continue
 
-        stack_config = config.get(name)
-        if stack_config is None:
+        throughput_config = config.get(name)
+        if throughput_config is None:
+            if requested_stack == name:
+                raise SystemExit(
+                    f"'{name}' was requested but has no entry in "
+                    "throughput-tests.yaml -- add one before requesting it directly."
+                )
             print(
-                f"::warning::'{name}' is discoverable via /discover but has no "
-                f"entry in smoke-tests.yaml -- running default probe set "
-                f"{DEFAULT_TEST_CASES}.",
+                f"::notice::'{name}' has no entry in throughput-tests.yaml -- "
+                "skipping (throughput testing is opt-in per stack).",
                 file=sys.stderr,
             )
-            test_cases = DEFAULT_TEST_CASES
-            expect = {}
-        else:
-            test_cases = stack_config.get("test-cases", DEFAULT_TEST_CASES)
-            expect = stack_config.get("expect", {})
+            continue
 
         matrix.append(
             {
@@ -64,12 +68,12 @@ def build_matrix(discover_payload: dict, config: dict, requested_stack: str | No
                 "base_url": stack["base_url"],
                 "endpoint": stack["endpoint"],
                 "version_url": stack["version_url"],
+                "gpu_metrics_url": stack.get("gpu_metrics_url"),
                 "model": stack["model"],
                 "framework": stack.get("framework"),
                 "precision": stack.get("precision"),
                 "tp": stack.get("tp"),
-                "test_cases": test_cases,
-                "expect": expect,
+                "throughput": throughput_config,
             }
         )
 
@@ -78,12 +82,13 @@ def build_matrix(discover_payload: dict, config: dict, requested_stack: str | No
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True, help="Path to smoke-tests.yaml")
+    parser.add_argument("--config", required=True, help="Path to throughput-tests.yaml")
     parser.add_argument(
         "--stack",
         default=None,
         help="Only build a matrix entry for this stack name (fails loudly if "
-        "not registered in /discover). Omit to cover every discovered stack.",
+        "not registered in /discover or not configured in throughput-tests.yaml). "
+        "Omit to cover every stack that has a throughput-tests.yaml entry.",
     )
     parser.add_argument("--discover-url", default=DEFAULT_DISCOVER_URL)
     return parser.parse_args()
@@ -99,7 +104,8 @@ def main() -> None:
 
     if not matrix:
         raise SystemExit(
-            "No stacks to test -- /discover returned no matching entries."
+            "No stacks to test -- throughput-tests.yaml has no entries "
+            "matching a discovered stack."
         )
 
     print(json.dumps(matrix))

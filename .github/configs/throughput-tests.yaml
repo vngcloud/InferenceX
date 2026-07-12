@@ -1,0 +1,36 @@
+# Standalone throughput-test matrix. See design/throughput-test.md for the
+# full design. Separate from smoke-tests.yaml / .github/workflows/
+# smoke-test.yml -- throughput is a heavier check against a shared
+# production endpoint, with its own cadence/dataset/schema, not a quick
+# correctness gate.
+#
+# Unlike smoke-tests.yaml, a stack with no entry here is skipped entirely --
+# throughput testing is opt-in per stack, not run by default against every
+# discovered stack.
+#
+# Fields:
+#   dataset: (optional) aiperf --public-dataset name. Defaults to
+#     semianalysis_cc_traces_weka -- real Claude Code coding-session traces
+#     (949 traces, 136k requests), public HF dataset, no auth required,
+#     prompt text synthesized from a coding corpus against preserved
+#     per-request hash_ids/timing. Richer signal than a flat synthetic
+#     isl/osl sweep.
+#   num-dataset-entries: (optional) how many trace rows to load, default 100.
+#     Raise (up to 949 for the full corpus) for a fuller run, at the cost of
+#     a slower sweep.
+#   conc-list: concurrency levels to sweep, sequentially -- these share one
+#     live deployment's capacity, so concurrent runs would contaminate each
+#     other's numbers.
+#   benchmark-duration-s: seconds per concurrency level.
+
+sglang-vanilla:
+  conc-list: [1, 8, 32]
+  benchmark-duration-s: 30
+
+sglang-mooncake-store:
+  conc-list: [1, 8, 32]
+  benchmark-duration-s: 30
+
+sglang-pd-disaggregation:
+  conc-list: [1, 8, 32]
+  benchmark-duration-s: 30

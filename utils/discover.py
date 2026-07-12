@@ -1,8 +1,10 @@
 """Client for inference-cicd's live /discover self-report endpoint.
 
-See design/smoke-test-matrix.md -- /discover is the source of truth for
-what's deployed and where. This module never hardcodes stack metadata;
-it only fetches and returns whatever the live endpoint reports.
+Shared by utils/smoke_tests/ and utils/throughput_test/ -- both cross-
+reference this live endpoint against their own per-workflow config to build
+a job matrix. See design/smoke-test-matrix.md -- /discover is the source of
+truth for what's deployed and where. This module never hardcodes stack
+metadata; it only fetches and returns whatever the live endpoint reports.
 """
 from __future__ import annotations
 
