@@ -9609,7 +9609,7 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-router-p2p-smoke:
       num-dataset-entries: 949
       duration: 900
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2, 4, 8] }
+      - { tp: 1, ep: 1, conc-list: [2, 4] }
 
 # Hosted MaaS endpoint (VNGCloud AI Platform) serving GLM-5.2 — no
 # server-metrics/gpu-telemetry access since it's not our own infra.

@@ -1,0 +1,96 @@
+services:
+  # NO coordinator service: without a peer registry, the two lmcache servers
+  # cannot discover each other, so cross-instance P2P sharing is fully off.
+  # Each instance still keeps its own local L1 CPU cache (fair baseline).
+  #
+  # This file is compose.running.yaml with ONLY the P2P path removed:
+  #   1. the coordinator service is dropped, and
+  #   2. the four P2P flags are stripped from both lmcache server commands
+  #      (--coordinator-url / --coordinator-advertise-ip /
+  #       --p2p-advertise-url / --p2p-transfer-engine nixl).
+  # Every other setting (l1-size-gb 3, gpu-memory-utilization 0.90, the
+  # TorchInductor/flashinfer guards, mounts, ports, model) is identical to the
+  # with-P2P arm, so the only variable between arms is P2P on/off.
+
+  lmcache-a:
+    image: lmcache/vllm-openai:latest
+    pull_policy: missing
+    network_mode: host
+    ipc: host
+    gpus: all
+    environment:
+      CUDA_VISIBLE_DEVICES: "0"
+      UCX_TLS: self,sm,tcp
+      LMCACHE_LOG_LEVEL: INFO
+    entrypoint: ["/bin/bash"]
+    command: ["-lc", "lmcache server --host 127.0.0.1 --port 6555 --http-port 7555 --chunk-size 528 --l1-size-gb 3 --l1-use-lazy --l1-init-size-gb 2 --l1-align-bytes 65536 --eviction-policy LRU --hash-algorithm blake3 --supported-transfer-mode auto --worker-reap-timeout-seconds 0 --instance-id node-a"]
+
+  vllm-a:
+    image: lmcache/vllm-openai:latest
+    pull_policy: missing
+    network_mode: host
+    ipc: host
+    gpus: all
+    environment:
+      CUDA_VISIBLE_DEVICES: "0"
+      HF_HOME: /root/.cache/huggingface
+      # FP8 kernel initialization can still invoke TorchInductor under
+      # --enforce-eager. Serial compilation bounds its host-RAM peak.
+      TORCHINDUCTOR_COMPILE_THREADS: "1"
+      MAX_JOBS: "4"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/flashinfer:/root/.cache/flashinfer
+    entrypoint: ["/bin/bash"]
+    command: ["-lc", "vllm serve RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8 --host 0.0.0.0 --port 8000 --served-model-name deepseek-coder-v2-lite-fp8 --tensor-parallel-size 1 --dtype auto --max-model-len 80000 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.90 --enable-prefix-caching --enable-chunked-prefill --enforce-eager --trust-remote-code --seed 0 --kv-transfer-config '{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"tcp://127.0.0.1\",\"lmcache.mp.port\":6555,\"lmcache.mp.mp_transfer_mode\":\"auto\"}}'"]
+
+  lmcache-b:
+    image: lmcache/vllm-openai:latest
+    pull_policy: missing
+    network_mode: host
+    ipc: host
+    gpus: all
+    environment:
+      CUDA_VISIBLE_DEVICES: "1"
+      UCX_TLS: self,sm,tcp
+      LMCACHE_LOG_LEVEL: INFO
+    entrypoint: ["/bin/bash"]
+    command: ["-lc", "lmcache server --host 127.0.0.1 --port 6556 --http-port 7556 --chunk-size 528 --l1-size-gb 3 --l1-use-lazy --l1-init-size-gb 2 --l1-align-bytes 65536 --eviction-policy LRU --hash-algorithm blake3 --supported-transfer-mode auto --worker-reap-timeout-seconds 0 --instance-id node-b"]
+
+  vllm-b:
+    image: lmcache/vllm-openai:latest
+    pull_policy: missing
+    network_mode: host
+    ipc: host
+    gpus: all
+    environment:
+      CUDA_VISIBLE_DEVICES: "1"
+      HF_HOME: /root/.cache/huggingface
+      TORCHINDUCTOR_COMPILE_THREADS: "1"
+      MAX_JOBS: "4"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/flashinfer:/root/.cache/flashinfer
+    entrypoint: ["/bin/bash"]
+    command: ["-lc", "vllm serve RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8 --host 0.0.0.0 --port 8001 --served-model-name deepseek-coder-v2-lite-fp8 --tensor-parallel-size 1 --dtype auto --max-model-len 80000 --max-num-seqs 4 --max-num-batched-tokens 4096 --gpu-memory-utilization 0.90 --enable-prefix-caching --enable-chunked-prefill --enforce-eager --trust-remote-code --seed 0 --kv-transfer-config '{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_load_failure_policy\":\"recompute\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"tcp://127.0.0.1\",\"lmcache.mp.port\":6556,\"lmcache.mp.mp_transfer_mode\":\"auto\"}}'"]
+
+  # SAME split router as the with-P2P arm (compose.running.yaml). It still
+  # alternates turns across vllm-a/vllm-b; the only difference is that P2P is
+  # off, so a turn landing on the instance without the prefix must recompute
+  # instead of pulling KV from the peer. Point AIPerf at http://<host>:8080.
+  router:
+    image: lmcache/vllm-openai:latest
+    pull_policy: missing
+    network_mode: host
+    ipc: host
+    environment:
+      BACKENDS: "http://127.0.0.1:8000,http://127.0.0.1:8001"
+      ROUTER_PORT: "8080"
+      ROUTER_LOG: "1"
+    volumes:
+      - ./router.py:/router.py:ro
+    entrypoint: ["/bin/bash"]
+    command: ["-lc", "python /router.py"]
+    depends_on:
+      - vllm-a
+      - vllm-b
