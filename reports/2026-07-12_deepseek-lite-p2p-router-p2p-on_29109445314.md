@@ -46,10 +46,11 @@ _Throughput computed as total tokens ÷ benchmark window; "/GPU" = system ÷ 2 b
 
 | Metric | conc 2 | conc 4 |
 |---|---|---|
-| GPU prefix hit rate | 54.12% (37,209,264 / 68,758,464 tok) | 78.90% (6,011,776 / 7,619,095 tok) |
-| **External (LMCache/P2P) hit rate** | **44.62%** (83,952 / 188,128 tok) | **2.02%** (14,272 / 706,384 tok) |
+| **Total cache hit rate (GPU + external, summed)** | **54.09%** (37,293,216 / 68,946,592 tok) | **72.38%** (6,026,048 / 8,325,479 tok) |
 | GPU KV usage (avg / max / min) | 2.9% / 18.2% / 0% | 13.3% / 38.5% / 0% |
 | Prompt tokens cached | 711,600 | 1,305,600 |
+
+_Combined hit = (GPU prefix hits + external LMCache hits) ÷ (GPU + external queries). The external/P2P component — the P2P signature — is **44.62%** (83,952 / 188,128 tok) @ conc2 and **2.02%** (14,272 / 706,384 tok) @ conc4; the remainder is the local GPU prefix cache (54.12% @ conc2, 78.90% @ conc4)._
 
 ### LMCache MP internal
 

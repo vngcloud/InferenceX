@@ -46,10 +46,11 @@ _Throughput computed as total tokens ÷ benchmark window; "/GPU" = system ÷ 2 b
 
 | Metric | conc 2 | conc 4 |
 |---|---|---|
-| GPU prefix hit rate | 77.02% (628,400 / 815,940 tok) | 63.80% (1,213,776 / 1,902,535 tok) |
-| **External (LMCache) hit rate** | **0.00%** (0 / 187,540 tok) | **0.00%** (0 / 688,759 tok) |
+| **Total cache hit rate (GPU + external, summed)** | **62.62%** (628,400 / 1,003,480 tok) | **46.84%** (1,213,776 / 2,591,294 tok) |
 | GPU KV usage (avg / max / min) | 2.8% / 18.2% / 0% | 10.3% / 32.5% / 0% |
 | Prompt tokens cached | 628,400 | 1,213,776 |
+
+_Combined hit = (GPU prefix hits + external LMCache hits) ÷ (GPU + external queries). The external/LMCache component is exactly **0.00%** (0 / 187,540 tok @ conc2, 0 / 688,759 tok @ conc4) — the entire combined hit is local GPU prefix cache (77.02% @ conc2, 63.80% @ conc4). With no coordinator there is no cross-instance tier to contribute._
 
 ### LMCache MP internal
 

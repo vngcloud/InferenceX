@@ -9,6 +9,65 @@
 
 Enabling LMCache cross-instance P2P sharing produces a **demonstrable, structural cache effect and a concurrency-dependent latency win**. The external (LMCache) hit rate is non-zero **only** with P2P on (44.6% @ conc2, 2.0% @ conc4) and exactly **0.00%** in the baseline at both levels — the clean signature of cross-instance KV reuse that is impossible without the coordinator. That reuse is **latency-neutral at idle (conc2)** but pays off under contention: at **conc4, P2P cuts mean TTFT 39% (1.22s vs 2.01s) and p90 TTFT 63% (1.93s vs 5.25s)**, and warms up 41% faster. Decode and end-to-end latency are unaffected, as expected since P2P only touches prefill. **Bottom line: P2P works as designed and its benefit scales with load.** Caveat: small-sample smoke runs — conclusions are directional in magnitude, solid in direction.
 
+## Architecture
+
+Both arms run the **same five-component dual-instance topology** on one dual-GPU node; the only structural difference is the coordinator + NIXL P2P path (present in the P2P arm, removed in the baseline). Everything sits behind a single client-facing URL (`http://<host>:8080`, the router).
+
+```
+                          AIPerf client (agentic-replay trace)
+                                     │  one HTTP request per conversation turn
+                                     ▼
+                          ┌─────────────────────┐
+                          │   split router      │  :8080  (router.py, aiohttp proxy)
+                          │  per-turn A/B/A/B…   │
+                          └─────────┬───────────┘
+                        turn k → backend (base+k)%2
+                   ┌─────────────────┴─────────────────┐
+                   ▼                                     ▼
+        ┌───────────────────┐                 ┌───────────────────┐
+        │  vllm-a  (GPU0)    │                 │  vllm-b  (GPU1)    │
+        │  :8000             │                 │  :8001             │
+        │  GPU prefix cache  │                 │  GPU prefix cache  │
+        │  LMCacheMPConnector│                 │  LMCacheMPConnector│
+        └─────────┬──────────┘                 └─────────┬──────────┘
+                  │ kv_both: store + load                │
+                  ▼                                       ▼
+        ┌───────────────────┐                 ┌───────────────────┐
+        │  lmcache-a :6555   │                 │  lmcache-b :6556   │
+        │  L1 CPU DRAM (3 GB)│                 │  L1 CPU DRAM (3 GB)│
+        │  instance-id node-a│                 │  instance-id node-b│
+        └─────────┬──────────┘                 └─────────┬──────────┘
+                  │  register / discover / pull KV over NIXL         │
+                  └───────────────┬───────────────────────┬─────────┘
+                                  ▼                         │  ◀── P2P ARM ONLY
+                       ┌────────────────────┐              │      (removed in baseline)
+                       │  coordinator :9300 │◀─────────────┘
+                       │  peer KV registry  │
+                       └────────────────────┘
+```
+
+### What each component does
+
+- **Split router** (`router.py`) — a thin aiohttp reverse proxy. It keys each conversation on the `X-Correlation-ID` header AIPerf stamps on every request, assigns each new session a base backend by global round-robin, then sends **turn _k_ of that session to backend `(base + k) % 2`**. With two backends this produces an A, B, A, B… pattern *within every conversation*. Streaming is relayed chunk-by-chunk so TTFT/SSE timing is preserved. This deliberately does the opposite of normal session-sticky load balancing: it guarantees that consecutive turns of one conversation land on **different** vLLM instances, which is exactly what forces the cross-instance KV path to be exercised.
+- **vllm-a / vllm-b** — two independent vLLM servers, one pinned per GPU (TP=1 each), serving the same `DeepSeek-Coder-V2-Lite-Instruct-FP8` model. Each has its own on-GPU **prefix cache** (tier 1) and is wired to its local LMCache server through `--kv-transfer-config` (`LMCacheMPConnector`, `kv_role=kv_both` → it both **stores** the KV it computes and **loads** KV on new requests; `kv_load_failure_policy=recompute` → a miss falls back to recomputing rather than erroring).
+- **lmcache-a / lmcache-b** — two LMCache servers, one paired with each vLLM instance, each holding a local **L1 CPU-DRAM cache** (`--l1-size-gb 3`, LRU, blake3 hashing, 528-token chunks). This is tier 2: KV that spills off the GPU or is proactively stored lives here in host memory.
+- **coordinator** (`lmcache coordinator`, port 9300) — **the P2P-arm-only component.** It is a peer registry: each LMCache server registers itself (`--coordinator-url`, `--instance-id node-a/-b`, `--p2p-advertise-url`) and can then look up which peer holds a given KV chunk. It carries control-plane metadata only — the actual KV bytes move **directly peer-to-peer over the NIXL transfer engine** (`--p2p-transfer-engine nixl`, `UCX_TLS=self,sm,tcp`), not through the coordinator.
+
+### How a cross-instance hit happens (P2P arm)
+
+Because the router alternates instances, turn 1 of a conversation computes a long (mean 27k–34k token) prefix on, say, vllm-a and stores that KV into lmcache-a. Turn 2 is routed to vllm-b, which has **never seen that prefix** — its own GPU cache and lmcache-b both miss. With the coordinator present, lmcache-b asks the registry "who has these chunks?", finds them on lmcache-a, and **pulls the KV directly over NIXL** into vllm-b instead of recomputing 27k tokens of prefill. That transfer is what shows up as a **non-zero external hit rate** — and it is only possible with the coordinator, so it is the clean fingerprint of P2P working.
+
+### Why the baseline structurally cannot do this
+
+`compose.nop2p.yaml` is `compose.running.yaml` with exactly two things removed: (1) the **coordinator service** is dropped, and (2) the **four P2P flags** (`--coordinator-url`, `--coordinator-advertise-ip`, `--p2p-advertise-url`, `--p2p-transfer-engine nixl`) are stripped from both LMCache commands. Every other setting — model, L1 size, GPU memory fraction, ports, the router itself — is byte-for-byte identical. The router still alternates A/B/A/B, but with no registry the two LMCache servers cannot discover each other, so a turn landing on the instance that lacks the prefix has no peer to pull from and **must recompute**. Its local L1 cannot cover the gap either, since GPU KV usage never rises high enough (≤ 33%) to evict blocks down to CPU. Result: **external hit rate is a hard 0.00%** — making it the correct control for isolating the P2P contribution.
+
+### KV lookup order (per request, both arms)
+
+1. **GPU prefix cache** (local, on-device) — fastest; serves the "GPU prefix hit" component.
+2. **Local LMCache L1** (host DRAM on the same instance) — only populated when the GPU pool evicts (didn't happen here; KV usage stayed low).
+3. **Peer LMCache via coordinator + NIXL** (cross-instance) — **P2P arm only**; serves the "external/P2P hit" component. Absent in the baseline.
+4. **Recompute** — the fallback (`kv_load_failure_policy=recompute`) when all tiers miss.
+
 ## Side-by-Side: Concurrency 2 (light load)
 
 | Metric | P2P ON | Baseline | Δ (P2P vs base) |
@@ -18,8 +77,8 @@ Enabling LMCache cross-instance P2P sharing produces a **demonstrable, structura
 | p95 TTFT | 2.578s | 2.774s | −7% |
 | Mean E2E latency | 62.89s | 63.69s | −1.3% |
 | Mean TPOT (ITL) | 99.1ms | 100.6ms | −1.5% |
-| GPU prefix hit | 54.1% | 77.0% | −23 pts |
-| **External (P2P) hit** | **44.6%** | **0.0%** | **+44.6 pts** |
+| **Total cache hit (GPU + ext, summed)** | **54.1%** | **62.6%** | −8.5 pts |
+| ↳ external/P2P component | 44.6% | 0.0% | **+44.6 pts** |
 | GPU KV usage (max) | 18.2% | 18.2% | = |
 | Active prefetch jobs | 1 | 0 | +1 |
 
@@ -33,8 +92,8 @@ Enabling LMCache cross-instance P2P sharing produces a **demonstrable, structura
 | p95 TTFT | 5.96s | 8.411s | −29% |
 | Mean E2E latency | 46.36s | 49.37s | −6.1% |
 | Mean TPOT (ITL) | 100.2ms | 105.2ms | −4.8% |
-| GPU prefix hit | 78.9% | 63.8% | +15 pts |
-| **External (P2P) hit** | **2.0%** | **0.0%** | **+2.0 pts** |
+| **Total cache hit (GPU + ext, summed)** | **72.4%** | **46.8%** | **+25.5 pts** |
+| ↳ external/P2P component | 2.0% | 0.0% | **+2.0 pts** |
 | GPU KV usage (max) | 38.5% | 32.5% | +6 pts |
 | aiperf warmup | 31.9s | 53.9s | **−41%** |
 
