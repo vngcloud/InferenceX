@@ -513,64 +513,60 @@ run_aiperf_benchmark() {
     local model=""
     local url=""
     local concurrency=""
-    local request_count=""
     local benchmark_duration=""
     local result_filename=""
     local result_dir=""
     local bench_serving_dir=""
     local endpoint_type="chat"
-    local warmup_request_count=""
-    local num_warmup_sessions=""
-    local no_fixed_schedule=false
     local server_metrics_url=""
     local gpu_telemetry_url=""
     local public_dataset=""
     local input_file=""
     local custom_dataset_type=""
+    local scenario=""
+    local endpoint=""
     local tokenizer=""
     local isl=""
     local osl=""
     local random_seed=""
-    local extra_inputs=()
-    # Placeholder SLA / canonical-command flags — wired but inert (forwarded only
-    # when set; left unset in current configs).
-    local goodput=""
-    local temperature=""
-    local inter_turn_delay_cap_seconds=""
-    local dataset_sampling_strategy=""
-    local benchmark_grace_period=""
-    local workers_max=""
+    local failed_request_threshold=""
+    local trajectory_start_min_ratio=""
+    local trajectory_start_max_ratio=""
+    local use_server_token_count=false
+    local tokenizer_trust_remote_code=false
+    local num_dataset_entries=""
+    local slice_duration=""
+    local unsafe_override=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
             --model) model="$2"; shift 2 ;;
             --url) url="$2"; shift 2 ;;
             --concurrency) concurrency="$2"; shift 2 ;;
-            --request-count) request_count="$2"; shift 2 ;;
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
             --result-filename) result_filename="$2"; shift 2 ;;
             --result-dir) result_dir="$2"; shift 2 ;;
             --bench-serving-dir) bench_serving_dir="$2"; shift 2 ;;
             --endpoint-type) endpoint_type="$2"; shift 2 ;;
-            --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
-            --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
-            --no-fixed-schedule) no_fixed_schedule=true; shift ;;
             --server-metrics-url) server_metrics_url="$2"; shift 2 ;;
             --gpu-telemetry-url) gpu_telemetry_url="$2"; shift 2 ;;
             --public-dataset) public_dataset="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
+            --scenario) scenario="$2"; shift 2 ;;
+            --endpoint) endpoint="$2"; shift 2 ;;
             --tokenizer) tokenizer="$2"; shift 2 ;;
             --isl) isl="$2"; shift 2 ;;
             --osl) osl="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
-            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
-            --goodput) goodput="$2"; shift 2 ;;
-            --temperature) temperature="$2"; shift 2 ;;
-            --inter-turn-delay-cap-seconds) inter_turn_delay_cap_seconds="$2"; shift 2 ;;
-            --dataset-sampling-strategy) dataset_sampling_strategy="$2"; shift 2 ;;
-            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
-            --workers-max) workers_max="$2"; shift 2 ;;
+            --failed-request-threshold) failed_request_threshold="$2"; shift 2 ;;
+            --trajectory-start-min-ratio) trajectory_start_min_ratio="$2"; shift 2 ;;
+            --trajectory-start-max-ratio) trajectory_start_max_ratio="$2"; shift 2 ;;
+            --use-server-token-count) use_server_token_count=true; shift ;;
+            --tokenizer-trust-remote-code) tokenizer_trust_remote_code=true; shift ;;
+            --num-dataset-entries) num_dataset_entries="$2"; shift 2 ;;
+            --slice-duration) slice_duration="$2"; shift 2 ;;
+            --unsafe-override) unsafe_override=true; shift ;;
             *) echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
@@ -578,21 +574,11 @@ run_aiperf_benchmark() {
     if [[ -z "$model" ]]; then echo "Error: --model is required"; return 1; fi
     if [[ -z "$url" ]]; then echo "Error: --url is required"; return 1; fi
     if [[ -z "$concurrency" ]]; then echo "Error: --concurrency is required"; return 1; fi
-    # Stop condition: a fixed request count or a wall-clock duration cap.
-    if [[ -z "$request_count" && -z "$benchmark_duration" ]]; then
-        echo "Error: one of --request-count or --benchmark-duration is required"; return 1
-    fi
+    if [[ -z "$benchmark_duration" ]]; then echo "Error: --benchmark-duration is required"; return 1; fi
     if [[ -z "$result_filename" ]]; then echo "Error: --result-filename is required"; return 1; fi
     if [[ -z "$result_dir" ]]; then echo "Error: --result-dir is required"; return 1; fi
     if [[ -z "$bench_serving_dir" ]]; then echo "Error: --bench-serving-dir is required"; return 1; fi
     if ! [[ "$concurrency" =~ ^[0-9]+$ ]]; then echo "Error: --concurrency must be an integer"; return 1; fi
-    if [[ -n "$request_count" ]]; then
-        if ! [[ "$request_count" =~ ^[0-9]+$ ]]; then echo "Error: --request-count must be an integer"; return 1; fi
-        if (( request_count < concurrency )); then
-            echo "Error: --request-count must be greater than or equal to --concurrency"
-            return 1
-        fi
-    fi
 
     local benchmark_cmd=(
         python3 "$bench_serving_dir/utils/bench_serving/aiperf_adapter.py"
@@ -604,11 +590,9 @@ run_aiperf_benchmark() {
         --result-dir "$result_dir"
     )
 
-    if [[ -n "$request_count" ]]; then benchmark_cmd+=(--request-count "$request_count"); fi
-    if [[ -n "$benchmark_duration" ]]; then benchmark_cmd+=(--benchmark-duration "$benchmark_duration"); fi
-    if [[ -n "$warmup_request_count" ]]; then benchmark_cmd+=(--warmup-request-count "$warmup_request_count"); fi
-    if [[ -n "$num_warmup_sessions" ]]; then benchmark_cmd+=(--num-warmup-sessions "$num_warmup_sessions"); fi
-    if [[ "$no_fixed_schedule" == true ]]; then benchmark_cmd+=(--no-fixed-schedule); fi
+    benchmark_cmd+=(--benchmark-duration "$benchmark_duration")
+    if [[ -n "$scenario" ]]; then benchmark_cmd+=(--scenario "$scenario"); fi
+    if [[ -n "$endpoint" ]]; then benchmark_cmd+=(--endpoint "$endpoint"); fi
     if [[ -n "$server_metrics_url" ]]; then benchmark_cmd+=(--server-metrics-url "$server_metrics_url"); fi
     if [[ -n "$gpu_telemetry_url" ]]; then benchmark_cmd+=(--gpu-telemetry-url "$gpu_telemetry_url"); fi
     if [[ -n "$public_dataset" ]]; then benchmark_cmd+=(--public-dataset "$public_dataset"); fi
@@ -618,15 +602,14 @@ run_aiperf_benchmark() {
     if [[ -n "$isl" ]]; then benchmark_cmd+=(--isl "$isl"); fi
     if [[ -n "$osl" ]]; then benchmark_cmd+=(--osl "$osl"); fi
     if [[ -n "$random_seed" ]]; then benchmark_cmd+=(--random-seed "$random_seed"); fi
-    for extra_input in "${extra_inputs[@]}"; do
-        benchmark_cmd+=(--extra-inputs "$extra_input")
-    done
-    if [[ -n "$goodput" ]]; then benchmark_cmd+=(--goodput "$goodput"); fi
-    if [[ -n "$temperature" ]]; then benchmark_cmd+=(--temperature "$temperature"); fi
-    if [[ -n "$inter_turn_delay_cap_seconds" ]]; then benchmark_cmd+=(--inter-turn-delay-cap-seconds "$inter_turn_delay_cap_seconds"); fi
-    if [[ -n "$dataset_sampling_strategy" ]]; then benchmark_cmd+=(--dataset-sampling-strategy "$dataset_sampling_strategy"); fi
-    if [[ -n "$benchmark_grace_period" ]]; then benchmark_cmd+=(--benchmark-grace-period "$benchmark_grace_period"); fi
-    if [[ -n "$workers_max" ]]; then benchmark_cmd+=(--workers-max "$workers_max"); fi
+    if [[ -n "$failed_request_threshold" ]]; then benchmark_cmd+=(--failed-request-threshold "$failed_request_threshold"); fi
+    if [[ -n "$trajectory_start_min_ratio" ]]; then benchmark_cmd+=(--trajectory-start-min-ratio "$trajectory_start_min_ratio"); fi
+    if [[ -n "$trajectory_start_max_ratio" ]]; then benchmark_cmd+=(--trajectory-start-max-ratio "$trajectory_start_max_ratio"); fi
+    if [[ "$use_server_token_count" == true ]]; then benchmark_cmd+=(--use-server-token-count); fi
+    if [[ "$tokenizer_trust_remote_code" == true ]]; then benchmark_cmd+=(--tokenizer-trust-remote-code); fi
+    if [[ -n "$num_dataset_entries" ]]; then benchmark_cmd+=(--num-dataset-entries "$num_dataset_entries"); fi
+    if [[ -n "$slice_duration" ]]; then benchmark_cmd+=(--slice-duration "$slice_duration"); fi
+    if [[ "$unsafe_override" == true ]]; then benchmark_cmd+=(--unsafe-override); fi
 
     set -x
     "${benchmark_cmd[@]}"
@@ -660,22 +643,10 @@ run_client_benchmark() {
     # replays a recorded mooncake_trace JSONL through AIPerf instead of a
     # synthetic isl/osl workload. Only the aiperf client supports this.
     local input_file=""
+    local public_dataset=""
     local custom_dataset_type=""
     local tokenizer=""
-    local request_count=""
     local benchmark_duration=""
-    local extra_inputs=()
-    # Mode 1 (capacity sweep) controls for the aiperf trace-replay path.
-    local num_warmup_sessions=""
-    local warmup_request_count=""
-    local no_fixed_schedule=false
-    # Placeholder SLA / canonical-command flags — wired but inert.
-    local goodput=""
-    local temperature=""
-    local inter_turn_delay_cap_seconds=""
-    local dataset_sampling_strategy=""
-    local benchmark_grace_period=""
-    local workers_max=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -693,20 +664,10 @@ run_client_benchmark() {
             --server-pid) server_pid="$2"; shift 2 ;;
             --random-seed) random_seed="$2"; shift 2 ;;
             --input-file) input_file="$2"; shift 2 ;;
+            --public-dataset) public_dataset="$2"; shift 2 ;;
             --custom-dataset-type) custom_dataset_type="$2"; shift 2 ;;
             --tokenizer) tokenizer="$2"; shift 2 ;;
-            --request-count) request_count="$2"; shift 2 ;;
             --benchmark-duration) benchmark_duration="$2"; shift 2 ;;
-            --extra-inputs) extra_inputs+=("$2"); shift 2 ;;
-            --num-warmup-sessions) num_warmup_sessions="$2"; shift 2 ;;
-            --warmup-request-count) warmup_request_count="$2"; shift 2 ;;
-            --no-fixed-schedule) no_fixed_schedule=true; shift ;;
-            --goodput) goodput="$2"; shift 2 ;;
-            --temperature) temperature="$2"; shift 2 ;;
-            --inter-turn-delay-cap-seconds) inter_turn_delay_cap_seconds="$2"; shift 2 ;;
-            --dataset-sampling-strategy) dataset_sampling_strategy="$2"; shift 2 ;;
-            --benchmark-grace-period) benchmark_grace_period="$2"; shift 2 ;;
-            --workers-max) workers_max="$2"; shift 2 ;;
             --use-chat-template) use_chat_template=true; shift ;;
             --dsv4) dsv4=true; use_chat_template=true; shift ;;
             --trust-remote-code) trust_remote_code=true; shift ;;
@@ -718,8 +679,8 @@ run_client_benchmark() {
     if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
     if [[ -z "$backend" ]]; then echo "Error: --backend is required"; return 1; fi
     # isl/osl/random-range-ratio describe a synthetic workload; they are not
-    # required when replaying a recorded trace via --input-file.
-    if [[ -z "$input_file" ]]; then
+    # required when replaying a recorded trace via --input-file/--public-dataset.
+    if [[ -z "$input_file" && -z "$public_dataset" ]]; then
         if [[ -z "$isl" ]]; then echo "Error: --isl is required"; return 1; fi
         if [[ -z "$osl" ]]; then echo "Error: --osl is required"; return 1; fi
         if [[ -z "$random_range_ratio" ]]; then echo "Error: --random-range-ratio is required"; return 1; fi
@@ -734,73 +695,66 @@ run_client_benchmark() {
 
     case "$benchmark_client" in
         aiperf)
+            local aiperf_url="http://0.0.0.0:$port"
+            if [[ "$custom_dataset_type" == "weka_trace" ]]; then
+                aiperf_url="http://localhost:$port"
+            fi
             local aiperf_args=(
                 --model "$model"
-                --url "http://0.0.0.0:$port"
+                --url "$aiperf_url"
                 --endpoint-type "$endpoint_type"
                 --concurrency "$concurrency"
                 --result-filename "$result_filename"
                 --result-dir "$result_dir"
                 --bench-serving-dir "$bench_serving_dir"
             )
-            if [[ -n "$input_file" ]]; then
-                # Trace replay: replay the recorded dataset. The stop condition is
-                # either a fixed request-count (single-replay / Mode-1 resample) or a
-                # wall-clock --benchmark-duration cap (duration-based smoke). isl/osl
-                # and warmup do not apply (the trace defines per-request lengths).
-                if [[ -z "$request_count" && -z "$benchmark_duration" ]]; then
-                    echo "Error: one of --request-count or --benchmark-duration is required when --input-file is set"; return 1
+            if [[ -n "$input_file" || -n "$public_dataset" ]]; then
+                if [[ -z "$benchmark_duration" ]]; then
+                    echo "Error: --benchmark-duration is required for trace replay"; return 1
                 fi
-                aiperf_args+=(--input-file "$input_file")
-                if [[ -n "$request_count" ]]; then
-                    aiperf_args+=(--request-count "$request_count")
+                if [[ -n "$input_file" ]]; then
+                    aiperf_args+=(--input-file "$input_file")
                 fi
-                if [[ -n "$benchmark_duration" ]]; then
-                    aiperf_args+=(--benchmark-duration "$benchmark_duration")
+                if [[ -n "$public_dataset" ]]; then
+                    aiperf_args+=(--public-dataset "$public_dataset")
                 fi
-                if [[ -n "$custom_dataset_type" ]]; then
+                aiperf_args+=(--benchmark-duration "$benchmark_duration")
+                if [[ -n "$custom_dataset_type" && -z "$public_dataset" ]]; then
                     aiperf_args+=(--custom-dataset-type "$custom_dataset_type")
                 fi
-                # Mode 1 capacity-sweep flags (default off → trace replays once
-                # under fixed-schedule, the original agentic-replay behavior).
-                if [[ -n "$num_warmup_sessions" ]]; then
-                    aiperf_args+=(--num-warmup-sessions "$num_warmup_sessions")
-                fi
-                if [[ -n "$warmup_request_count" ]]; then
-                    aiperf_args+=(--warmup-request-count "$warmup_request_count")
-                fi
-                if [[ "$no_fixed_schedule" == true ]]; then
-                    aiperf_args+=(--no-fixed-schedule)
+                if [[ "$custom_dataset_type" == "weka_trace" ]]; then
+                    export AIPERF_SOURCE_DIR="${AIPERF_SOURCE_DIR:-${INFMAX_CONTAINER_WORKSPACE:-$bench_serving_dir}/utils/aiperf-mooncake}"
+                    export AIPERF_VENV_DIR="${AIPERF_VENV_DIR:-/tmp/aiperf-mooncake-agentx-weka-venv}"
+                    aiperf_args+=(
+                        --scenario inferencex-agentx-mvp
+                        --endpoint /v1/chat/completions
+                        --failed-request-threshold 0.05
+                        --trajectory-start-min-ratio 0.25
+                        --trajectory-start-max-ratio 0.75
+                        --use-server-token-count
+                        --tokenizer-trust-remote-code
+                        --num-dataset-entries "${WEKA_NUM_DATASET_ENTRIES:-949}"
+                        --slice-duration 1.0
+                    )
+                    if { [[ -n "$benchmark_duration" ]] && (( ${benchmark_duration%.*} < 900 )); } || [[ "${AIPERF_UNSAFE_OVERRIDE:-false}" == "true" ]]; then
+                        aiperf_args+=(--unsafe-override)
+                    fi
                 fi
             else
-                aiperf_args+=(
-                    --request-count "$((concurrency * 10))"
-                    --warmup-request-count "$((concurrency * 2))"
-                    --isl "$isl"
-                    --osl "$osl"
-                )
+                echo "Error: BENCHMARK_CLIENT=aiperf is only supported for trace replay"
+                return 1
             fi
             if [[ -n "$random_seed" ]]; then
                 aiperf_args+=(--random-seed "$random_seed")
             fi
-            for extra_input in "${extra_inputs[@]}"; do
-                aiperf_args+=(--extra-inputs "$extra_input")
-            done
             # Optional explicit tokenizer; unset => adapter omits it and aiperf
             # defaults to the served model (the standard flow).
             if [[ -n "$tokenizer" ]]; then aiperf_args+=(--tokenizer "$tokenizer"); fi
-            # Placeholder SLA / canonical-command flags — forwarded only when set.
-            if [[ -n "$goodput" ]]; then aiperf_args+=(--goodput "$goodput"); fi
-            if [[ -n "$temperature" ]]; then aiperf_args+=(--temperature "$temperature"); fi
-            if [[ -n "$inter_turn_delay_cap_seconds" ]]; then aiperf_args+=(--inter-turn-delay-cap-seconds "$inter_turn_delay_cap_seconds"); fi
-            if [[ -n "$dataset_sampling_strategy" ]]; then aiperf_args+=(--dataset-sampling-strategy "$dataset_sampling_strategy"); fi
-            if [[ -n "$benchmark_grace_period" ]]; then aiperf_args+=(--benchmark-grace-period "$benchmark_grace_period"); fi
-            if [[ -n "$workers_max" ]]; then aiperf_args+=(--workers-max "$workers_max"); fi
             run_aiperf_benchmark "${aiperf_args[@]}"
             ;;
         inferencex_native)
-            if [[ -n "$input_file" ]]; then
-                echo "Error: --input-file (trace replay) is only supported with BENCHMARK_CLIENT=aiperf"
+            if [[ -n "$input_file" || -n "$public_dataset" ]]; then
+                echo "Error: trace replay is only supported with BENCHMARK_CLIENT=aiperf"
                 return 1
             fi
             local native_args=(
@@ -1310,6 +1264,44 @@ agentic_pip_install() {
     "${pip_install[@]}" "$@"
 }
 
+ensure_git() {
+    if command -v git >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # aiperf currently depends on transformers directly from GitHub, so pip
+    # needs the git executable even though aiperf itself is mounted locally.
+    # Several lean inference images omit it.
+    local privilege=()
+    if [[ "$(id -u)" -ne 0 ]]; then
+        if ! command -v sudo >/dev/null 2>&1; then
+            echo "Error: git is required to install aiperf, but this container is not root and has no sudo." >&2
+            return 1
+        fi
+        privilege=(sudo)
+    fi
+
+    echo "git is not installed; installing it for aiperf's Git-based dependencies..."
+    if command -v apt-get >/dev/null 2>&1; then
+        "${privilege[@]}" apt-get update -qq
+        "${privilege[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git
+    elif command -v apk >/dev/null 2>&1; then
+        "${privilege[@]}" apk add --no-cache git
+    elif command -v dnf >/dev/null 2>&1; then
+        "${privilege[@]}" dnf install -y git
+    elif command -v yum >/dev/null 2>&1; then
+        "${privilege[@]}" yum install -y git
+    else
+        echo "Error: git is required to install aiperf, and no supported package manager was found." >&2
+        return 1
+    fi
+
+    command -v git >/dev/null 2>&1 || {
+        echo "Error: git installation completed but git is still not in PATH." >&2
+        return 1
+    }
+}
+
 ensure_hf_cli() {
     if command -v hf >/dev/null 2>&1; then
         return 0
@@ -1335,6 +1327,52 @@ resolve_trace_source() {
 }
 
 install_agentic_deps() {
+    AIPERF_USE_DOCKER=false
+
+    # Full-image bypass: when the remote client runs from a pre-built full
+    # AIPerf image (the remote config points image: at it — see
+    # docs/REMOTE_AIPERF_DOCKER.md), aiperf is already installed. Skip the slow
+    # editable install; results are identical since it's the same build. Set
+    # AIPERF_FORCE_PIP_INSTALL=true to force the source install anyway.
+    if [[ "${AIPERF_FORCE_PIP_INSTALL:-}" != "true" ]] && command -v aiperf >/dev/null 2>&1; then
+        echo "[aiperf] aiperf already installed ($(command -v aiperf)); skipping pip install."
+        return 0
+    fi
+
+    # Opt-in bypass: if the runner already has a pre-built aiperf image
+    # (see utils/aiperf-mooncake's `make docker`), skip the pip install
+    # entirely instead of re-running the (slow, transformers-from-git)
+    # editable install on every job. Only engages when AIPERF_DOCKER_IMAGE
+    # is explicitly set, so runners that haven't built an image keep the
+    # existing pip-install behavior unchanged.
+    if [[ -n "${AIPERF_DOCKER_IMAGE:-}" ]]; then
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "Error: AIPERF_DOCKER_IMAGE=$AIPERF_DOCKER_IMAGE is set but docker is not installed on this runner." >&2
+            return 1
+        fi
+        if ! docker image inspect "$AIPERF_DOCKER_IMAGE" >/dev/null 2>&1; then
+            echo "Error: AIPERF_DOCKER_IMAGE=$AIPERF_DOCKER_IMAGE is set but no local image with that name/tag exists." >&2
+            echo "  Build it first: (cd $AIPERF_DIR && make docker), or unset AIPERF_DOCKER_IMAGE to fall back to pip install." >&2
+            return 1
+        fi
+        echo "[aiperf] using pre-built docker image $AIPERF_DOCKER_IMAGE; skipping pip install."
+        AIPERF_USE_DOCKER=true
+        return 0
+    fi
+
+    # AIPERF_DIR is installed with no ref pin (see below) -- if the submodule
+    # is uninitialized (empty dir) this fails as an opaque pip error ("no
+    # pyproject.toml"). A commit that switched AIPERF_DIR to the wrong fork
+    # once passed this step silently and only failed later with a confusing
+    # dataset-enum validation error deep inside aiperf. Fail here instead,
+    # naming the exact path and the fix.
+    if [[ ! -f "$AIPERF_DIR/pyproject.toml" ]]; then
+        echo "Error: aiperf submodule not found at AIPERF_DIR=$AIPERF_DIR (no pyproject.toml)." >&2
+        echo "  Run: git submodule update --init $AIPERF_DIR" >&2
+        return 1
+    fi
+
+    ensure_git
     agentic_pip_install --quiet urllib3 requests 2>/dev/null || true
     agentic_pip_install -q -r "$AGENTIC_DIR/requirements.txt"
     # Editable install of aiperf from the submodule — gives us the
@@ -1352,6 +1390,143 @@ install_agentic_deps() {
     # in datasets 4.7.0 (March 2025). Unpinned installs won't upgrade an
     # already-present package.
     agentic_pip_install --upgrade "datasets>=4.7.0"
+}
+
+# Probe an HTTP endpoint with a short timeout, retrying a few times to absorb
+# transient blips. Returns 0 if any attempt succeeds. Optional 4th arg is an
+# API key sent as a Bearer token -- required by endpoints (like hosted MaaS
+# providers) that reject unauthenticated requests with 401 before we even get
+# to check reachability.
+_probe_endpoint() {
+    local url="$1" max_time="$2" retries="$3" api_key="${4:-}" attempt
+
+    for (( attempt=1; attempt<=retries; attempt++ )); do
+        if command -v curl >/dev/null 2>&1; then
+            if curl --output /dev/null --silent --fail --max-time "$max_time" \
+                ${api_key:+-H "Authorization: Bearer $api_key"} "$url"; then
+                return 0
+            fi
+        # The pre-built AIPerf image is distroless: it ships busybox wget but
+        # not curl. wget's exit status is a good-enough reachability signal.
+        elif wget -q -T "$max_time" -O /dev/null \
+            ${api_key:+--header "Authorization: Bearer $api_key"} "$url"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Reachability probe that treats ANY HTTP response (including 4xx/5xx) as
+# success. Its job is to catch an unroutable host / silent hang before handing
+# off to aiperf, not to validate the API contract -- so a provider whose
+# /models path 401s or 404s (e.g. BytePlus Model Ark) but whose chat endpoint
+# is fine still counts as reachable. Only a transport failure (DNS, connect
+# refused, timeout) counts as unreachable.
+_probe_reachable() {
+    local url="$1" max_time="$2" retries="$3" api_key="${4:-}" attempt resp
+    for (( attempt=1; attempt<=retries; attempt++ )); do
+        if command -v curl >/dev/null 2>&1; then
+            # No --fail: curl exits 0 on any HTTP status, non-zero only on
+            # transport errors.
+            if curl --output /dev/null --silent --max-time "$max_time" \
+                ${api_key:+-H "Authorization: Bearer $api_key"} "$url"; then
+                return 0
+            fi
+        else
+            # busybox wget (distroless AIPerf image) exits non-zero on 4xx, so
+            # exit status alone can't distinguish "server said 404" from "host
+            # unreachable". -S prints the response status line to stderr even on
+            # error; an "HTTP/" line means the host answered.
+            resp="$(wget -S -T "$max_time" -O /dev/null \
+                ${api_key:+--header "Authorization: Bearer $api_key"} "$url" 2>&1 || true)"
+            if [[ "$resp" == *"HTTP/"* ]]; then
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Probe every comma-separated URL in $value (aiperf's own list syntax), logging
+# each result. Never fails the run -- used for the metrics/telemetry endpoints,
+# which aiperf can operate without.
+_check_optional_remote_urls() {
+    local label="$1" value="$2" max_time="$3" retries="$4" api_key="${5:-}"
+    local url
+
+    [[ -z "$value" ]] && return 0
+
+    IFS=',' read -ra urls <<< "$value"
+    for url in "${urls[@]}"; do
+        url="${url// /}"
+        [[ -z "$url" ]] && continue
+        if _probe_endpoint "$url" "$max_time" "$retries" "$api_key"; then
+            echo "[precheck] $label reachable: $url"
+        else
+            echo "[precheck] WARNING: $label unreachable, continuing without it: $url" >&2
+        fi
+    done
+}
+
+# Pre-flight reachability check for the remote-replay endpoints.
+#
+# A remote-replay run once hung for ~16 minutes and took the runner down with
+# it ("lost communication with the server"), with no logs surviving to show
+# why. The benchmark window was 90s, so 16 minutes strongly suggests aiperf
+# was stuck connecting to an unreachable REMOTE_URL rather than genuinely
+# benchmarking. There was no check anywhere that the client runner could
+# actually route to the model host before handing it to aiperf.
+#
+# Model endpoint(s): REMOTE_URL may be a single URL or aiperf's own
+# comma-separated multi-URL syntax (see build_replay_cmd). The probe hits a
+# models-list path derived from REMOTE_ENDPOINT and, via _probe_reachable,
+# treats ANY HTTP response as proof the host is routable (a 401/404 from the
+# probe path is fine). Hard-fail only if NONE of the configured URLs answer at
+# all -- a single unreachable member of an otherwise-healthy round-robin set is
+# logged but not fatal. Metrics/telemetry endpoints are optional, so warn-only.
+check_remote_endpoints() {
+    local max_time="${REMOTE_HEALTHCHECK_TIMEOUT:-10}"
+    local retries="${REMOTE_HEALTHCHECK_RETRIES:-3}"
+    local url reachable=0
+
+    if [[ -z "${REMOTE_URL:-}" ]]; then
+        return 0
+    fi
+
+    # Derive the models-list path from the configured request endpoint so the
+    # probe matches the provider's base path (default /v1/chat/completions ->
+    # /v1/models; BytePlus /chat/completions -> /models under url's /api/v3).
+    local endpoint="${REMOTE_ENDPOINT:-/v1/chat/completions}"
+    local models_path
+    if [[ "$endpoint" == */chat/completions ]]; then
+        models_path="${endpoint%/chat/completions}/models"
+    else
+        models_path="/v1/models"
+    fi
+
+    IFS=',' read -ra model_urls <<< "$REMOTE_URL"
+    for url in "${model_urls[@]}"; do
+        url="${url// /}"
+        [[ -z "$url" ]] && continue
+        if _probe_reachable "${url%/}${models_path}" "$max_time" "$retries" "${REMOTE_API_KEY:-}"; then
+            echo "[precheck] model endpoint reachable: $url"
+            reachable=1
+        else
+            echo "[precheck] WARNING: model endpoint unreachable: $url" >&2
+        fi
+    done
+
+    if [[ "$reachable" -eq 0 ]]; then
+        echo "Error: none of the configured REMOTE_URL endpoint(s) responded to GET ${models_path}" >&2
+        echo "  within ${max_time}s (${retries} attempts each): $REMOTE_URL" >&2
+        echo "  Confirm the benchmark-client runner can route to the model host and that the server is up." >&2
+        return 1
+    fi
+
+    _check_optional_remote_urls "server-metrics endpoint" "${REMOTE_SERVER_METRICS_URL:-}" "$max_time" "$retries"
+    _check_optional_remote_urls "gpu-telemetry endpoint" "${REMOTE_GPU_TELEMETRY_URL:-}" "$max_time" "$retries"
 }
 
 build_replay_cmd() {
@@ -1382,11 +1557,33 @@ build_replay_cmd() {
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
     REPLAY_CMD="aiperf profile --scenario inferencex-agentx-mvp"
-    REPLAY_CMD+=" --url http://localhost:$PORT"
-    REPLAY_CMD+=" --endpoint /v1/chat/completions"
+    # REMOTE_URL may itself be a comma-separated list of endpoints -- aiperf's
+    # --url accepts that syntax directly (also --server-metrics and
+    # --gpu-telemetry below) and round-robins across them by default (see
+    # --url-strategy in aiperf-mooncake), so no splitting/looping is needed
+    # here. generate_sweep_configs.py is what joins a YAML list of URLs into
+    # this comma-separated form before it reaches this script.
+    REPLAY_CMD+=" --url ${REMOTE_URL:-http://localhost:$PORT}"
+    # Request path appended to --url. Defaults to the OpenAI-compatible
+    # /v1/chat/completions; override via remote.endpoint (REMOTE_ENDPOINT) for
+    # providers on a non-/v1 base path (e.g. BytePlus Model Ark: url ends in
+    # /api/v3, endpoint = /chat/completions).
+    REPLAY_CMD+=" --endpoint ${REMOTE_ENDPOINT:-/v1/chat/completions}"
     REPLAY_CMD+=" --endpoint-type chat"
     REPLAY_CMD+=" --streaming"
     REPLAY_CMD+=" --model $MODEL"
+    if [[ -n "${REMOTE_URL:-}" ]]; then
+        REPLAY_CMD+=" --api-key ${REMOTE_API_KEY:-EMPTY}"
+    fi
+    if [[ -n "${TOKENIZER:-}" ]]; then
+        REPLAY_CMD+=" --tokenizer $TOKENIZER"
+    fi
+    if [[ -n "${REMOTE_SERVER_METRICS_URL:-}" ]]; then
+        REPLAY_CMD+=" --server-metrics $REMOTE_SERVER_METRICS_URL"
+    fi
+    if [[ -n "${REMOTE_GPU_TELEMETRY_URL:-}" ]]; then
+        REPLAY_CMD+=" --gpu-telemetry $REMOTE_GPU_TELEMETRY_URL"
+    fi
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
     REPLAY_CMD+=" --random-seed 42"
@@ -1472,6 +1669,71 @@ scrape_lmcache_server_metrics() {
         echo "[scrape_lmcache] failed to scrape http://localhost:$http_port/metrics, skipping" >&2
         rm -f "$out"
     fi
+}
+
+# Wrap $REPLAY_CMD (built by build_replay_cmd) in a `docker run` invocation
+# against $AIPERF_DOCKER_IMAGE. Only called when install_agentic_deps found
+# the image and set AIPERF_USE_DOCKER=true. Mirrors the bare-metal
+# environment so results are consistent either way:
+#   --network host    REPLAY_CMD's --url/--server-metrics/--gpu-telemetry
+#                      often point at localhost:<port> on this runner; host
+#                      networking makes those resolve exactly as they would
+#                      for a native process.
+#   --user <host uid> Files written under the mounted $RESULT_DIR and HF
+#                      cache come out owned by the invoking user, not the
+#                      image's baked-in appuser (uid 1000).
+#   HF cache mount     Reuses the same on-disk dataset/token cache as the
+#                      pip-install path so the 949-trace weka corpus isn't
+#                      re-downloaded on every run.
+# Populates the DOCKER_REPLAY_ARGS array (mirrors REPLAY_CMD's global-string
+# convention) for the caller to pass to `timeout ... "${DOCKER_REPLAY_ARGS[@]}"`.
+build_docker_replay_args() {
+    local result_dir="$1"
+    local hf_cache_dir="${HF_HOME:-$HOME/.cache/huggingface}"
+    mkdir -p "$hf_cache_dir"
+
+    DOCKER_REPLAY_ARGS=(
+        docker run --rm --network host
+        --user "$(id -u):$(id -g)"
+        -e HF_TOKEN
+        -e AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES
+        -e AIPERF_DATASET_CONFIGURATION_TIMEOUT
+        -e AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
+        -v "$result_dir:$result_dir"
+        -v "$hf_cache_dir:/app/.cache/huggingface"
+        "$AIPERF_DOCKER_IMAGE"
+        "$REPLAY_CMD"
+    )
+}
+
+# Surface an early --failed-request-threshold abort prominently in the job log.
+# AIPerf already records the reason in aiperf.log at WARNING level, but from the
+# run summary a threshold abort is indistinguishable from any other cancel
+# (was_cancelled=true) and the reported Benchmark Duration collapses to just the
+# successful-request window before the abort. Echo an unmissable banner and
+# stash the reason to abort_reason.txt so the stop cause is obvious without
+# grepping the artifact tree. Reads what AIPerf already logs -- no AIPerf change.
+report_failed_request_abort() {
+    local result_dir="$1"
+    local abort_line reason
+    abort_line="$(grep -rh -- '--failed-request-threshold exceeded' \
+        "$result_dir/trace_replay" "$result_dir/benchmark.log" 2>/dev/null \
+        | head -1 || true)"
+    [[ -z "$abort_line" ]] && return 0
+
+    reason="${abort_line#*--failed-request-threshold exceeded: }"
+    reason="${reason%% Broadcasting*}"
+    {
+        echo "=============================================================="
+        echo "RUN ABORTED EARLY - TOO MANY FAILED REQUESTS"
+        echo "  --failed-request-threshold exceeded: ${reason}"
+        echo "  The benchmark did NOT run to --benchmark-duration. The"
+        echo "  reported Benchmark Duration covers only the successful-request"
+        echo "  window before the abort; treat these metrics as invalid."
+        echo "=============================================================="
+    } >&2
+    printf 'failed-request-threshold exceeded: %s\n' "$reason" \
+        > "$result_dir/abort_reason.txt"
 }
 
 write_agentic_result_json() {

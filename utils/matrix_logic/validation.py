@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ValidationError, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ValidationError, ConfigDict, model_validator, field_validator
 from typing import List, Optional, Union, Literal
 from enum import Enum
 
@@ -57,17 +57,18 @@ class Fields(Enum):
     OFFLOADING = 'offloading'
     DURATION = 'duration'
 
-    # Agentic replay fields (mooncake_trace on official AIPerf)
+    # Agentic replay fields
     INPUT_FILE = 'input-file'
+    PUBLIC_DATASET = 'public-dataset'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
-    # Optional HF tokenizer id for AIPerf token counting; defaults to the served
-    # model when unset (the standard flow). Set only when served-name != HF id.
+    NUM_DATASET_ENTRIES = 'num-dataset-entries'
     TOKENIZER = 'tokenizer'
-    # Agentic-replay Mode 1 (capacity sweep) fields
-    NO_FIXED_SCHEDULE = 'no-fixed-schedule'
-    NUM_WARMUP_SESSIONS = 'num-warmup-sessions'
-    REQUEST_COUNT = 'request-count'
-    STRIP_TRACE_DELAYS = 'strip-trace-delays'
+    REMOTE = 'remote'
+    ENDPOINT = 'endpoint'
+    SERVER_METRICS_URL = 'server-metrics-url'
+    GPU_TELEMETRY_URL = 'gpu-telemetry-url'
+    API_KEY_SECRET_NAME = 'api-key-secret-name'
+    AIPERF_DOCKER_IMAGE = 'aiperf-docker-image'
 
     # Matrix entry fields
     CONC = 'conc'
@@ -221,6 +222,52 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
 AgenticMatrixEntry = Union[SingleNodeAgenticMatrixEntry, MultiNodeAgenticMatrixEntry]
 
 
+class RemoteConfig(BaseModel):
+    """External OpenAI-compatible endpoint for agentic-replay.
+
+    ``url`` (and the metrics/telemetry URLs) may be given as a single string
+    or a YAML list, for a model hosted across multiple endpoints/replicas.
+    aiperf round-robins across comma-separated URLs, so list inputs are
+    normalized to that form here.
+    """
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    url: Union[str, List[str]]
+    # OpenAI-compatible request path appended to ``url`` (aiperf's --endpoint).
+    # Unset => the remote driver defaults to /v1/chat/completions. Override for
+    # providers that serve under a non-/v1 base path, e.g. BytePlus Model Ark
+    # (url ends in /api/v3, endpoint = /chat/completions).
+    endpoint: Optional[str] = Field(default=None, alias=Fields.ENDPOINT.value)
+    server_metrics_url: Optional[Union[str, List[str]]] = Field(
+        default=None, alias=Fields.SERVER_METRICS_URL.value)
+    gpu_telemetry_url: Optional[Union[str, List[str]]] = Field(
+        default=None, alias=Fields.GPU_TELEMETRY_URL.value)
+    # Name of the GitHub secret holding the endpoint API key. Unset => no key is
+    # sent (the request goes out unauthenticated). The reusable workflow resolves
+    # this name dynamically against the repo's secrets and fails early if a name
+    # is given but the secret is unset/empty.
+    api_key_secret_name: Optional[str] = Field(
+        default=None, alias=Fields.API_KEY_SECRET_NAME.value)
+    # Pre-built aiperf docker image (name:tag) on the benchmark-client runner.
+    # When set, the remote-replay driver runs aiperf via `docker run` against
+    # this image instead of pip-installing the client on every job; unset =>
+    # the runner falls back to the editable install (see
+    # benchmark_lib.sh install_agentic_deps).
+    aiperf_docker_image: Optional[str] = Field(
+        default=None, alias=Fields.AIPERF_DOCKER_IMAGE.value)
+
+    @field_validator('url', 'server_metrics_url', 'gpu_telemetry_url', mode='before')
+    @classmethod
+    def _join_url_list(cls, value):
+        if value is None or isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            if not value or not all(isinstance(v, str) and v for v in value):
+                raise ValueError("must be a non-empty list of non-empty URL strings")
+            return ",".join(value)
+        return value
+
+
 class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     """Pydantic model for validating single-node agentic-replay matrix entries.
 
@@ -246,23 +293,26 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     isl: int
     osl: int
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
-    input_file: str = Field(alias=Fields.INPUT_FILE.value)
+    input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
+    public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
+    num_dataset_entries: Optional[int] = Field(
+        default=None, ge=1, alias=Fields.NUM_DATASET_ENTRIES.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
-    # Mode 1 (capacity sweep) controls; defaults preserve single-replay behavior.
-    no_fixed_schedule: bool = Field(
-        default=False, alias=Fields.NO_FIXED_SCHEDULE.value)
-    num_warmup_sessions: Optional[int] = Field(
-        default=None, alias=Fields.NUM_WARMUP_SESSIONS.value)
-    request_count: Optional[int] = Field(
-        default=None, alias=Fields.REQUEST_COUNT.value)
-    strip_trace_delays: bool = Field(
-        default=False, alias=Fields.STRIP_TRACE_DELAYS.value)
     tokenizer: Optional[str] = Field(
         default=None, alias=Fields.TOKENIZER.value)
+    remote: Optional[RemoteConfig] = Field(default=None, alias=Fields.REMOTE.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
+
+    @model_validator(mode='after')
+    def validate_trace_source(self):
+        if self.input_file and self.public_dataset:
+            raise ValueError("agentic-replay matrix entry accepts only one of input-file or public-dataset")
+        if not self.input_file and not self.public_dataset:
+            raise ValueError("agentic-replay matrix entry requires input-file or public-dataset")
+        return self
 
 
 def validate_agentic_matrix_entry(entry: dict) -> dict:
@@ -502,47 +552,32 @@ class AgenticReplayConfig(BaseModel):
     JSONL; the run is bounded by the record count, not a duration sweep."""
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
 
-    input_file: str = Field(alias=Fields.INPUT_FILE.value)
+    input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
+    public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
+    num_dataset_entries: Optional[int] = Field(
+        default=None, ge=1, alias=Fields.NUM_DATASET_ENTRIES.value)
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
     benchmark_client: List[Literal["aiperf"]] = Field(
         default=["aiperf"], alias=Fields.BENCHMARK_CLIENT.value)
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
-    # Mode 1 (capacity sweep): drive the trace by --concurrency back-pressure
-    # rather than replaying it once on a fixed schedule. Defaults preserve the
-    # original single-replay behavior.
-    no_fixed_schedule: bool = Field(
-        default=False, alias=Fields.NO_FIXED_SCHEDULE.value)
-    num_warmup_sessions: Optional[int] = Field(
-        default=None, alias=Fields.NUM_WARMUP_SESSIONS.value)
-    request_count: Optional[int] = Field(
-        default=None, alias=Fields.REQUEST_COUNT.value)
-    strip_trace_delays: bool = Field(
-        default=False, alias=Fields.STRIP_TRACE_DELAYS.value)
     tokenizer: Optional[str] = Field(
         default=None, alias=Fields.TOKENIZER.value)
     search_space: List[AgenticReplaySearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 
     @model_validator(mode='after')
-    def validate_request_count_vs_conc(self):
-        """AIPerf requires request-count >= concurrency. When an explicit
-        request-count is set, it must cover the largest swept concurrency."""
-        if self.request_count is None:
-            return self
-        max_conc = 0
-        for entry in self.search_space:
-            if entry.conc_list:
-                max_conc = max(max_conc, max(entry.conc_list))
-            if entry.conc_end is not None:
-                max_conc = max(max_conc, entry.conc_end)
-        if max_conc and self.request_count < max_conc:
-            raise ValueError(
-                f"request-count ({self.request_count}) must be >= the largest "
-                f"swept concurrency ({max_conc}); AIPerf rejects "
-                "request-count < concurrency.")
+    def validate_trace_source(self):
+        if self.input_file and self.public_dataset:
+            raise ValueError("agentic-replay accepts only one of input-file or public-dataset")
+        if self.custom_dataset_type == "weka_trace":
+            if not self.input_file and not self.public_dataset:
+                self.public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
+        elif self.public_dataset:
+            raise ValueError("public-dataset is only supported for weka_trace agentic-replay")
+        elif not self.input_file:
+            raise ValueError("input-file is required for non-weka_trace agentic-replay")
         return self
-
 
 class SingleNodeScenarios(BaseModel):
     """Scenarios wrapper for single-node configs."""
@@ -590,7 +625,18 @@ class SingleNodeMasterConfigEntry(BaseModel):
     runner: str
     multinode: Literal[False]
     disagg: bool = Field(default=False)
+    remote: Optional[RemoteConfig] = Field(default=None, alias=Fields.REMOTE.value)
     scenarios: SingleNodeScenarios
+
+    @model_validator(mode='after')
+    def remote_requires_agentic_replay_only(self):
+        if self.remote and (
+            self.scenarios.fixed_seq_len
+            or self.scenarios.agentic_coding
+            or not self.scenarios.agentic_replay
+        ):
+            raise ValueError("remote is only supported for agentic-replay-only single-node configs")
+        return self
 
 
 class MultiNodeMasterConfigEntry(BaseModel):

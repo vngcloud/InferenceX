@@ -106,8 +106,18 @@ on:
         required: false
         type: string
         default: ''
+      public-dataset:
+        description: "AIPerf --public-dataset for agentic-replay Weka"
+        required: false
+        type: string
+        default: ''
       custom-dataset-type:
         description: "AIPerf --custom-dataset-type for agentic-replay (e.g. mooncake_trace)"
+        required: false
+        type: string
+        default: ''
+      num-dataset-entries:
+        description: "Maximum Weka dataset rows to reconstruct for agentic replay"
         required: false
         type: string
         default: ''
@@ -116,31 +126,36 @@ on:
         required: false
         type: string
         default: ''
-      no-fixed-schedule:
-        description: "agentic-replay Mode 1: drive by concurrency, suppress auto fixed-schedule"
+      remote-url:
+        description: "Remote OpenAI-compatible endpoint URL for agentic-replay"
         required: false
         type: string
         default: ''
-      num-warmup-sessions:
-        description: "agentic-replay Mode 1: AIPerf --num-warmup-sessions"
+      remote-endpoint:
+        description: "Remote request path appended to remote-url (aiperf --endpoint); empty => /v1/chat/completions"
         required: false
         type: string
         default: ''
-      request-count:
-        description: "agentic-replay Mode 1: fixed request count (resamples sessions); blank = one per record"
+      remote-server-metrics-url:
+        description: "Remote Prometheus metrics URL"
         required: false
         type: string
         default: ''
-      strip-trace-delays:
-        description: "agentic-replay Mode 1: drop per-turn delay field for a pure capacity sweep"
+      remote-gpu-telemetry-url:
+        description: "Remote DCGM exporter URL"
         required: false
         type: string
         default: ''
-      skip-resource-cleanup:
-        description: "Skip Docker/Slurm resource cleanup before benchmark"
+      remote-api-key-secret:
+        description: "Name of the GitHub secret holding the remote endpoint API key; empty => no key"
         required: false
         type: string
-        default: 'false'
+        default: ''
+      aiperf-docker-image:
+        description: "Pre-built aiperf image (name:tag) on the runner; empty => pip-install the client"
+        required: false
+        type: string
+        default: ''
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -172,12 +187,20 @@ env:
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
   INPUT_FILE: ${{ inputs.input-file }}
+  PUBLIC_DATASET: ${{ inputs.public-dataset }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
+  WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}
-  NO_FIXED_SCHEDULE: ${{ inputs.no-fixed-schedule }}
-  NUM_WARMUP_SESSIONS: ${{ inputs.num-warmup-sessions }}
-  REQUEST_COUNT: ${{ inputs.request-count }}
-  STRIP_TRACE_DELAYS: ${{ inputs.strip-trace-delays }}
+  REMOTE_URL: ${{ inputs.remote-url }}
+  REMOTE_ENDPOINT: ${{ inputs.remote-endpoint }}
+  REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}
+  REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
+  # Resolve the API key from the secret named by the config's remote.api-key-secret-name.
+  # Empty when no name is given or the named secret is unset; downstream treats empty as
+  # EMPTY (see benchmark_lib.sh). The "Validate remote API key secret" step fails early
+  # when a name is given but the secret is unset/empty.
+  REMOTE_API_KEY: ${{ secrets[inputs.remote-api-key-secret] }}
+  AIPERF_DOCKER_IMAGE: ${{ inputs.aiperf-docker-image }}
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
   PYTHONPYCACHEPREFIX: /tmp/inferencex-pycache
@@ -191,8 +214,19 @@ jobs:
     timeout-minutes: 500
     name: "${{ inputs.exp-name }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework }} | tp=${{ inputs.tp }} ep=${{ inputs.ep }} dpa=${{ inputs.dp-attn }} | disagg-${{ inputs.disagg }} spec-${{ inputs.spec-decoding }} conc-${{ inputs.conc }}${{ inputs.eval-only && ' | eval-only' || (inputs.run-eval && ' | eval' || '') }}"
     steps:
+      - name: Validate remote API key secret
+        if: ${{ inputs.remote-url != '' && inputs.remote-api-key-secret != '' }}
+        env:
+          RESOLVED_KEY: ${{ secrets[inputs.remote-api-key-secret] }}
+          SECRET_NAME: ${{ inputs.remote-api-key-secret }}
+        run: |
+          if [ -z "${RESOLVED_KEY}" ]; then
+            echo "::error::Config requested API key secret '${SECRET_NAME}' but it is unset or empty in this repository. Add it under Settings → Secrets → Actions." >&2
+            exit 1
+          fi
+          echo "Remote API key secret '${SECRET_NAME}' is present."
+
       - name: Resource cleanup (pre-run)
-        if: ${{ inputs.skip-resource-cleanup != 'true' }}
         run: &resource-cleanup |
           # Cleanup Docker resources
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -246,7 +280,7 @@ jobs:
           # MAX_NUM_BATCHED_TOKENS (see benchmark-tmpl.yml inputs); when those
           # inputs are unset, the segments resolve to 'n' / 'mnbt' with no
           # numeric value, which is intentional and stable across runs.
-          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}${{ inputs.benchmark-client != 'inferencex_native' && format('_{0}', inputs.benchmark-client) || '' }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
+          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}${{ inputs.benchmark-client != 'inferencex_native' && format('_{0}', inputs.benchmark-client) || '' }}${{ inputs.remote-url != '' && '_remote' || '' }}_tp${{ env.TP }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_n${{ env.NUM_SPECULATIVE_TOKENS }}_mnbt${{ env.MAX_NUM_BATCHED_TOKENS }}_conc${{ env.CONC }}_${{ runner.name }}
           # Suppress per-job eval markdown from being appended to the step summary.
           # We'll publish a single combined eval table in the collection job instead.
           GITHUB_STEP_SUMMARY: ''
@@ -254,7 +288,11 @@ jobs:
           # Export RESULT_FILENAME early so it's available for artifact uploads even if cancelled
           echo "RESULT_FILENAME=${RESULT_FILENAME}" >> $GITHUB_ENV
 
-          bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          if [ -n "${REMOTE_URL:-}" ]; then
+            bash ./runners/launch_remote.sh
+          else
+            bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          fi
 
           if [ "${{ inputs.eval-only }}" = "true" ]; then
             echo "Eval-only mode: skipping benchmark result file check"
@@ -281,21 +319,21 @@ jobs:
           fi
 
       - name: Process result
-        if: ${{ !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        if: ${{ !inputs.eval-only && inputs.scenario-type != 'agentic-coding' && inputs.scenario-type != 'agentic-replay' }}
         env:
           RUNNER_TYPE: ${{ inputs.runner }}
         run: |
           python3 utils/process_result.py
 
       - name: Upload result
-        if: ${{ !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        if: ${{ !inputs.eval-only && inputs.scenario-type != 'agentic-coding' && inputs.scenario-type != 'agentic-replay' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bmk_${{ env.RESULT_FILENAME }}
           path: agg_${{ env.RESULT_FILENAME }}.json
 
       - name: Upload agentic aggregated result
-        if: ${{ inputs.scenario-type == 'agentic-coding' }}
+        if: ${{ inputs.scenario-type == 'agentic-coding' || inputs.scenario-type == 'agentic-replay' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bmk_agentic_${{ env.RESULT_FILENAME }}
@@ -396,5 +434,5 @@ jobs:
           rm -f sample*.jsonl || true
           
       - name: Resource cleanup (post-run)
-        if: ${{ always() && inputs.skip-resource-cleanup != 'true' }}
+        if: always()
         run: *resource-cleanup

@@ -570,24 +570,6 @@ class TestAgenticReplayMatrixEntries:
         assert entry.custom_dataset_type == "mooncake_trace"
         assert entry.duration == 1800  # default
 
-    def test_mode1_fields_default_off(self):
-        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry())
-        assert entry.no_fixed_schedule is False
-        assert entry.strip_trace_delays is False
-        assert entry.num_warmup_sessions is None
-        assert entry.request_count is None
-
-    def test_mode1_fields_accepted(self):
-        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(**{
-            "no-fixed-schedule": True,
-            "strip-trace-delays": True,
-            "num-warmup-sessions": 1,
-            "request-count": 50,
-        }))
-        assert entry.no_fixed_schedule is True
-        assert entry.num_warmup_sessions == 1
-        assert entry.request_count == 50
-
     def test_benchmark_client_defaults_to_aiperf(self):
         raw = self._entry()
         del raw["benchmark-client"]
@@ -595,6 +577,50 @@ class TestAgenticReplayMatrixEntries:
         entry = SingleNodeAgenticReplayMatrixEntry(**raw)
 
         assert entry.benchmark_client == "aiperf"
+
+    def test_remote_allowed(self):
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+            "server-metrics-url": "http://remote:8000/metrics",
+            "gpu-telemetry-url": "http://remote:9400/metrics",
+        }))
+
+        assert entry.remote.url == "http://remote:8000"
+
+    def test_remote_api_key_secret_name_allowed(self):
+        """A remote config may name the GitHub secret holding its API key; the
+        reusable workflow resolves that name dynamically at run time."""
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+            "api-key-secret-name": "MAAS_HCM_API_KEY",
+        }))
+
+        assert entry.remote.api_key_secret_name == "MAAS_HCM_API_KEY"
+
+    def test_remote_api_key_secret_name_defaults_none(self):
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+        }))
+
+        assert entry.remote.api_key_secret_name is None
+
+    def test_remote_url_list_joined_to_comma_separated_string(self):
+        """A model hosted across multiple endpoints may be declared as a list;
+        RemoteConfig normalizes it to aiperf's comma-separated multi-URL
+        syntax."""
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": ["http://a:8000", "http://b:8000"],
+            "server-metrics-url": ["http://a:8000/metrics", "http://b:8000/metrics"],
+            "gpu-telemetry-url": "http://a:9400/metrics",
+        }))
+
+        assert entry.remote.url == "http://a:8000,http://b:8000"
+        assert entry.remote.server_metrics_url == "http://a:8000/metrics,http://b:8000/metrics"
+        assert entry.remote.gpu_telemetry_url == "http://a:9400/metrics"
+
+    def test_remote_url_empty_list_rejected(self):
+        with pytest.raises(Exception):
+            SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={"url": []}))
 
     def test_validator_passes(self):
         # validator returns the original dict on success
@@ -658,45 +684,43 @@ class TestAgenticReplayConfig:
         with pytest.raises(Exception):
             AgenticReplayConfig(**bad)
 
+    def test_weka_defaults_to_public_dataset(self):
+        raw = self._config(**{"custom-dataset-type": "weka_trace"})
+        del raw["input-file"]
+
+        cfg = AgenticReplayConfig(**raw)
+
+        assert cfg.public_dataset == "semianalysis_cc_traces_weka_with_subagents_060826"
+        assert cfg.input_file is None
+
+    def test_weka_accepts_explicit_public_dataset(self):
+        raw = self._config(**{
+            "custom-dataset-type": "weka_trace",
+            "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+        })
+        del raw["input-file"]
+
+        cfg = AgenticReplayConfig(**raw)
+
+        assert cfg.public_dataset == "semianalysis_cc_traces_weka_with_subagents_060826"
+
+    def test_rejects_both_input_file_and_public_dataset(self):
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**self._config(**{
+                "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+            }))
+
+    def test_public_dataset_rejected_for_non_weka(self):
+        raw = self._config(**{
+            "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+        })
+        del raw["input-file"]
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**raw)
+
     def test_conc_range_or_list_required(self):
         with pytest.raises(Exception):
             AgenticReplayConfig(**self._config(**{"search-space": [{"tp": 1}]}))
-
-    def test_mode1_fields_default_off(self):
-        """Without Mode 1 opt-in, the capacity-sweep fields preserve single-replay."""
-        cfg = AgenticReplayConfig(**self._config())
-        assert cfg.no_fixed_schedule is False
-        assert cfg.strip_trace_delays is False
-        assert cfg.num_warmup_sessions is None
-        assert cfg.request_count is None
-
-    def test_mode1_fields_accepted(self):
-        cfg = AgenticReplayConfig(**self._config(**{
-            "no-fixed-schedule": True,
-            "strip-trace-delays": True,
-            "num-warmup-sessions": 1,
-            "request-count": 50,
-            "search-space": [{"tp": 1, "conc-list": [8, 16, 32]}],
-        }))
-        assert cfg.no_fixed_schedule is True
-        assert cfg.strip_trace_delays is True
-        assert cfg.num_warmup_sessions == 1
-        assert cfg.request_count == 50
-
-    def test_request_count_below_max_conc_rejected(self):
-        """AIPerf requires request-count >= concurrency; guard the smallest count."""
-        with pytest.raises(Exception):
-            AgenticReplayConfig(**self._config(**{
-                "request-count": 50,
-                "search-space": [{"tp": 1, "conc-list": [8, 16, 32, 64]}],
-            }))
-
-    def test_request_count_at_max_conc_allowed(self):
-        cfg = AgenticReplayConfig(**self._config(**{
-            "request-count": 64,
-            "search-space": [{"tp": 1, "conc-list": [8, 16, 32, 64]}],
-        }))
-        assert cfg.request_count == 64
 
 
 # =============================================================================
@@ -1117,6 +1141,36 @@ class TestValidateMasterConfig:
         configs = {"dsr1-fp8-mi300x-sglang": valid_single_node_master_config}
         result = validate_master_config(configs)
         assert result == configs
+
+    def test_remote_requires_agentic_replay_only(self, valid_single_node_master_config):
+        valid_single_node_master_config["remote"] = {"url": "http://remote:8000"}
+        configs = {"remote-fixed-seq": valid_single_node_master_config}
+
+        with pytest.raises(ValueError):
+            validate_master_config(configs)
+
+    def test_remote_agentic_replay_config(self):
+        configs = {
+            "remote-replay": {
+                "image": "python:3.12-slim",
+                "model": "served-model",
+                "model-prefix": "served",
+                "precision": "fp8",
+                "framework": "sglang",
+                "runner": "h200-greennode_01",
+                "multinode": False,
+                "remote": {"url": "http://remote:8000"},
+                "scenarios": {
+                    "agentic-replay": [{
+                        "custom-dataset-type": "weka_trace",
+                        "max-model-len": 8192,
+                        "search-space": [{"tp": 1, "conc-list": [2]}],
+                    }]
+                },
+            }
+        }
+
+        assert validate_master_config(configs) == configs
 
     def test_valid_multinode_config(self, valid_multinode_master_config):
         """Valid multinode config should pass."""

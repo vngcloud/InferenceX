@@ -477,9 +477,13 @@ class TestGenerateFullSweepSingleNode:
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["input-file"].endswith("qwen3.5-4b-smoke.jsonl")
 
-    def test_agentic_replay_mode1_defaults_off(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
-        """Entries from a plain agentic-replay config carry Mode 1 fields as off."""
+    def test_agentic_replay_threads_remote_config(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": "http://remote:8000",
+            "server-metrics-url": "http://remote:8000/metrics",
+            "gpu-telemetry-url": "http://remote:9400/metrics",
+        }
 
         result = generate_full_sweep(
             full_sweep_args_single_node,
@@ -487,22 +491,52 @@ class TestGenerateFullSweepSingleNode:
             sample_runner_config,
         )
 
-        assert result[0]["no-fixed-schedule"] is False
-        assert result[0]["strip-trace-delays"] is False
-        assert result[0]["num-warmup-sessions"] is None
-        assert result[0]["request-count"] is None
+        assert result[0]["remote"]["url"] == "http://remote:8000"
 
-    def test_agentic_replay_mode1_fields_flow(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
-        """Mode 1 capacity-sweep fields flow into one matrix entry per concurrency."""
+    def test_agentic_replay_threads_remote_api_key_secret_name(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """The name of the API key secret must survive into the generated matrix
+        entry so the reusable workflow can resolve it against repo secrets."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": "http://remote:8000",
+            "api-key-secret-name": "MAAS_HCM_API_KEY",
+        }
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["remote"]["api-key-secret-name"] == "MAAS_HCM_API_KEY"
+
+    def test_agentic_replay_remote_config_url_list_is_comma_joined(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        """A model hosted across multiple endpoints can be declared as a YAML
+        list; it must be flattened to aiperf's comma-separated multi-URL
+        syntax before landing in the generated matrix entry (GitHub Actions
+        inputs are string-typed)."""
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": ["http://a:8000", "http://b:8000"],
+            "server-metrics-url": ["http://a:8000/metrics", "http://b:8000/metrics"],
+            "gpu-telemetry-url": "http://a:9400/metrics",
+        }
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["remote"]["url"] == "http://a:8000,http://b:8000"
+        assert result[0]["remote"]["server-metrics-url"] == "http://a:8000/metrics,http://b:8000/metrics"
+        assert result[0]["remote"]["gpu-telemetry-url"] == "http://a:9400/metrics"
+
+    def test_agentic_replay_weka_defaults_to_public_dataset(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]
         scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
-        scenario.update({
-            "no-fixed-schedule": True,
-            "strip-trace-delays": True,
-            "num-warmup-sessions": 1,
-            "request-count": 50,
-            "search-space": [{"tp": 1, "conc-list": [8, 16, 32]}],
-        })
+        scenario["custom-dataset-type"] = "weka_trace"
+        del scenario["input-file"]
 
         result = generate_full_sweep(
             full_sweep_args_single_node,
@@ -510,12 +544,8 @@ class TestGenerateFullSweepSingleNode:
             sample_runner_config,
         )
 
-        assert sorted(e["conc"] for e in result) == [8, 16, 32]
-        for entry in result:
-            assert entry["no-fixed-schedule"] is True
-            assert entry["strip-trace-delays"] is True
-            assert entry["num-warmup-sessions"] == 1
-            assert entry["request-count"] == 50
+        assert result[0]["public-dataset"] == "semianalysis_cc_traces_weka_with_subagents_060826"
+        assert result[0]["input-file"] is None
 
     def test_matrix_entry_structure(self, sample_single_node_config, sample_runner_config, full_sweep_args_single_node):
         """Generated entries should have correct structure."""
@@ -1738,6 +1768,22 @@ class TestGenerateTestConfigSweep:
         assert len(result) == 1
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["scenario-type"] == "agentic-replay"
+
+    def test_agentic_replay_test_config_threads_remote_config(self, sample_agentic_replay_config):
+        args = argparse.Namespace(
+            config_keys=["qwen-agentic-bf16-h100-vllm"],
+            seq_lens=None,
+            conc=None,
+            runner_node_filter=None,
+            scenario_type=["agentic-replay"],
+        )
+        sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
+            "url": "http://remote:8000",
+        }
+
+        result = generate_test_config_sweep(args, sample_agentic_replay_config)
+
+        assert result[0]["remote"]["url"] == "http://remote:8000"
 
     def test_runner_node_filter_expands_config_runner(self, sample_multinode_config, sample_runner_config):
         """test-config should allow targeting one concrete runner node."""

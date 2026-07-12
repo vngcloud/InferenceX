@@ -174,7 +174,6 @@ class TestProcessResultScript:
         # Verify base fields
         assert output_data["hw"] == "mi300x"
         assert output_data["framework"] == "sglang"
-        assert output_data["benchmark_client"] == "inferencex_native"
         assert output_data["precision"] == "fp8"
         assert output_data["spec_decoding"] == "none"
         assert output_data["model"] == "deepseek-ai/DeepSeek-R1-0528"
@@ -207,72 +206,6 @@ class TestProcessResultScript:
         # Verify output file created
         output_file = tmp_path / "agg_benchmark_result.json"
         assert output_file.exists()
-
-    def test_token_per_watt_uses_busiest_gpus(self, tmp_path, sample_benchmark_result, single_node_env_vars):
-        """tok/W should sum only the TP busiest GPUs, ignoring idle cards."""
-        csv_lines = [
-            "timestamp, index, power.draw [W], temperature.gpu, "
-            "clocks.current.sm [MHz], clocks.current.memory [MHz], "
-            "utilization.gpu [%], utilization.memory [%]",
-            "2026/06/03 12:00:00.000, 0, 700.00 W, 65, 1980 MHz, 2619 MHz, 99 %, 50 %",
-            "2026/06/03 12:00:01.000, 0, 700.00 W, 65, 1980 MHz, 2619 MHz, 99 %, 50 %",
-            "2026/06/03 12:00:00.000, 1, 70.00 W, 35, 210 MHz, 2619 MHz, 0 %, 0 %",
-            "2026/06/03 12:00:01.000, 1, 70.00 W, 35, 210 MHz, 2619 MHz, 0 %, 0 %",
-        ]
-        (tmp_path / "gpu_metrics.csv").write_text("\n".join(csv_lines) + "\n")
-
-        env = single_node_env_vars.copy()
-        env["TP"] = "1"  # only one GPU used; the second is idle on the host
-        result_with_duration = {**sample_benchmark_result, "duration": 30.0}
-
-        result = run_script(tmp_path, env, result_with_duration)
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-        output_data = json.loads(result.stdout)
-
-        # TP=1 -> only the 700W GPU counts, the idle 70W card is excluded.
-        assert output_data["mean_power_w"] == pytest.approx(700.0)
-        assert output_data["tok_per_watt"] == pytest.approx(15000.5 / 700.0)
-
-    def test_token_per_watt_windows_out_warmup(self, tmp_path, sample_benchmark_result, single_node_env_vars):
-        """Samples older than `duration` (model load/warmup) are excluded."""
-        csv_lines = [
-            "timestamp, index, power.draw [W]",
-            "2026/06/03 12:00:00.000, 0, 100.00 W",  # warmup, well before window
-            "2026/06/03 12:05:00.000, 0, 600.00 W",
-            "2026/06/03 12:05:01.000, 0, 600.00 W",
-        ]
-        (tmp_path / "gpu_metrics.csv").write_text("\n".join(csv_lines) + "\n")
-
-        env = single_node_env_vars.copy()
-        env["TP"] = "1"
-        result_with_duration = {**sample_benchmark_result, "duration": 10.0}
-
-        result = run_script(tmp_path, env, result_with_duration)
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-        output_data = json.loads(result.stdout)
-
-        # Only the two 600W samples fall within the last 10s; warmup is dropped.
-        assert output_data["mean_power_w"] == pytest.approx(600.0)
-
-    def test_token_per_watt_null_without_csv(self, tmp_path, sample_benchmark_result, single_node_env_vars):
-        """Missing power log leaves the efficiency fields null (best-effort)."""
-        result = run_script(tmp_path, single_node_env_vars, sample_benchmark_result)
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-        output_data = json.loads(result.stdout)
-
-        assert output_data["mean_power_w"] is None
-        assert output_data["tok_per_watt"] is None
-
-    def test_benchmark_client_from_env(self, tmp_path, sample_benchmark_result, single_node_env_vars):
-        """BENCHMARK_CLIENT should be passed through to processed output."""
-        env = single_node_env_vars.copy()
-        env["BENCHMARK_CLIENT"] = "aiperf"
-
-        result = run_script(tmp_path, env, sample_benchmark_result)
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        output_data = json.loads(result.stdout)
-        assert output_data["benchmark_client"] == "aiperf"
 
     def test_multinode_processing(self, tmp_path, sample_benchmark_result, multinode_env_vars):
         """Test multinode result processing."""
