@@ -24,8 +24,11 @@
 #   benchmark-duration-s: seconds per concurrency level.
 
 sglang-vanilla:
-  conc-list: [1, 8, 32]
+  # TEMP diagnostic: isolate whether memory blowup scales with dataset size
+  # (not for main -- revert before merging PR #21).
+  conc-list: [1]
   benchmark-duration-s: 30
+  num-dataset-entries: 10
 
 sglang-mooncake-store:
   conc-list: [1, 8, 32]
