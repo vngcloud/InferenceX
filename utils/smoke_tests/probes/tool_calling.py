@@ -57,7 +57,17 @@ def run(base_url: str, endpoint: str, model: str) -> ProbeResult:
         "model": model,
         "messages": [{"role": "user", "content": PROMPT}],
         "tools": TOOLS,
-        "tool_choice": "auto",
+        # "required", not "auto": confirmed live (see
+        # project_toolcalling_limitation.md) that at temperature=0.0 this
+        # model deterministically never attempts a tool call under "auto" --
+        # a stable decoding-time property of a model that was never
+        # tool-call-instruction-tuned, not a parser bug and not fixable from
+        # this probe's side. This check's job is to verify the server
+        # correctly parses and returns a well-formed call once the model is
+        # forced to attempt one -- not to evaluate whether the model would
+        # spontaneously choose to call a tool, which "auto" would test but
+        # this model will never pass regardless of server-side fixes.
+        "tool_choice": "required",
         "temperature": 0.0,
         "max_tokens": 256,
     }
