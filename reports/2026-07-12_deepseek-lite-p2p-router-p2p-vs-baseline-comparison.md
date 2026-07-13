@@ -57,6 +57,22 @@ Both arms run the **same five-component dual-instance topology** on one dual-GPU
 
 Because the router alternates instances, turn 1 of a conversation computes a long (mean 27k–34k token) prefix on, say, vllm-a and stores that KV into lmcache-a. Turn 2 is routed to vllm-b, which has **never seen that prefix** — its own GPU cache and lmcache-b both miss. With the coordinator present, lmcache-b asks the registry "who has these chunks?", finds them on lmcache-a, and **pulls the KV directly over NIXL** into vllm-b instead of recomputing 27k tokens of prefill. That transfer is what shows up as a **non-zero external hit rate** — and it is only possible with the coordinator, so it is the clean fingerprint of P2P working.
 
+### NIXL transport: this single-host run vs. a real RDMA deployment
+
+NIXL (LMCache's default and currently only transfer engine) is by design an **RDMA-based transport that runs over InfiniBand / RoCE fabrics**. The transfer is a **one-sided RDMA read**: on a miss, the requesting node asks the peer that owns the prefix to *lock and locate* it, receives the remote memory addresses, and RDMA-reads the KV directly into its own L1 buffer — *the node that owns the data is not interrupted to serve it*. The coordinator does peer discovery only; NIXL moves the bytes.
+
+**This deployment runs both LMCache instances on one host, so it does not exercise that RDMA path.** As the LMCache docs state plainly: *"On a single host, `localhost` traffic typically uses the loopback/TCP path rather than RDMA, so latencies are not representative of a real RDMA fabric"* — single-node mode is intended for *"functional testing and debugging; benchmark performance on a real multi-node RDMA deployment."* With both peers on the same box (`UCX_TLS=self,sm,tcp`), the KV bytes travel through the kernel loopback/TCP path (CPU-copy-bound, both ends touch every byte), **not** the NIC. The non-zero external hit rate therefore proves the *mechanism* is wired correctly, but the *transfer speed* it achieved is a floor, not a representative number.
+
+| | This run (single host) | Real multi-node RDMA |
+|---|---|---|
+| Transfer path | loopback / TCP (kernel copy) | one-sided RDMA read over IB/RoCE NIC |
+| CPU involvement | both ends copy through the network stack | owner CPU **not involved**; NIC DMAs directly |
+| Bandwidth (indicative) | a few GB/s, loopback-bound | ~12–50 GB/s (100–400 Gb/s NICs) |
+| Per-transfer latency | high, variable | sub-100 µs, predictable |
+| Representative of prod? | **No — functional only** | Yes |
+
+The docs make only a directional performance claim (no absolute numbers): the RDMA read is *"dramatically faster than recomputing the prefix or round-tripping through a shared object store,"* and larger L1 chunk alignment lets the channel *"issue bigger, better-aligned RDMA reads and noticeably improves transfer performance."* **Consequence for the results below:** the conc4 TTFT win is a *conservative lower bound* on the P2P benefit. On a real RDMA fabric the peer transfer would be far cheaper than the loopback path measured here, so the concurrency at which P2P starts beating recompute would arrive earlier and the tail-latency advantage would be larger.
+
 ### Why the baseline structurally cannot do this
 
 `compose.nop2p.yaml` is `compose.running.yaml` with exactly two things removed: (1) the **coordinator service** is dropped, and (2) the **four P2P flags** (`--coordinator-url`, `--coordinator-advertise-ip`, `--p2p-advertise-url`, `--p2p-transfer-engine nixl`) are stripped from both LMCache commands. Every other setting — model, L1 size, GPU memory fraction, ports, the router itself — is byte-for-byte identical. The router still alternates A/B/A/B, but with no registry the two LMCache servers cannot discover each other, so a turn landing on the instance that lacks the prefix has no peer to pull from and **must recompute**. Its local L1 cannot cover the gap either, since GPU KV usage never rises high enough (≤ 33%) to evict blocks down to CPU. Result: **external hit rate is a hard 0.00%** — making it the correct control for isolating the P2P contribution.
@@ -112,6 +128,7 @@ Because the router alternates instances, turn 1 of a conversation computes a lon
 - **Duration-capped smoke runs with tiny samples** (15 requests @ conc2, ~43 @ conc4) and high TTFT variance (conc2 std ~0.9s). Magnitudes are directional; the qualitative conclusion is robust.
 - **conc8 arm yielded 0 completed requests in both runs** — no data at that level.
 - **Server-side logs absent** (remote replay): no `server.log`, no full `lmcache_server_metrics.json`. Cache figures come from scraped vLLM `/metrics`; MP hit/eviction/throughput counters and scheduler queue depth are unavailable.
+- **Single-host NIXL, not RDMA** — both LMCache peers run on one node, so the P2P transfer used the loopback/TCP path, not NIXL's InfiniBand/RoCE RDMA. Per LMCache's docs this is a functional-test topology whose transfer latency is *not* representative of a real fabric; the measured TTFT win is a conservative lower bound (see §Architecture → *NIXL transport*).
 
 ## Verdict & Recommendations
 
@@ -119,8 +136,9 @@ Because the router alternates instances, turn 1 of a conversation computes a lon
 
 1. **Re-run at higher concurrency (8/16/32) once the stack completes those arms** — the P2P benefit grows with contention, and conc2/4 only samples the low end of the curve. The conc8 zero-completion issue must be fixed first (investigate why both arms completed 0 at conc8).
 2. **Export server.log + `lmcache_server_metrics.json` from the router compose** (mirror the agentic-replay fix `2f4713e`) so the next comparison can attribute the TTFT win between GPU-tier and P2P-tier and quantify NIXL transfer bandwidth/latency.
-3. **Raise per-concurrency sample count to ≥ 100 requests** (longer duration or larger dataset reuse) before treating any single Δ as a capacity number.
-4. **Track external-hit-rate vs GPU-hit-rate as a pair** across the sweep — the conc2→conc4 external-hit drop (44.6% → 2.0%) is the most interesting open question and needs MP counters to resolve (benign GPU-tier absorption vs P2P transfers losing the race to recompute under load).
+3. **Validate on a real multi-node RDMA deployment** before quoting any P2P transfer speed. This single-host run exercises the NIXL *mechanism* over loopback/TCP but not its RDMA path; a true 2-node InfiniBand/RoCE deployment is where NIXL's one-sided RDMA reads apply, and where the transfer bandwidth/latency (and thus the real crossover concurrency) can be measured.
+4. **Raise per-concurrency sample count to ≥ 100 requests** (longer duration or larger dataset reuse) before treating any single Δ as a capacity number.
+5. **Track external-hit-rate vs GPU-hit-rate as a pair** across the sweep — the conc2→conc4 external-hit drop (44.6% → 2.0%) is the most interesting open question and needs MP counters to resolve (benign GPU-tier absorption vs P2P transfers losing the race to recompute under load).
 
 ---
 _Report generated by `write-bench-report` skill from inspect-run artifacts._
