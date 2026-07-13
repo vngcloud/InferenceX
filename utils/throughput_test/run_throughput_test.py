@@ -198,8 +198,21 @@ def run(entry: dict, throughput_config: dict) -> dict:
                 }
             sweep.append({"conc": conc, **point})
 
-    version_after = fetch_version(entry["version_url"])
-    redeployed = version_before != version_after
+    # Best-effort: a heavy sweep can apparently make the stack's own
+    # /version endpoint transiently 503 right after the sweep finishes
+    # (observed repeatedly on sglang-vanilla) -- don't discard an already-
+    # completed sweep over that. redeployed_mid_run becomes unconfirmable
+    # (not the same as confirmed-false) rather than crashing the whole run.
+    try:
+        version_after = fetch_version(entry["version_url"])
+        redeployed = version_before != version_after
+    except Exception as exc:  # noqa: BLE001 -- best-effort check, not the sweep itself
+        print(
+            f"::warning::[{entry['name']}] couldn't re-check /version after "
+            f"the sweep, redeployed_mid_run is unconfirmed: {exc}",
+            file=sys.stderr,
+        )
+        redeployed = None
 
     try:
         gpu_model = fetch_gpu_model(entry.get("gpu_metrics_url"))
