@@ -64,6 +64,7 @@ def build_matrix(discover_payload: dict, config: dict, requested_stack: str | No
                 "base_url": stack["base_url"],
                 "endpoint": stack["endpoint"],
                 "version_url": stack["version_url"],
+                "gpu_metrics_url": stack.get("gpu_metrics_url"),
                 "model": stack["model"],
                 "framework": stack.get("framework"),
                 "precision": stack.get("precision"),
