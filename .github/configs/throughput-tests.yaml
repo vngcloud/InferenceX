@@ -41,8 +41,10 @@
 #   benchmark-duration-s: seconds per concurrency level.
 
 sglang-vanilla:
+  # TEMP diagnostic: raise duration to get real completed-request stats
+  # (not for main -- revert/finalize before merging).
   conc-list: [1, 8, 16]
-  benchmark-duration-s: 30
+  benchmark-duration-s: 120
   num-dataset-entries: 20
 
 sglang-mooncake-store:
