@@ -143,6 +143,13 @@ def run_one_concurrency(
             f"--- stderr ---\n{proc.stderr[-2000:]}"
         )
 
+    # TEMP diagnostic: aiperf can exit 0 while producing empty per-point
+    # stats (dataset exhausted before benchmark-duration elapses, or every
+    # request silently erroring) -- surface its own stdout/stderr even on
+    # success so we can see request counts/errors instead of guessing.
+    print(f"--- aiperf stdout (conc={conc}) ---\n{proc.stdout[-4000:]}", file=sys.stderr)
+    print(f"--- aiperf stderr (conc={conc}) ---\n{proc.stderr[-4000:]}", file=sys.stderr)
+
     result_path = result_dir / f"{result_filename}.json"
     with open(result_path) as f:
         return json.load(f)
