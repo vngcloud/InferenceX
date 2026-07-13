@@ -149,15 +149,14 @@ def run_one_concurrency(
     # live-progress terminal UI (megabytes of ANSI-littered redraws), not
     # useful tailed -- read the structured aiperf.log file instead (still
     # alive here, inside run()'s TemporaryDirectory scope).
-    aiperf_log = result_dir / f"{result_filename}_aiperf" / "logs" / "aiperf.log"
-    if aiperf_log.exists():
-        log_text = aiperf_log.read_text()
-        error_lines = "\n".join(
-            line for line in log_text.splitlines()
-            if "ERROR" in line or "Exception" in line or "Traceback" in line
-            or "status" in line.lower() or "error_type" in line
+    raw_export_path = result_dir / f"{result_filename}_aiperf" / "profile_export_aiperf.json"
+    if raw_export_path.exists():
+        raw_export = json.loads(raw_export_path.read_text())
+        print(
+            f"--- profile_export_aiperf.json error_summary (conc={conc}) ---\n"
+            f"{json.dumps(raw_export.get('error_summary'), indent=2)}",
+            file=sys.stderr,
         )
-        print(f"--- aiperf.log ERROR-grep (conc={conc}) ---\n{error_lines[-8000:]}", file=sys.stderr)
     else:
         print(f"--- aiperf.log not found at {aiperf_log} (conc={conc}) ---", file=sys.stderr)
 
