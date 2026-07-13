@@ -66,7 +66,10 @@
 # OOM investigation.
 
 sglang-vanilla:
-  conc-list: [1, 8, 16]
+  # TEMP diagnostic: single conc + shorter duration to validate the new
+  # recipe safely before the full 3x600s sweep (not for main).
+  conc-list: [1]
+  benchmark-duration-s: 60
 
 sglang-mooncake-store:
   conc-list: [1, 8, 16]
