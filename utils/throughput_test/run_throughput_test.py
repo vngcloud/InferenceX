@@ -145,10 +145,16 @@ def run_one_concurrency(
 
     # TEMP diagnostic: aiperf can exit 0 while producing empty per-point
     # stats (dataset exhausted before benchmark-duration elapses, or every
-    # request silently erroring) -- surface its own stdout/stderr even on
-    # success so we can see request counts/errors instead of guessing.
-    print(f"--- aiperf stdout (conc={conc}) ---\n{proc.stdout[-4000:]}", file=sys.stderr)
-    print(f"--- aiperf stderr (conc={conc}) ---\n{proc.stderr[-4000:]}", file=sys.stderr)
+    # request silently erroring). Its own captured stdout is a redrawing
+    # live-progress terminal UI (megabytes of ANSI-littered redraws), not
+    # useful tailed -- read the structured aiperf.log file instead (still
+    # alive here, inside run()'s TemporaryDirectory scope).
+    aiperf_log = result_dir / f"{result_filename}_aiperf" / "logs" / "aiperf.log"
+    if aiperf_log.exists():
+        log_text = aiperf_log.read_text()
+        print(f"--- aiperf.log tail (conc={conc}) ---\n{log_text[-6000:]}", file=sys.stderr)
+    else:
+        print(f"--- aiperf.log not found at {aiperf_log} (conc={conc}) ---", file=sys.stderr)
 
     result_path = result_dir / f"{result_filename}.json"
     with open(result_path) as f:
