@@ -11,10 +11,22 @@
 # Fields:
 #   dataset: (optional) aiperf --public-dataset name. Defaults to
 #     semianalysis_cc_traces_weka -- real Claude Code coding-session traces
-#     (949 traces, 136k requests), public HF dataset, no auth required,
-#     prompt text synthesized from a coding corpus against preserved
-#     per-request hash_ids/timing. Richer signal than a flat synthetic
-#     isl/osl sweep.
+#     (739 traces per the aiperf fork's own docs, not 949 as earlier assumed),
+#     public HF dataset, no auth required, prompt text synthesized from a
+#     coding corpus against preserved per-request hash_ids/timing. Richer
+#     signal than a flat synthetic isl/osl sweep.
+#
+#     IMPORTANT, learned 2026-07-13: real conversations in this corpus
+#     routinely exceed 32K tokens, which is more than this deployment's
+#     model (DeepSeek-Coder-V2-Lite-Instruct-FP8, served with a
+#     32768-token max context) can accept -- every oversized request gets
+#     rejected outright with HTTP 400, which silently produced all-empty
+#     sweep-point stats no matter how num-dataset-entries/conc-list/
+#     benchmark-duration-s were tuned. Fixed via --max-context-length
+#     filtering (utils/throughput_test/run_throughput_test.py's
+#     MAX_CONTEXT_LENGTH), which requires the thangquang09/aiperf fork
+#     (benchtool/agentx-weka branch, see .gitmodules) -- the filtering
+#     isn't present in the previous vngcloud/aiperf submodule pin.
 #   num-dataset-entries: (optional) how many trace rows to load, default 100.
 #     Raise (up to 949 for the full corpus) for a fuller run, at the cost of
 #     a slower sweep.
@@ -41,10 +53,8 @@
 #   benchmark-duration-s: seconds per concurrency level.
 
 sglang-vanilla:
-  # TEMP diagnostic: single conc, get aiperf's own stdout/stderr visible
-  # (not for main -- revert/finalize before merging).
-  conc-list: [1]
-  benchmark-duration-s: 120
+  conc-list: [1, 8, 16]
+  benchmark-duration-s: 30
   num-dataset-entries: 20
 
 sglang-mooncake-store:

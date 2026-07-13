@@ -72,10 +72,11 @@ jobs:
                            python3 /tmp/get-pip.py --break-system-packages)
                   fi
                   python3 -m pip install -q --break-system-packages requests pyyaml
-                  # The semianalysis_cc_traces_weka public-dataset loader is a
-                  # vngcloud/aiperf fork addition, not (yet) in the upstream
-                  # PyPI aiperf release -- needs an editable install from the
-                  # submodule, same pattern as
+                  # The semianalysis_cc_traces_weka public-dataset loader and
+                  # --max-context-length filtering are thangquang09/aiperf
+                  # fork additions (utils/aiperf submodule), not in the
+                  # upstream PyPI aiperf release -- needs an editable install
+                  # from the submodule, same pattern as
                   # benchmarks/benchmark_lib.sh:install_agentic_deps().
                   python3 -m pip install -q --break-system-packages -e utils/aiperf
                   python3 -m pip install -q --break-system-packages --upgrade "datasets>=4.7.0"

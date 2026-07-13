@@ -159,6 +159,8 @@ def run_aiperf(args: argparse.Namespace) -> Path:
         cmd.extend(["--osl", str(args.osl)])
     if args.random_seed is not None:
         cmd.extend(["--random-seed", str(args.random_seed)])
+    if args.max_context_length is not None:
+        cmd.extend(["--max-context-length", str(args.max_context_length)])
     if args.failed_request_threshold is not None:
         cmd.extend(["--failed-request-threshold", str(args.failed_request_threshold)])
     if args.trajectory_start_min_ratio is not None:
@@ -206,6 +208,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-server-token-count", action="store_true")
     parser.add_argument("--tokenizer-trust-remote-code", action="store_true")
     parser.add_argument("--num-dataset-entries", type=int)
+    parser.add_argument(
+        "--max-context-length",
+        type=int,
+        help=(
+            "Passed through as aiperf's --max-context-length. Drops any "
+            "conversation whose combined tokenized content exceeds this "
+            "many tokens before running it -- needed against small-context "
+            "deployments: real weka-trace conversations can exceed 32K "
+            "tokens and get rejected outright by the live endpoint "
+            "otherwise (confirmed live: HTTP 400 'input longer than the "
+            "model's context length')."
+        ),
+    )
     parser.add_argument(
         "--max-workers",
         type=int,

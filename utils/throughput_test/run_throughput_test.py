@@ -52,6 +52,19 @@ RANDOM_SEED = 42
 # aiperf's full auto-scaled worker pool to sustain conc up to 32.
 MAX_AIPERF_WORKERS = 4
 
+# Real semianalysis_cc_traces_weka conversations routinely exceed 32K
+# tokens (real Claude Code coding sessions), but this deployment's model
+# (DeepSeek-Coder-V2-Lite-Instruct-FP8) is served with a 32768-token max
+# context -- confirmed live: requests over that limit get rejected outright
+# with HTTP 400 ("input longer than the model's context length"), which is
+# why every sweep point was coming back with empty stats regardless of
+# duration/entries/worker tuning. Drop oversized conversations before they
+# ever hit the endpoint, with headroom below 32768 for the completion
+# tokens. Requires the thangquang09/aiperf fork (benchtool/agentx-weka
+# branch) -- --max-context-length filtering for the weka loader isn't in
+# the previous vngcloud/aiperf submodule pin.
+MAX_CONTEXT_LENGTH = 30000
+
 # Buffer added on top of --benchmark-duration for aiperf's own setup
 # (tokenizer/dataset download + reconstruction, observed to take several
 # minutes even for a 100-trace subset) and in-flight request drain at the
@@ -109,6 +122,8 @@ def run_one_concurrency(
         str(RANDOM_SEED),
         "--max-workers",
         str(MAX_AIPERF_WORKERS),
+        "--max-context-length",
+        str(MAX_CONTEXT_LENGTH),
         "--result-filename",
         result_filename,
         "--result-dir",
@@ -143,20 +158,22 @@ def run_one_concurrency(
             f"--- stderr ---\n{proc.stderr[-2000:]}"
         )
 
-    # TEMP diagnostic: aiperf can exit 0 while producing empty per-point
-    # stats (dataset exhausted before benchmark-duration elapses, or every
-    # request silently erroring). Its own captured stdout is a redrawing
-    # live-progress terminal UI (megabytes of ANSI-littered redraws), not
-    # useful tailed -- read the structured aiperf.log file instead (still
-    # alive here, inside run()'s TemporaryDirectory scope).
+    # aiperf can exit 0 while every request errored (e.g. hit the
+    # deployment's context-length limit) -- that produces an all-empty
+    # sweep point with no indication why. Surface error_summary from its
+    # own raw export whenever it's non-empty, so a future silent-failure
+    # mode doesn't require re-deriving this diagnostic from scratch (see
+    # design/throughput-test.md's context-length-limit history).
     raw_export_path = result_dir / f"{result_filename}_aiperf" / "profile_export_aiperf.json"
     if raw_export_path.exists():
         raw_export = json.loads(raw_export_path.read_text())
-        print(
-            f"--- profile_export_aiperf.json error_summary (conc={conc}) ---\n"
-            f"{json.dumps(raw_export.get('error_summary'), indent=2)}",
-            file=sys.stderr,
-        )
+        error_summary = raw_export.get("error_summary")
+        if error_summary:
+            print(
+                f"::warning::[conc={conc}] aiperf reported request errors:\n"
+                f"{json.dumps(error_summary, indent=2)}",
+                file=sys.stderr,
+            )
     else:
         print(f"--- aiperf.log not found at {aiperf_log} (conc={conc}) ---", file=sys.stderr)
 
