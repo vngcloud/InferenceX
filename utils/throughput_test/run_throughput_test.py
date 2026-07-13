@@ -148,6 +148,29 @@ def run_one_concurrency(
         return json.load(f)
 
 
+def _config_snapshot(entry: dict, version_payload: dict) -> dict:
+    """framework/precision/tp from /discover (already on the matrix entry,
+    no extra call), plus disaggregation from /version when present (mirrors
+    metadata.data's convention -- only pd-disaggregation stacks report it).
+
+    InferenceX-app needs these to resolve a throughput sweep point to a
+    `configs` row: their natural key needs framework/precision/tp/hardware,
+    and throughput-test/smoke-test are two fully independent workflows with
+    no shared run ID or guaranteed-same timestamp, so InferenceX-app can't
+    safely join them by (stack, latest-date) on their side -- a redeploy
+    between the two runs would silently attribute throughput numbers to the
+    wrong config. Snapshotting into this artifact avoids that join entirely.
+    """
+    snapshot = {
+        "framework": entry.get("framework"),
+        "precision": entry.get("precision"),
+        "tp": entry.get("tp"),
+    }
+    if "disaggregation" in version_payload:
+        snapshot["disaggregation"] = version_payload["disaggregation"]
+    return snapshot
+
+
 def run(entry: dict, throughput_config: dict) -> dict:
     dataset = throughput_config.get("dataset", DEFAULT_DATASET)
     num_dataset_entries = throughput_config.get(
@@ -157,6 +180,7 @@ def run(entry: dict, throughput_config: dict) -> dict:
     conc_list = throughput_config["conc-list"]
 
     version_before = fetch_version(entry["version_url"])
+    config_snapshot = _config_snapshot(entry, version_before)
 
     sweep = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -170,7 +194,7 @@ def run(entry: dict, throughput_config: dict) -> dict:
                 return {
                     "ok": False,
                     "detail": f"throughput sweep failed at conc={conc}: {exc}",
-                    "data": {"dataset": dataset, "completed": sweep},
+                    "data": {"dataset": dataset, **config_snapshot, "completed": sweep},
                 }
             sweep.append({"conc": conc, **point})
 
@@ -191,6 +215,7 @@ def run(entry: dict, throughput_config: dict) -> dict:
         # live pod state, which may have moved/rescheduled by the time
         # ingest runs.
         "gpu_model": gpu_model,
+        **config_snapshot,
         "sweep": sweep,
         "redeployed_mid_run": redeployed,
     }
