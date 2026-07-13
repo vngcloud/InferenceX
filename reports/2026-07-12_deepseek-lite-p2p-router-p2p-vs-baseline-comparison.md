@@ -90,7 +90,9 @@ The docs make only a directional performance claim (no absolute numbers): the RD
 |---|---|---|---|
 | Requests completed | 15 | 15 | — |
 | Mean TTFT | 1.244s | 1.065s | **+17% (worse)** |
+| ↳ Mean TTFT — *projected real-RDMA* † | **~1.05–1.10s** | — | ≈ baseline (erases loopback penalty) |
 | p95 TTFT | 2.578s | 2.774s | −7% |
+| ↳ p95 TTFT — *projected real-RDMA* † | **~2.3–2.5s** | — | modestly better |
 | Mean E2E latency | 62.89s | 63.69s | −1.3% |
 | Mean TPOT (ITL) | 99.1ms | 100.6ms | −1.5% |
 | **Total cache hit (GPU + ext, summed)** | **54.1%** | **62.6%** | −8.5 pts |
@@ -104,7 +106,9 @@ The docs make only a directional performance claim (no absolute numbers): the RD
 |---|---|---|---|
 | Requests completed | 44 | 43 | ~= |
 | Mean TTFT | 1.218s | 2.008s | **−39% (better)** |
+| ↳ Mean TTFT — *projected real-RDMA* † | **~1.19–1.22s** | — | ≈ unchanged (only 2.0% external) |
 | p90 TTFT | 1.933s | 5.247s | **−63% (better)** |
+| ↳ p90 TTFT — *projected real-RDMA* † | **~1.90–1.93s** | — | ≈ unchanged |
 | p95 TTFT | 5.96s | 8.411s | −29% |
 | Mean E2E latency | 46.36s | 49.37s | −6.1% |
 | Mean TPOT (ITL) | 100.2ms | 105.2ms | −4.8% |
@@ -112,6 +116,8 @@ The docs make only a directional performance claim (no absolute numbers): the RD
 | ↳ external/P2P component | 2.0% | 0.0% | **+2.0 pts** |
 | GPU KV usage (max) | 38.5% | 32.5% | +6 pts |
 | aiperf warmup | 31.9s | 53.9s | **−41%** |
+
+> † **Projected real-RDMA rows are estimates, not measurements — and they apply to the P2P arm only** (the baseline has no transfer path). Real RDMA replaces the loopback/TCP peer transfer with a one-sided RDMA read that is roughly an order of magnitude faster (see §Architecture → *NIXL transport*). The projection removes only the **transfer component** of TTFT, and only for the fraction of requests that took an external hit — it does **not** touch queueing or first-token compute. **conc2:** P2P currently *loses* to baseline by +0.18s mean TTFT; that gap is essentially loopback transfer + prefetch overhead on the 44.6%-external-hit fraction, so RDMA is expected to erase it and bring P2P to ≈ baseline (~1.05–1.10s). **conc4:** only 2.0% of tokens came from external hits, so the transfer path is barely exercised and RDMA changes TTFT negligibly — the conc4 win is already carried by the GPU prefix tier, which RDMA does not affect. Decode/TPOT and E2E latency are unchanged (P2P touches prefill only). Exact figures require the MP transfer-time counters, which were not exported on this run.
 
 ## What the Comparison Shows
 
