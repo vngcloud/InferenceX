@@ -8,61 +8,68 @@
 # throughput testing is opt-in per stack, not run by default against every
 # discovered stack.
 #
-# Fields:
-#   dataset: (optional) aiperf --public-dataset name. Defaults to
-#     semianalysis_cc_traces_weka -- real Claude Code coding-session traces
-#     (739 traces per the aiperf fork's own docs, not 949 as earlier assumed),
-#     public HF dataset, no auth required, prompt text synthesized from a
-#     coding corpus against preserved per-request hash_ids/timing. Richer
-#     signal than a flat synthetic isl/osl sweep.
+# 2026-07-13: switched to the internal agentic-replay recipe (matches
+# benchmark-tmpl.yml / run-sweep.yml) after the original lightweight
+# concurrency-ping approach turned out to be a fundamental dataset/model-
+# context mismatch -- see design/throughput-test.md for the full story.
+# Every field below now has a code default in run_throughput_test.py
+# matching that recipe; only override here when a stack needs something
+# different.
 #
-#     IMPORTANT, learned 2026-07-13: real conversations in this corpus
-#     routinely exceed 32K tokens, which is more than this deployment's
-#     model (DeepSeek-Coder-V2-Lite-Instruct-FP8, served with a
-#     32768-token max context) can accept -- every oversized request gets
-#     rejected outright with HTTP 400, which silently produced all-empty
-#     sweep-point stats no matter how num-dataset-entries/conc-list/
-#     benchmark-duration-s were tuned. Fixed via --max-context-length
-#     filtering (utils/throughput_test/run_throughput_test.py's
-#     MAX_CONTEXT_LENGTH), which requires the thangquang09/aiperf fork
-#     (benchtool/agentx-weka branch, see .gitmodules) -- the filtering
-#     isn't present in the previous vngcloud/aiperf submodule pin.
-#   num-dataset-entries: (optional) how many trace rows to load, default 100.
-#     Raise (up to 949 for the full corpus) for a fuller run, at the cost of
-#     a slower sweep.
-#
-#     IMPORTANT, learned 2026-07-13: aiperf's semianalysis_cc_traces_weka
-#     loader appears to reconstruct/tokenize the FULL 949-trace corpus before
-#     subsetting down to this value -- memory scales with the full corpus
-#     size, not (only) with num-dataset-entries or --max-workers. At the old
-#     default of 100 with conc-list up to 32, this OOM-killed our
-#     self-hosted benchmark-client runner's systemd service outright (host
-#     was 31GB RAM / 16 cores, process grew to ~31.6GB RSS), twice, on two
-#     separate runner registrations on the same physical box. Deliberately
-#     lowered here to reduce that risk on future automatic
-#     (repository_dispatch: stack-deployed) runs -- this is a conservative
-#     stopgap, not a fix for the underlying memory scaling, and may still
-#     produce sparse-to-empty per-point stats at low concurrency (AIPerf
-#     omits metric blocks it can't compute rather than erroring, see
-#     aiperf_adapter.py's build_result()). See design/throughput-test.md and
-#     project_throughput_test_standalone.md (session memory) for the full
-#     investigation.
+# Fields (all optional, code defaults shown):
+#   dataset: aiperf --public-dataset name.
+#     Default: semianalysis_cc_traces_weka_with_subagents_060826 (391 real
+#     Claude Code coding-session traces with full subagent fan-out --
+#     "Default corpus for DSv4 agentic recipes" per the aiperf fork's own
+#     plugins.yaml). Requires the thangquang09/aiperf fork
+#     (benchtool/agentx-weka branch, see .gitmodules).
+#   scenario: aiperf --scenario name. Default: inferencex-agentx-mvp --
+#     the full agentic-replay mode (subagent fan-out, hash_id-based replay),
+#     not a plain concurrency-sweep-over-a-dataset ping.
+#   num-dataset-entries: how many trace rows to load. Default: 64.
 #   conc-list: concurrency levels to sweep, sequentially -- these share one
 #     live deployment's capacity, so concurrent runs would contaminate each
-#     other's numbers.
-#   benchmark-duration-s: seconds per concurrency level.
+#     other's numbers. No code default, required per stack.
+#   benchmark-duration-s: seconds per concurrency level. Default: 600 --
+#     real agentic sessions need real wall-clock time to reach steady state;
+#     the old 30s lightweight-ping value undercounted completions.
+#   max-context-length: drops any conversation whose combined tokenized
+#     content exceeds this many tokens, before it ever hits the endpoint.
+#     Default: 120000.
+#
+#     IMPORTANT, learned 2026-07-13: real conversations in this corpus can
+#     run very long (every trace has >=20 main-agent turns, context grows
+#     turn over turn). At the deployment's old 32768-token max context,
+#     every request over the limit was rejected outright with HTTP 400,
+#     which silently produced all-empty sweep-point stats no matter how
+#     num-dataset-entries/conc-list/benchmark-duration-s were tuned -- no
+#     amount of that tuning was ever going to fix a request-rejection
+#     problem. The deployment's model context has since been raised to
+#     128K; max-context-length's default leaves headroom under that for
+#     completion tokens. If a future stack still serves a small context,
+#     override this per-stack -- but note a corpus this long-tailed may
+#     still fail to produce real numbers against a genuinely small-context
+#     deployment (see design/throughput-test.md).
+#   slice-duration-s: aiperf --slice-duration. Default: 1.0.
+#   use-server-token-count: aiperf --use-server-token-count. Default: true.
+#   unsafe-override: aiperf --unsafe-override. Default: true.
+#
+# Also watch for (not a config knob, a known memory-scaling risk):
+# aiperf's HF dataset loaders appear to reconstruct/tokenize significant
+# portions of the backing corpus regardless of num-dataset-entries -- a
+# 100-entry sweep against an earlier, larger corpus pin OOM-killed our
+# self-hosted benchmark-client runner's systemd service outright (host was
+# 31GB RAM / 16 cores, process grew to ~31.6GB RSS), twice, on two separate
+# runner registrations on the same physical box. Watch memory on
+# bench-client_00/01 after changing dataset/num-dataset-entries here. See
+# project_throughput_test_standalone.md (session memory) for the full
+# OOM investigation.
 
 sglang-vanilla:
   conc-list: [1, 8, 16]
-  benchmark-duration-s: 30
-  num-dataset-entries: 20
 
 sglang-mooncake-store:
   conc-list: [1, 8, 16]
-  benchmark-duration-s: 30
-  num-dataset-entries: 20
 
 sglang-pd-disaggregation:
   conc-list: [1, 8, 16]
-  benchmark-duration-s: 30
-  num-dataset-entries: 20

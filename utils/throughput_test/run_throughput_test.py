@@ -29,17 +29,26 @@ from gpu_metrics import fetch_gpu_model  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AIPERF_ADAPTER = REPO_ROOT / "utils" / "bench_serving" / "aiperf_adapter.py"
 
-# Real Claude Code coding-session traces (949 traces, 136k requests), public
-# HF dataset, no auth required. Prompt text is synthesized from a coding
-# corpus against preserved per-request hash_ids/timing -- richer and more
-# representative than smoke-test's flat isl/osl padding. See
-# utils/aiperf/src/aiperf/dataset/loader/semianalysis_cc_traces_weka.py.
-DEFAULT_DATASET = "semianalysis_cc_traces_weka"
+# Real Claude Code coding-session traces with full subagent fan-out
+# (391 traces), public HF dataset, no auth required -- the "current" variant
+# per the aiperf fork's own plugins.yaml ("Default corpus for DSv4 agentic
+# recipes"). Requires the thangquang09/aiperf fork (benchtool/agentx-weka
+# branch, see .gitmodules) -- not present in the previous vngcloud/aiperf pin.
+DEFAULT_DATASET = "semianalysis_cc_traces_weka_with_subagents_060826"
 
-# Caps reconstruction cost per sweep point -- the full corpus is 949 traces /
-# 136k requests. Override per-stack via throughput-tests.yaml's
-# num-dataset-entries if a fuller run is wanted.
-DEFAULT_NUM_DATASET_ENTRIES = 100
+# Matches the internal agentic-replay recipe (benchmark-tmpl.yml /
+# run-sweep.yml) rather than a lightweight synthetic ping -- this dataset's
+# conversations are real multi-turn coding sessions, not one-shot prompts.
+DEFAULT_SCENARIO = "inferencex-agentx-mvp"
+
+# Caps reconstruction cost per sweep point. Override per-stack via
+# throughput-tests.yaml's num-dataset-entries for a fuller run.
+DEFAULT_NUM_DATASET_ENTRIES = 64
+
+# Real agentic sessions need real wall-clock time to reach steady state;
+# 30s (the old lightweight-ping default) undercounted completions. Matches
+# the internal recipe's full-duration sweep.
+DEFAULT_BENCHMARK_DURATION_S = 600
 
 RANDOM_SEED = 42
 
@@ -52,18 +61,21 @@ RANDOM_SEED = 42
 # aiperf's full auto-scaled worker pool to sustain conc up to 32.
 MAX_AIPERF_WORKERS = 4
 
-# Real semianalysis_cc_traces_weka conversations routinely exceed 32K
-# tokens (real Claude Code coding sessions), but this deployment's model
-# (DeepSeek-Coder-V2-Lite-Instruct-FP8) is served with a 32768-token max
-# context -- confirmed live: requests over that limit get rejected outright
-# with HTTP 400 ("input longer than the model's context length"), which is
-# why every sweep point was coming back with empty stats regardless of
-# duration/entries/worker tuning. Drop oversized conversations before they
-# ever hit the endpoint, with headroom below 32768 for the completion
-# tokens. Requires the thangquang09/aiperf fork (benchtool/agentx-weka
-# branch) -- --max-context-length filtering for the weka loader isn't in
-# the previous vngcloud/aiperf submodule pin.
-MAX_CONTEXT_LENGTH = 30000
+# Real semianalysis_cc_traces_weka* conversations can run very long (every
+# trace has >=20 main-agent turns, cumulative context grows turn over turn).
+# Confirmed live: at the deployment's old 32768-token max context, requests
+# over the limit got rejected outright with HTTP 400 ("input longer than the
+# model's context length"), which is why every sweep point came back with
+# empty stats regardless of duration/entries/worker tuning -- no amount of
+# tuning those fixes a request-rejection problem. The deployment's model
+# context has since been raised to 128K; this stays comfortably under that
+# to leave headroom for completion tokens. Drop any oversized conversation
+# before it ever hits the endpoint rather than let it 400 mid-run.
+DEFAULT_MAX_CONTEXT_LENGTH = 120000
+
+# Matches the internal agentic-replay recipe's --slice-duration -- windows
+# the trace replay's timing reconstruction to 1s slices.
+DEFAULT_SLICE_DURATION_S = 1.0
 
 # Buffer added on top of --benchmark-duration for aiperf's own setup
 # (tokenizer/dataset download + reconstruction, observed to take several
@@ -96,6 +108,11 @@ def run_one_concurrency(
     num_dataset_entries: int,
     duration: int,
     result_dir: Path,
+    scenario: str | None,
+    max_context_length: int | None,
+    slice_duration: float | None,
+    use_server_token_count: bool,
+    unsafe_override: bool,
 ) -> dict:
     result_filename = f"throughput_{entry['name']}_conc{conc}"
     cmd = [
@@ -122,13 +139,21 @@ def run_one_concurrency(
         str(RANDOM_SEED),
         "--max-workers",
         str(MAX_AIPERF_WORKERS),
-        "--max-context-length",
-        str(MAX_CONTEXT_LENGTH),
         "--result-filename",
         result_filename,
         "--result-dir",
         str(result_dir),
     ]
+    if scenario:
+        cmd.extend(["--scenario", scenario])
+    if max_context_length is not None:
+        cmd.extend(["--max-context-length", str(max_context_length)])
+    if slice_duration is not None:
+        cmd.extend(["--slice-duration", str(slice_duration)])
+    if use_server_token_count:
+        cmd.append("--use-server-token-count")
+    if unsafe_override:
+        cmd.append("--unsafe-override")
     if entry.get("gpu_metrics_url"):
         cmd.extend(["--gpu-telemetry-url", entry["gpu_metrics_url"]])
 
@@ -174,9 +199,6 @@ def run_one_concurrency(
                 f"{json.dumps(error_summary, indent=2)}",
                 file=sys.stderr,
             )
-    else:
-        print(f"--- aiperf.log not found at {aiperf_log} (conc={conc}) ---", file=sys.stderr)
-
     result_path = result_dir / f"{result_filename}.json"
     with open(result_path) as f:
         return json.load(f)
@@ -210,8 +232,15 @@ def run(entry: dict, throughput_config: dict) -> dict:
     num_dataset_entries = throughput_config.get(
         "num-dataset-entries", DEFAULT_NUM_DATASET_ENTRIES
     )
-    duration = throughput_config["benchmark-duration-s"]
+    duration = throughput_config.get("benchmark-duration-s", DEFAULT_BENCHMARK_DURATION_S)
     conc_list = throughput_config["conc-list"]
+    scenario = throughput_config.get("scenario", DEFAULT_SCENARIO)
+    max_context_length = throughput_config.get(
+        "max-context-length", DEFAULT_MAX_CONTEXT_LENGTH
+    )
+    slice_duration = throughput_config.get("slice-duration-s", DEFAULT_SLICE_DURATION_S)
+    use_server_token_count = throughput_config.get("use-server-token-count", True)
+    unsafe_override = throughput_config.get("unsafe-override", True)
 
     version_before = fetch_version(entry["version_url"])
     config_snapshot = _config_snapshot(entry, version_before)
@@ -222,7 +251,17 @@ def run(entry: dict, throughput_config: dict) -> dict:
         for conc in conc_list:
             try:
                 point = run_one_concurrency(
-                    entry, conc, dataset, num_dataset_entries, duration, result_dir
+                    entry,
+                    conc,
+                    dataset,
+                    num_dataset_entries,
+                    duration,
+                    result_dir,
+                    scenario,
+                    max_context_length,
+                    slice_duration,
+                    use_server_token_count,
+                    unsafe_override,
                 )
             except Exception as exc:  # noqa: BLE001 -- surface any failure as a run failure
                 return {
