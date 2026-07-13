@@ -152,7 +152,12 @@ def run_one_concurrency(
     aiperf_log = result_dir / f"{result_filename}_aiperf" / "logs" / "aiperf.log"
     if aiperf_log.exists():
         log_text = aiperf_log.read_text()
-        print(f"--- aiperf.log tail (conc={conc}) ---\n{log_text[-6000:]}", file=sys.stderr)
+        error_lines = "\n".join(
+            line for line in log_text.splitlines()
+            if "ERROR" in line or "Exception" in line or "Traceback" in line
+            or "status" in line.lower() or "error_type" in line
+        )
+        print(f"--- aiperf.log ERROR-grep (conc={conc}) ---\n{error_lines[-8000:]}", file=sys.stderr)
     else:
         print(f"--- aiperf.log not found at {aiperf_log} (conc={conc}) ---", file=sys.stderr)
 
