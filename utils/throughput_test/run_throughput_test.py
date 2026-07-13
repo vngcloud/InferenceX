@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from discover import fetch_version  # noqa: E402
+from gpu_metrics import fetch_gpu_model  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AIPERF_ADAPTER = REPO_ROOT / "utils" / "bench_serving" / "aiperf_adapter.py"
@@ -176,7 +177,23 @@ def run(entry: dict, throughput_config: dict) -> dict:
     version_after = fetch_version(entry["version_url"])
     redeployed = version_before != version_after
 
-    data = {"dataset": dataset, "num_dataset_entries": num_dataset_entries, "sweep": sweep, "redeployed_mid_run": redeployed}
+    try:
+        gpu_model = fetch_gpu_model(entry.get("gpu_metrics_url"))
+    except Exception as exc:  # noqa: BLE001 -- enrichment, not the check itself -- never fail the sweep over this
+        print(f"::warning::[{entry['name']}] gpu_model lookup failed: {exc}", file=sys.stderr)
+        gpu_model = None
+
+    data = {
+        "dataset": dataset,
+        "num_dataset_entries": num_dataset_entries,
+        # Snapshotted at test time, not looked up at ingest time -- see the
+        # gpu-metrics discussion with InferenceX-app: gpu_metrics_url reports
+        # live pod state, which may have moved/rescheduled by the time
+        # ingest runs.
+        "gpu_model": gpu_model,
+        "sweep": sweep,
+        "redeployed_mid_run": redeployed,
+    }
     if redeployed:
         return {
             "ok": False,

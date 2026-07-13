@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from gpu_metrics import fetch_gpu_model  # noqa: E402
 from probes import metadata, tool_calling  # noqa: E402
 from result import ProbeResult  # noqa: E402
 
@@ -79,11 +81,22 @@ def main() -> None:
             f.write(summary)
 
     if args.results_file:
+        try:
+            gpu_model = fetch_gpu_model(entry.get("gpu_metrics_url"))
+        except Exception as exc:  # noqa: BLE001 -- enrichment, not a probe -- never fail the job over this
+            print(f"::warning::[{entry['name']}] gpu_model lookup failed: {exc}", file=sys.stderr)
+            gpu_model = None
+
         raw = {
             "stack": entry["name"],
             # Lets InferenceX-app file these into its own "live-check" tab,
             # separate from full sweep runs -- see design/smoke-test-matrix.md.
             "run_type": "live-check",
+            # Snapshotted at test time, not looked up at ingest time -- see
+            # the gpu-metrics discussion with InferenceX-app: gpu_metrics_url
+            # reports live pod state, which may have moved/rescheduled by
+            # the time ingest runs.
+            "gpu_model": gpu_model,
             "probes": {
                 name: {"ok": r.ok, "detail": r.detail, "data": r.data}
                 for name, r in results.items()
