@@ -74,7 +74,7 @@ Use these as known templates:
 
 Edit only the reused or newly created config. Keep these invariants:
 
-- `image: python:3.12-bookworm`
+- `image: docker.io/thangquang09/aiperf:weka` (prebuilt AIPerf image; runner pulls it and `install_agentic_deps` skips the pip install. Rebuild with `make docker-push` in `utils/aiperf-mooncake` after aiperf code changes.)
 - `runner: benchmark-client`
 - `framework: api`
 - `benchmark-client: [aiperf]`

@@ -9695,7 +9695,7 @@ glm5-2-byteplus-bench-client-remote-smoke:
 # GREENNODE_API_KEY secret. url has no /v1 so the default endpoint
 # (/v1/chat/completions) resolves to the .../v1/chat/completions request path.
 glm5-2-greennode-bench-client-remote:
-  image: python:3.12-bookworm
+  image: docker.io/thangquang09/aiperf:weka
   model: z-ai/glm-5.2
   model-prefix: glm5-2
   runner: benchmark-client
@@ -9740,7 +9740,7 @@ glm5-2-greennode-bench-client-remote:
 
 # Claude Code Weka v4 smoke against the same hosted GreenNode endpoint.
 glm5-2-greennode-claude-code-weka-v4-remote-smoke:
-  image: python:3.12-bookworm
+  image: docker.io/thangquang09/aiperf:weka
   model: z-ai/glm-5.2
   model-prefix: glm5-2-claude-code-weka-v4-smoke
   runner: benchmark-client
@@ -9785,7 +9785,7 @@ glm5-2-greennode-claude-code-weka-v4-remote-smoke:
 # Scenario-free fixed-schedule replay of the checked-in 2026-07-09 historical
 # corpus. conc=1 is matrix identity only; trace timestamps define arrivals.
 glm5-2-greennode-historical-fixed-remote:
-  image: python:3.12-bookworm
+  image: docker.io/thangquang09/aiperf:weka
   model: z-ai/glm-5.2
   model-prefix: glm5-2
   runner: benchmark-client
@@ -9809,7 +9809,7 @@ glm5-2-greennode-historical-fixed-remote:
 
 # Short validation of the same historical replay path.
 glm5-2-greennode-historical-fixed-remote-smoke:
-  image: python:3.12-bookworm
+  image: docker.io/thangquang09/aiperf:weka
   model: z-ai/glm-5.2
   model-prefix: glm5-2-historical-fixed-smoke
   runner: benchmark-client
