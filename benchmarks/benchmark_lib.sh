@@ -1328,6 +1328,17 @@ resolve_trace_source() {
 install_agentic_deps() {
     AIPERF_USE_DOCKER=false
 
+    if [[ "${FIXED_SCHEDULE:-false}" == "true" ]]; then
+        export PYTHONPATH="$AIPERF_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+        local aiperf_source
+        aiperf_source="$(python3 -c 'import aiperf; print(aiperf.__file__)')"
+        if [[ "$aiperf_source" != "$AIPERF_DIR"/src/aiperf/* ]]; then
+            echo "Error: fixed-schedule replay resolved aiperf outside pinned source: $aiperf_source" >&2
+            return 1
+        fi
+        echo "[aiperf] fixed-schedule source: $aiperf_source"
+    fi
+
     # Full-image bypass: when the remote client runs from a pre-built full
     # AIPerf image (the remote config points image: at it — see
     # docs/REMOTE_AIPERF_DOCKER.md), aiperf is already installed. Skip the slow

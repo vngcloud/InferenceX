@@ -4,9 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 library="$repo_root/benchmarks/benchmark_lib.sh"
 remote_replay="$repo_root/benchmarks/single_node/agentic/_remote_replay.sh"
+remote_launcher="$repo_root/runners/launch_remote.sh"
 
 unset HF_TOKEN
 source "$library"
+
+tmp_home="$(mktemp -d)"
+trap 'rm -rf "$tmp_home"' EXIT
 
 assert_contains() {
     [[ "$1" == *"$2"* ]] || { echo "missing: $2" >&2; return 1; }
@@ -15,6 +19,66 @@ assert_contains() {
 assert_absent() {
     [[ "$1" != *"$2"* ]] || { echo "unexpected: $2" >&2; return 1; }
 }
+
+launch_args_file="$tmp_home/launch-args"
+docker() {
+    printf '%s\n' "$*" > "$LAUNCH_ARGS_FILE"
+}
+export -f docker
+LAUNCH_ARGS_FILE="$launch_args_file" GITHUB_WORKSPACE="$repo_root" \
+    IMAGE=aiperf:test HF_HUB_CACHE=/tmp/hf-cache \
+    FIXED_SCHEDULE=true MAX_CONTEXT_LENGTH=100000 \
+    bash "$remote_launcher" >/dev/null 2>&1
+launch_args="$(<"$launch_args_file")"
+assert_contains "$launch_args" "-e FIXED_SCHEDULE"
+assert_contains "$launch_args" "-e MAX_CONTEXT_LENGTH"
+rm -f "$launch_args_file"
+
+original_pythonpath="${PYTHONPATH:-}"
+AIPERF_DIR="$repo_root/utils/aiperf-mooncake"
+FIXED_SCHEDULE=true
+aiperf() { :; }
+install_agentic_deps
+assert_contains ":${PYTHONPATH:-}:" ":$AIPERF_DIR/src:"
+resolved_aiperf="$(python3 -c 'import aiperf; print(aiperf.__file__)')"
+assert_contains "$resolved_aiperf" "$AIPERF_DIR/src/aiperf/"
+unset -f aiperf
+PYTHONPATH="$original_pythonpath"
+
+curl() { return 0; }
+timeout() {
+    printf '%s\n' "$*" > "$TIMEOUT_ARGS_FILE"
+}
+python3() {
+    if [[ "${1:-}" == "-c" ]]; then
+        command python3 "$@"
+    fi
+}
+aiperf() { :; }
+export -f curl timeout python3 aiperf
+
+run_runtime_check() {
+    local fixed_schedule="$1" duration="$2" override="$3" expected="$4"
+    local timeout_args_file="$tmp_home/timeout-$fixed_schedule-$duration-$override"
+    local result_dir="$tmp_home/result-$fixed_schedule-$duration-$override"
+
+    env AIPERF_MAX_RUNTIME="$override" \
+        TIMEOUT_ARGS_FILE="$timeout_args_file" \
+        INFMAX_CONTAINER_WORKSPACE="$repo_root" \
+        MODEL=z-ai/glm-5.2 CONC=13 RESULT_DIR="$result_dir" \
+        REMOTE_URL=https://replay.invalid REMOTE_API_KEY=test-secret \
+        TOKENIZER=zai-org/GLM-5.2 INPUT_FILE="$repo_root/benchmarks/single_node/agentic/datasets/glm5_2_ccu_20260709_weka/sessions" \
+        CUSTOM_DATASET_TYPE=weka_trace FIXED_SCHEDULE="$fixed_schedule" \
+        DURATION="$duration" bash "$remote_replay" >/dev/null 2>&1
+
+    assert_contains "$(<"$timeout_args_file")" "-s TERM -k 60 $expected "
+}
+
+run_runtime_check true 3000 "" 4890
+run_runtime_check true 60 "" 1950
+run_runtime_check false 90 "" 2400
+run_runtime_check true 3000 1234 1234
+unset -f curl timeout python3 aiperf
 
 MODEL="z-ai/glm-5.2"
 CONC=999
@@ -81,8 +145,6 @@ assert_contains "$REPLAY_CMD" "--concurrency $CONC"
 assert_absent "$REPLAY_CMD" "--fixed-schedule"
 assert_absent "$REPLAY_CMD" "--failed-request-threshold"
 
-tmp_home="$(mktemp -d)"
-trap 'rm -rf "$tmp_home"' EXIT
 HOME="$tmp_home"
 AIPERF_DOCKER_IMAGE="aiperf:test"
 build_docker_replay_args /tmp/replay-result

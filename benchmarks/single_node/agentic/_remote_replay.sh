@@ -47,10 +47,15 @@ echo "${REPLAY_CMD/${REMOTE_API_KEY:-EMPTY}/<redacted>}" > "$RESULT_DIR/benchmar
 set +x
 # A remote-replay run once hung silently for ~16 min until the runner itself
 # was killed, with no client-side timeout or exit-code check to catch it.
-# AIPERF_MAX_RUNTIME bounds that: dataset configuration can take up to
-# AIPERF_DATASET_CONFIGURATION_TIMEOUT (1800s, see build_replay_cmd) plus the
-# benchmark duration itself, so the default here leaves headroom above that.
-AIPERF_MAX_RUNTIME="${AIPERF_MAX_RUNTIME:-2400}"
+# Fixed replay can legitimately use the full dataset configure timeout plus
+# its benchmark window, AIPerf's 30s grace period, and 60s process headroom.
+# Keep the established 2400s default for scenario-driven replay.
+if [[ "${FIXED_SCHEDULE:-false}" == "true" ]]; then
+    default_max_runtime=$((AIPERF_DATASET_CONFIGURATION_TIMEOUT + DURATION + 30 + 60))
+else
+    default_max_runtime=2400
+fi
+AIPERF_MAX_RUNTIME="${AIPERF_MAX_RUNTIME:-$default_max_runtime}"
 # Use the short flags -s/-k rather than --signal/--kill-after: the pre-built
 # full AIPerf image is distroless and ships busybox timeout, which only accepts
 # `timeout [-s SIG] [-k KILL_SECS] SECS PROG`. GNU timeout accepts these too, so
