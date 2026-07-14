@@ -66,10 +66,10 @@
 # OOM investigation.
 
 sglang-vanilla:
-  conc-list: [1, 8, 16]
+  conc-list: [2, 4, 6, 8]
 
 sglang-mooncake-store:
-  conc-list: [1, 8, 16]
+  conc-list: [2, 4, 6, 8]
 
 sglang-pd-disaggregation:
-  conc-list: [1, 8, 16]
+  conc-list: [2, 4, 6, 8]
