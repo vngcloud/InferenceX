@@ -16,9 +16,17 @@ This is an intentional timing approximation. It preserves recorded absolute requ
 
 The historical configs will pass `--fixed-schedule` and will not pass `--use-think-time-only`. Under the current AIPerf implementation, fixed schedule prefers each turn's absolute timestamp, so adding the think-time flag would not change scheduling and would misleadingly imply hybrid behavior.
 
-The approximation accepts the current SPAWN/JOIN timing behavior for the three explicit subagents. It does not modify AIPerf scheduling, child dispatch, or join release behavior.
+The approximation accepts the current timestamp, child-dispatch, and join-release behavior for the three explicit subagents. The only fixed-schedule correction is the root-selection guard described below.
 
 Removing `--scenario inferencex-agentx-mvp` is required because that scenario uses trajectory warmup and recycling rather than replaying the 13 historical sessions once.
+
+## Fixed-Schedule DAG Root Selection
+
+Current `FixedScheduleStrategy.setup_phase()` creates initial schedule entries for every conversation in `DatasetMetadata`, including conversations marked `is_root=false`. The branch orchestrator later starts those child conversations again through their parent SPAWN edges. On this corpus, leaving that behavior unchanged can duplicate the 31 explicit child turns and prevent the run from representing the validated 461-request population.
+
+Before using the historical command, AIPerf fixed-schedule setup must create initial schedule entries only for conversations where `is_root` is true. Non-root conversations remain in metadata so `BranchOrchestrator` can resolve and dispatch them normally through SPAWN/JOIN.
+
+This guard applies only to `FixedScheduleStrategy`. It does not modify `AgenticReplayStrategy`, the `inferencex-agentx-mvp` scenario, trajectory recycling, or existing AgentX/CCU command construction.
 
 ## Dataset
 
@@ -90,7 +98,9 @@ Remove `--failed-request-threshold 0.05` from both remote and local AIPerf repla
 2. The GitHub workflow forwards those values and resolves `GREENNODE_API_KEY` into the existing remote API-key environment variable without exposing its value.
 3. `_remote_replay.sh` validates the local path and exports the two Weka loader settings.
 4. `build_replay_cmd()` selects the scenario-free fixed-schedule command branch.
-5. AIPerf loads all 13 files once, filters whole sessions only when the smoke context cap applies, and writes artifacts through the existing result pipeline.
+5. AIPerf loads all 13 files once and filters whole sessions only when the smoke context cap applies.
+6. Fixed-schedule setup schedules only the retained root conversations; SPAWN/JOIN remains the only path that starts non-root children.
+7. AIPerf writes artifacts through the existing result pipeline.
 
 ## Error Handling
 
@@ -106,8 +116,10 @@ Implementation verification must include:
 2. Matrix-generation tests asserting the main and smoke entries, including duration and context-cap differences.
 3. Command-generation checks asserting the historical branch includes fixed schedule and `ignore_eos:true`, while excluding scenario, think-time, concurrency, server token count, grace-period override, and failed-request threshold flags.
 4. Regression checks that existing AgentX configs still use their current scenario path.
-5. `bash -n` for modified shell scripts and the existing `utils/matrix_logic` test suite.
-6. A generated-config inspection before any dispatch.
+5. An AIPerf regression test with one root and one non-root child asserting that fixed-schedule setup emits only the root's initial schedule entry while preserving the child metadata for branch dispatch.
+6. The focused AIPerf fixed-schedule and DAG test suites.
+7. `bash -n` for modified shell scripts and the existing `utils/matrix_logic` test suite.
+8. A generated-config inspection before any dispatch.
 
 The previously completed dataset self-check is sufficient; the converter and corpus do not need another redesign or regeneration for this integration.
 
@@ -116,7 +128,8 @@ An external smoke dispatch remains a separate, explicit user-authorized action. 
 ## Out of Scope
 
 - Hybrid absolute-entry plus response-relative think-time scheduling.
-- Changes to AIPerf fixed schedule, branch orchestration, or SPAWN/JOIN semantics.
+- Any AIPerf timing change beyond filtering non-root conversations from the initial fixed schedule.
+- Changes to branch orchestration or SPAWN/JOIN semantics.
 - Dataset regeneration or new lineage inference.
 - Server-side deployment changes or prewarming.
 - Synthetic concurrency or request-rate shaping on top of historical timestamps.
