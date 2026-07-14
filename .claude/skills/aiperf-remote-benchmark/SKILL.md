@@ -27,7 +27,13 @@ Ask in this order. Do not dispatch until every applicable answer and the final s
    - tokenizer: `zai-org/GLM-5.2`
    - GitHub secret: `GREENNODE_API_KEY`
    If not, ask for base URL, API model name, tokenizer, API key, and GitHub secret name. Never put an API key in YAML, logs, artifacts, a commit, or a command shown back to the user.
-6. Suggest a title and ask the user to confirm it. Use `YYYY/MM/DD <model> <provider> <scenario> <CCU ladder if any> <Smoke|Full>`, adding serving details only when useful.
+6. Warn that a shared endpoint must have exactly one remote benchmark job hitting it at a time. State these two rules before dispatch:
+   - Within one run, CCU fan-out must be serialized. `test-sweep-agentic-replay` should use `max-parallel: 1` so `conc-4`, `conc-12`, and similar matrix entries do not overlap.
+   - Across runs, do not dispatch on top of another run that targets the same endpoint. GitHub `concurrency` is not a reliable queue for this case.
+7. Ask whether the user knows the endpoint is idle and not already used by another remote run.
+   - If yes, record that confirmation and continue.
+   - If no or unsure, propose that you check GitHub Actions for in-progress or pending remote runs targeting the same endpoint before submitting anything.
+8. Suggest a title and ask the user to confirm it. Use `YYYY/MM/DD <model> <provider> <scenario> <CCU ladder if any> <Smoke|Full>`, adding serving details only when useful.
 
 ## Verify the endpoint
 
@@ -36,6 +42,16 @@ Smoke-test every provider, including GreenNode, before editing or dispatching. A
 Use `curl` with `Authorization: Bearer`, first against `/v1/models`, then send a minimal streamed chat completion to `/v1/chat/completions` with the selected API model and one output token. Adapt paths only if the provider documents a different OpenAI-compatible layout. Keep the key in an environment variable and disable shell tracing. Confirm that the requested model is accepted, not merely that the host returns HTTP 200.
 
 Stop on authentication errors, an absent/rejected model, non-OpenAI-compatible responses, or repeated transport failures. Report the failure without exposing response headers or secrets. Do not spend a runner slot on an unreachable endpoint.
+
+## Verify no overlapping remote run
+
+Before dispatch, treat shared-endpoint exclusivity as a hard gate: one endpoint, one active remote benchmark job.
+
+- If the user already confirmed the endpoint is idle, still repeat the warning in the final pre-dispatch confirmation.
+- If the user is unsure, inspect GitHub Actions before submitting. Check the relevant workflow runs and jobs for any in-progress or pending remote AIPerf work that targets the same endpoint or same remote config family.
+- Do not rely on GitHub `concurrency` to queue more than one waiting run for the shared endpoint. It can leave one run pending and cancel a later one instead of forming a true FIFO queue.
+- If another matching run is active or pending, stop and tell the user which run must finish first. Do not dispatch a second overlapping run.
+- If no overlapping run is found, say that the check was performed and proceed.
 
 ## Configure the run
 
@@ -86,7 +102,13 @@ uv run python utils/matrix_logic/generate_sweep_configs.py test-config \
   --config-keys <selected-config-key>
 ```
 
-Inspect the generated matrix and show the user: config key, image, runner, provider URL, API model, tokenizer, dataset, fixed schedule status, CCU ladder, duration, secret name, and whether server-command metadata is present. Show the suggested Actions title. Require explicit confirmation before commit, push, or dispatch.
+Inspect the generated matrix and show the user: config key, image, runner, provider URL, API model, tokenizer, dataset, fixed schedule status, CCU ladder, duration, secret name, whether server-command metadata is present, and the shared-endpoint warning state:
+
+- whether `test-sweep-agentic-replay` is serialized with `max-parallel: 1`
+- whether another run against the same endpoint was checked
+- whether the endpoint is clear for dispatch
+
+Show the suggested Actions title. Require explicit confirmation before commit, push, or dispatch.
 
 ## Commit, push, and dispatch
 
@@ -110,6 +132,8 @@ gh api -X POST \
 ```
 
 Find the run by title and branch rather than assuming the newest repository run. Wait only until `get-jobs` finishes and the expected matrix jobs appear. Confirm their CCUs or fixed-schedule identity, runner type, run head SHA, and queued/in-progress status. Then stop polling and tell the user: `Run đã chạy tại: <url>`.
+
+If the endpoint is shared, do not dispatch a second run until the previous matching run finishes. Sequential submission is the safe default.
 
 Do not wait for benchmark completion in the dispatch turn. Analyze results only after the user later reports that the run is finished or explicitly asks for status/results.
 
