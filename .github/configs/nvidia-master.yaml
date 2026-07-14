@@ -9759,7 +9759,6 @@ glm5-2-greennode-historical-fixed-remote-smoke:
     - custom-dataset-type: weka_trace
       input-file: benchmarks/single_node/agentic/datasets/glm5_2_ccu_20260709_weka/sessions
       fixed-schedule: true
-      max-context-length: 100000
       max-model-len: 131072
       benchmark-client: [aiperf]
       tokenizer: zai-org/GLM-5.2
