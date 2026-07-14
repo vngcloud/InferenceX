@@ -9,6 +9,11 @@ source "$(dirname "$0")/../../benchmark_lib.sh"
 check_env_vars MODEL CONC RESULT_DIR REMOTE_URL
 check_remote_endpoints
 
+# ponytail: path-gated until a second synthetic-hash corpus needs a matrix flag.
+if [[ "${CUSTOM_DATASET_TYPE:-}" == "weka_trace" && "${INPUT_FILE:-}" == *"/glm5_2_ccu_20260709_weka/"* ]]; then
+    export AIPERF_DATASET_WEKA_SPLIT_FLATTENED_AGENTS=false
+fi
+
 PUBLIC_DATASET="${PUBLIC_DATASET:-}"
 if [[ "${CUSTOM_DATASET_TYPE:-}" == "weka_trace" && -z "${INPUT_FILE:-}" && -z "$PUBLIC_DATASET" ]]; then
     PUBLIC_DATASET="semianalysis_cc_traces_weka_with_subagents_060826"
@@ -63,8 +68,6 @@ if [[ "$replay_exit" -eq 124 ]]; then
 elif [[ "$replay_exit" -ne 0 ]]; then
     echo "WARNING: aiperf exited with code $replay_exit; attempting result aggregation anyway." >&2
 fi
-
-report_failed_request_abort "$RESULT_DIR"
 
 write_agentic_result_json "$RESULT_DIR"
 

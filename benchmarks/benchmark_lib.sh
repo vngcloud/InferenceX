@@ -728,7 +728,6 @@ run_client_benchmark() {
                     aiperf_args+=(
                         --scenario inferencex-agentx-mvp
                         --endpoint /v1/chat/completions
-                        --failed-request-threshold 0.05
                         --trajectory-start-min-ratio 0.25
                         --trajectory-start-max-ratio 0.75
                         --use-server-token-count
@@ -1530,7 +1529,7 @@ check_remote_endpoints() {
 }
 
 build_replay_cmd() {
-    # aiperf invocation for the inferencex-agentx-mvp scenario.
+    # AIPerf invocation for trace replay.
     #
     # Live-assistant mode is on by default
     # (AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES=1): the loader emits
@@ -1539,7 +1538,7 @@ build_replay_cmd() {
     # the just-generated KV blocks at the cost of hash-id fidelity past
     # turn 0 — which is exactly what we want for benchmark numbers.
     #
-    # The scenario plugin locks: --cache-bust first_turn_prefix,
+    # The default scenario plugin locks: --cache-bust first_turn_prefix,
     # --inter-turn-delay-cap-seconds 60, etc., and auto-injects them — so
     # we do not pass them. See utils/aiperf/docs/tutorials/agentx-mvp.md.
     local result_dir="$1"
@@ -1556,6 +1555,29 @@ build_replay_cmd() {
     # aiperf validates that SERVICE_PROFILE_CONFIGURE_TIMEOUT >=
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
+    if [[ "${FIXED_SCHEDULE:-false}" == "true" ]]; then
+        REPLAY_CMD="aiperf profile"
+        REPLAY_CMD+=" --url ${REMOTE_URL:-http://localhost:$PORT}"
+        REPLAY_CMD+=" --endpoint /v1/chat/completions"
+        REPLAY_CMD+=" --endpoint-type chat"
+        REPLAY_CMD+=" --streaming"
+        REPLAY_CMD+=" --model $MODEL"
+        REPLAY_CMD+=" --api-key ${REMOTE_API_KEY:-EMPTY}"
+        REPLAY_CMD+=" --tokenizer $TOKENIZER"
+        REPLAY_CMD+=" --tokenizer-trust-remote-code"
+        REPLAY_CMD+=" --fixed-schedule"
+        REPLAY_CMD+=" --benchmark-duration $duration"
+        REPLAY_CMD+=" --extra-inputs ignore_eos:true"
+        REPLAY_CMD+=" --random-seed 42"
+        REPLAY_CMD+=" --slice-duration 1"
+        if [[ -n "${MAX_CONTEXT_LENGTH:-}" ]]; then
+            REPLAY_CMD+=" --max-context-length $MAX_CONTEXT_LENGTH"
+        fi
+        REPLAY_CMD+=" --output-artifact-dir $result_dir/trace_replay"
+        REPLAY_CMD+=" $TRACE_SOURCE_FLAG"
+        return
+    fi
+
     REPLAY_CMD="aiperf profile --scenario inferencex-agentx-mvp"
     # REMOTE_URL may itself be a comma-separated list of endpoints -- aiperf's
     # --url accepts that syntax directly (also --server-metrics and
@@ -1587,12 +1609,6 @@ build_replay_cmd() {
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
     REPLAY_CMD+=" --random-seed 42"
-    # Abort the run if real-failure rate exceeds 5% after a grace floor of
-    # max(CONC, 10) records. Context-overflow records are dropped from the
-    # failure tally in AGENTIC_REPLAY scenarios (see record_processor_service
-    # in the aiperf submodule), so this threshold measures only real failures
-    # (server 5xx, parse errors, malformed responses).
-    REPLAY_CMD+=" --failed-request-threshold 0.05"
     # Sample each trajectory's warmup start position uniformly from
     # [25%, 75%] of the trace's turn count (was hardcoded 0%-70% upstream).
     # Avoids starting trajectories right at turn 0 where the KV cache is
@@ -1657,50 +1673,26 @@ build_replay_cmd() {
 build_docker_replay_args() {
     local result_dir="$1"
     local hf_cache_dir="${HF_HOME:-$HOME/.cache/huggingface}"
+    local input_mount=()
     mkdir -p "$hf_cache_dir"
+    if [[ -n "${INPUT_FILE:-}" ]]; then
+        input_mount=(-v "$INPUT_FILE:$INPUT_FILE:ro")
+    fi
 
     DOCKER_REPLAY_ARGS=(
         docker run --rm --network host
         --user "$(id -u):$(id -g)"
         -e HF_TOKEN
         -e AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES
+        -e AIPERF_DATASET_WEKA_SPLIT_FLATTENED_AGENTS
         -e AIPERF_DATASET_CONFIGURATION_TIMEOUT
         -e AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT
+        "${input_mount[@]}"
         -v "$result_dir:$result_dir"
         -v "$hf_cache_dir:/app/.cache/huggingface"
         "$AIPERF_DOCKER_IMAGE"
         "$REPLAY_CMD"
     )
-}
-
-# Surface an early --failed-request-threshold abort prominently in the job log.
-# AIPerf already records the reason in aiperf.log at WARNING level, but from the
-# run summary a threshold abort is indistinguishable from any other cancel
-# (was_cancelled=true) and the reported Benchmark Duration collapses to just the
-# successful-request window before the abort. Echo an unmissable banner and
-# stash the reason to abort_reason.txt so the stop cause is obvious without
-# grepping the artifact tree. Reads what AIPerf already logs -- no AIPerf change.
-report_failed_request_abort() {
-    local result_dir="$1"
-    local abort_line reason
-    abort_line="$(grep -rh -- '--failed-request-threshold exceeded' \
-        "$result_dir/trace_replay" "$result_dir/benchmark.log" 2>/dev/null \
-        | head -1 || true)"
-    [[ -z "$abort_line" ]] && return 0
-
-    reason="${abort_line#*--failed-request-threshold exceeded: }"
-    reason="${reason%% Broadcasting*}"
-    {
-        echo "=============================================================="
-        echo "RUN ABORTED EARLY - TOO MANY FAILED REQUESTS"
-        echo "  --failed-request-threshold exceeded: ${reason}"
-        echo "  The benchmark did NOT run to --benchmark-duration. The"
-        echo "  reported Benchmark Duration covers only the successful-request"
-        echo "  window before the abort; treat these metrics as invalid."
-        echo "=============================================================="
-    } >&2
-    printf 'failed-request-threshold exceeded: %s\n' "$reason" \
-        > "$result_dir/abort_reason.txt"
 }
 
 write_agentic_result_json() {
