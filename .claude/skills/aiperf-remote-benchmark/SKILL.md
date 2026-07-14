@@ -41,7 +41,13 @@ Stop on authentication errors, an absent/rejected model, non-OpenAI-compatible r
 
 Create an `exp/aiperf-remote-<date>-<slug>` branch from the user's current base. Preserve unrelated working-tree changes and stage only benchmark files.
 
-Reuse the closest entry in `.github/configs/nvidia-master.yaml`:
+Treat `(provider, API model, scenario/dataset)` as the stable config identity. Search `.github/configs/nvidia-master.yaml` before editing:
+
+- If that identity already has a config, reuse its config key and `model-prefix`; edit it only on the experiment branch. This applies equally to GreenNode GLM-5.2, an existing DeepSeek config, or any other existing model.
+- If no matching identity exists, create one config by copying the closest template. Give it a stable provider/model/scenario key and `model-prefix` suitable for later runs.
+- Never repurpose a config belonging to another provider, model, or scenario. For example, a new DeepSeek benchmark must not mutate a GLM-5.2 config.
+
+Use these as known templates:
 
 | Scenario | Template config |
 |---|---|
@@ -50,7 +56,7 @@ Reuse the closest entry in `.github/configs/nvidia-master.yaml`:
 | Simulation smoke | `glm5-2-greennode-historical-fixed-remote-smoke` |
 | Simulation full | `glm5-2-greennode-historical-fixed-remote` |
 
-Edit only the selected config. Keep these invariants:
+Edit only the reused or newly created config. Keep these invariants:
 
 - `image: python:3.12-bookworm`
 - `runner: benchmark-client`
@@ -103,11 +109,13 @@ gh api -X POST \
   -f 'inputs[duration-override]='
 ```
 
-Find the run by title and branch rather than assuming the newest repository run. Report its URL and head SHA.
+Find the run by title and branch rather than assuming the newest repository run. Wait only until `get-jobs` finishes and the expected matrix jobs appear. Confirm their CCUs or fixed-schedule identity, runner type, run head SHA, and queued/in-progress status. Then stop polling and tell the user: `Run đã chạy tại: <url>`.
 
-## Monitor and audit
+Do not wait for benchmark completion in the dispatch turn. Analyze results only after the user later reports that the run is finished or explicitly asks for status/results.
 
-Wait for every matrix job and collection job to finish. A smoke run is valid only when:
+## Audit a completed run
+
+When the user reports completion, verify that every matrix and collection job finished, then inspect logs and artifacts. A run is valid only when:
 
 - Every expected CCU/fixed-schedule job exists and uses `benchmark-client`.
 - The checked-out SHA equals the pushed commit.
