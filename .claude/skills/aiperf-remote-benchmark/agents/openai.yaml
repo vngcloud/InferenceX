@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIPerf Remote Benchmark"
+  short_description: "Run verified remote AIPerf replay benchmarks"
+  default_prompt: "Use $aiperf-remote-benchmark to prepare, verify, and dispatch a remote AIPerf benchmark."
