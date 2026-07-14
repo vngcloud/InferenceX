@@ -9716,3 +9716,53 @@ glm5-2-greennode-bench-client-remote:
       duration: 90
       search-space:
       - { tp: 1, ep: 1, conc-list: [2] }
+
+# Scenario-free fixed-schedule replay of the checked-in 2026-07-09 historical
+# corpus. conc=13 is matrix identity only; trace timestamps define arrivals.
+glm5-2-greennode-historical-fixed-remote:
+  image: aiperf:0.8.0
+  model: z-ai/glm-5.2
+  model-prefix: glm5-2
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: GREENNODE_API_KEY
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      input-file: benchmarks/single_node/agentic/datasets/glm5_2_ccu_20260709_weka/sessions
+      fixed-schedule: true
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      duration: 3000
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [13] }
+
+# Short whole-session-filtered validation of the same historical replay path.
+glm5-2-greennode-historical-fixed-remote-smoke:
+  image: aiperf:0.8.0
+  model: z-ai/glm-5.2
+  model-prefix: glm5-2
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: GREENNODE_API_KEY
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      input-file: benchmarks/single_node/agentic/datasets/glm5_2_ccu_20260709_weka/sessions
+      fixed-schedule: true
+      max-context-length: 100000
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      duration: 60
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [13] }

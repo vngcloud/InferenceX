@@ -4,7 +4,7 @@ Date: 2026-07-14
 
 ## Status
 
-Approved in conversation for written specification. Implementation remains gated on user review of this committed document.
+Approved by the user for implementation on 2026-07-14.
 
 ## Objective
 

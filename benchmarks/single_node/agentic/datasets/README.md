@@ -11,6 +11,7 @@ the launch script must install from.
 | `agentic_coding_1variant_64k_150s.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | 64k tier | Integrated agentic-coding trace. Other tiers must be added here before use. |
 | `gemma_blend_prod.jsonl` | `mooncake_trace` | `utils/aiperf-mooncake` | blend_prod | Back-to-back replay; use `strip-trace-delays: true`. |
 | `minimax_cc_v4_weka/` | `weka_trace` | `utils/aiperf-mooncake` | 223 files, 17,672 requests | MiniMax Claude Code v4 Weka traces. Use a directory `input-file`, `no-fixed-schedule: true`, and capped inter-turn delays. |
+| `glm5_2_ccu_20260709_weka/sessions/` | `weka_trace` | `utils/aiperf-mooncake` | 13 files, 461 requests | Historical GLM-5.2 Claude Code window with conservative stable block lineage; flattened-agent splitting must be disabled. |
 
 ## Archived Datasets
 
