@@ -67,6 +67,7 @@ class Fields(Enum):
     ENDPOINT = 'endpoint'
     SERVER_METRICS_URL = 'server-metrics-url'
     GPU_TELEMETRY_URL = 'gpu-telemetry-url'
+    SERVER_COMMAND = 'server-command'
     API_KEY_SECRET_NAME = 'api-key-secret-name'
     AIPERF_DOCKER_IMAGE = 'aiperf-docker-image'
     FIXED_SCHEDULE = 'fixed-schedule'
@@ -244,6 +245,8 @@ class RemoteConfig(BaseModel):
         default=None, alias=Fields.SERVER_METRICS_URL.value)
     gpu_telemetry_url: Optional[Union[str, List[str]]] = Field(
         default=None, alias=Fields.GPU_TELEMETRY_URL.value)
+    server_command: Optional[str] = Field(
+        default=None, alias=Fields.SERVER_COMMAND.value)
     # Name of the GitHub secret holding the endpoint API key. Unset => no key is
     # sent (the request goes out unauthenticated). The reusable workflow resolves
     # this name dynamically against the repo's secrets and fails early if a name

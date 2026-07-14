@@ -606,6 +606,15 @@ class TestAgenticReplayMatrixEntries:
 
         assert entry.remote.api_key_secret_name is None
 
+    def test_remote_server_command_is_optional_metadata(self):
+        command = "python3 -m sglang.launch_server --tp-size 8 --ep-size 8"
+        entry = SingleNodeAgenticReplayMatrixEntry(**self._entry(remote={
+            "url": "http://remote:8000",
+            "server-command": command,
+        }))
+
+        assert entry.remote.server_command == command
+
     def test_remote_url_list_joined_to_comma_separated_string(self):
         """A model hosted across multiple endpoints may be declared as a list;
         RemoteConfig normalizes it to aiperf's comma-separated multi-URL

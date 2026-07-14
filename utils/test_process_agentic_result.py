@@ -225,6 +225,24 @@ def test_processor_emits_required_summarize_keys(tmp_path: Path):
     assert not missing, f"agg JSON missing summarize keys: {sorted(missing)}"
 
 
+def test_processor_records_optional_remote_server_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    command = "python3 -m sglang.launch_server --tp-size 8 --ep-size 8"
+    monkeypatch.setenv("REMOTE_SERVER_COMMAND", command)
+    agg = _run_processor(_write_fixture(tmp_path), tmp_path / "out")
+
+    assert agg["server_config_source"] == "user-provided"
+    assert agg["server_command"] == command
+
+
+def test_processor_omits_remote_server_metadata_by_default(tmp_path: Path):
+    agg = _run_processor(_write_fixture(tmp_path), tmp_path / "out")
+
+    assert "server_config_source" not in agg
+    assert "server_command" not in agg
+
+
 def test_processor_latency_units_are_seconds(tmp_path: Path):
     """aiperf reports ms; legacy schema is seconds. Verify conversion."""
     result_dir = _write_fixture(tmp_path)

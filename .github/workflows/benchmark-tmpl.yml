@@ -156,6 +156,11 @@ on:
         required: false
         type: string
         default: ''
+      remote-server-command:
+        description: "Optional user-provided command used to launch the remote server"
+        required: false
+        type: string
+        default: ''
       remote-api-key-secret:
         description: "Name of the GitHub secret holding the remote endpoint API key; empty => no key"
         required: false
@@ -207,6 +212,7 @@ env:
   REMOTE_ENDPOINT: ${{ inputs.remote-endpoint }}
   REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}
   REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
+  REMOTE_SERVER_COMMAND: ${{ inputs.remote-server-command }}
   # Resolve the API key from the secret named by the config's remote.api-key-secret-name.
   # Empty when no name is given or the named secret is unset; downstream treats empty as
   # EMPTY (see benchmark_lib.sh). The "Validate remote API key secret" step fails early

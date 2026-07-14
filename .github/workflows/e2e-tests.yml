@@ -309,6 +309,7 @@ jobs:
             remote-endpoint: ${{ matrix.config.remote.endpoint }}
             remote-server-metrics-url: ${{ matrix.config.remote.server-metrics-url }}
             remote-gpu-telemetry-url: ${{ matrix.config.remote.gpu-telemetry-url }}
+            remote-server-command: ${{ matrix.config.remote.server-command }}
             remote-api-key-secret: ${{ matrix.config.remote.api-key-secret-name }}
             aiperf-docker-image: ${{ matrix.config.remote.aiperf-docker-image }}
             duration: ${{ inputs.duration-override != '' && inputs.duration-override || matrix.config.duration }}

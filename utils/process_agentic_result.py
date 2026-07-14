@@ -591,6 +591,11 @@ def build_agg(
         "num_requests_successful": len(records),
     }
 
+    server_command = os.environ.get("REMOTE_SERVER_COMMAND")
+    if server_command:
+        agg["server_config_source"] = "user-provided"
+        agg["server_command"] = server_command
+
     if is_multinode:
         agg.update(
             {
