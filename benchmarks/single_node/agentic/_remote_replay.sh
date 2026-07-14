@@ -3,6 +3,7 @@ set -euo pipefail
 set -x
 
 export AIPERF_DIR="${AIPERF_DIR:-${INFMAX_CONTAINER_WORKSPACE:-/workspace}/utils/aiperf-mooncake}"
+export PATH="$HOME/.local/bin:$PATH"
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 

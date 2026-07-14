@@ -9695,7 +9695,7 @@ glm5-2-byteplus-bench-client-remote-smoke:
 # GREENNODE_API_KEY secret. url has no /v1 so the default endpoint
 # (/v1/chat/completions) resolves to the .../v1/chat/completions request path.
 glm5-2-greennode-bench-client-remote:
-  image: aiperf:0.8.0
+  image: python:3.12-bookworm
   model: z-ai/glm-5.2
   model-prefix: glm5-2
   runner: benchmark-client
@@ -9705,6 +9705,27 @@ glm5-2-greennode-bench-client-remote:
   remote:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
+    server-command: |
+      python3 -m sglang.launch_server \
+        --model-path /models/zai-org/GLM-5.2-FP8 \
+        --host 0.0.0.0 \
+        --port 8888 \
+        --tp-size 8 \
+        --ep-size 8 \
+        --chunked-prefill-size 16384 \
+        --tool-call-parser glm47 \
+        --reasoning-parser glm45 \
+        --mem-fraction-static 0.85 \
+        --cuda-graph-max-bs 32 \
+        --context-length 500000 \
+        --kv-cache-dtype fp8_e4m3 \
+        --allow-auto-truncate \
+        --enable-metrics \
+        --enable-cache-report \
+        --enable-mixed-chunk \
+        --enable-hierarchical-cache \
+        --hicache-size 64 \
+        --served-model-name zai-org/GLM-5.2-FP8
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9715,12 +9736,56 @@ glm5-2-greennode-bench-client-remote:
       num-dataset-entries: 1000
       duration: 90
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2] }
+      - { tp: 1, ep: 1, conc-list: [2, 4] }
+
+# Claude Code Weka v4 smoke against the same hosted GreenNode endpoint.
+glm5-2-greennode-claude-code-weka-v4-remote-smoke:
+  image: python:3.12-bookworm
+  model: z-ai/glm-5.2
+  model-prefix: glm5-2-claude-code-weka-v4-smoke
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: GREENNODE_API_KEY
+    server-command: |
+      python3 -m sglang.launch_server \
+        --model-path /models/zai-org/GLM-5.2-FP8 \
+        --host 0.0.0.0 \
+        --port 8888 \
+        --tp-size 8 \
+        --ep-size 8 \
+        --chunked-prefill-size 16384 \
+        --tool-call-parser glm47 \
+        --reasoning-parser glm45 \
+        --mem-fraction-static 0.85 \
+        --cuda-graph-max-bs 32 \
+        --context-length 500000 \
+        --kv-cache-dtype fp8_e4m3 \
+        --allow-auto-truncate \
+        --enable-metrics \
+        --enable-cache-report \
+        --enable-mixed-chunk \
+        --enable-hierarchical-cache \
+        --hicache-size 64 \
+        --served-model-name zai-org/GLM-5.2-FP8
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      input-file: benchmarks/single_node/agentic/datasets/minimax_cc_v4_weka
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      duration: 90
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [2, 4] }
 
 # Scenario-free fixed-schedule replay of the checked-in 2026-07-09 historical
 # corpus. conc=1 is matrix identity only; trace timestamps define arrivals.
 glm5-2-greennode-historical-fixed-remote:
-  image: aiperf:0.8.0
+  image: python:3.12-bookworm
   model: z-ai/glm-5.2
   model-prefix: glm5-2
   runner: benchmark-client
@@ -9744,7 +9809,7 @@ glm5-2-greennode-historical-fixed-remote:
 
 # Short validation of the same historical replay path.
 glm5-2-greennode-historical-fixed-remote-smoke:
-  image: aiperf:0.8.0
+  image: python:3.12-bookworm
   model: z-ai/glm-5.2
   model-prefix: glm5-2-historical-fixed-smoke
   runner: benchmark-client
