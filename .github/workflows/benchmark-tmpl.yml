@@ -126,6 +126,16 @@ on:
         required: false
         type: string
         default: ''
+      fixed-schedule:
+        description: "Use AIPerf fixed-schedule replay"
+        required: false
+        type: boolean
+        default: false
+      max-context-length:
+        description: "Maximum replay context length; empty => no cap"
+        required: false
+        type: string
+        default: ''
       remote-url:
         description: "Remote OpenAI-compatible endpoint URL for agentic-replay"
         required: false
@@ -191,6 +201,8 @@ env:
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
   WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}
+  FIXED_SCHEDULE: ${{ inputs.fixed-schedule && 'true' || 'false' }}
+  MAX_CONTEXT_LENGTH: ${{ inputs.max-context-length }}
   REMOTE_URL: ${{ inputs.remote-url }}
   REMOTE_ENDPOINT: ${{ inputs.remote-endpoint }}
   REMOTE_SERVER_METRICS_URL: ${{ inputs.remote-server-metrics-url }}

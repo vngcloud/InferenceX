@@ -69,6 +69,8 @@ class Fields(Enum):
     GPU_TELEMETRY_URL = 'gpu-telemetry-url'
     API_KEY_SECRET_NAME = 'api-key-secret-name'
     AIPERF_DOCKER_IMAGE = 'aiperf-docker-image'
+    FIXED_SCHEDULE = 'fixed-schedule'
+    MAX_CONTEXT_LENGTH = 'max-context-length'
 
     # Matrix entry fields
     CONC = 'conc'
@@ -301,6 +303,10 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
     tokenizer: Optional[str] = Field(
         default=None, alias=Fields.TOKENIZER.value)
+    fixed_schedule: bool = Field(
+        default=False, alias=Fields.FIXED_SCHEDULE.value)
+    max_context_length: Optional[int] = Field(
+        default=None, ge=1, alias=Fields.MAX_CONTEXT_LENGTH.value)
     remote: Optional[RemoteConfig] = Field(default=None, alias=Fields.REMOTE.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
@@ -563,6 +569,10 @@ class AgenticReplayConfig(BaseModel):
     duration: int = Field(default=1800, alias=Fields.DURATION.value)
     tokenizer: Optional[str] = Field(
         default=None, alias=Fields.TOKENIZER.value)
+    fixed_schedule: bool = Field(
+        default=False, alias=Fields.FIXED_SCHEDULE.value)
+    max_context_length: Optional[int] = Field(
+        default=None, ge=1, alias=Fields.MAX_CONTEXT_LENGTH.value)
     search_space: List[AgenticReplaySearchSpaceEntry] = Field(
         alias=Fields.SEARCH_SPACE.value)
 

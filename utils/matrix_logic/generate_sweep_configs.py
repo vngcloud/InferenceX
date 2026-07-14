@@ -520,6 +520,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
             if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
                 public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
             tokenizer = replay_config.get(Fields.TOKENIZER.value)
+            fixed_schedule = replay_config.get(Fields.FIXED_SCHEDULE.value, False)
+            max_context_length = replay_config.get(Fields.MAX_CONTEXT_LENGTH.value)
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
                 Fields.BENCHMARK_CLIENT.value, ["aiperf"])
@@ -578,6 +580,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.NUM_DATASET_ENTRIES.value: num_dataset_entries,
                                 Fields.TOKENIZER.value: tokenizer,
+                                Fields.FIXED_SCHEDULE.value: fixed_schedule,
+                                Fields.MAX_CONTEXT_LENGTH.value: max_context_length,
                                 Fields.DURATION.value: duration,
                                 Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
                                 Fields.DISAGG.value: disagg,
@@ -1036,6 +1040,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
             if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
                 public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"
             tokenizer = replay_config.get(Fields.TOKENIZER.value)
+            fixed_schedule = replay_config.get(Fields.FIXED_SCHEDULE.value, False)
+            max_context_length = replay_config.get(Fields.MAX_CONTEXT_LENGTH.value)
             replay_max_model_len = replay_config[Fields.MAX_MODEL_LEN.value]
             benchmark_clients = replay_config.get(
                 Fields.BENCHMARK_CLIENT.value, ["aiperf"])
@@ -1090,6 +1096,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.NUM_DATASET_ENTRIES.value: num_dataset_entries,
                                 Fields.TOKENIZER.value: tokenizer,
+                                Fields.FIXED_SCHEDULE.value: fixed_schedule,
+                                Fields.MAX_CONTEXT_LENGTH.value: max_context_length,
                                 Fields.DURATION.value: duration,
                                 Fields.EXP_NAME.value: f"{model_code}_tp{tp}_conc{conc}",
                                 Fields.DISAGG.value: disagg,

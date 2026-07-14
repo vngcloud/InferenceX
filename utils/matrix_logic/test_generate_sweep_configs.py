@@ -477,6 +477,33 @@ class TestGenerateFullSweepSingleNode:
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["input-file"].endswith("qwen3.5-4b-smoke.jsonl")
 
+    def test_agentic_replay_defaults_to_agentx_schedule(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["fixed-schedule"] is False
+        assert result[0]["max-context-length"] is None
+
+    def test_agentic_replay_threads_fixed_schedule(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
+        full_sweep_args_single_node.scenario_type = ["agentic-replay"]
+        scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
+        scenario["fixed-schedule"] = True
+        scenario["max-context-length"] = 100000
+
+        result = generate_full_sweep(
+            full_sweep_args_single_node,
+            sample_agentic_replay_config,
+            sample_runner_config,
+        )
+
+        assert result[0]["fixed-schedule"] is True
+        assert result[0]["max-context-length"] == 100000
+
     def test_agentic_replay_threads_remote_config(self, sample_agentic_replay_config, sample_runner_config, full_sweep_args_single_node):
         full_sweep_args_single_node.scenario_type = ["agentic-replay"]
         sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["remote"] = {
@@ -1768,6 +1795,23 @@ class TestGenerateTestConfigSweep:
         assert len(result) == 1
         assert result[0]["benchmark-client"] == "aiperf"
         assert result[0]["scenario-type"] == "agentic-replay"
+
+    def test_agentic_replay_test_config_threads_fixed_schedule(self, sample_agentic_replay_config):
+        args = argparse.Namespace(
+            config_keys=["qwen-agentic-bf16-h100-vllm"],
+            seq_lens=None,
+            conc=None,
+            runner_node_filter=None,
+            scenario_type=["agentic-replay"],
+        )
+        scenario = sample_agentic_replay_config["qwen-agentic-bf16-h100-vllm"]["scenarios"]["agentic-replay"][0]
+        scenario["fixed-schedule"] = True
+        scenario["max-context-length"] = 100000
+
+        result = generate_test_config_sweep(args, sample_agentic_replay_config)
+
+        assert result[0]["fixed-schedule"] is True
+        assert result[0]["max-context-length"] == 100000
 
     def test_agentic_replay_test_config_threads_remote_config(self, sample_agentic_replay_config):
         args = argparse.Namespace(

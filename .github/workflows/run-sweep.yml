@@ -293,6 +293,16 @@ jobs:
             input-file: ${{ matrix.config.input-file }}
             public-dataset: ${{ matrix.config.public-dataset }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
+            num-dataset-entries: ${{ matrix.config.num-dataset-entries }}
+            tokenizer: ${{ matrix.config.tokenizer }}
+            fixed-schedule: ${{ matrix.config.fixed-schedule }}
+            max-context-length: ${{ matrix.config.max-context-length }}
+            remote-url: ${{ matrix.config.remote.url }}
+            remote-endpoint: ${{ matrix.config.remote.endpoint }}
+            remote-server-metrics-url: ${{ matrix.config.remote.server-metrics-url }}
+            remote-gpu-telemetry-url: ${{ matrix.config.remote.gpu-telemetry-url }}
+            remote-api-key-secret: ${{ matrix.config.remote.api-key-secret-name }}
+            aiperf-docker-image: ${{ matrix.config.remote.aiperf-docker-image }}
             duration: ${{ matrix.config.duration }}
             spec-decoding: 'none'
             disagg: ${{ 'false' }}

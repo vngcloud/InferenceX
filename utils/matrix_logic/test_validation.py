@@ -569,6 +569,8 @@ class TestAgenticReplayMatrixEntries:
         assert entry.input_file.endswith("qwen3.5-4b-smoke.jsonl")
         assert entry.custom_dataset_type == "mooncake_trace"
         assert entry.duration == 1800  # default
+        assert entry.fixed_schedule is False
+        assert entry.max_context_length is None
 
     def test_benchmark_client_defaults_to_aiperf(self):
         raw = self._entry()
@@ -665,6 +667,34 @@ class TestAgenticReplayConfig:
         assert cfg.custom_dataset_type == "mooncake_trace"
         assert cfg.max_model_len == 8192
         assert cfg.benchmark_client == ["aiperf"]
+
+    def test_fixed_schedule_defaults(self):
+        cfg = AgenticReplayConfig(**self._config())
+
+        assert cfg.fixed_schedule is False
+        assert cfg.max_context_length is None
+
+    def test_fixed_schedule_fields_serialize_with_aliases(self):
+        cfg = AgenticReplayConfig(**self._config(**{
+            "fixed-schedule": True,
+            "max-context-length": 100000,
+        }))
+
+        dumped = cfg.model_dump(by_alias=True)
+
+        assert dumped["fixed-schedule"] is True
+        assert dumped["max-context-length"] == 100000
+
+    @pytest.mark.parametrize("max_context_length", [0, -1])
+    def test_max_context_length_must_be_positive(self, max_context_length):
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**self._config(**{
+                "max-context-length": max_context_length,
+            }))
+
+    def test_unknown_field_rejected(self):
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**self._config(unknown=True))
 
     def test_benchmark_client_defaults_to_aiperf(self):
         raw = self._config()
