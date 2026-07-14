@@ -279,6 +279,9 @@ jobs:
         name: agentic-replay /
         strategy:
             fail-fast: false
+            # Remote CCU sweeps all hit one shared endpoint; serialize so each
+            # concurrency point is measured in isolation (no cross-CCU contention).
+            max-parallel: 1
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.agentic-replay-config) }}
         secrets: inherit
