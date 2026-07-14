@@ -9795,6 +9795,27 @@ glm5-2-greennode-historical-fixed-remote:
   remote:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
+    server-command: |
+      python3 -m sglang.launch_server \
+        --model-path /models/zai-org/GLM-5.2-FP8 \
+        --host 0.0.0.0 \
+        --port 8888 \
+        --tp-size 8 \
+        --ep-size 8 \
+        --chunked-prefill-size 16384 \
+        --tool-call-parser glm47 \
+        --reasoning-parser glm45 \
+        --mem-fraction-static 0.85 \
+        --cuda-graph-max-bs 32 \
+        --context-length 500000 \
+        --kv-cache-dtype fp8_e4m3 \
+        --allow-auto-truncate \
+        --enable-metrics \
+        --enable-cache-report \
+        --enable-mixed-chunk \
+        --enable-hierarchical-cache \
+        --hicache-size 64 \
+        --served-model-name zai-org/GLM-5.2-FP8
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
