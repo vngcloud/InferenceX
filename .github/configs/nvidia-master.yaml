@@ -9746,7 +9746,7 @@ glm5-2-greennode-historical-fixed-remote:
 glm5-2-greennode-historical-fixed-remote-smoke:
   image: aiperf:0.8.0
   model: z-ai/glm-5.2
-  model-prefix: glm5-2
+  model-prefix: glm5-2-historical-fixed-smoke
   runner: benchmark-client
   precision: unknown
   framework: api

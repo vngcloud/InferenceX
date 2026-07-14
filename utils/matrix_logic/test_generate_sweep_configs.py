@@ -1,6 +1,7 @@
 """Comprehensive tests for generate_sweep_configs.py"""
 import pytest
 import argparse
+from pathlib import Path
 from generate_sweep_configs import (
     MIN_EVAL_CONC,
     seq_len_stoi,
@@ -12,6 +13,7 @@ from generate_sweep_configs import (
     mark_eval_entries,
     apply_node_type_defaults,
     expand_config_keys,
+    load_config_files,
 )
 
 
@@ -1746,6 +1748,26 @@ def full_sweep_args_both():
 
 class TestGenerateTestConfigSweep:
     """Tests for exact config-key sweep generation."""
+
+    def test_historical_fixed_configs_have_distinct_artifact_prefixes(self):
+        config = load_config_files([
+            str(Path(__file__).parents[2] / ".github/configs/nvidia-master.yaml")
+        ])
+        args = argparse.Namespace(
+            config_keys=[
+                "glm5-2-greennode-historical-fixed-remote",
+                "glm5-2-greennode-historical-fixed-remote-smoke",
+            ],
+            seq_lens=None,
+            conc=None,
+            runner_node_filter=None,
+            scenario_type=["agentic-replay"],
+        )
+
+        result = generate_test_config_sweep(args, config)
+
+        assert len(result) == 2
+        assert len({entry["exp-name"] for entry in result}) == 2
 
     def test_default_benchmark_client_no_doubling(self, sample_single_node_config):
         """test-config should keep default scenarios at native-only count."""
