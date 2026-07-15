@@ -49,6 +49,11 @@ def build_config_params(result):
     framework = result["framework"].lower()
     precision = result["precision"].lower()
     spec_method = result.get("spec_decoding", "none").lower()
+    # Sweepable knobs (None = engine default). Passed through so the
+    # dashboard's DB lookup can disambiguate rows that differ only on
+    # these fields once the corresponding columns are added.
+    num_speculative_tokens = result.get("num_speculative_tokens")
+    max_num_batched_tokens = result.get("max_num_batched_tokens")
     disagg = parse_bool(result.get("disagg", False))
 
     if is_multinode:
@@ -58,6 +63,8 @@ def build_config_params(result):
             "framework": framework,
             "precision": precision,
             "spec_method": spec_method,
+            "num_speculative_tokens": num_speculative_tokens,
+            "max_num_batched_tokens": max_num_batched_tokens,
             "disagg": disagg,
             "is_multinode": True,
             "prefill_tp": int(result["prefill_tp"]),
@@ -77,6 +84,8 @@ def build_config_params(result):
             "framework": framework,
             "precision": precision,
             "spec_method": spec_method,
+            "num_speculative_tokens": num_speculative_tokens,
+            "max_num_batched_tokens": max_num_batched_tokens,
             "disagg": disagg,
             "is_multinode": False,
             "prefill_tp": tp,

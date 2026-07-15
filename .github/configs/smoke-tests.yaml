@@ -1,0 +1,50 @@
+# Post-deploy smoke-test matrix. See design/smoke-test-matrix.md for the
+# full design.
+#
+# This is NOT a benchmark master config (compare nvidia-master.yaml /
+# amd-master.yaml) -- those describe ephemeral servers this repo launches
+# itself. Entries here describe an already-deployed stack managed by
+# inference-cicd: only what to run against it, keyed by stack *name* so it
+# can be cross-referenced against whatever inference-cicd's live /discover
+# endpoint reports at run time.
+#
+# Never declare base_url/model/framework/precision/tp/endpoint here -- those
+# come from /discover live so config-vs-reality drift can be detected, not
+# assumed away.
+#
+# Throughput is NOT one of these probes -- it's a separate, standalone
+# workflow (.github/workflows/throughput-test.yml,
+# .github/configs/throughput-tests.yaml, design/throughput-test.md). It
+# moved out because it's a heavier check against a shared production
+# endpoint with its own dataset/cadence/schema, not a quick correctness
+# gate.
+#
+# Fields:
+#   test-cases: which smoke_tests probes to run for this stack.
+#     - metadata:      query version_url, verify served model/framework/
+#                      precision/tp against `expect` below (if set)
+#     - tool-calling:  send a tool-enabled chat completion, verify a
+#                      tool_calls response
+#   expect: (optional) values to diff metadata probe results against.
+#     Omit any sub-field to skip checking it.
+
+sglang-vanilla:
+  test-cases: [metadata, tool-calling]
+  expect:
+    framework: sglang
+    precision: fp8
+    tp: 2
+
+sglang-mooncake-store:
+  test-cases: [metadata, tool-calling]
+  expect:
+    framework: sglang
+    precision: fp8
+    tp: 1
+
+sglang-pd-disaggregation:
+  test-cases: [metadata, tool-calling]
+  expect:
+    framework: sglang
+    precision: fp8
+    tp: 1

@@ -4514,6 +4514,256 @@ gptoss-fp4-h100-vllm:
       - { tp: 4, conc-start: 4, conc-end: 64 }
       - { tp: 8, conc-start: 4, conc-end: 16 }
 
+gptoss-fp4-h100-1x-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: openai/gpt-oss-20b
+  model-prefix: gptoss
+  runner: h100-1x
+  precision: fp4
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # (aiperf trace-replay SystemController times out at startup).
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+
+gptoss-fp4-h100-2x-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: openai/gpt-oss-20b
+  model-prefix: gptoss
+  runner: h100-2x
+  precision: fp4
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16 }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 2, offloading: none, conc-list: [1, 2, 4, 8] }
+
+# Lab test for MEP-0006 (maas-project): Gemma 4 31B FP8 + native MTP assistant
+# via vLLM v1 speculative-config (PR vllm-project/vllm#41745, merged 2026-05-06).
+# v0.21.0 (tagged 2026-05-15) is the first stable release post-PR; after this,
+# vLLM only ships nightlies. Bump tag if issue #42261 (frequent crashes) gets
+# a known-stable patch in a later release.
+#
+# N=2/4/6 MTP rows previously lived in separate config keys
+# (gemma4-fp8-h100-2x-vllm-bench-n4 / -n6) that smuggled the value via
+# model-prefix. Now `num-speculative-tokens` is a first-class search-space
+# field, so all variants collapse into this one key. Baseline (spec-decoding:
+# none) does not depend on N so it omits the field.
+gemma4-fp8-h100-2x-vllm-bench:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4
+  runner: h100-2x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 2 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 4 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 6 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 2 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 4 }
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: mtp, num-speculative-tokens: 6 }
+
+# SGLang baseline counterpart to gemma4-fp8-h100-2x-vllm-bench, for an
+# engine-to-engine comparison on the same model/hardware (2x H100, TP=2,
+# spec-none). SGLang MTP for gemma4 differs from vLLM's --speculative-config
+# drafter and is omitted; this is baseline-vs-baseline. Served by
+# benchmarks/single_node/gemma4_fp8_h100_sglang.sh (framework-tagged; see
+# runners/launch_h100-greennode.sh).
+#
+# Uses the pre-quantized RedHatAI/gemma-4-31B-it-FP8-dynamic checkpoint
+# (compressed-tensors, ignore=['re:.*vision.*','lm_head','re:.*embed_tokens.*'])
+# rather than google/gemma-4-31B-it + on-the-fly --quantization fp8. SGLang's
+# dynamic fp8 quantizes the vision tower too and crashes in
+# triton_scaled_mm (gemma4_vision.py, scale_b shape assertion); the
+# pre-quantized checkpoint keeps the vision tower in bf16 via its ignore list
+# and runs the LLM in fp8. SGLang auto-detects compressed-tensors from the
+# checkpoint, so the script passes no --quantization flag. NOTE: this is a
+# slightly different fp8 recipe than the vLLM bench's on-the-fly fp8.
+gemma4-fp8-h100-2x-sglang:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
+  model-prefix: gemma4
+  runner: h100-2x
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-start: 4, conc-end: 16, spec-decoding: none }
+
+# Continuous-batching characterization on 1x H100. Same target model,
+# TP=1, no spec-decoding. Varies `max-num-batched-tokens` (the
+# chunked-prefill ceiling) to measure how the batched-tokens cap shifts
+# the throughput/latency curve. Gemma 4's vision encoder emits 2496
+# tokens per image so values below ~4096 are not safe — values picked
+# are: 4096 (tight), 8192 (script default, used by the 2x bench above),
+# 16384 (loose).
+gemma4-fp8-h100-1x-vllm-bench:
+  image: vllm/vllm-openai:v0.21.0
+  model: google/gemma-4-31B-it
+  model-prefix: gemma4
+  runner: h100-1x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
+
+# Qwen3.5-27B (dense) FP8 on a single H100 (GreenNode h100-1x). Mirrors the
+# gemma4-fp8-h100-1x-vllm-bench sweep: 1k1k + 8k1k * conc {4..16}, sweeping
+# max-num-batched-tokens 4k/8k/16k. Distinct model-prefix (qwen3.5-27b) so the
+# dashboard doesn't conflate this dense model with the qwen3.5-397B-A17B MoE.
+# NOTE: confirm Qwen/Qwen3.5-27B-FP8 is the actual HF slug before dispatch.
+qwen3.5-27b-fp8-h100-1x-vllm-bench:
+  image: vllm/vllm-openai:v0.21.0
+  model: Qwen/Qwen3.5-27B-FP8
+  model-prefix: qwen3.5-27b
+  runner: h100-1x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 4096 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 8192 }
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none, max-num-batched-tokens: 16384 }
+
+# SGLang counterpart to qwen3.5-27b-fp8-h100-1x-vllm-bench, for an
+# engine-to-engine comparison on the SAME checkpoint (Qwen/Qwen3.5-27B-FP8) and
+# hardware (1x H100, TP=1, spec-none). No max-num-batched-tokens sweep — that's
+# a vLLM knob; SGLang uses --chunked-prefill-size (fixed at 8192 in the script),
+# so this sweeps concurrency only and is comparable to the vLLM bench's 8k-mnbt
+# rows. Served by benchmarks/single_node/qwen3.5-27b_fp8_h100_sglang.sh.
+# The checkpoint is pre-quantized block-fp8 with the vision tower in its
+# quantization_config ignore list, so the script passes no --quantization and
+# SGLang keeps the vision encoder in bf16 (avoids the gemma4 fp8 vision crash).
+qwen3.5-27b-fp8-h100-1x-sglang:
+  image: lmsysorg/sglang:v0.5.12-cu130
+  model: Qwen/Qwen3.5-27B-FP8
+  model-prefix: qwen3.5-27b
+  runner: h100-1x
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16, spec-decoding: none }
+
+dsr1qwen3-bf16-rtx5090-1x-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
+  model-prefix: dsr1qwen3
+  runner: rtx5090-1x
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+
+dsr1qwen3-fp8-rtx5090-1x-vllm:
+  image: vllm/vllm-openai:v0.21.0
+  model: deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
+  model-prefix: dsr1qwen3
+  runner: rtx5090-1x
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 1024
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-start: 4, conc-end: 16 }
+    # agentic-coding: disabled pending issue vngcloud/InferenceX#2
+    # - duration: 1800
+    #   search-space:
+    #   - { tp: 1, offloading: none, conc-list: [1, 2, 4, 8] }
+
 minimaxm2.5-fp8-h100-vllm:
   image: vllm/vllm-openai:v0.21.0
   model: MiniMaxAI/MiniMax-M2.5

@@ -261,6 +261,8 @@ jobs:
             dp-attn: ${{ matrix.config.dp-attn }}
             conc: ${{ matrix.config.conc }}
             spec-decoding: ${{ matrix.config.spec-decoding }}
+            num-speculative-tokens: ${{ matrix.config.num-speculative-tokens }}
+            max-num-batched-tokens: ${{ matrix.config.max-num-batched-tokens }}
             disagg: ${{ matrix.config.disagg }}
             run-eval: false
             ref: ${{ inputs.ref }}
@@ -291,6 +293,8 @@ jobs:
             dp-attn: ${{ matrix.config.dp-attn }}
             conc: ${{ matrix.config.conc }}
             spec-decoding: ${{ matrix.config.spec-decoding }}
+            num-speculative-tokens: ${{ matrix.config.num-speculative-tokens }}
+            max-num-batched-tokens: ${{ matrix.config.max-num-batched-tokens }}
             disagg: ${{ matrix.config.disagg }}
             run-eval: true
             eval-only: true
