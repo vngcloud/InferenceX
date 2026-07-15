@@ -9695,7 +9695,7 @@ glm5-2-byteplus-bench-client-remote-smoke:
 # GREENNODE_API_KEY secret. url has no /v1 so the default endpoint
 # (/v1/chat/completions) resolves to the .../v1/chat/completions request path.
 glm5-2-greennode-bench-client-remote:
-  image: docker.io/thangquang09/aiperf:weka
+  image: python:3.12-bookworm
   model: z-ai/glm-5.2
   model-prefix: glm5-2
   runner: benchmark-client
@@ -9712,6 +9712,8 @@ glm5-2-greennode-bench-client-remote:
         --port 8888 \
         --tp-size 8 \
         --ep-size 8 \
+        --dp-size 2 \
+        --enable-dp-attention \
         --chunked-prefill-size 16384 \
         --tool-call-parser glm47 \
         --reasoning-parser glm45 \
@@ -9734,9 +9736,9 @@ glm5-2-greennode-bench-client-remote:
       benchmark-client: [aiperf]
       tokenizer: zai-org/GLM-5.2
       num-dataset-entries: 1000
-      duration: 90
+      duration: 900
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2, 4] }
+      - { tp: 1, ep: 1, conc-list: [2, 4, 8, 12] }
 
 # Claude Code Weka v4 smoke against the same hosted GreenNode endpoint.
 glm5-2-greennode-claude-code-weka-v4-remote-smoke:
