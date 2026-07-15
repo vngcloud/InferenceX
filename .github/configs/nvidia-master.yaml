@@ -9611,6 +9611,45 @@ deepseek-coder-v2-lite-weka-fp8-bench-client-vllm-remote-router-p2p-smoke:
       search-space:
       - { tp: 1, ep: 1, conc-list: [2, 4, 8] }
 
+# GreenNode self-hosted SGLang-vanilla endpoint (RTX 5090 / sm120, 1 GPU, tp=1)
+# serving DeepSeek-Coder-V2-Lite-Instruct FP8 behind an nip.io ingress. No API
+# key. Public SemiAnalysis Weka CCU sweep. Serving config lives in
+# inference-cicd/helm/sglang-vanilla; recorded below as server-command metadata.
+deepseek-coder-v2-lite-fp8-greennode-sglang-vanilla-bench-client-remote:
+  image: docker.io/thangquang09/aiperf:weka
+  model: DeepSeek-Coder-V2-Lite-Instruct-FP8
+  model-prefix: deepseek-coder-v2-lite-sglang-vanilla
+  runner: benchmark-client
+  precision: fp8
+  framework: api
+  multinode: false
+  remote:
+    url: http://116.118.91.176.nip.io/sglang-vanilla
+    server-command: |
+      python3 -m sglang.launch_server \
+        --model-path RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8 \
+        --served-model-name DeepSeek-Coder-V2-Lite-Instruct-FP8 \
+        --tp 1 \
+        --context-length 131072 \
+        --mem-fraction-static 0.85 \
+        --host 0.0.0.0 \
+        --port 30000 \
+        --trust-remote-code \
+        --tool-call-parser deepseekcoderv2 \
+        --chunked-prefill-size 16384 \
+        --allow-auto-truncate
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: semianalysis_cc_traces_weka_with_subagents_060826
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8
+      num-dataset-entries: 1000
+      duration: 900
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [4, 8] }
+
 # Hosted MaaS endpoint (VNGCloud AI Platform) serving GLM-5.2 — no
 # server-metrics/gpu-telemetry access since it's not our own infra.
 glm5-2-bench-client-remote-smoke:
