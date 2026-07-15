@@ -9714,6 +9714,8 @@ glm5-2-greennode-bench-client-remote:
         --ep-size 8 \
         --dp-size 2 \
         --enable-dp-attention \
+        --enable-dp-lm-head \
+        --enable-dp-attention-local-control-broadcast \
         --chunked-prefill-size 16384 \
         --tool-call-parser glm47 \
         --reasoning-parser glm45 \
