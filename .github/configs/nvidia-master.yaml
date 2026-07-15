@@ -9695,7 +9695,7 @@ glm5-2-byteplus-bench-client-remote-smoke:
 # GREENNODE_API_KEY secret. url has no /v1 so the default endpoint
 # (/v1/chat/completions) resolves to the .../v1/chat/completions request path.
 glm5-2-greennode-bench-client-remote:
-  image: python:3.12-bookworm
+  image: docker.io/thangquang09/aiperf:weka
   model: z-ai/glm-5.2
   model-prefix: glm5-2
   runner: benchmark-client
