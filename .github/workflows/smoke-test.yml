@@ -1,0 +1,74 @@
+name: Smoke Test
+
+# Post-deploy correctness check (metadata drift + tool-calling) against
+# inference-cicd's live, already-deployed stacks. Deliberately NOT a
+# benchmark -- see design/smoke-test-matrix.md for the full design. Source
+# of truth for what's deployed is inference-cicd's live /discover endpoint,
+# not a catalog in this repo.
+#
+# Throughput is a separate workflow: .github/workflows/throughput-test.yml
+# (see design/throughput-test.md). It moved out of this one because it's a
+# heavier check with its own dataset/cadence/schema, not a quick
+# correctness gate.
+
+on:
+    repository_dispatch:
+        types: [stack-deployed]
+    workflow_dispatch:
+        inputs:
+            stack:
+                description: "Only test this stack (must be registered in /discover). Leave empty to test every discovered stack."
+                required: false
+                type: string
+
+jobs:
+    get-jobs:
+        runs-on: ubuntu-latest
+        outputs:
+            matrix: ${{ steps.get-jobs.outputs.matrix }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install dependencies
+              run: pip install -q requests pyyaml
+
+            - id: get-jobs
+              env:
+                  STACK: ${{ inputs.stack || github.event.client_payload.stack }}
+              run: |
+                  ARGS=(--config .github/configs/smoke-tests.yaml)
+                  if [ -n "$STACK" ]; then
+                      ARGS+=(--stack "$STACK")
+                  fi
+                  MATRIX=$(python3 utils/smoke_tests/generate_matrix.py "${ARGS[@]}")
+                  echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+    smoke-test:
+        needs: get-jobs
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                stack: ${{ fromJson(needs.get-jobs.outputs.matrix) }}
+        name: smoke-test / ${{ matrix.stack.name }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install dependencies
+              run: pip install -q requests pyyaml
+
+            - name: Run smoke test
+              run: |
+                  python3 utils/smoke_tests/run_smoke_test.py \
+                    --matrix-entry '${{ toJson(matrix.stack) }}' \
+                    --summary-file "$GITHUB_STEP_SUMMARY" \
+                    --results-file smoke_test_results_${{ matrix.stack.name }}.json
+
+            - name: Upload raw results
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: smoke_test_results_${{ matrix.stack.name }}
+                  path: smoke_test_results_${{ matrix.stack.name }}.json

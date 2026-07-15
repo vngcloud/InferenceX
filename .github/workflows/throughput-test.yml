@@ -1,0 +1,101 @@
+name: Throughput Test
+
+# Standalone post-deploy throughput check against inference-cicd's live,
+# already-deployed stacks, using a real coding-session trace aiperf dataset
+# (not smoke-test's tiny synthetic isl/osl ping). See
+# design/throughput-test.md for the full design.
+#
+# Deliberately decoupled from smoke-test.yml -- smoke test and throughput
+# test are two unrelated tests. This one is a heavier check against a
+# shared production endpoint with its own cadence/dataset/schema, not a
+# quick correctness gate.
+
+on:
+    repository_dispatch:
+        types: [stack-deployed]
+    workflow_dispatch:
+        inputs:
+            stack:
+                description: "Only test this stack (must be registered in /discover and configured in throughput-tests.yaml). Leave empty to test every configured stack."
+                required: false
+                type: string
+
+jobs:
+    get-jobs:
+        runs-on: ubuntu-latest
+        outputs:
+            matrix: ${{ steps.get-jobs.outputs.matrix }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install dependencies
+              run: pip install -q requests pyyaml
+
+            - id: get-jobs
+              env:
+                  STACK: ${{ inputs.stack || github.event.client_payload.stack }}
+              run: |
+                  ARGS=(--config .github/configs/throughput-tests.yaml)
+                  if [ -n "$STACK" ]; then
+                      ARGS+=(--stack "$STACK")
+                  fi
+                  MATRIX=$(python3 utils/throughput_test/generate_matrix.py "${ARGS[@]}")
+                  echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+    throughput-test:
+        needs: get-jobs
+        runs-on: [self-hosted, benchmark-client]
+        strategy:
+            fail-fast: false
+            matrix:
+                stack: ${{ fromJson(needs.get-jobs.outputs.matrix) }}
+        name: throughput-test / ${{ matrix.stack.name }}
+        env:
+            HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  submodules: true
+
+            - name: Install dependencies
+              run: |
+                  # bench-client_00 is a bare self-hosted runner: no venv, and
+                  # python3 has no pip module at all (not just missing from
+                  # PATH) -- bootstrap it before using python3 -m pip with
+                  # --break-system-packages, same as
+                  # benchmarks/benchmark_lib.sh's install helpers.
+                  if ! python3 -m pip --version >/dev/null 2>&1; then
+                      python3 -m ensurepip --upgrade --break-system-packages || \
+                          (curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
+                           python3 /tmp/get-pip.py --break-system-packages)
+                  fi
+                  python3 -m pip install -q --break-system-packages requests pyyaml
+                  # The semianalysis_cc_traces_weka public-dataset loader is a
+                  # vngcloud/aiperf fork addition, not (yet) in the upstream
+                  # PyPI aiperf release -- needs an editable install from the
+                  # submodule, same pattern as
+                  # benchmarks/benchmark_lib.sh:install_agentic_deps().
+                  python3 -m pip install -q --break-system-packages -e utils/aiperf
+                  python3 -m pip install -q --break-system-packages --upgrade "datasets>=4.7.0"
+                  # This non-root user can't write to the system site-packages
+                  # bin dir, so pip installs console scripts (aiperf, pip
+                  # itself) under ~/.local/bin instead -- not on PATH by
+                  # default. Add it for the "Run throughput test" step, which
+                  # shells out to the bare `aiperf` command.
+                  echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+            - name: Run throughput test
+              run: |
+                  python3 utils/throughput_test/run_throughput_test.py \
+                    --matrix-entry '${{ toJson(matrix.stack) }}' \
+                    --summary-file "$GITHUB_STEP_SUMMARY" \
+                    --results-file throughput_test_results_${{ matrix.stack.name }}.json
+
+            - name: Upload raw results
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: throughput_test_results_${{ matrix.stack.name }}
+                  path: throughput_test_results_${{ matrix.stack.name }}.json

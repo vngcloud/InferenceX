@@ -1,0 +1,168 @@
+# Design: Post-Deploy Smoke Test Matrix
+
+## Why
+
+`inference-cicd` (GitOps repo, ArgoCD) deploys serving stacks onto a shared VKS
+cluster. Nothing today verifies "did the last deploy still serve correctly" —
+`e2e-tests.yml`/`run-sweep.yml` only exercise ephemeral servers this repo
+launches itself; they never talk to an already-deployed, externally-managed
+endpoint. This design covers a new, separate workflow: a fast correctness
+check against live deployments, triggered by `inference-cicd` on deploy.
+
+**Smoke test and throughput test are two unrelated tests.** This doc covers
+only the fast correctness gate (`metadata` + `tool-calling`). Throughput
+testing against live deployments is its own standalone workflow — see
+`design/throughput-test.md` — with its own cadence, its own real-trace
+dataset, and its own ingest schema. It used to be a third probe bundled into
+this same job; it moved out because it's a heavier check against a shared
+production endpoint and deserved its own design, not a quick correctness
+gate's leftover slot.
+
+This is deliberately *not* a benchmark, and it's new code rather than an
+extension of the closest existing system
+(`remote:`/`RemoteConfig` agentic-replay in `utils/matrix_logic/validation.py`).
+That system solves a different problem: human-dispatched,
+private-LAN-only, agentic-trace-throughput benchmarking that requires a
+self-hosted `benchmark-client` runner. It explicitly rejects plain
+fixed-seq-len throughput against a remote endpoint, has no deploy trigger,
+and no correctness checks. None of it applies here.
+
+## Input
+
+The source of truth for "what's deployed and where" is `inference-cicd`'s live
+`/discover` endpoint — **not** a hand-maintained catalog in this repo (this
+matches the "self-report, no-catalog" design referenced in
+`inference-cicd`'s `design/inferencex-integration.md`). All three deployed
+stacks are registered:
+
+```bash
+$ curl -s http://116.118.91.176.nip.io/discover | jq .
+{
+  "stacks": [
+    {
+      "name": "sglang-mooncake-store",
+      "base_url": "http://116.118.91.176.nip.io/sglang-mooncake-store",
+      "endpoint": "/v1/chat/completions",
+      "version_url": "http://116.118.91.176.nip.io/sglang-mooncake-store-version",
+      "chart": "sglang-mooncake-store-0.1.0",
+      "framework": "sglang",
+      "image": "lmsysorg/sglang:v0.5.14",
+      "model": "RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "precision": "fp8",
+      "servedName": "DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "tp": 1
+    },
+    {
+      "name": "sglang-pd-disaggregation",
+      "base_url": "http://116.118.91.176.nip.io/sglang-pd-disaggregation",
+      "endpoint": "/v1/chat/completions",
+      "version_url": "http://116.118.91.176.nip.io/sglang-pd-disaggregation-version",
+      "chart": "sglang-pd-disaggregation-0.1.0",
+      "disaggregation": true,
+      "framework": "sglang",
+      "image": "lmsysorg/sglang:v0.5.14",
+      "model": "RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "precision": "fp8",
+      "servedName": "DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "tp": 1
+    },
+    {
+      "name": "sglang-vanilla",
+      "base_url": "http://116.118.91.176.nip.io/sglang-vanilla",
+      "endpoint": "/v1/chat/completions",
+      "version_url": "http://116.118.91.176.nip.io/sglang-vanilla-version",
+      "chart": "sglang-vanilla-0.1.0",
+      "framework": "sglang",
+      "image": "lmsysorg/sglang:v0.5.14",
+      "model": "RedHatAI/DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "precision": "fp8",
+      "servedName": "DeepSeek-Coder-V2-Lite-Instruct-FP8",
+      "tp": 2
+    }
+  ]
+}
+```
+
+The schema isn't fully uniform across stacks — `sglang-pd-disaggregation`
+carries an extra `disaggregation: true` field the other two don't have.
+Probes/config should treat unlisted fields as optional, not assume every
+stack entry has the exact same key set.
+
+Each `version_url` (per-stack self-report, no cluster credentials needed)
+independently returns `200` and the same metadata directly.
+
+Input InferenceX still needs to declare itself (not derivable from
+`/discover`): which probes to run per stack, and the tool-calling schema to
+test with. This lives in `.github/configs/smoke-tests.yaml`, keyed by stack
+`name` so it can be cross-referenced against whatever `/discover` reports at
+run time — the config never hardcodes `base_url`/`model`/`framework`/`tp`,
+since those come from `/discover` live and would otherwise drift out of sync
+with reality.
+
+## Process
+
+1. **Trigger**: `repository_dispatch` (event `stack-deployed`, payload
+   `{"stack": "<name>"}`) fired by `inference-cicd` on push to a stack's Helm
+   values; also `workflow_dispatch` (optional `stack` input) for manual runs /
+   running the full matrix.
+2. **Matrix build** (`get-jobs` job): call `/discover`, cross-reference each
+   returned stack against `smoke-tests.yaml`'s test-params keyed by name.
+   - Stack in both `/discover` and `smoke-tests.yaml` → full matrix entry.
+   - Stack in `/discover` but not `smoke-tests.yaml` → still run a default
+     probe set (`metadata` + `tool-calling`), logged explicitly — no silent
+     skip of a live, discoverable stack.
+   - Stack named in a `repository_dispatch`/`workflow_dispatch` input but
+     absent from `/discover` → fail loudly (deploy claims to exist but isn't
+     discoverable — that's itself a signal worth surfacing).
+3. **Per-stack job** (matrix over discovered stacks), each running:
+   - `metadata`: fetch `version_url`; if `smoke-tests.yaml` declares expected
+     model/framework/precision/tp, diff live-reported values against it to
+     catch config-vs-reality drift (not just "did it respond").
+   - `tool-calling`: real chat-completion request with `tools=[...]`, assert
+     a `tool_calls` response.
+4. **Report**: `$GITHUB_STEP_SUMMARY` table, one row per stack; job fails
+   (non-zero exit) if any probe fails. The raw `--results-file` JSON is
+   tagged `"run_type": "live-check"` so `InferenceX-app` can file these into
+   their own dedicated tab (showing what's currently live, separate from
+   full sweep history) instead of mixing them into the regular results view.
+   Per 2026-07-12 sync with `InferenceX-app`: **this repo does not call
+   `trigger-ingest`** — `InferenceX-app` owns pulling/ingesting the tagged
+   results on its own schedule/trigger. Retention/pruning of live-check
+   results is on InferenceX's side, not `InferenceX-app`'s.
+
+## Commands to run before writing/editing `smoke-tests.yaml`
+
+Never hand-guess a stack's metadata. Always re-verify against the live
+cluster and the live `/discover` response first:
+
+```bash
+# ground truth: what's actually running in the cluster
+kubectl get pods -n inference
+kubectl get ingress -n inference
+
+# what InferenceX will actually query at run time
+curl -s http://116.118.91.176.nip.io/discover | jq .
+
+# per-stack self-report (same data as one /discover entry, fetched directly)
+curl -s http://116.118.91.176.nip.io/<stack>-version | jq .
+```
+
+If a stack you want to add isn't in `/discover`'s output, adding it to
+`smoke-tests.yaml` is pointless until `inference-cicd` registers it — file
+that as a request to the `inference-cicd` owner, not a workaround here.
+
+## Open items
+
+- `sglang-pd-disaggregation`'s single flat `tp: 1` doesn't capture that
+  disaggregated serving actually has separate prefill/decode parallelism —
+  worth a follow-up question to `inference-cicd` on whether `/discover`
+  should report `prefill_tp`/`decode_tp` for disagg stacks, but not a
+  blocker for the metadata/tool-calling probes, which don't need that
+  breakdown.
+- ~~Throughput was a third probe here (`aiperf`-based sweep).~~ Moved out
+  2026-07-12 to its own standalone workflow — see `design/throughput-test.md`.
+- ~~DB ingest tagging (`run_type: live-check`) deferred pending coordination
+  with `InferenceX-app`~~ — resolved 2026-07-12: results JSON is tagged,
+  `InferenceX-app` pulls/ingests on its own side (see Report step above).
+- Exact `repository_dispatch` event name/payload shape needs to be agreed
+  with whoever owns the `inference-cicd` side of this.
