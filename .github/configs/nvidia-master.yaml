@@ -9712,6 +9712,11 @@ glm5-2-greennode-bench-client-remote:
         --port 8888 \
         --tp-size 8 \
         --ep-size 8 \
+        --dp-size 2 \
+        --enable-dp-attention \
+        --enable-dp-lm-head \
+        --enable-dp-attention-local-control-broadcast \
+        --load-balance-method total_tokens \
         --speculative-algorithm EAGLE \
         --speculative-num-steps 3 \
         --speculative-eagle-topk 1 \
@@ -9740,7 +9745,7 @@ glm5-2-greennode-bench-client-remote:
       num-dataset-entries: 1000
       duration: 900
       search-space:
-      - { tp: 1, ep: 1, conc-list: [2, 4, 8, 10] }
+      - { tp: 1, ep: 1, conc-list: [4, 8, 10, 12] }
 
 # Claude Code Weka v4 smoke against the same hosted GreenNode endpoint.
 glm5-2-greennode-claude-code-weka-v4-remote-smoke:
