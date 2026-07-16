@@ -9712,14 +9712,7 @@ glm5-2-greennode-bench-client-remote:
         --port 8888 \
         --tp-size 8 \
         --ep-size 8 \
-        --dp-size 2 \
-        --enable-dp-attention \
-        --enable-dp-lm-head \
-        --enable-dp-attention-local-control-broadcast \
-        --speculative-algorithm EAGLE \
-        --speculative-num-steps 3 \
-        --speculative-eagle-topk 1 \
-        --speculative-num-draft-tokens 4 \
+        --moe-a2a-backend deepep \
         --chunked-prefill-size 16384 \
         --tool-call-parser glm47 \
         --reasoning-parser glm45 \
