@@ -84,6 +84,15 @@ Edit only the reused or newly created config. Keep these invariants:
   public-dataset: weka_hf
   hf-weka-repo: semianalysisai/cc-traces-weka-062126
   ```
+- For the public Weka HF 062126 sweep, always run with AIPerf unsafe override
+  enabled. The current prebuilt client image `docker.io/thangquang09/aiperf:weka`
+  still locks the `inferencex-agentx-mvp` scenario invariant to the older
+  `semianalysisai/cc-traces-weka-with-subagents-060826` repo. Do **not** change
+  the dataset to 060826. Keep `public-dataset: weka_hf` plus `hf-weka-repo:
+  semianalysisai/cc-traces-weka-062126` and ensure `AIPERF_UNSAFE_OVERRIDE=true`
+  is set for the remote job so `_remote_replay.sh` appends
+  `--unsafe-override`. `submission_valid=false` in artifacts is expected and
+  acceptable for these 062126 ablation runs.
 - Weka v4 dataset: `input-file: benchmarks/single_node/agentic/datasets/minimax_cc_v4_weka`
 - Simulation dataset: `input-file: benchmarks/single_node/agentic/datasets/glm5_2_ccu_20260709_weka/sessions` with `fixed-schedule: true`
 - Simulation search space: `{ tp: 1, ep: 1, conc-list: [1] }`
@@ -113,6 +122,15 @@ validated on 2026-07-17 in
 the log showed `Loading HuggingFace dataset 'semianalysisai/cc-traces-weka-062126'`
 at revision `23f152f6f0f9399a85901b89a6458def0ef16729`, and the workflow
 completed successfully.
+
+If a run fails with a scenario invariant error requiring
+`semianalysisai/cc-traces-weka-with-subagents-060826`, do not switch datasets.
+Fix env forwarding instead: `.github/workflows/benchmark-tmpl.yml` must set
+`AIPERF_UNSAFE_OVERRIDE=true` when `public-dataset` is `weka_hf` and
+`hf-weka-repo` is `semianalysisai/cc-traces-weka-062126`, and
+`runners/launch_remote.sh` must include `AIPERF_UNSAFE_OVERRIDE` in `RUN_ENV`
+so the variable reaches the remote Docker container. This is currently required
+for `docker.io/thangquang09/aiperf:weka`.
 
 Do not add client-side context filtering unless the user explicitly requests it. A server command's context length is metadata, not proof of live server state.
 
