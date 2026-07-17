@@ -67,7 +67,7 @@ Use these as known templates:
 
 | Scenario | Template config |
 |---|---|
-| Public SemiAnalysis CCU sweep | `glm5-2-greennode-bench-client-remote` |
+| Public SemiAnalysis CCU sweep | `glm5-2-greennode-bench-client-remote` or the HF-Weka smoke template `glm5-2-greennode-weka-hf-062126-remote-smoke` |
 | Claude Code Weka v4 CCU sweep | `glm5-2-greennode-claude-code-weka-v4-remote-smoke` |
 | Simulation smoke | `glm5-2-greennode-historical-fixed-remote-smoke` |
 | Simulation full | `glm5-2-greennode-historical-fixed-remote` |
@@ -79,7 +79,11 @@ Edit only the reused or newly created config. Keep these invariants:
 - `framework: api`
 - `benchmark-client: [aiperf]`
 - `custom-dataset-type: weka_trace`
-- Public sweep dataset: `public-dataset: semianalysis_cc_traces_weka_with_subagents_060826`
+- Public sweep dataset default: use the generic HuggingFace Weka loader with:
+  ```yaml
+  public-dataset: weka_hf
+  hf-weka-repo: semianalysisai/cc-traces-weka-062126
+  ```
 - Weka v4 dataset: `input-file: benchmarks/single_node/agentic/datasets/minimax_cc_v4_weka`
 - Simulation dataset: `input-file: benchmarks/single_node/agentic/datasets/glm5_2_ccu_20260709_weka/sessions` with `fixed-schedule: true`
 - Simulation search space: `{ tp: 1, ep: 1, conc-list: [1] }`
@@ -87,6 +91,28 @@ Edit only the reused or newly created config. Keep these invariants:
 - Put the confirmed duration in YAML. Leave `duration-override` empty during dispatch so committed config and executed config agree.
 - If supplied, store the launch command under `remote.server-command: |`. If omitted, remove that field and repeat the metadata warning in the confirmation.
 - Set `remote.url`, `model`, `tokenizer`, and `api-key-secret-name` to the confirmed provider values.
+
+For a newly published compatible Weka HuggingFace corpus, do **not** put the
+HF repo directly in `public-dataset`. Use `public-dataset: weka_hf` plus
+`hf-weka-repo: <org/repo>`. The matrix generator forwards this as
+`PUBLIC_DATASET=weka_hf` and `HF_WEKA_REPO=<org/repo>`, and `_remote_replay.sh`
+must build:
+
+```bash
+--public-dataset weka_hf --hf-weka-repo <org/repo>
+```
+
+If a run fails during dataset configuration with
+`--public-dataset weka_hf requires --hf-weka-repo`, the repo field was dropped
+somewhere in the workflow plumbing. Check all of these paths before dispatching
+again: `.github/workflows/e2e-tests.yml`, `.github/workflows/benchmark-tmpl.yml`,
+`runners/launch_remote.sh`, `benchmarks/single_node/agentic/_remote_replay.sh`,
+and `benchmarks/benchmark_lib.sh` for the docker replay path. This path was
+validated on 2026-07-17 in
+[run 29588955806](https://github.com/vngcloud/InferenceX/actions/runs/29588955806):
+the log showed `Loading HuggingFace dataset 'semianalysisai/cc-traces-weka-062126'`
+at revision `23f152f6f0f9399a85901b89a6458def0ef16729`, and the workflow
+completed successfully.
 
 Do not add client-side context filtering unless the user explicitly requests it. A server command's context length is metadata, not proof of live server state.
 
@@ -102,7 +128,7 @@ uv run python utils/matrix_logic/generate_sweep_configs.py test-config \
   --config-keys <selected-config-key>
 ```
 
-Inspect the generated matrix and show the user: config key, image, runner, provider URL, API model, tokenizer, dataset, fixed schedule status, CCU ladder, duration, secret name, whether server-command metadata is present, and the shared-endpoint warning state:
+Inspect the generated matrix and show the user: config key, image, runner, provider URL, API model, tokenizer, dataset (`public-dataset` plus `hf-weka-repo` when present, or `input-file`), fixed schedule status, CCU ladder, duration, secret name, whether server-command metadata is present, and the shared-endpoint warning state:
 
 - whether `test-sweep-agentic-replay` is serialized with `max-parallel: 1`
 - whether another run against the same endpoint was checked
