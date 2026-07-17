@@ -9874,9 +9874,26 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   remote:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
-    server-command: "python3 -m sglang.launch_server \\\n  --model-path /models/zai-org/GLM-5.2-FP8 \\\n  --host 0.0.0.0 \\\n  --port 8888 \\\n  --tp-size 8 \\\n  --chunked-prefill-size 8192 \\\n  --tool-call-parser glm47 \\\n  --reasoning-parser glm45 \\\n  --mem-fraction-static 0.85 \\\n  --cuda-graph-max-bs 32 \\\n  --context-length 250000 \\\n  --kv-cache-dtype fp8_e4m3 \\\n  --allow-auto-truncate \\\n  --enable-metrics \\\n  --enable-cache-report \\\n  --served-model-name zai-org/GLM-5.2-FP8\n"
-    server-metrics-url: https://reserves-sender-processors-traffic.trycloudflare.com
-    gpu-telemetry-url: https://shakespeare-talk-journalism-costume.trycloudflare.com
+    server-command: "python3 -m sglang.launch_server \
+  --model-path /models/zai-org/GLM-5.2-FP8 \
+  --host 0.0.0.0 \
+  --port 8888 \
+  --tp-size 8 \
+  --ep-size 8 \
+  --chunked-prefill-size 8192 \
+  --tool-call-parser glm47 \
+  --reasoning-parser glm45 \
+  --mem-fraction-static 0.85 \
+  --cuda-graph-max-bs 32 \
+  --context-length 250000 \
+  --kv-cache-dtype fp8_e4m3 \
+  --allow-auto-truncate \
+  --enable-metrics \
+  --enable-cache-report \
+  --served-model-name zai-org/GLM-5.2-FP8
+"
+    server-metrics-url: https://industry-arbitration-are-copper.trycloudflare.com
+    gpu-telemetry-url: https://top-protocol-proudly-iii.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
