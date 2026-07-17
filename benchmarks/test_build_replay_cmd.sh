@@ -78,6 +78,20 @@ run_runtime_check true 3000 "" 4890
 run_runtime_check true 60 "" 1950
 run_runtime_check false 90 "" 2400
 run_runtime_check true 3000 1234 1234
+
+public_dataset_args_file="$tmp_home/timeout-public-dataset"
+env AIPERF_MAX_RUNTIME=123 \
+    TIMEOUT_ARGS_FILE="$public_dataset_args_file" \
+    INFMAX_CONTAINER_WORKSPACE="$repo_root" \
+    MODEL=z-ai/glm-5.2 CONC=2 RESULT_DIR="$tmp_home/result-public-dataset" \
+    REMOTE_URL=https://replay.invalid REMOTE_API_KEY=test-secret \
+    TOKENIZER=zai-org/GLM-5.2 PUBLIC_DATASET=weka_hf \
+    HF_WEKA_REPO=semianalysisai/cc-traces-weka-062126 \
+    CUSTOM_DATASET_TYPE=weka_trace FIXED_SCHEDULE=false \
+    DURATION=60 bash "$remote_replay" >/dev/null 2>&1
+public_dataset_args="$(<"$public_dataset_args_file")"
+assert_contains "$public_dataset_args" "--public-dataset weka_hf"
+assert_contains "$public_dataset_args" "--hf-weka-repo semianalysisai/cc-traces-weka-062126"
 unset -f curl timeout python3 aiperf
 
 MODEL="z-ai/glm-5.2"

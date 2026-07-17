@@ -208,7 +208,7 @@ env:
   DURATION: ${{ inputs.duration }}
   INPUT_FILE: ${{ inputs.input-file }}
   PUBLIC_DATASET: ${{ inputs.public-dataset }}
-  HF_WEKA_REPO: ${{ inputs.hf-weka-repo }}
+  HF_WEKA_REPO: ${{ inputs['hf-weka-repo'] }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
   WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}

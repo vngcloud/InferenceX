@@ -1694,6 +1694,7 @@ build_docker_replay_args() {
         docker run --rm --network host
         --user "$(id -u):$(id -g)"
         -e HF_TOKEN
+        -e HF_WEKA_REPO
         -e AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES
         -e AIPERF_DATASET_WEKA_SPLIT_FLATTENED_AGENTS
         -e AIPERF_DATASET_CONFIGURATION_TIMEOUT

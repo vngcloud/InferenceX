@@ -303,7 +303,7 @@ jobs:
             max-model-len: ${{ matrix.config.max-model-len }}
             input-file: ${{ matrix.config.input-file }}
             public-dataset: ${{ matrix.config.public-dataset }}
-            hf-weka-repo: ${{ matrix.config.hf-weka-repo }}
+            hf-weka-repo: ${{ matrix.config['hf-weka-repo'] }}
             custom-dataset-type: ${{ matrix.config.custom-dataset-type }}
             num-dataset-entries: ${{ matrix.config.num-dataset-entries }}
             tokenizer: ${{ matrix.config.tokenizer }}
