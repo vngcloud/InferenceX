@@ -9863,10 +9863,10 @@ glm5-2-greennode-historical-fixed-remote-smoke:
       search-space:
       - { tp: 1, ep: 1, conc-list: [1] }
 
-glm5-2-greennode-weka-hf-060826-remote-full:
+glm5-2-greennode-weka-hf-062126-remote-full:
   image: docker.io/thangquang09/aiperf:weka
   model: z-ai/glm-5.2
-  model-prefix: glm5-2-weka-hf-060826
+  model-prefix: glm5-2-weka-hf-062126
   runner: benchmark-client
   precision: unknown
   framework: api
@@ -9875,13 +9875,13 @@ glm5-2-greennode-weka-hf-060826-remote-full:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
     server-command: "python3 -m sglang.launch_server \\\n  --model-path /models/zai-org/GLM-5.2-FP8 \\\n  --host 0.0.0.0 \\\n  --port 8888 \\\n  --tp-size 8 \\\n  --chunked-prefill-size 8192 \\\n  --tool-call-parser glm47 \\\n  --reasoning-parser glm45 \\\n  --mem-fraction-static 0.85 \\\n  --cuda-graph-max-bs 32 \\\n  --context-length 250000 \\\n  --kv-cache-dtype fp8_e4m3 \\\n  --allow-auto-truncate \\\n  --enable-metrics \\\n  --enable-cache-report \\\n  --served-model-name zai-org/GLM-5.2-FP8\n"
-    server-metrics-url: https://innovative-capabilities-wrist-buck.trycloudflare.com
-    gpu-telemetry-url: https://nirvana-drawing-demands-cameron.trycloudflare.com
+    server-metrics-url: https://reserves-sender-processors-traffic.trycloudflare.com
+    gpu-telemetry-url: https://shakespeare-talk-journalism-costume.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
       public-dataset: weka_hf
-      hf-weka-repo: semianalysisai/cc-traces-weka-with-subagents-060826
+      hf-weka-repo: semianalysisai/cc-traces-weka-062126
       max-model-len: 131072
       benchmark-client:
       - aiperf
