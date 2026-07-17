@@ -60,6 +60,7 @@ class Fields(Enum):
     # Agentic replay fields
     INPUT_FILE = 'input-file'
     PUBLIC_DATASET = 'public-dataset'
+    HF_WEKA_REPO = 'hf-weka-repo'
     CUSTOM_DATASET_TYPE = 'custom-dataset-type'
     NUM_DATASET_ENTRIES = 'num-dataset-entries'
     TOKENIZER = 'tokenizer'
@@ -300,6 +301,7 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
     max_model_len: int = Field(alias=Fields.MAX_MODEL_LEN.value)
     input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
     public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
+    hf_weka_repo: Optional[str] = Field(default=None, alias=Fields.HF_WEKA_REPO.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
     num_dataset_entries: Optional[int] = Field(
         default=None, ge=1, alias=Fields.NUM_DATASET_ENTRIES.value)
@@ -321,6 +323,8 @@ class SingleNodeAgenticReplayMatrixEntry(BaseModel):
             raise ValueError("agentic-replay matrix entry accepts only one of input-file or public-dataset")
         if not self.input_file and not self.public_dataset:
             raise ValueError("agentic-replay matrix entry requires input-file or public-dataset")
+        if self.hf_weka_repo and self.public_dataset != "weka_hf":
+            raise ValueError("hf-weka-repo can only be used with public-dataset: weka_hf")
         return self
 
 
@@ -563,6 +567,7 @@ class AgenticReplayConfig(BaseModel):
 
     input_file: Optional[str] = Field(default=None, alias=Fields.INPUT_FILE.value)
     public_dataset: Optional[str] = Field(default=None, alias=Fields.PUBLIC_DATASET.value)
+    hf_weka_repo: Optional[str] = Field(default=None, alias=Fields.HF_WEKA_REPO.value)
     custom_dataset_type: str = Field(alias=Fields.CUSTOM_DATASET_TYPE.value)
     num_dataset_entries: Optional[int] = Field(
         default=None, ge=1, alias=Fields.NUM_DATASET_ENTRIES.value)
@@ -583,6 +588,8 @@ class AgenticReplayConfig(BaseModel):
     def validate_trace_source(self):
         if self.input_file and self.public_dataset:
             raise ValueError("agentic-replay accepts only one of input-file or public-dataset")
+        if self.hf_weka_repo and self.public_dataset != "weka_hf":
+            raise ValueError("hf-weka-repo can only be used with public-dataset: weka_hf")
         if self.custom_dataset_type == "weka_trace":
             if not self.input_file and not self.public_dataset:
                 self.public_dataset = "semianalysis_cc_traces_weka_with_subagents_060826"

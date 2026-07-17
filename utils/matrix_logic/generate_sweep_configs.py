@@ -515,6 +515,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
             duration = replay_config.get(Fields.DURATION.value, 1800)
             input_file = replay_config.get(Fields.INPUT_FILE.value)
             public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
+            hf_weka_repo = replay_config.get(Fields.HF_WEKA_REPO.value)
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
             num_dataset_entries = replay_config.get(Fields.NUM_DATASET_ENTRIES.value)
             if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
@@ -577,6 +578,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                                 Fields.MAX_MODEL_LEN.value: replay_max_model_len,
                                 Fields.INPUT_FILE.value: input_file,
                                 Fields.PUBLIC_DATASET.value: public_dataset,
+                                Fields.HF_WEKA_REPO.value: hf_weka_repo,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.NUM_DATASET_ENTRIES.value: num_dataset_entries,
                                 Fields.TOKENIZER.value: tokenizer,
@@ -1035,6 +1037,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
             duration = replay_config.get(Fields.DURATION.value, 1800)
             input_file = replay_config.get(Fields.INPUT_FILE.value)
             public_dataset = replay_config.get(Fields.PUBLIC_DATASET.value)
+            hf_weka_repo = replay_config.get(Fields.HF_WEKA_REPO.value)
             custom_dataset_type = replay_config[Fields.CUSTOM_DATASET_TYPE.value]
             num_dataset_entries = replay_config.get(Fields.NUM_DATASET_ENTRIES.value)
             if custom_dataset_type == "weka_trace" and not input_file and not public_dataset:
@@ -1093,6 +1096,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                                 Fields.MAX_MODEL_LEN.value: replay_max_model_len,
                                 Fields.INPUT_FILE.value: input_file,
                                 Fields.PUBLIC_DATASET.value: public_dataset,
+                                Fields.HF_WEKA_REPO.value: hf_weka_repo,
                                 Fields.CUSTOM_DATASET_TYPE.value: custom_dataset_type,
                                 Fields.NUM_DATASET_ENTRIES.value: num_dataset_entries,
                                 Fields.TOKENIZER.value: tokenizer,

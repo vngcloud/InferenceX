@@ -31,6 +31,9 @@ if [[ -n "${INPUT_FILE:-}" ]]; then
     fi
 elif [[ -n "$PUBLIC_DATASET" ]]; then
     TRACE_SOURCE_FLAG="--public-dataset $PUBLIC_DATASET"
+    if [[ -n "${HF_WEKA_REPO:-}" ]]; then
+        TRACE_SOURCE_FLAG+=" --hf-weka-repo $HF_WEKA_REPO"
+    fi
 else
     echo "Error: one of INPUT_FILE or PUBLIC_DATASET is required" >&2
     exit 1

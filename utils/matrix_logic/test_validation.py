@@ -743,6 +743,30 @@ class TestAgenticReplayConfig:
 
         assert cfg.public_dataset == "semianalysis_cc_traces_weka_with_subagents_060826"
 
+    def test_weka_accepts_generic_hf_repo(self):
+        raw = self._config(**{
+            "custom-dataset-type": "weka_trace",
+            "public-dataset": "weka_hf",
+            "hf-weka-repo": "semianalysisai/cc-traces-weka-062126",
+        })
+        del raw["input-file"]
+
+        cfg = AgenticReplayConfig(**raw)
+
+        assert cfg.public_dataset == "weka_hf"
+        assert cfg.hf_weka_repo == "semianalysisai/cc-traces-weka-062126"
+
+    def test_hf_weka_repo_requires_generic_hf_loader(self):
+        raw = self._config(**{
+            "custom-dataset-type": "weka_trace",
+            "public-dataset": "semianalysis_cc_traces_weka_with_subagents_060826",
+            "hf-weka-repo": "semianalysisai/cc-traces-weka-062126",
+        })
+        del raw["input-file"]
+
+        with pytest.raises(Exception):
+            AgenticReplayConfig(**raw)
+
     def test_rejects_both_input_file_and_public_dataset(self):
         with pytest.raises(Exception):
             AgenticReplayConfig(**self._config(**{

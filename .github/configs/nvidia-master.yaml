@@ -9722,6 +9722,33 @@ glm5-2-greennode-bench-client-remote:
       search-space:
       - { tp: 1, ep: 1, conc-list: [2] }
 
+# Smoke test for a newly published compatible Weka HuggingFace corpus before
+# adding a pinned AIPerf alias. This intentionally uses the generic weka_hf
+# loader and a single low-CCU matrix job.
+glm5-2-greennode-weka-hf-062126-remote-smoke:
+  image: docker.io/thangquang09/aiperf:weka
+  model: z-ai/glm-5.2
+  model-prefix: glm5-2-weka-hf-062126-smoke
+  runner: benchmark-client
+  precision: unknown
+  framework: api
+  multinode: false
+  remote:
+    url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
+    api-key-secret-name: GREENNODE_API_KEY
+  scenarios:
+    agentic-replay:
+    - custom-dataset-type: weka_trace
+      public-dataset: weka_hf
+      hf-weka-repo: semianalysisai/cc-traces-weka-062126
+      max-model-len: 131072
+      benchmark-client: [aiperf]
+      tokenizer: zai-org/GLM-5.2
+      num-dataset-entries: 100
+      duration: 60
+      search-space:
+      - { tp: 1, ep: 1, conc-list: [2] }
+
 # Claude Code Weka v4 smoke against the same hosted GreenNode endpoint.
 glm5-2-greennode-claude-code-weka-v4-remote-smoke:
   image: docker.io/thangquang09/aiperf:weka

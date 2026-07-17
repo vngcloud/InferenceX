@@ -111,6 +111,11 @@ on:
         required: false
         type: string
         default: ''
+      hf-weka-repo:
+        description: "AIPerf --hf-weka-repo for --public-dataset weka_hf"
+        required: false
+        type: string
+        default: ''
       custom-dataset-type:
         description: "AIPerf --custom-dataset-type for agentic-replay (e.g. mooncake_trace)"
         required: false
@@ -203,6 +208,7 @@ env:
   DURATION: ${{ inputs.duration }}
   INPUT_FILE: ${{ inputs.input-file }}
   PUBLIC_DATASET: ${{ inputs.public-dataset }}
+  HF_WEKA_REPO: ${{ inputs.hf-weka-repo }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
   WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}
