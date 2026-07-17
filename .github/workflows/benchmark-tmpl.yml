@@ -209,6 +209,10 @@ env:
   INPUT_FILE: ${{ inputs.input-file }}
   PUBLIC_DATASET: ${{ inputs.public-dataset }}
   HF_WEKA_REPO: ${{ inputs['hf-weka-repo'] }}
+  # The current prebuilt AIPerf image still locks inferencex-agentx-mvp to the
+  # older 060826 Weka HF repo. Allow the validated 062126 corpus through while
+  # preserving the explicit submission_valid=false marker in AIPerf artifacts.
+  AIPERF_UNSAFE_OVERRIDE: ${{ inputs.public-dataset == 'weka_hf' && inputs['hf-weka-repo'] == 'semianalysisai/cc-traces-weka-062126' && 'true' || 'false' }}
   CUSTOM_DATASET_TYPE: ${{ inputs.custom-dataset-type }}
   WEKA_NUM_DATASET_ENTRIES: ${{ inputs.num-dataset-entries }}
   TOKENIZER: ${{ inputs.tokenizer }}
