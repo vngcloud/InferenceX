@@ -31,6 +31,7 @@ LAUNCH_ARGS_FILE="$launch_args_file" GITHUB_WORKSPACE="$repo_root" \
     bash "$remote_launcher" >/dev/null 2>&1
 launch_args="$(<"$launch_args_file")"
 assert_contains "$launch_args" "-e FIXED_SCHEDULE"
+assert_contains "$launch_args" "-e HF_WEKA_REPO"
 assert_contains "$launch_args" "-e MAX_CONTEXT_LENGTH"
 rm -f "$launch_args_file"
 
