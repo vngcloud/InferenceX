@@ -9705,31 +9705,11 @@ glm5-2-greennode-bench-client-remote:
   remote:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
-    server-command: |
-      python3 -m sglang.launch_server \
-        --model-path /models/zai-org/GLM-5.2-FP8 \
-        --host 0.0.0.0 \
-        --port 8888 \
-        --tp-size 8 \
-        --ep-size 8 \
-        --chunked-prefill-size 16384 \
-        --tool-call-parser glm47 \
-        --reasoning-parser glm45 \
-        --mem-fraction-static 0.88 \
-        --cuda-graph-max-bs-decode 32 \
-        --context-length 500000 \
-        --kv-cache-dtype fp8_e4m3 \
-        --allow-auto-truncate \
-        --enable-metrics \
-        --enable-cache-report \
-        --enable-hierarchical-cache \
-        --hicache-size 64 \
-        --schedule-policy lpm \
-        --speculative-algorithm EAGLE \
-        --speculative-num-steps 3 \
-        --speculative-eagle-topk 1 \
-        --speculative-num-draft-tokens 4 \
-        --served-model-name zai-org/GLM-5.2-FP8
+    # Plumbing smoke test: validating server-metrics-url/gpu-telemetry-url via
+    # vmdev-bridged cloudflared tunnels (glm52-ablation-run skill), not a real
+    # serving config -- server-command intentionally omitted (see commit body).
+    server-metrics-url: https://reliance-petroleum-tour-mortgages.trycloudflare.com/metrics
+    gpu-telemetry-url: https://jonathan-recruitment-determine-occurred.trycloudflare.com/
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9738,9 +9718,9 @@ glm5-2-greennode-bench-client-remote:
       benchmark-client: [aiperf]
       tokenizer: zai-org/GLM-5.2
       num-dataset-entries: 1000
-      duration: 900
+      duration: 90
       search-space:
-      - { tp: 1, ep: 1, conc-list: [4, 8, 10, 12] }
+      - { tp: 1, ep: 1, conc-list: [2] }
 
 # Claude Code Weka v4 smoke against the same hosted GreenNode endpoint.
 glm5-2-greennode-claude-code-weka-v4-remote-smoke:
