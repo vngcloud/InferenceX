@@ -9715,14 +9715,13 @@ glm5-2-greennode-bench-client-remote:
         --chunked-prefill-size 16384 \
         --tool-call-parser glm47 \
         --reasoning-parser glm45 \
-        --mem-fraction-static 0.85 \
-        --cuda-graph-max-bs 32 \
+        --mem-fraction-static 0.88 \
+        --cuda-graph-max-bs-decode 32 \
         --context-length 500000 \
         --kv-cache-dtype fp8_e4m3 \
         --allow-auto-truncate \
         --enable-metrics \
         --enable-cache-report \
-        --enable-mixed-chunk \
         --enable-hierarchical-cache \
         --hicache-size 64 \
         --schedule-policy lpm \
