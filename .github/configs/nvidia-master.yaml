@@ -9879,7 +9879,7 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --host 0.0.0.0 \
   --port 8888 \
   --tp-size 8 \
-  --chunked-prefill-size 16384 \
+  --chunked-prefill-size 8192 \
   --tool-call-parser glm47 \
   --reasoning-parser glm45 \
   --mem-fraction-static 0.85 \
@@ -9889,12 +9889,13 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --allow-auto-truncate \
   --enable-metrics \
   --enable-cache-report \
+  --enable-mixed-chunk \
   --enable-hierarchical-cache \
   --hicache-size 64 \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://structure-invention-successful-forward.trycloudflare.com
-    gpu-telemetry-url: https://bios-grand-conferences-cat.trycloudflare.com
+    server-metrics-url: https://blades-union-rapidly-tall.trycloudflare.com
+    gpu-telemetry-url: https://furnishings-facilitate-barrier-stolen.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
