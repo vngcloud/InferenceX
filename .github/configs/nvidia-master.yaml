@@ -9889,13 +9889,13 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --allow-auto-truncate \
   --enable-metrics \
   --enable-cache-report \
-  --enable-mixed-chunk \
   --enable-hierarchical-cache \
   --hicache-size 64 \
+  --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://blades-union-rapidly-tall.trycloudflare.com
-    gpu-telemetry-url: https://furnishings-facilitate-barrier-stolen.trycloudflare.com
+    server-metrics-url: https://parents-medicines-induction-arabic.trycloudflare.com
+    gpu-telemetry-url: https://videos-fares-collected-promised.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
