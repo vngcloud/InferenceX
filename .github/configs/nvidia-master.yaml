@@ -9879,7 +9879,13 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --host 0.0.0.0 \
   --port 8888 \
   --tp-size 8 \
-  --chunked-prefill-size 16384 \
+  --dp-size 2 \
+  --enable-dp-attention \
+  --enable-dp-lm-head \
+  --enable-dp-attention-local-control-broadcast \
+  --load-balance-method total_tokens \
+  --schedule-policy lpm \
+  --chunked-prefill-size 8192 \
   --tool-call-parser glm47 \
   --reasoning-parser glm45 \
   --mem-fraction-static 0.85 \
@@ -9891,11 +9897,10 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --enable-cache-report \
   --enable-hierarchical-cache \
   --hicache-size 64 \
-  --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://bonus-posters-spa-materials.trycloudflare.com
-    gpu-telemetry-url: https://integrate-documentation-outside-gratis.trycloudflare.com
+    server-metrics-url: https://asking-flashers-expires-strain.trycloudflare.com
+    gpu-telemetry-url: https://livecam-ivory-damaged-connect.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
