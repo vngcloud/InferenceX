@@ -9909,8 +9909,4 @@ glm5-2-greennode-weka-hf-062126-remote-full:
       - tp: 1
         ep: 1
         conc-list:
-        - 1
-        - 2
-        - 4
-        - 8
-        - 10
+        - 12
