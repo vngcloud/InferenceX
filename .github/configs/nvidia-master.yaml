@@ -9875,7 +9875,9 @@ glm5-2-greennode-weka-hf-062126-remote-full:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
     server-command: "python3 -m sglang.launch_server \
-  --model-path /models/zai-org/GLM-5.2-FP8 \
+  --model-path /models/PhalaCloud/GLM-5.2-W4AFP8 \
+  --quantization w4afp8 \
+  --disable-shared-experts-fusion \
   --host 0.0.0.0 \
   --port 8888 \
   --tp-size 8 \
@@ -9893,13 +9895,11 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --allow-auto-truncate \
   --enable-metrics \
   --enable-cache-report \
-  --enable-hierarchical-cache \
-  --hicache-size 64 \
   --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://occurrence-hearts-securities-pennsylvania.trycloudflare.com
-    gpu-telemetry-url: https://opens-compilation-screensavers-gorgeous.trycloudflare.com
+    server-metrics-url: https://maryland-remember-aluminum-waiver.trycloudflare.com
+    gpu-telemetry-url: https://novelty-storage-academic-posting.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
