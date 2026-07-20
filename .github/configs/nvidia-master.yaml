@@ -9875,14 +9875,17 @@ glm5-2-greennode-weka-hf-062126-remote-full:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
     server-command: "python3 -m sglang.launch_server \
-  --model-path /models/PhalaCloud/GLM-5.2-W4AFP8 \
-  --quantization w4afp8 \
-  --disable-shared-experts-fusion \
+  --model-path /models/zai-org/GLM-5.2-FP8 \
   --host 0.0.0.0 \
   --port 8888 \
   --tp-size 8 \
+  --enable-flashinfer-allreduce-fusion \
+  --speculative-algorithm EAGLE \
+  --speculative-num-steps 3 \
+  --speculative-eagle-topk 1 \
+  --speculative-num-draft-tokens 4 \
   --numa-node 0 0 0 0 1 1 1 1 \
-  --chunked-prefill-size 8192 \
+  --chunked-prefill-size 16384 \
   --tool-call-parser glm47 \
   --reasoning-parser glm45 \
   --mem-fraction-static 0.85 \
@@ -9897,8 +9900,8 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://impact-saver-thomson-documentary.trycloudflare.com
-    gpu-telemetry-url: https://etc-supplies-revised-transport.trycloudflare.com
+    server-metrics-url: https://admission-stockings-vital-lawyers.trycloudflare.com
+    gpu-telemetry-url: https://codes-trend-collected-fonts.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9916,5 +9919,3 @@ glm5-2-greennode-weka-hf-062126-remote-full:
         - 4
         - 8
         - 10
-        - 12
-        - 14
