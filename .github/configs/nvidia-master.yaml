@@ -9910,12 +9910,9 @@ glm5-2-greennode-weka-hf-062126-remote-full:
       - aiperf
       tokenizer: zai-org/GLM-5.2
       duration: 900
+      num-dataset-entries: 393
       search-space:
       - tp: 1
         ep: 1
         conc-list:
-        - 1
-        - 2
-        - 4
         - 8
-        - 10
