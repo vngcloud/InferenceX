@@ -9895,8 +9895,8 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://labeled-school-dept-bachelor.trycloudflare.com
-    gpu-telemetry-url: https://rotary-keith-palmer-customs.trycloudflare.com
+    server-metrics-url: https://adelaide-derek-schedules-classified.trycloudflare.com
+    gpu-telemetry-url: https://agreements-terms-lap-sullivan.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9911,8 +9911,6 @@ glm5-2-greennode-weka-hf-062126-remote-full:
       - tp: 1
         ep: 1
         conc-list:
-        - 1
-        - 2
         - 4
         - 8
         - 10
