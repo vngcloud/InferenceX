@@ -9895,8 +9895,8 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://aircraft-grateful-housing-neighbor.trycloudflare.com
-    gpu-telemetry-url: https://chemicals-participation-postcards-indirect.trycloudflare.com
+    server-metrics-url: https://labeled-school-dept-bachelor.trycloudflare.com
+    gpu-telemetry-url: https://rotary-keith-palmer-customs.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
