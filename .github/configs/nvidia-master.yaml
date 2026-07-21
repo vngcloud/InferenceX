@@ -9875,7 +9875,9 @@ glm5-2-greennode-weka-hf-062126-remote-full:
     url: https://maas-llm-aiplatform-hcm.api.vngcloud.vn
     api-key-secret-name: GREENNODE_API_KEY
     server-command: "python3 -m sglang.launch_server \
-  --model-path /models/zai-org/GLM-5.2-FP8 \
+  --model-path /models/PhalaCloud/GLM-5.2-W4AFP8 \
+  --quantization w4afp8 \
+  --disable-shared-experts-fusion \
   --host 0.0.0.0 \
   --port 8888 \
   --tp-size 8 \
@@ -9891,6 +9893,7 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --mem-fraction-static 0.85 \
   --cuda-graph-max-bs 64 \
   --context-length 500000 \
+  --max-running-requests 28 \
   --kv-cache-dtype fp8_e4m3 \
   --allow-auto-truncate \
   --enable-metrics \
@@ -9900,8 +9903,8 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://closes-bubble-harvey-llp.trycloudflare.com
-    gpu-telemetry-url: https://ira-owners-entities-passive.trycloudflare.com
+    server-metrics-url: https://organize-twin-prepare-ftp.trycloudflare.com
+    gpu-telemetry-url: https://penguin-entertainment-doom-albums.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
@@ -9916,5 +9919,7 @@ glm5-2-greennode-weka-hf-062126-remote-full:
       - tp: 1
         ep: 1
         conc-list:
+        - 8
+        - 10
         - 12
         - 14
