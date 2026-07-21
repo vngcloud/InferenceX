@@ -9890,7 +9890,7 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --chunked-prefill-size 16384 \
   --tool-call-parser glm47 \
   --reasoning-parser glm45 \
-  --mem-fraction-static 0.85 \
+  --mem-fraction-static 0.80 \
   --cuda-graph-max-bs 64 \
   --context-length 500000 \
   --max-running-requests 28 \
@@ -9903,8 +9903,8 @@ glm5-2-greennode-weka-hf-062126-remote-full:
   --schedule-policy lpm \
   --served-model-name zai-org/GLM-5.2-FP8
 "
-    server-metrics-url: https://organize-twin-prepare-ftp.trycloudflare.com
-    gpu-telemetry-url: https://penguin-entertainment-doom-albums.trycloudflare.com
+    server-metrics-url: https://informed-desperate-municipal-without.trycloudflare.com
+    gpu-telemetry-url: https://technologies-desirable-decorative-constructed.trycloudflare.com
   scenarios:
     agentic-replay:
     - custom-dataset-type: weka_trace
