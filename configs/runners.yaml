@@ -228,6 +228,7 @@ labels:
     - b300-cw_03
     - b300-cw_04
   cluster:b300-nv:
+    - b300-netperf_00
     - b300-nv_01
     - b300-nv_02
     - b300-nv_03
