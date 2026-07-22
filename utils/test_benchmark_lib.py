@@ -7,6 +7,7 @@ def test_greennode_launcher_forwards_kv_backend_metadata() -> None:
     run_env = script.split("RUN_ENV=(", 1)[1].split(")", 1)[0]
 
     assert "KV_OFFLOAD_BACKEND_METADATA" in run_env.split()
+    assert "HICACHE_RATIO" in run_env.split()
 
 
 def test_agentic_gpu_telemetry_opt_in() -> None:

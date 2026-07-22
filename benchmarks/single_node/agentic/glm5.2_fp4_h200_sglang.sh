@@ -9,10 +9,12 @@ check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION
 CACHE_ARGS=()
 if [ "$KV_OFFLOADING" = "dram" ]; then
   require_agentic_kv_offload_backend hicache
-  CACHE_ARGS=(
-    --enable-hierarchical-cache
-    --hicache-size 128
-  )
+  CACHE_ARGS=(--enable-hierarchical-cache)
+  if [ -n "${HICACHE_RATIO:-}" ]; then
+    CACHE_ARGS+=(--hicache-ratio "$HICACHE_RATIO")
+  else
+    CACHE_ARGS+=(--hicache-size 128)
+  fi
 else
   require_agentic_kv_offload_none
 fi
