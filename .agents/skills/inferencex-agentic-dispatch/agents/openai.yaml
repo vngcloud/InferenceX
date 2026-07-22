@@ -1,0 +1,4 @@
+interface:
+  display_name: "InferenceX Agentic Dispatch"
+  short_description: "Configure and safely dispatch agentic benchmarks"
+  default_prompt: "Use $inferencex-agentic-dispatch to configure, validate, preview, and dispatch an agentic benchmark."
