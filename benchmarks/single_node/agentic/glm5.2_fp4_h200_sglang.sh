@@ -48,7 +48,6 @@ if [ "$DP_ATTENTION" = "true" ]; then
     --tp "$TP"
     --dp "$TP"
     --enable-dp-attention
-    --moe-a2a-backend deepep
     --tokenizer-worker-num "$TP"
     --dist-init-addr "127.0.0.1:$((PORT + 2000))"
   )
