@@ -60,3 +60,53 @@ run_agentic_replay_and_write_outputs
     PREFLIGHT.validate_recipe(recipe, "full", None, {"none"}, errors)
 
     assert errors == []
+
+
+def test_validate_recipe_accepts_hicache_ratio(tmp_path: Path) -> None:
+    recipe = tmp_path / "recipe.sh"
+    recipe.write_text(
+        """#!/usr/bin/env bash
+require_agentic_kv_offload_backend hicache
+export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126
+export AIPERF_SERVER_METRICS_URLS=http://localhost:$PORT/metrics
+export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
+MAX_RUNNING_REQUESTS=$((2 * CONC))
+--enable-metrics
+--enable-cache-report
+--enable-hierarchical-cache
+--hicache-ratio 1.0
+run_agentic_replay_and_write_outputs
+"""
+    )
+    errors: list[str] = []
+
+    PREFLIGHT.validate_recipe(recipe, "full", None, {"dram"}, errors)
+
+    assert errors == []
+
+
+def test_generator_command_targets_exact_config() -> None:
+    command = PREFLIGHT.generator_command(
+        Path("configs/nvidia-master.yaml"),
+        "target-config",
+        "b300-netperf_00",
+        [8, 32, 48, 64],
+    )
+
+    assert command[2:] == [
+        "test-config",
+        "--config-files",
+        "configs/nvidia-master.yaml",
+        "--config-keys",
+        "target-config",
+        "--conc",
+        "8",
+        "32",
+        "48",
+        "64",
+        "--runner-node-filter",
+        "b300-netperf_00",
+        "--scenario-type",
+        "agentic-coding",
+        "--no-evals",
+    ]

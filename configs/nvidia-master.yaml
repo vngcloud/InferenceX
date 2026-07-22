@@ -7876,7 +7876,7 @@ glm5.2-fp4-b300-sglang-agentic:
       - { tp: 8, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 2, 4, 8, 16, 32] }
       - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [48, 64, 96, 128, 192, 256, 512], router: { name: sglang-router, version: "0.3.2" } }
 
-glm5.2-nvfp4-b300-sglang-dpattn-kvnone-mf092-lpm-router-publiclike:
+glm5.2-nvfp4-b300-sglang-dpattn-hicache-r1-mf092-lpm-router-publiclike:
   image: lmsysorg/sglang:v0.5.15.post1-cu130
   model: nvidia/GLM-5.2-NVFP4
   model-prefix: glm5.2
@@ -7888,7 +7888,7 @@ glm5.2-nvfp4-b300-sglang-dpattn-kvnone-mf092-lpm-router-publiclike:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, dp-attn: true, kv-offloading: none, conc-list: [40], router: { name: sglang-router, version: "0.3.2" } }
+      - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 32, 48, 64], router: { name: sglang-router, version: "0.3.2" } }
 
 glm5.2-fp4-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
