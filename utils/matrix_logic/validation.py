@@ -66,6 +66,7 @@ class Fields(Enum):
     # Agentic coding fields
     KV_OFFLOADING = 'kv-offloading'
     KV_OFFLOAD_BACKEND = 'kv-offload-backend'
+    HICACHE_RATIO = 'hicache-ratio'
     ROUTER = 'router'
     KV_P2P_TRANSFER = 'kv-p2p-transfer'
     TOTAL_CPU_DRAM_GB = 'total-cpu-dram-gb'
@@ -285,6 +286,9 @@ class SingleNodeAgenticMatrixEntry(BaseModel):
     )
     kv_offload_backend: Optional[KVOffloadBackendMetadata] = Field(
         default=None, alias=Fields.KV_OFFLOAD_BACKEND.value
+    )
+    hicache_ratio: Optional[float] = Field(
+        default=None, alias=Fields.HICACHE_RATIO.value, gt=0
     )
     router: Optional[ComponentMetadata] = None
     total_cpu_dram_gb: int = Field(alias=Fields.TOTAL_CPU_DRAM_GB.value, ge=0)
@@ -572,6 +576,9 @@ class AgenticCodingSearchSpaceEntry(BaseModel):
     )
     kv_offload_backend: Optional[KVOffloadBackendMetadata] = Field(
         default=None, alias=Fields.KV_OFFLOAD_BACKEND.value
+    )
+    hicache_ratio: Optional[float] = Field(
+        default=None, alias=Fields.HICACHE_RATIO.value, gt=0
     )
     router: Optional[ComponentMetadata] = None
     kv_p2p_transfer: Optional[str] = Field(

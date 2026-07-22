@@ -2120,6 +2120,7 @@ class TestGenerateTestConfigSweep:
                                     "ep": 1,
                                     "kv-offloading": "dram",
                                     "kv-offload-backend": {"name": "hicache"},
+                                    "hicache-ratio": 0.75,
                                     "conc-list": [64],
                                 }
                             ],
@@ -2142,6 +2143,7 @@ class TestGenerateTestConfigSweep:
         assert result[0]["runner"] == "b300-nv_1"
         assert result[0]["scenario-type"] == "agentic-coding"
         assert result[0]["total-cpu-dram-gb"] == 2399
+        assert result[0]["hicache-ratio"] == 0.75
         assert result[0]["duration"] == 3600
         assert result[0]["router"] == {"name": "default-router", "version": "1.0.0"}
 

@@ -7890,6 +7890,62 @@ glm5.2-nvfp4-b300-sglang-dpattn-hicache-r1-mf092-lpm-router-publiclike:
       search-space:
       - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 32, 48, 64], router: { name: sglang-router, version: "0.3.2" } }
 
+glm5.2-fp8-b300-sglang-eagle-hicache-r05-mf088-lpm-cg256:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 0.5, conc-list: [8, 12, 16, 32] }
+
+glm5.2-fp8-b300-sglang-eagle-hicache-r075-mf088-lpm-cg256:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 0.75, conc-list: [8, 12, 16, 32] }
+
+glm5.2-fp8-b300-sglang-eagle-hicache-r15-mf088-lpm-cg256:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 1.5, conc-list: [8, 12, 16, 32] }
+
+glm5.2-fp8-b300-sglang-eagle-hicache-r20-mf088-lpm-cg256:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 12, 16, 32] }
+
 glm5.2-fp4-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
   model: zai-org/GLM-5.2-FP8

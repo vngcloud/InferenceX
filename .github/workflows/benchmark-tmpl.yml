@@ -98,6 +98,10 @@ on:
         description: "Optional KV offload backend name and version metadata as JSON"
         required: false
         type: string
+      hicache-ratio:
+        description: "Optional SGLang HiCache host/device token-capacity ratio"
+        required: false
+        type: string
       router:
         description: "Optional router name and version metadata as JSON"
         required: false
@@ -157,6 +161,7 @@ env:
   KV_OFFLOADING: ${{ inputs.kv-offloading }}
   KV_OFFLOAD_BACKEND: ${{ inputs.kv-offload-backend }}
   KV_OFFLOAD_BACKEND_METADATA: ${{ inputs.kv-offload-backend-metadata }}
+  HICACHE_RATIO: ${{ inputs.hicache-ratio }}
   ROUTER_METADATA: ${{ inputs.router }}
   KV_P2P_TRANSFER: ${{ inputs.kv-p2p-transfer }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
