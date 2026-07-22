@@ -7904,6 +7904,20 @@ glm5.2-fp4-h200-greennode-sglang-agentic:
       search-space:
       - { tp: 8, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 12, 16] }
 
+glm5.2-fp4-h200-greennode-sglang-dpattn-router-agentic-smoke:
+  image: lmsysorg/sglang:v0.5.14-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, dp-attn: true, kv-offloading: none, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
 glm5.2-fp8-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
   model: zai-org/GLM-5.2-FP8
