@@ -31,6 +31,11 @@ on:
                 required: false
                 type: string
                 default: ""
+            skip-agentic-ingest:
+                description: "Skip dispatching successful agentic results to the production ingest workflow."
+                required: false
+                type: boolean
+                default: false
     workflow_call:
         inputs:
             generate-cli-command:
@@ -60,6 +65,11 @@ on:
                 required: false
                 type: string
                 default: ""
+            skip-agentic-ingest:
+                description: "Skip dispatching successful agentic results to the production ingest workflow."
+                required: false
+                type: boolean
+                default: false
 
 jobs:
     get-jobs:
@@ -466,6 +476,7 @@ jobs:
         if: >-
             always() &&
             github.event_name == 'workflow_dispatch' &&
+            inputs.skip-agentic-ingest != true &&
             needs.calc-success-rate.result == 'success' &&
             (
               needs.test-sweep-agentic.result == 'success' ||

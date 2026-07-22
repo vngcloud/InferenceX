@@ -4,6 +4,8 @@ set -x
 
 export HF_HUB_CACHE_MOUNT="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/root/.cache/huggingface/hub}"
+export MODEL_STORE_MOUNT="${MODEL_STORE_MOUNT:-/mnt/models}"
+export MODEL_STORE="${MODEL_STORE:-/models}"
 export PORT="${PORT:-8888}"
 
 docker pull "$IMAGE"
@@ -32,6 +34,7 @@ trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
   -v "$GITHUB_WORKSPACE:/workspace" \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
+  -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" \
   -w /workspace \
   "${ENV_ARGS[@]}" \
   --entrypoint bash \
