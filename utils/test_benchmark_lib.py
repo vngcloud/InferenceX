@@ -1,4 +1,12 @@
 import subprocess
+from pathlib import Path
+
+
+def test_greennode_launcher_forwards_kv_backend_metadata() -> None:
+    script = Path("runners/launch_h200-greennode.sh").read_text()
+    run_env = script.split("RUN_ENV=(", 1)[1].split(")", 1)[0]
+
+    assert "KV_OFFLOAD_BACKEND_METADATA" in run_env.split()
 
 
 def test_agentic_gpu_telemetry_opt_in() -> None:
