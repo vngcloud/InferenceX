@@ -245,6 +245,7 @@ jobs:
             kv-offloading: ${{ matrix.config.kv-offloading }}
             kv-offload-backend: ${{ matrix.config['kv-offload-backend'].name }}
             kv-offload-backend-metadata: ${{ matrix.config['kv-offload-backend'] && toJson(matrix.config['kv-offload-backend']) || '' }}
+            hicache-ratio: ${{ matrix.config['hicache-ratio'] || '' }}
             total-cpu-dram-gb: ${{ matrix.config.total-cpu-dram-gb }}
             duration: ${{ inputs.duration-override != '' && inputs.duration-override || matrix.config.duration }}
             isl: '0'

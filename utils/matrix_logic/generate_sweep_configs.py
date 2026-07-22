@@ -669,6 +669,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     kv_offloading = bmk[Fields.KV_OFFLOADING.value]
                     kv_offload_backend = bmk.get(Fields.KV_OFFLOAD_BACKEND.value)
+                    hicache_ratio = bmk.get(Fields.HICACHE_RATIO.value)
                 total_cpu_dram_gb = (
                     0
                     if is_multinode
@@ -769,6 +770,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                             }
                             if kv_offload_backend is not None:
                                 entry[Fields.KV_OFFLOAD_BACKEND.value] = kv_offload_backend
+                            if hicache_ratio is not None:
+                                entry[Fields.HICACHE_RATIO.value] = hicache_ratio
                             entry.update(component_metadata(bmk, val))
                             validate_agentic_matrix_entry(entry)
                             matrix_values.append(entry)
@@ -975,6 +978,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                     spec_decoding = bmk.get(Fields.SPEC_DECODING.value, "none")
                     kv_offloading = bmk[Fields.KV_OFFLOADING.value]
                     kv_offload_backend = bmk.get(Fields.KV_OFFLOAD_BACKEND.value)
+                    hicache_ratio = bmk.get(Fields.HICACHE_RATIO.value)
                 total_cpu_dram_gb = (
                     0
                     if is_multinode
@@ -1068,6 +1072,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                             }
                             if kv_offload_backend is not None:
                                 entry[Fields.KV_OFFLOAD_BACKEND.value] = kv_offload_backend
+                            if hicache_ratio is not None:
+                                entry[Fields.HICACHE_RATIO.value] = hicache_ratio
                             entry.update(component_metadata(bmk, val))
                             matrix_values.append(validate_agentic_matrix_entry(entry))
 
