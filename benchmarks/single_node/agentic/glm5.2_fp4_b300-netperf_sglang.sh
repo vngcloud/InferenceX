@@ -5,7 +5,7 @@ set -x
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
 check_env_vars MODEL TP CONC KV_OFFLOADING RESULT_DIR DURATION EP_SIZE DP_ATTENTION
-require_agentic_kv_offload_none
+require_agentic_kv_offload_backend hicache
 
 if [ "$DP_ATTENTION" != "true" ]; then
     echo "Error: this recipe requires DP_ATTENTION=true" >&2
@@ -56,6 +56,11 @@ SGLANG_CMD=(
     --watchdog-timeout 1800
     --enable-metrics
     --enable-cache-report
+    --enable-hierarchical-cache
+    --hicache-ratio 1.0
+    --hicache-write-policy write_back
+    --hicache-io-backend direct
+    --hicache-mem-layout page_first_direct
 )
 
 printf '%q ' "${SGLANG_CMD[@]}" | tee "$RESULT_DIR/sglang_command.txt"

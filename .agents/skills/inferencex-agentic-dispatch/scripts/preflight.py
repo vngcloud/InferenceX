@@ -145,11 +145,14 @@ def validate_recipe(
             {
                 "HiCache validation": "require_agentic_kv_offload_backend hicache",
                 "hierarchical cache flag": "--enable-hierarchical-cache",
-                "HiCache size": "--hicache-size",
             }
         )
     for label, needle in checks.items():
         require_text(text, needle, label, errors)
+    if "dram" in kv_offloading and not any(
+        flag in text for flag in ("--hicache-size", "--hicache-ratio")
+    ):
+        fail("HiCache capacity: missing '--hicache-size' or '--hicache-ratio'", errors)
     dataset_assignment = rf"^\s*(?:export\s+)?WEKA_LOADER_OVERRIDE={re.escape(DATASETS[dataset])}\s*$"
     if not re.search(dataset_assignment, text, flags=re.MULTILINE):
         fail(f"dataset: missing exact WEKA_LOADER_OVERRIDE={DATASETS[dataset]!s}", errors)
@@ -210,30 +213,23 @@ def validate_workflow(repo: Path, errors: list[str]) -> None:
     )
 
 
-def generator_command(config_path: Path, config: dict, runner_node: str, ccus: list[int]) -> list[str]:
+def generator_command(
+    config_path: Path, config_key: str, runner_node: str, ccus: list[int]
+) -> list[str]:
     return [
         "python3",
         "utils/matrix_logic/generate_sweep_configs.py",
-        "full-sweep",
+        "test-config",
         "--config-files",
         str(config_path),
-        "--model-prefix",
-        str(config["model-prefix"]),
-        "--precision",
-        str(config["precision"]),
-        "--framework",
-        str(config["framework"]),
-        "--runner-type",
-        str(config["runner"]),
+        "--config-keys",
+        config_key,
+        "--conc",
+        *map(str, ccus),
         "--runner-node-filter",
         runner_node,
         "--scenario-type",
         "agentic-coding",
-        "--min-conc",
-        str(min(ccus)),
-        "--max-conc",
-        str(max(ccus)),
-        "--single-node",
         "--no-evals",
     ]
 
@@ -368,7 +364,7 @@ def main() -> int:
     )
     validate_launcher(launcher_path, args.model_host_root, args.model_container_root, errors)
     validate_workflow(args.repo, errors)
-    command = generator_command(args.config_file, config, args.runner_node, ccus)
+    command = generator_command(args.config_file, args.config_key, args.runner_node, ccus)
     matrix = validate_matrix(args.repo, command, ccus, errors)
     remote_status = validate_remote_model(args, config, errors)
     branch = current_branch(args.repo, args.branch, errors)
