@@ -107,11 +107,14 @@ def validate_config(
     if actual_ccus != ccus:
         fail(f"CCU mismatch: expected {ccus}, got {actual_ccus}", errors)
     for space in spaces:
-        if space.get("kv-offloading") != "dram":
-            fail("agentic search space must set kv-offloading: dram", errors)
+        kv_offloading = space.get("kv-offloading")
         backend = space.get("kv-offload-backend") or {}
-        if backend.get("name") != "hicache":
+        if kv_offloading == "none" and backend:
+            fail("GPU-resident KV must not set a KV offload backend", errors)
+        elif kv_offloading == "dram" and backend.get("name") != "hicache":
             fail("agentic search space must use hicache backend", errors)
+        elif kv_offloading not in {"none", "dram"}:
+            fail(f"unsupported kv-offloading mode: {kv_offloading!r}", errors)
     pool = config.get("runner")
     runners = load_yaml(repo / "configs/runners.yaml").get("labels", {})
     if runner_node not in runners.get(pool, []):
@@ -123,21 +126,28 @@ def validate_recipe(
     recipe_path: Path,
     dataset: str,
     model_container_path: str | None,
+    kv_offloading: set[str],
     errors: list[str],
 ) -> str:
     text = recipe_path.read_text()
     checks = {
-        "HiCache validation": "require_agentic_kv_offload_backend hicache",
         "server metrics URL": "AIPERF_SERVER_METRICS_URLS=",
         "DCGM telemetry URL": "AIPERF_GPU_TELEMETRY_URL=",
         "server metrics flag": "--enable-metrics",
         "cache report flag": "--enable-cache-report",
-        "hierarchical cache flag": "--enable-hierarchical-cache",
-        "HiCache size": "--hicache-size",
         "max running requests": "MAX_RUNNING_REQUESTS=$((2 * CONC))",
-        "CUDA graph scaling": "CUDA_GRAPH_MAX_BS",
         "agentic replay": "run_agentic_replay_and_write_outputs",
     }
+    if "none" in kv_offloading:
+        checks["GPU-resident KV validation"] = "require_agentic_kv_offload_none"
+    if "dram" in kv_offloading:
+        checks.update(
+            {
+                "HiCache validation": "require_agentic_kv_offload_backend hicache",
+                "hierarchical cache flag": "--enable-hierarchical-cache",
+                "HiCache size": "--hicache-size",
+            }
+        )
     for label, needle in checks.items():
         require_text(text, needle, label, errors)
     dataset_assignment = rf"^\s*(?:export\s+)?WEKA_LOADER_OVERRIDE={re.escape(DATASETS[dataset])}\s*$"
@@ -348,8 +358,14 @@ def main() -> int:
     launcher_path = resolve(args.repo, args.launcher)
     errors: list[str] = []
 
-    config, _ = validate_config(args.repo, config_path, args.config_key, args.runner_node, ccus, errors)
-    validate_recipe(recipe_path, args.dataset, args.model_container_path, errors)
+    config, spaces = validate_config(args.repo, config_path, args.config_key, args.runner_node, ccus, errors)
+    validate_recipe(
+        recipe_path,
+        args.dataset,
+        args.model_container_path,
+        {str(space.get("kv-offloading")) for space in spaces},
+        errors,
+    )
     validate_launcher(launcher_path, args.model_host_root, args.model_container_root, errors)
     validate_workflow(args.repo, errors)
     command = generator_command(args.config_file, config, args.runner_node, ccus)
