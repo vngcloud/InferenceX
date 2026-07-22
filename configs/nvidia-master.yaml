@@ -7902,4 +7902,4 @@ glm5.2-fp8-h200-greennode-sglang-agentic:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [2] }
+      - { tp: 8, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8] }
