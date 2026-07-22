@@ -1805,14 +1805,13 @@ build_replay_cmd() {
         # router's inactivity lease; it does not relax HTTP/request failures.
         REPLAY_CMD+=" --dynamo-session-timeout-seconds ${AIPERF_DYNAMO_SESSION_TIMEOUT_SECONDS:-3600}"
     fi
-    # Disable DCGM GPU telemetry collection. aiperf's GpuMetricTimeSeries
-    # freezes its metric schema on the first DCGM scrape, then KeyErrors when
-    # an optional field (xid_errors, power_violation, encoder_utilization)
-    # first appears mid-run. We don't consume the gpu_telemetry artifact in
-    # downstream processing, and the server-metrics path (Prometheus /metrics
-    # from vLLM) is unaffected by this flag and still gives us KV usage,
-    # prefix cache hit rate, etc.
-    REPLAY_CMD+=" --no-gpu-telemetry"
+    if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
+        REPLAY_CMD+=" --gpu-telemetry $AIPERF_GPU_TELEMETRY_URL"
+    else
+        # Keep the stable default for existing recipes; dedicated launchers
+        # can opt in when their DCGM exporter has a stable metric schema.
+        REPLAY_CMD+=" --no-gpu-telemetry"
+    fi
     # aiperf's dataset manager (separate from the inference parser) loads
     # the model's tokenizer for trace-prompt tokenization regardless of
     # --use-server-token-count. Models like kimi (amd/Kimi-K2.5-MXFP4,

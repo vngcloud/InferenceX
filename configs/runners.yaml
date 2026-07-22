@@ -208,6 +208,8 @@ labels:
     - h200-dgxc-slurm_13
   cluster:h200-nb:
     - h200-nb_0
+  cluster:h200-greennode:
+    - h200-greennode_01
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01
@@ -305,6 +307,9 @@ hardware:
     gpus-per-node: 8
   cluster:h200-nb:
     available-cpu-dram-mib: 1_472_512
+    gpus-per-node: 8
+  cluster:h200-greennode:
+    available-cpu-dram-mib: 1_502_319
     gpus-per-node: 8
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_774_874
