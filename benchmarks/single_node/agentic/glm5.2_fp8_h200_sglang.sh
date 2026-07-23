@@ -25,7 +25,7 @@ PARALLEL_ARGS=(--tp-size "$TP")
 if [ "$DP_ATTENTION" = "true" ]; then
   PARALLEL_ARGS=(
     --tp "$TP"
-    --dp "$TP"
+    --dp 4
     --enable-dp-attention
     --moe-a2a-backend deepep
   )

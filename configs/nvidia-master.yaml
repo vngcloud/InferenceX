@@ -7988,7 +7988,7 @@ glm5.2-fp8-h200-greennode-sglang-agentic:
       search-space:
       - { tp: 8, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [4, 8] }
 
-glm5.2-fp8-h200-greennode-sglang-dpattn-deepep-agentic:
+glm5.2-fp8-h200-greennode-sglang-dp4-deepep-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
   model: zai-org/GLM-5.2-FP8
   model-prefix: glm5.2
