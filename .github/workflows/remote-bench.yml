@@ -1,0 +1,102 @@
+name: Remote Bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      exp-name:
+        description: "Experiment name (first underscore-delimited segment must match a model-prefix used by a *-remote-bench.sh recipe, e.g. glm5.2)"
+        required: true
+        type: string
+      model:
+        required: true
+        type: string
+      model-prefix:
+        required: true
+        type: string
+      framework:
+        required: true
+        type: string
+      precision:
+        required: true
+        type: string
+      conc:
+        description: "Concurrency"
+        required: true
+        type: string
+      duration:
+        description: "Benchmark duration in seconds"
+        required: false
+        type: string
+        default: '3600'
+      remote-base-url:
+        description: "Base URL of the already-running, externally-managed inference endpoint to benchmark"
+        required: true
+        type: string
+      remote-gpu-telemetry-url:
+        description: "DCGM /metrics endpoint on the remote target"
+        required: true
+        type: string
+      remote-engine-metrics-url:
+        description: "Inference engine /metrics endpoint on the remote target"
+        required: true
+        type: string
+      remote-runner-type:
+        description: "Real, GPU_KEYS-resolvable hardware string for the remote target (e.g. h200-nv)"
+        required: true
+        type: string
+      remote-reset-url:
+        description: "Optional endpoint to reset KV/prefix cache + router affinity on the remote target before each concurrency point"
+        required: false
+        type: string
+        default: ""
+      tp:
+        required: false
+        type: string
+        default: '1'
+      ep:
+        required: false
+        type: string
+        default: '1'
+      spec-decoding:
+        required: false
+        type: string
+        default: 'none'
+      ref:
+        description: "Git ref (branch/sha) to checkout"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  remote-bench:
+    uses: ./.github/workflows/benchmark-tmpl.yml
+    secrets: inherit
+    with:
+      exp-name: ${{ inputs.exp-name }}
+      runner: cluster:remote-bench
+      image: unused-remote-bench
+      model: ${{ inputs.model }}
+      model-prefix: ${{ inputs.model-prefix }}
+      framework: ${{ inputs.framework }}
+      precision: ${{ inputs.precision }}
+      tp: ${{ inputs.tp }}
+      ep: ${{ inputs.ep }}
+      dp-attn: false
+      conc: ${{ inputs.conc }}
+      spec-decoding: ${{ inputs.spec-decoding }}
+      disagg: 'false'
+      isl: '0'
+      osl: '0'
+      max-model-len: '0'
+      run-eval: false
+      scenario-type: agentic-coding
+      kv-offloading: none
+      duration: ${{ inputs.duration }}
+      remote-base-url: ${{ inputs.remote-base-url }}
+      remote-gpu-telemetry-url: ${{ inputs.remote-gpu-telemetry-url }}
+      remote-engine-metrics-url: ${{ inputs.remote-engine-metrics-url }}
+      remote-reset-url: ${{ inputs.remote-reset-url }}
+      remote-runner-type: ${{ inputs.remote-runner-type }}
+      ref: ${{ inputs.ref }}
