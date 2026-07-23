@@ -19,12 +19,15 @@ export PYTHONNOUSERSITE=1
 export TORCH_CUDA_ARCH_LIST=10.0
 export AIPERF_HTTP_TCP_USER_TIMEOUT=900000
 export SGLANG_TIMEOUT_KEEP_ALIVE=900
+export CUDA_LAUNCH_BLOCKING=1
 
 resolve_trace_source
 install_agentic_deps
 nvidia-smi
 
 mkdir -p "$RESULT_DIR"
+CRASH_DUMP_DIR="$RESULT_DIR/sglang_crash_dump"
+mkdir -p "$CRASH_DUMP_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 ROUTER_LOG="$RESULT_DIR/router.log"
 SGLANG_BACKEND_PORT=$((PORT + 1))
@@ -54,6 +57,7 @@ SGLANG_CMD=(
     --schedule-policy lpm
     --max-running-requests "$MAX_RUNNING_REQUESTS"
     --watchdog-timeout 1800
+    --crash-dump-folder "$CRASH_DUMP_DIR"
     --enable-metrics
     --enable-cache-report
     --enable-hierarchical-cache

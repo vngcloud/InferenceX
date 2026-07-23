@@ -7890,6 +7890,20 @@ glm5.2-nvfp4-b300-sglang-dpattn-hicache-r1-mf092-lpm-router-publiclike:
       search-space:
       - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 32, 48, 64], router: { name: sglang-router, version: "0.3.2" } }
 
+glm5.2-nvfp4-b300-sglang-dpattn-hicache-r1-ccu64-crash-debug:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: nvidia/GLM-5.2-NVFP4
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [64], router: { name: sglang-router, version: "0.3.2" } }
+
 glm5.2-fp4-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
   model: zai-org/GLM-5.2-FP8
