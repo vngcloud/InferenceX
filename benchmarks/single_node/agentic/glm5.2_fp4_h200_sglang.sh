@@ -4,7 +4,7 @@ set -x
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
-check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION
+check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION SPEC_DECODING
 
 CACHE_ARGS=()
 if [ "$KV_OFFLOADING" = "dram" ]; then
@@ -17,6 +17,16 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
   fi
 else
   require_agentic_kv_offload_none
+fi
+
+SPEC_ARGS=()
+if [ "$SPEC_DECODING" = "mtp" ]; then
+  SPEC_ARGS=(
+    --speculative-algorithm EAGLE
+    --speculative-num-steps 3
+    --speculative-eagle-topk 1
+    --speculative-num-draft-tokens 4
+  )
 fi
 
 export MODEL_PATH=/models/PhalaCloud/GLM-5.2-W4AFP8
@@ -78,6 +88,7 @@ SGLANG_CMD=(
   --enable-metrics
   --enable-cache-report
   "${CACHE_ARGS[@]}"
+  "${SPEC_ARGS[@]}"
   --schedule-policy lpm
   --served-model-name "$MODEL"
 )
