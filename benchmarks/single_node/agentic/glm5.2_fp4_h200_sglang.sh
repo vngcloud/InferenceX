@@ -28,7 +28,6 @@ SGLANG_BACKEND_PORT="$PORT"
 ROUTER_LOG="$RESULT_DIR/router.log"
 if [ "$DP_ATTENTION" = "true" ]; then
   USE_SGLANG_ROUTER=true
-  export AIPERF_HTTP_X_SMG_ROUTING_KEY_FROM_CORRELATION_ID=true
   SGLANG_BACKEND_PORT=$((PORT + 1))
   SGLANG_ROUTER_METRICS_PORT=$((PORT + 10000))
 fi
@@ -93,7 +92,7 @@ wait_for_server_ready --port "$SGLANG_BACKEND_PORT" --server-log "$SERVER_LOG" -
 if [ "$USE_SGLANG_ROUTER" = "true" ]; then
   python3 -m sglang_router.launch_router \
     --worker-urls "http://localhost:$SGLANG_BACKEND_PORT" \
-    --policy consistent_hashing \
+    --policy cache_aware \
     --request-id-headers x-correlation-id \
     --dp-aware \
     --host 0.0.0.0 \

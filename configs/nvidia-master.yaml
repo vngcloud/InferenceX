@@ -7972,7 +7972,7 @@ glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 32, 48, 64], router: { name: sglang-router, version: "0.3.2" } }
+      - { tp: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [32], router: { name: sglang-router, version: "0.3.2" } }
 
 glm5.2-fp8-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
