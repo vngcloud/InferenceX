@@ -25,7 +25,7 @@ Ask for missing choices in compact groups. Do not ask again for values already s
 3. Dataset:
    - full: `semianalysis_cc_traces_weka_062126`
    - cap 256k: `semianalysis_cc_traces_weka_062126_256k`
-4. Exact runner node and its `cluster:*` pool. For local weights, also obtain an SSH target or another read-only way to verify the host path.
+4. Exact runner node and its `cluster:*` pool. For local weights, also obtain an SSH target or another read-only way to verify the host path. If verification is unavailable, proceed only when the user explicitly authorizes an unverified-model override.
 5. Ordered CCU list, for example `2` or `8,12,16`.
 
 Default automatic ingest to **off**. Enable it only when the user explicitly requests production ingest.
@@ -61,12 +61,13 @@ python3 .agents/skills/inferencex-agentic-dispatch/scripts/preflight.py \
   --dataset <full|cap-256k> \
   --duration <seconds> \
   --ccu <comma-list> \
-  [--model-container-path <path>] \
-  [--model-host-path <path> --model-host-root <root> --model-container-root <root> \
-   --ssh-target <user@host> --ssh-port <port>]
+   [--model-container-path <path>] \
+   [--model-host-path <path> --model-host-root <root> --model-container-root <root> \
+   --ssh-target <user@host> --ssh-port <port>] \
+  [--allow-unverified-model]
 ```
 
-Treat any failure as blocking. In addition, run `git diff --check`, `bash -n` on changed recipes/launchers, and relevant matrix tests when available.
+Treat any failure as blocking. The only exception is model host/container verification when the user explicitly authorizes proceeding without it: rerun preflight with `--allow-unverified-model`, show the override prominently, and keep every other validation mandatory. In addition, run `git diff --check`, `bash -n` on changed recipes/launchers, and relevant matrix tests when available.
 
 The preflight must establish all of these:
 
@@ -87,7 +88,7 @@ Print a compact preview containing:
 - effective server command for every CCU;
 - generated matrix rows;
 - telemetry status: server metrics and DCGM enabled;
-- model mount/preflight result;
+- model mount/preflight result, or **UNVERIFIED (user-authorized override)**;
 - exact `gh workflow run` command;
 - `skip-agentic-ingest=true` prominently.
 

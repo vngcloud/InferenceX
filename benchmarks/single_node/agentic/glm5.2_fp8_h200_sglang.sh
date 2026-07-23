@@ -4,7 +4,7 @@ set -x
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
-check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION
+check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION
 require_agentic_kv_offload_backend hicache
 
 export MODEL_PATH="$HF_HUB_CACHE/models--zai-org--GLM-5.2-FP8/snapshots/70311cfa0158cce7dd2cf5d2e04f68e3fdc3efc1"
@@ -21,13 +21,22 @@ SERVER_LOG="$RESULT_DIR/server.log"
 MAX_RUNNING_REQUESTS=$((2 * CONC))
 CUDA_GRAPH_MAX_BS=$MAX_RUNNING_REQUESTS
 [ "$CUDA_GRAPH_MAX_BS" -gt 64 ] && CUDA_GRAPH_MAX_BS=64
+PARALLEL_ARGS=(--tp-size "$TP")
+if [ "$DP_ATTENTION" = "true" ]; then
+  PARALLEL_ARGS=(
+    --tp "$TP"
+    --dp "$TP"
+    --enable-dp-attention
+    --moe-a2a-backend deepep
+  )
+fi
 
 SGLANG_CMD=(
   python3 -m sglang.launch_server
   --model-path "$MODEL_PATH"
   --host 0.0.0.0
   --port "$PORT"
-  --tp-size "$TP"
+  "${PARALLEL_ARGS[@]}"
   --chunked-prefill-size 8192
   --tool-call-parser glm47
   --reasoning-parser glm45

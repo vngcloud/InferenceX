@@ -39,6 +39,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-container-root")
     parser.add_argument("--ssh-target")
     parser.add_argument("--ssh-port", type=int, default=22)
+    parser.add_argument(
+        "--allow-unverified-model",
+        action="store_true",
+        help="Skip remote model checks after explicit user authorization",
+    )
     return parser.parse_args()
 
 
@@ -358,7 +363,7 @@ def main() -> int:
     validate_recipe(
         recipe_path,
         args.dataset,
-        args.model_container_path,
+        None if args.allow_unverified_model else args.model_container_path,
         {str(space.get("kv-offloading")) for space in spaces},
         errors,
     )
@@ -366,7 +371,10 @@ def main() -> int:
     validate_workflow(args.repo, errors)
     command = generator_command(args.config_file, args.config_key, args.runner_node, ccus)
     matrix = validate_matrix(args.repo, command, ccus, errors)
-    remote_status = validate_remote_model(args, config, errors)
+    if args.allow_unverified_model:
+        remote_status = "skipped-user-authorized"
+    else:
+        remote_status = validate_remote_model(args, config, errors)
     branch = current_branch(args.repo, args.branch, errors)
     generate_cli = shlex.join(command[2:])
     test_name = args.test_name or f"{args.config_key} agentic CCU {','.join(map(str, ccus))} {args.duration}s no-ingest"
@@ -388,6 +396,7 @@ def main() -> int:
         "dcgm": "required",
         "skip_agentic_ingest": True,
         "remote_model_check": remote_status,
+        "unverified_model_override": args.allow_unverified_model,
         "matrix_rows": len(matrix),
         "generate_cli_command": generate_cli,
         "dispatch_command": shlex.join(dispatch),
