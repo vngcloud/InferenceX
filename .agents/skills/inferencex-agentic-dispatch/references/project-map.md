@@ -9,6 +9,14 @@
 - `benchmarks/benchmark_lib.sh`: dataset mapping, replay command, warmup, and HiCache validation.
 - `.github/workflows/e2e-tests.yml`: manual dispatch, duration override, and optional agentic ingest.
 
+## Runner SSH targets (model verification)
+
+Use these to verify local weights on the node before dispatch (host `/mnt/models` mounts read-only to container `/models`).
+
+| Runner pool | SSH |
+|---|---|
+| `cluster:h200-greennode` (`h200-greennode_01`) | `ssh stackops@103.196.239.193 -p 234` (key-based) |
+
 ## Dataset mapping
 
 | User choice | Loader override | Hugging Face dataset |
