@@ -18,6 +18,18 @@ source "$(dirname "$0")/../../benchmark_lib.sh"
 #   REMOTE_ENGINE_METRICS_URL  SGLang /metrics endpoint on the remote box
 #   REMOTE_RUNNER_TYPE         real, GPU_KEYS-resolvable hw string (e.g. h200-nv) —
 #                              NOT the cluster:remote-bench runner label
+#   REMOTE_MAX_CONTEXT_LENGTH  caps aiperf's replayed trace length to the
+#                              remote target's actual deployed context window.
+#                              Local recipes hardcode --context-length for the
+#                              server they launch; a remote target's context
+#                              limit isn't discoverable, so the operator
+#                              self-reports it here. Required, not optional:
+#                              without it aiperf will replay turns longer than
+#                              the remote model supports, relying on
+#                              server-side --allow-auto-truncate — confirmed
+#                              via smoke test to trigger a silent 100%-GPU
+#                              hang in SGLang's chunked-prefill continuation
+#                              on oversized inputs (see issue #26).
 # Optional:
 #   REMOTE_RESET_URL           called before each concurrency point to clear
 #                              KV/prefix cache + router affinity on the
@@ -25,7 +37,8 @@ source "$(dirname "$0")/../../benchmark_lib.sh"
 #                              local recipes get a fresh process per conc job,
 #                              a remote target does not)
 check_env_vars MODEL CONC RESULT_DIR DURATION \
-    REMOTE_BASE_URL REMOTE_GPU_TELEMETRY_URL REMOTE_ENGINE_METRICS_URL REMOTE_RUNNER_TYPE
+    REMOTE_BASE_URL REMOTE_GPU_TELEMETRY_URL REMOTE_ENGINE_METRICS_URL \
+    REMOTE_RUNNER_TYPE REMOTE_MAX_CONTEXT_LENGTH
 
 mkdir -p "$RESULT_DIR"
 
@@ -65,6 +78,12 @@ export RUNNER_TYPE="$REMOTE_RUNNER_TYPE"
 export AIPERF_GPU_TELEMETRY_URL="$REMOTE_GPU_TELEMETRY_URL"
 export AIPERF_SERVER_METRICS_URLS="$REMOTE_ENGINE_METRICS_URL"
 export REMOTE_BASE_URL
+
+# benchmark_lib.sh unsets MAX_MODEL_LEN at source time for agentic scripts
+# (so inherited workflow overrides never cap a local server's native
+# context) — that guard already ran above, so setting it here for
+# build_replay_cmd's --max-context-length is safe and deliberate.
+export MAX_MODEL_LEN="$REMOTE_MAX_CONTEXT_LENGTH"
 
 resolve_trace_source
 install_agentic_deps
