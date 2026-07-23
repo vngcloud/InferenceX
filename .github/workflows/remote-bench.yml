@@ -44,6 +44,10 @@ on:
         description: "Real, GPU_KEYS-resolvable hardware string for the remote target (e.g. h200-nv)"
         required: true
         type: string
+      remote-max-context-length:
+        description: "Actual deployed context window of the remote target. Caps aiperf's replayed trace length - without it, aiperf may replay traces longer than the model supports, which triggers a silent 100%-GPU hang relying on server-side --allow-auto-truncate (confirmed via smoke test)."
+        required: true
+        type: string
       remote-reset-url:
         description: "Optional endpoint to reset KV/prefix cache + router affinity on the remote target before each concurrency point"
         required: false
@@ -99,4 +103,5 @@ jobs:
       remote-engine-metrics-url: ${{ inputs.remote-engine-metrics-url }}
       remote-reset-url: ${{ inputs.remote-reset-url }}
       remote-runner-type: ${{ inputs.remote-runner-type }}
+      remote-max-context-length: ${{ inputs.remote-max-context-length }}
       ref: ${{ inputs.ref }}

@@ -158,6 +158,11 @@ on:
         required: false
         type: string
         default: ""
+      remote-max-context-length:
+        description: "Actual deployed context window of the remote target (required for remote-bench). Caps aiperf's replayed trace length; without it aiperf may replay traces longer than the remote model supports, which was confirmed via smoke test to trigger a silent 100%-GPU hang relying on server-side --allow-auto-truncate."
+        required: false
+        type: string
+        default: ""
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -202,6 +207,7 @@ env:
   REMOTE_ENGINE_METRICS_URL: ${{ inputs.remote-engine-metrics-url }}
   REMOTE_RESET_URL: ${{ inputs.remote-reset-url }}
   REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
+  REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
