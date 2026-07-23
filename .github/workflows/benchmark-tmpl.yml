@@ -126,6 +126,34 @@ on:
         required: false
         type: string
         default: ""
+      # Remote-bench inputs. Only consumed by *-remote-bench.sh recipes
+      # (runner: cluster:remote-bench); every other recipe leaves these
+      # empty and is unaffected.
+      remote-base-url:
+        description: "Base URL of an already-running, externally-managed inference endpoint to benchmark (remote-bench only)"
+        required: false
+        type: string
+        default: ""
+      remote-gpu-telemetry-url:
+        description: "DCGM /metrics endpoint on the remote target (required for remote-bench)"
+        required: false
+        type: string
+        default: ""
+      remote-engine-metrics-url:
+        description: "Inference engine /metrics endpoint on the remote target (required for remote-bench)"
+        required: false
+        type: string
+        default: ""
+      remote-reset-url:
+        description: "Optional endpoint to reset KV/prefix cache + router affinity on the remote target before each concurrency point"
+        required: false
+        type: string
+        default: ""
+      remote-runner-type:
+        description: "Real, GPU_KEYS-resolvable hardware string for the remote target (e.g. h200-nv). Required for remote-bench; overrides RUNNER_TYPE for artifact ingest since the runner label (cluster:remote-bench) isn't a real hardware key."
+        required: false
+        type: string
+        default: ""
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -163,6 +191,12 @@ env:
   DURATION: ${{ inputs.duration }}
   EVAL_LIMIT: ${{ inputs.eval-limit }}
   SWEBENCH_GEN_MODE: ${{ inputs.swebench-gen-mode }}
+  # Remote-bench env. Only consumed by *-remote-bench.sh recipes.
+  REMOTE_BASE_URL: ${{ inputs.remote-base-url }}
+  REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
+  REMOTE_ENGINE_METRICS_URL: ${{ inputs.remote-engine-metrics-url }}
+  REMOTE_RESET_URL: ${{ inputs.remote-reset-url }}
+  REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
