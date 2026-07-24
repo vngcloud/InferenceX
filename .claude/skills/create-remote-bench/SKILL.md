@@ -34,7 +34,7 @@ Every `*-remote-bench.sh` recipe requires, self-reported by the endpoint's opera
 | `REMOTE_GPU_TELEMETRY_URL` | DCGM `/metrics`-style endpoint | GPU telemetry is required for remote-bench, not optional (unlike aiperf's own soft-fail default for general use) |
 | `REMOTE_ENGINE_METRICS_URL` | engine's own `/metrics` (e.g. SGLang's) | same — required, not optional |
 | `REMOTE_RUNNER_TYPE` | real, `GPU_KEYS`-resolvable hw string, e.g. `h200-nv` | becomes `RUNNER_TYPE`/`hw` in the ingested artifact; the GH Actions runner label (`cluster:remote-bench`) is **not** a real hardware key and would break `hwToGpuKey()` in InferenceX-app's ingest if used directly |
-| `REMOTE_MAX_CONTEXT_LENGTH` | the model's actual deployed context window | **confirmed by incident**: without this, aiperf replays trace turns longer than the model supports, relying on server-side auto-truncate — this triggered a silent 100%-GPU hang in SGLang's chunked-prefill continuation on oversized inputs. Always set this to the real number from step 1, not a round guess. |
+| `REMOTE_MAX_CONTEXT_LENGTH` | a *safe* trace-length cap, not necessarily the model's full deployed context window | **confirmed by incident**: without this, aiperf replays trace turns longer than the model supports, relying on server-side auto-truncate — this triggered a silent 100%-GPU hang in SGLang's chunked-prefill continuation on oversized inputs. But setting it to the real deployed context window (e.g. `131072`) is **not automatically safe either** — on a single small/dev GPU (confirmed on an RTX 5090), individual traces near that limit (~120K tokens) still hung in decode after prefill completed cleanly (throughput collapsing to ~0.07 tok/s, never recovering). Also note the available public trace corpora only come in two sizes (unfiltered / `_256k`-capped, see `resolve_trace_source()` in `benchmark_lib.sh`) — there's no small-context variant, so capping below the corpus's shortest trace length (e.g. `32768`) fails outright with `DatasetLoaderError: All N traces exceed --max-context-length`. If a run hangs at the real context window, binary-search downward (e.g. try half the window) to find a cap this specific box's decode can actually sustain, rather than assuming the nominal window is safe. |
 
 Optional:
 
@@ -150,11 +150,14 @@ uploads:
 - `agentic_<name>` — `results/**` (aiperf's raw artifacts: `profile_export_aiperf.{csv,json}`,
   `server_metrics_export.{csv,json}`, timeslices, `aiperf.log`).
 
-Two artifacts local recipes get that remote-bench recipes will **not** produce —
-expected, not a bug: `server_logs_<name>` (there's no locally-launched process to redirect)
-and `gpu_metrics_<name>` (no local `nvidia-smi`/`amd-smi` on the controller box). The
-equivalent data still exists, just inside `agentic_<name>` via aiperf's own GPU/server
-telemetry scrape instead of a separate local capture.
+`server_logs_<name>` is still uploaded, but for remote-bench it's just the aiperf **client's**
+own `benchmark.log` (aiperf's own startup/runner log), not an actual inference-engine server
+log — there's no locally-launched process to redirect. Don't confuse the two when reading it;
+the real engine-side story only lives in `kubectl logs` on the endpoint's actual pod.
+`gpu_metrics_<name>` (the local `nvidia-smi`/`amd-smi` capture) is **not** produced — no
+local GPU on the controller box. That data still exists, just inside `agentic_<name>` via
+aiperf's own GPU telemetry scrape (`gpu_telemetry_export.jsonl`) instead of a separate local
+capture.
 
 Sanity-check before calling a run "done": open `agg_*.json` and confirm `hw` is a real
 `GPU_KEYS`-resolvable string (not `cluster:remote-bench`), `image` is the real deployed
