@@ -57,10 +57,16 @@ class SglangBackend(ServerMetricsBackend):
         )
         device_hits = cached_by_source.get("device")
         host_hits = cached_by_source.get("host")
+        external_hits = sum(
+            value
+            for source, value in cached_by_source.items()
+            if source.startswith("storage_")
+        ) or None
         total_cached = sum(cached_by_source.values()) if cached_by_source else None
 
         flat["server_gpu_cache_hit_rate"] = rate(device_hits, prompt_total)
         flat["server_cpu_cache_hit_rate"] = rate(host_hits, prompt_total)
+        flat["server_external_cache_hit_rate"] = rate(external_hits, prompt_total)
         flat["server_overall_cache_hit_rate"] = rate(total_cached, prompt_total)
 
         if flat["server_overall_cache_hit_rate"] is None:
@@ -132,7 +138,9 @@ class SglangBackend(ServerMetricsBackend):
                 "generation_total": flat["total_generation_tokens"],
                 "prompt_by_source": {
                     "gpu_cache_hit": device_hits,
-                    "cpu_or_external_cache_hit": host_hits,
+                    "cpu_or_external_cache_hit": (host_hits or 0) + (external_hits or 0)
+                    if host_hits is not None or external_hits is not None
+                    else None,
                     "computed": prefill_compute,
                     "raw": cached_by_source,
                 },

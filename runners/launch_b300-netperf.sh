@@ -19,7 +19,7 @@ RUN_ENV=(
   KV_OFFLOADING KV_OFFLOAD_BACKEND KV_OFFLOAD_BACKEND_METADATA TOTAL_CPU_DRAM_GB DURATION
   HICACHE_RATIO
   RESULT_DIR RESULT_FILENAME RUN_EVAL EVAL_ONLY
-  GITHUB_WORKSPACE RUNNER_NAME RUNNER_TYPE
+  GITHUB_WORKSPACE GITHUB_RUN_ID GITHUB_RUN_ATTEMPT RUNNER_NAME RUNNER_TYPE
 )
 ENV_ARGS=()
 for name in "${RUN_ENV[@]}"; do
@@ -34,6 +34,7 @@ trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
   -v "$GITHUB_WORKSPACE:/workspace" \
+  -v /mnt/test-raid0:/mnt/test-raid0 \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
   -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" \
   -w /workspace \

@@ -7946,6 +7946,20 @@ glm5.2-fp8-b300-sglang-eagle-hicache-r20-mf088-lpm-cg256:
       search-space:
       - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 12, 16, 32] }
 
+glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-nixl-posix:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache, version: "l3-nixl-posix" }, hicache-ratio: 1.0, conc-list: [12] }
+
 glm5.2-fp4-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
   model: zai-org/GLM-5.2-FP8

@@ -28,6 +28,12 @@ nvidia-smi
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 MAX_RUNNING_REQUESTS=$((2 * CONC))
+HICACHE_L3=0
+if [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-nixl-posix* ]]; then
+    HICACHE_L3=1
+    export SGLANG_HICACHE_NIXL_BACKEND_PLUGIN=POSIX
+    export SGLANG_HICACHE_NIXL_BACKEND_STORAGE_DIR="/mnt/test-raid0/hicache/${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-0}-c${CONC}"
+fi
 
 SGLANG_CMD=(
     python3 -m sglang.launch_server
@@ -63,6 +69,13 @@ SGLANG_CMD=(
     --speculative-eagle-topk 1
     --speculative-num-draft-tokens 4
 )
+if [ "$HICACHE_L3" -eq 1 ]; then
+    SGLANG_CMD+=(
+        --hicache-storage-backend nixl
+        --hicache-storage-prefetch-policy timeout
+        --hicache-storage-backend-extra-config '{"use_direct_io":true,"use_uring":"true","l3_cleaner_high_watermark":40.0,"l3_cleaner_low_watermark":30.0}'
+    )
+fi
 
 printf '%q ' "${SGLANG_CMD[@]}" | tee "$RESULT_DIR/sglang_command.txt"
 printf '\n' | tee -a "$RESULT_DIR/sglang_command.txt"
