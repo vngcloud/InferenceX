@@ -1,0 +1,86 @@
+name: Remote Bench E2E
+
+# Batch counterpart to remote-bench.yml: dispatch several remote-bench
+# configs (different conc/duration/dataset variants against one or more
+# remote endpoints) in a single call, fanned out via matrix like
+# e2e-tests.yml does for the master-config sweep path. Deliberately does
+# NOT go through generate_sweep_configs.py / validation.py — remote-bench
+# configs are a JSON array supplied directly, so this stays independent
+# of the closed master-config schema (same reason remote-bench.yml is a
+# standalone entrypoint instead of a master-config scenario type).
+
+on:
+  workflow_dispatch:
+    inputs:
+      configs:
+        description: >
+          JSON array of remote-bench configs. Each object supports the same
+          fields as remote-bench.yml's inputs: exp-name, image, model,
+          model-prefix, framework, precision, conc, duration,
+          remote-base-url, remote-gpu-telemetry-url, remote-engine-metrics-url,
+          remote-runner-type, remote-max-context-length, and optionally
+          tp, ep, dp-attn, spec-decoding, remote-reset-url.
+        required: true
+        type: string
+      ref:
+        description: "Git ref (branch/sha) to checkout"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-configs:
+    runs-on: ubuntu-latest
+    outputs:
+      configs: ${{ steps.validate.outputs.configs }}
+    steps:
+      - id: validate
+        run: |
+          echo '${{ inputs.configs }}' | python3 -m json.tool > /dev/null || {
+            echo "::error::configs input is not valid JSON" >&2
+            exit 1
+          }
+          echo "configs<<EOF" >> "$GITHUB_OUTPUT"
+          echo '${{ inputs.configs }}' >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+  remote-bench:
+    needs: validate-configs
+    if: ${{ needs.validate-configs.outputs.configs != '[]' }}
+    uses: ./.github/workflows/benchmark-tmpl.yml
+    name: remote-bench /
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.validate-configs.outputs.configs) }}
+    secrets: inherit
+    with:
+      exp-name: ${{ matrix.config.exp-name }}
+      runner: cluster:remote-bench
+      image: ${{ matrix.config.image }}
+      model: ${{ matrix.config.model }}
+      model-prefix: ${{ matrix.config.model-prefix }}
+      framework: ${{ matrix.config.framework }}
+      precision: ${{ matrix.config.precision }}
+      tp: ${{ matrix.config.tp || '1' }}
+      ep: ${{ matrix.config.ep || '1' }}
+      dp-attn: ${{ matrix.config.dp-attn || false }}
+      conc: ${{ matrix.config.conc }}
+      spec-decoding: ${{ matrix.config.spec-decoding || 'none' }}
+      disagg: 'false'
+      isl: '0'
+      osl: '0'
+      max-model-len: '0'
+      run-eval: false
+      scenario-type: agentic-coding
+      kv-offloading: none
+      duration: ${{ matrix.config.duration }}
+      remote-base-url: ${{ matrix.config.remote-base-url }}
+      remote-gpu-telemetry-url: ${{ matrix.config.remote-gpu-telemetry-url }}
+      remote-engine-metrics-url: ${{ matrix.config.remote-engine-metrics-url }}
+      remote-reset-url: ${{ matrix.config.remote-reset-url || '' }}
+      remote-runner-type: ${{ matrix.config.remote-runner-type }}
+      remote-max-context-length: ${{ matrix.config.remote-max-context-length }}
+      ref: ${{ inputs.ref }}
