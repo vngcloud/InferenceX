@@ -42,7 +42,7 @@ Optional:
 |---|---|
 | `REMOTE_RESET_URL` | endpoint to reset KV/prefix cache + router affinity before each concurrency point — a remote target is one long-lived engine across the whole sweep, unlike local recipes which get a fresh process per `conc` job |
 
-On the `remote-bench.yml` workflow_dispatch side, also required (these exist for every
+On the `remote-bench-e2e.yml` workflow_dispatch side, also required per config (these exist for every
 recipe, but for remote-bench they're pure self-reported metadata rather than values that
 configure anything InferenceX launches):
 
@@ -123,47 +123,40 @@ Ask the endpoint's operator directly for KV cache token capacity, or derive it f
 
 ## 6. Dispatch
 
-### Single config (smoke-test / debug)
+There's one workflow: `remote-bench-e2e.yml`. It takes a JSON array of configs and
+matrix-fans each entry to its own job, then aggregates via `collect-results` +
+`calc-success-rate` into one combined summary. A single-config smoke test is just a
+one-element array — there's no separate single-dispatch workflow anymore (an earlier
+`remote-bench.yml` existed for that and was removed once `remote-bench-e2e.yml` covered
+both cases; don't recreate it).
 
-```bash
-gh workflow run remote-bench.yml -R vngcloud/InferenceX --ref <branch> \
-  -f exp-name=<model_prefix>_<short-desc> \
-  -f image=<real deployed image> \
-  -f model=<HF repo id or served name> \
-  -f model-prefix=<model_prefix> \
-  -f framework=sglang \
-  -f precision=<precision> \
-  -f conc=<N> \
-  -f duration=<seconds> \
-  -f remote-base-url=<url> \
-  -f remote-gpu-telemetry-url=<url> \
-  -f remote-engine-metrics-url=<url> \
-  -f remote-runner-type=<hw string> \
-  -f remote-max-context-length=<real context length>
-```
-
-### Full sweep (the CCU ladder)
-
-Use `remote-bench-e2e.yml` to dispatch the whole ladder in one call — it matrix-fans each
-entry to its own job, then aggregates via `collect-results` + `calc-success-rate` into one
-combined summary instead of scattered per-job artifacts:
+Smoke test (one config):
 
 ```bash
 gh workflow run remote-bench-e2e.yml -R vngcloud/InferenceX --ref <branch> \
   -f configs='[
-    {"exp-name": "<model_prefix>_c1", "conc": "1", "duration": "<seconds>",
+    {"exp-name": "<model_prefix>_smoke", "conc": "1", "duration": "<seconds>",
      "image": "<real deployed image>", "model": "<HF repo id>",
      "model-prefix": "<model_prefix>", "framework": "sglang", "precision": "<precision>",
      "remote-base-url": "<url>", "remote-gpu-telemetry-url": "<url>",
      "remote-engine-metrics-url": "<url>", "remote-runner-type": "<hw string>",
-     "remote-max-context-length": "<real context length>"},
+     "remote-max-context-length": "<real context length>"}
+  ]'
+```
+
+Full sweep (the CCU ladder) — same shape, one object per conc value:
+
+```bash
+gh workflow run remote-bench-e2e.yml -R vngcloud/InferenceX --ref <branch> \
+  -f configs='[
+    {"exp-name": "<model_prefix>_c1", "conc": "1", "duration": "<seconds>", ...},
     {"exp-name": "<model_prefix>_c2", "conc": "2", "duration": "<seconds>", ...},
     {"exp-name": "<model_prefix>_c4", "conc": "4", "duration": "<seconds>", ...}
   ]'
 ```
 
-Every object needs the same fields as the single-config dispatch above — only `conc` (and
-`exp-name`, so results stay distinguishable) should vary across the ladder.
+Every object needs the full field set shown in the smoke-test example above — only `conc`
+(and `exp-name`, so results stay distinguishable) should vary across the ladder.
 
 **No `REMOTE_RESET_URL` configured means the ladder isn't a clean comparison.** A remote
 target is one persistent engine across the whole sweep (unlike local recipes, which get a
@@ -175,9 +168,8 @@ endpoint's operator can't provide a real reset endpoint, treat ladder results as
 validation that the sweep mechanics work, not as clean per-concurrency performance numbers.
 
 `workflow_dispatch` only works once the workflow file exists on the **default branch**
-(`main`) — you cannot dispatch a brand-new workflow file (either `remote-bench.yml` or
-`remote-bench-e2e.yml`) from a feature branch before it merges. For pre-merge validation,
-use the debug loop below instead.
+(`main`) — you cannot dispatch a brand-new `remote-bench-e2e.yml`-style workflow from a
+feature branch before it merges. For pre-merge validation, use the debug loop below instead.
 
 ## 7. Debug loop (do this before wiring into CI)
 
