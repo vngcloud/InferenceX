@@ -13,7 +13,24 @@ lines" apart from "an upstream change is unrelated."
 Diff anchor: `git diff <merge-base-with-upstream> origin/main --stat` shows exactly this set
 of files (as of the remote-bench feature, merge-base was `673a6019`).
 
-## Entries
+## Features (chronological)
+
+| Feature | PR | Commits (on `main`) | Issue |
+|---|---|---|---|
+| Remote-bench (BYO endpoint): base recipe, workflow, runner | [#27](https://github.com/vngcloud/InferenceX/pull/27) | `94003094` (squashed) | #26 |
+| Remote-bench-e2e: batch matrix dispatch | [#30](https://github.com/vngcloud/InferenceX/pull/30) | `12d72e27`, merge `522717eb` | #28 |
+| Remote-bench-e2e: collect-results + calc-success-rate | [#31](https://github.com/vngcloud/InferenceX/pull/31) | `1184fc04`, merge `eb1568e2` | #28 |
+
+(PR #29 merged `vng-benchmark` wholesale into `main` by accident, pulling in 21 unrelated
+commits — reverted via a `main` reset + cherry-pick of just #27's commits, no PR number of
+its own. Not a real feature; noted here only so the PR-number sequence doesn't look like a
+gap.)
+
+Add a row here whenever a new fork feature lands on `main`. When a feature is later
+superseded or upstreamed, don't delete the row — mark it `(resolved, see PR #NNN)` so the
+history of what happened stays legible.
+
+## Entries (file-level detail)
 
 ### `benchmarks/benchmark_lib.sh`
 - **Line ~1767**, `build_replay_cmd()`: `REPLAY_CMD+=" --url ${REMOTE_BASE_URL:-http://localhost:$PORT}"`.
