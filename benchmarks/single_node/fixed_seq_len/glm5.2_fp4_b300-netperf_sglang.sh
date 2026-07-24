@@ -34,7 +34,8 @@ CONTEXT_LENGTH=$((ISL + OSL + 20))
 # term wins, matching the agentic run's MAX_RUNNING_REQUESTS=2*CONC.
 MAX_RUNNING_REQUESTS=$(( 2 * CONC > TP ? 2 * CONC : TP ))
 
-start_gpu_monitor --output "$RESULT_DIR/gpu_metrics.csv"
+# Default output is /workspace/gpu_metrics.csv, which process_result.py checks.
+start_gpu_monitor
 
 SGLANG_CMD=(
     python3 -m sglang.launch_server
@@ -86,7 +87,7 @@ run_benchmark_serving \
     --num-prompts "$((CONC * 10))" \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
-    --result-dir "$RESULT_DIR/" \
+    --result-dir "$PWD/" \
     --use-chat-template
 
 stop_gpu_monitor
