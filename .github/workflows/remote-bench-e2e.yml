@@ -1,0 +1,133 @@
+name: Remote Bench E2E
+
+# The single remote-bench entrypoint: dispatch one or more remote-bench
+# configs (different conc/duration/dataset variants against one or more
+# remote endpoints) in a single call, fanned out via matrix like
+# e2e-tests.yml does for the master-config sweep path. A single-config
+# smoke test is just a one-element configs array — there is no separate
+# single-dispatch workflow. Deliberately does NOT go through
+# generate_sweep_configs.py / validation.py — remote-bench configs are a
+# JSON array supplied directly, so this stays independent of the closed
+# master-config schema.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configs:
+        description: >
+          JSON array of remote-bench configs (one element is fine for a
+          smoke test). Each object supports: exp-name, image, model,
+          model-prefix, framework, precision, conc, duration,
+          remote-base-url, remote-gpu-telemetry-url, remote-engine-metrics-url,
+          remote-runner-type, remote-max-context-length, and optionally
+          tp, ep, dp-attn, spec-decoding, remote-reset-url.
+        required: true
+        type: string
+      ref:
+        description: "Git ref (branch/sha) to checkout"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-configs:
+    runs-on: ubuntu-latest
+    outputs:
+      configs: ${{ steps.validate.outputs.configs }}
+    steps:
+      - id: validate
+        run: |
+          echo '${{ inputs.configs }}' | python3 -m json.tool > /dev/null || {
+            echo "::error::configs input is not valid JSON" >&2
+            exit 1
+          }
+          echo "configs<<EOF" >> "$GITHUB_OUTPUT"
+          echo '${{ inputs.configs }}' >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+  remote-bench:
+    needs: validate-configs
+    if: ${{ needs.validate-configs.outputs.configs != '[]' }}
+    uses: ./.github/workflows/benchmark-tmpl.yml
+    name: remote-bench /
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJson(needs.validate-configs.outputs.configs) }}
+    secrets: inherit
+    with:
+      exp-name: ${{ matrix.config.exp-name }}
+      runner: cluster:remote-bench
+      image: ${{ matrix.config.image }}
+      model: ${{ matrix.config.model }}
+      model-prefix: ${{ matrix.config.model-prefix }}
+      framework: ${{ matrix.config.framework }}
+      precision: ${{ matrix.config.precision }}
+      tp: ${{ matrix.config.tp || '1' }}
+      ep: ${{ matrix.config.ep || '1' }}
+      dp-attn: ${{ matrix.config.dp-attn || false }}
+      conc: ${{ matrix.config.conc }}
+      spec-decoding: ${{ matrix.config.spec-decoding || 'none' }}
+      disagg: 'false'
+      isl: '0'
+      osl: '0'
+      max-model-len: '0'
+      run-eval: false
+      scenario-type: agentic-coding
+      kv-offloading: none
+      duration: ${{ matrix.config.duration }}
+      remote-base-url: ${{ matrix.config.remote-base-url }}
+      remote-gpu-telemetry-url: ${{ matrix.config.remote-gpu-telemetry-url }}
+      remote-engine-metrics-url: ${{ matrix.config.remote-engine-metrics-url }}
+      remote-reset-url: ${{ matrix.config.remote-reset-url || '' }}
+      remote-runner-type: ${{ matrix.config.remote-runner-type }}
+      remote-max-context-length: ${{ matrix.config.remote-max-context-length }}
+      ref: ${{ inputs.ref }}
+
+  collect-results:
+    needs: remote-bench
+    if: ${{ always() && needs.remote-bench.result != 'skipped' }}
+    uses: ./.github/workflows/collect-results.yml
+    secrets: inherit
+    with:
+      result-prefix: "bmk"
+
+  calc-success-rate:
+    needs: collect-results
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+
+    env:
+      RESULTS_DIR: "results/"
+      STATS_FILENAME: "run_stats"
+      GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          token: ${{ secrets.REPO_PAT }}
+          fetch-depth: 0
+
+      - name: Download results artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ env.RESULTS_DIR }}
+          pattern: results_*
+
+      - name: Install python dependencies
+        run: pip install PyGithub
+
+      - name: Calculate success rate
+        run: python3 utils/calc_success_rate.py $STATS_FILENAME
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: "run-stats"
+          path: ${{ env.STATS_FILENAME }}.json
+
+  # Deliberately no trigger-agentic-ingest job here — whether remote-bench
+  # results should auto-dispatch to InferenceX-app's production ingest is
+  # still an open design question (issue #28), not something to decide as
+  # a side effect of adding batch dispatch.

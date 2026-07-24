@@ -357,6 +357,7 @@ run_benchmark_serving() {
     local model=""
     local port=""
     local backend=""
+    local base_url=""
     local endpoint=""
     local input_len=""
     local output_len=""
@@ -385,6 +386,10 @@ run_benchmark_serving() {
                 ;;
             --backend)
                 backend="$2"
+                shift 2
+                ;;
+            --base-url)
+                base_url="$2"
                 shift 2
                 ;;
             --endpoint)
@@ -460,8 +465,8 @@ run_benchmark_serving() {
         echo "Error: --model is required"
         return 1
     fi
-    if [[ -z "$port" ]]; then
-        echo "Error: --port is required"
+    if [[ -z "$port" && -z "$base_url" ]]; then
+        echo "Error: --port is required (unless --base-url is given)"
         return 1
     fi
     if [[ -z "$backend" ]]; then
@@ -518,7 +523,7 @@ run_benchmark_serving() {
         python3 "$workspace_dir/utils/bench_serving/benchmark_serving.py"
         --model "$model"
         --backend "$backend"
-        --base-url "http://0.0.0.0:$port"
+        --base-url "${base_url:-http://0.0.0.0:$port}"
         --dataset-name random
         --random-input-len "$input_len"
         --random-output-len "$output_len"
@@ -795,6 +800,7 @@ setup_eval_context() {
 
 run_lm_eval() {
     local port="${PORT:-8888}"
+    local base_url=""
     local tasks_dir="${EVAL_TASKS_DIR:-utils/evals/gsm8k.yaml}"
     local results_dir="${EVAL_RESULT_DIR:-$(mktemp -d /tmp/eval_out-XXXXXX)}"
     local eval_context_len="${EVAL_MAX_MODEL_LEN:-16384}"
@@ -809,13 +815,14 @@ run_lm_eval() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --port|--task|--results-dir|--gen-max-tokens|--temperature|--top-p)
+            --port|--base-url|--task|--results-dir|--gen-max-tokens|--temperature|--top-p)
                 if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
                     echo "ERROR: $1 requires a value" >&2
                     return 2
                 fi
                 case "$1" in
                     --port)           port="$2" ;;
+                    --base-url)       base_url="$2" ;;
                     --task)           tasks_dir="$2" ;;
                     --results-dir)    results_dir="$2" ;;
                     --gen-max-tokens) eval_context_len="$2" ;;
@@ -846,7 +853,7 @@ run_lm_eval() {
         export INFERENCEX_LM_EVAL_RUNTIME_READY=true
     fi
 
-    local openai_server_base="http://0.0.0.0:${port}"
+    local openai_server_base="${base_url:-http://0.0.0.0:${port}}"
     local openai_chat_base="${openai_server_base}/v1/chat/completions"
     export OPENAI_API_KEY=${OPENAI_API_KEY:-EMPTY}
     MODEL_NAME=${MODEL_NAME:-$MODEL} # Prefer MODEL_NAME, else MODEL
@@ -1757,7 +1764,7 @@ build_replay_cmd() {
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
     REPLAY_CMD="$AIPERF_CLI profile --scenario inferencex-agentx-mvp"
-    REPLAY_CMD+=" --url http://localhost:$PORT"
+    REPLAY_CMD+=" --url ${REMOTE_BASE_URL:-http://localhost:$PORT}"
     REPLAY_CMD+=" --endpoint /v1/chat/completions"
     REPLAY_CMD+=" --endpoint-type chat"
     REPLAY_CMD+=" --streaming"
