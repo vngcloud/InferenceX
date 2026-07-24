@@ -41,6 +41,32 @@ def test_validate_config_accepts_gpu_resident_kv(tmp_path: Path) -> None:
     assert errors == []
 
 
+def test_validate_config_accepts_ordered_ccu_subset(tmp_path: Path) -> None:
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "runners.yaml").write_text(
+        "labels:\n  cluster:h200:\n    - h200_01\n"
+    )
+    config_path = configs / "nvidia-master.yaml"
+    config_path.write_text(
+        """retry:
+  runner: cluster:h200
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 32] }
+"""
+    )
+    errors: list[str] = []
+
+    PREFLIGHT.validate_config(
+        tmp_path, config_path, "retry", "h200_01", [1], errors
+    )
+
+    assert errors == []
+
+
 def test_validate_recipe_accepts_gpu_resident_kv(tmp_path: Path) -> None:
     recipe = tmp_path / "recipe.sh"
     recipe.write_text(
