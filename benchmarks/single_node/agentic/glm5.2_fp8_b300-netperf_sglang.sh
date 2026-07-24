@@ -73,7 +73,7 @@ if [ "$HICACHE_L3" -eq 1 ]; then
     SGLANG_CMD+=(
         --hicache-storage-backend nixl
         --hicache-storage-prefetch-policy timeout
-        --hicache-storage-backend-extra-config '{"use_direct_io":true,"use_uring":"false","l3_cleaner_high_watermark":40.0,"l3_cleaner_low_watermark":30.0}'
+        --hicache-storage-backend-extra-config '{"use_direct_io":false,"use_uring":"false","l3_cleaner_high_watermark":40.0,"l3_cleaner_low_watermark":30.0}'
     )
 fi
 
