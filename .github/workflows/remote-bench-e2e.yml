@@ -1,21 +1,22 @@
 name: Remote Bench E2E
 
-# Batch counterpart to remote-bench.yml: dispatch several remote-bench
+# The single remote-bench entrypoint: dispatch one or more remote-bench
 # configs (different conc/duration/dataset variants against one or more
 # remote endpoints) in a single call, fanned out via matrix like
-# e2e-tests.yml does for the master-config sweep path. Deliberately does
-# NOT go through generate_sweep_configs.py / validation.py — remote-bench
-# configs are a JSON array supplied directly, so this stays independent
-# of the closed master-config schema (same reason remote-bench.yml is a
-# standalone entrypoint instead of a master-config scenario type).
+# e2e-tests.yml does for the master-config sweep path. A single-config
+# smoke test is just a one-element configs array — there is no separate
+# single-dispatch workflow. Deliberately does NOT go through
+# generate_sweep_configs.py / validation.py — remote-bench configs are a
+# JSON array supplied directly, so this stays independent of the closed
+# master-config schema.
 
 on:
   workflow_dispatch:
     inputs:
       configs:
         description: >
-          JSON array of remote-bench configs. Each object supports the same
-          fields as remote-bench.yml's inputs: exp-name, image, model,
+          JSON array of remote-bench configs (one element is fine for a
+          smoke test). Each object supports: exp-name, image, model,
           model-prefix, framework, precision, conc, duration,
           remote-base-url, remote-gpu-telemetry-url, remote-engine-metrics-url,
           remote-runner-type, remote-max-context-length, and optionally

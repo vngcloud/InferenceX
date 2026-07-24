@@ -1,6 +1,6 @@
 ---
 name: create-remote-bench
-description: Create and dispatch a new *-remote-bench.sh recipe to benchmark an already-running, externally-managed inference endpoint (BYO endpoint) instead of launching a server on the GPU runner. Use when bringing up remote-bench for a new model/precision/framework combo, or when asked to benchmark an existing deployment (e.g. a k8s/ArgoCD-managed SGLang/vLLM service) rather than a fresh InferenceX-launched server. Background and rationale: issue #26, PR #27.
+description: Create a new *-remote-bench.sh recipe and run a full CCU-ladder sweep (not just a one-off smoke test) against an already-running, externally-managed inference endpoint (BYO endpoint) instead of launching a server on the GPU runner. Use when bringing up remote-bench for a new model/precision/framework combo, or when asked to benchmark an existing deployment (e.g. a k8s/ArgoCD-managed SGLang/vLLM service) rather than a fresh InferenceX-launched server. Background and rationale: issue #26/#28, PR #27/#30/#31.
 ---
 
 # Create a remote-bench recipe
@@ -42,7 +42,7 @@ Optional:
 |---|---|
 | `REMOTE_RESET_URL` | endpoint to reset KV/prefix cache + router affinity before each concurrency point — a remote target is one long-lived engine across the whole sweep, unlike local recipes which get a fresh process per `conc` job |
 
-On the `remote-bench.yml` workflow_dispatch side, also required (these exist for every
+On the `remote-bench-e2e.yml` workflow_dispatch side, also required per config (these exist for every
 recipe, but for remote-bench they're pure self-reported metadata rather than values that
 configure anything InferenceX launches):
 
@@ -84,30 +84,94 @@ controller only drives aiperf over the network; it never touches the GPU itself.
 register a new runner if the existing controller is saturated or unreachable from a new
 target's network.
 
-## 5. Dispatch
+## 5. Check the KV pool before picking a CCU ladder
+
+Don't guess concurrency values for a sweep — find out how much KV cache capacity the
+endpoint's engine actually has first. Too low and you leave throughput on the table; too
+high and you push the engine into the queuing/decode-hang territory described in step 2's
+`REMOTE_MAX_CONTEXT_LENGTH` entry.
+
+For SGLang, the live `/metrics` endpoint (your `REMOTE_ENGINE_METRICS_URL`) exposes the KV
+pool's total token capacity as a gauge set once at server startup — you can read it before
+ever sending a request:
 
 ```bash
-gh workflow run remote-bench.yml -R vngcloud/InferenceX --ref <branch> \
-  -f exp-name=<model_prefix>_<short-desc> \
-  -f image=<real deployed image> \
-  -f model=<HF repo id or served name> \
-  -f model-prefix=<model_prefix> \
-  -f framework=sglang \
-  -f precision=<precision> \
-  -f conc=<N> \
-  -f duration=<seconds> \
-  -f remote-base-url=<url> \
-  -f remote-gpu-telemetry-url=<url> \
-  -f remote-engine-metrics-url=<url> \
-  -f remote-runner-type=<hw string> \
-  -f remote-max-context-length=<real context length>
+curl -s <REMOTE_ENGINE_METRICS_URL> | grep sglang:max_total_num_tokens
 ```
 
-`workflow_dispatch` only works once the workflow file exists on the **default branch**
-(`main`) — you cannot dispatch a brand-new `remote-bench.yml`-style workflow from a feature
-branch before it merges. For pre-merge validation, use the debug loop below instead.
+(This is the same number that later shows up in the aggregated result's
+`server_metrics.kv_cache.gpu_total_tokens` — pulling it up front means you don't have to
+run a throwaway job just to see it.)
 
-## 6. Debug loop (do this before wiring into CI)
+Use it to size the ladder:
+
+```
+max_conc ≈ (kv_pool_tokens × target_utilization) / REMOTE_MAX_CONTEXT_LENGTH
+```
+
+`target_utilization` around 0.6-0.8 — pushing toward 1.0 is exactly the KV-pressure regime
+that causes decode to collapse (see step 2). Build a doubling ladder up to that estimate —
+`1, 2, 4, 8, ..., max_conc` — dropping the last step if it overshoots. Don't reuse a ladder
+computed for a different model/hardware/`REMOTE_MAX_CONTEXT_LENGTH` combo; the math above
+depends on all three.
+
+vLLM targets don't expose an equivalent live token-count gauge the same way
+(`vllm:kv_cache_usage_perc` is a percentage, not a token count; the raw number is normally
+parsed from the server's own startup log, which remote-bench never captures — see step 8).
+Ask the endpoint's operator directly for KV cache token capacity, or derive it from
+`--gpu-memory-utilization` and the model's per-token KV footprint.
+
+## 6. Dispatch
+
+There's one workflow: `remote-bench-e2e.yml`. It takes a JSON array of configs and
+matrix-fans each entry to its own job, then aggregates via `collect-results` +
+`calc-success-rate` into one combined summary. A single-config smoke test is just a
+one-element array — there's no separate single-dispatch workflow anymore (an earlier
+`remote-bench.yml` existed for that and was removed once `remote-bench-e2e.yml` covered
+both cases; don't recreate it).
+
+Smoke test (one config):
+
+```bash
+gh workflow run remote-bench-e2e.yml -R vngcloud/InferenceX --ref <branch> \
+  -f configs='[
+    {"exp-name": "<model_prefix>_smoke", "conc": "1", "duration": "<seconds>",
+     "image": "<real deployed image>", "model": "<HF repo id>",
+     "model-prefix": "<model_prefix>", "framework": "sglang", "precision": "<precision>",
+     "remote-base-url": "<url>", "remote-gpu-telemetry-url": "<url>",
+     "remote-engine-metrics-url": "<url>", "remote-runner-type": "<hw string>",
+     "remote-max-context-length": "<real context length>"}
+  ]'
+```
+
+Full sweep (the CCU ladder) — same shape, one object per conc value:
+
+```bash
+gh workflow run remote-bench-e2e.yml -R vngcloud/InferenceX --ref <branch> \
+  -f configs='[
+    {"exp-name": "<model_prefix>_c1", "conc": "1", "duration": "<seconds>", ...},
+    {"exp-name": "<model_prefix>_c2", "conc": "2", "duration": "<seconds>", ...},
+    {"exp-name": "<model_prefix>_c4", "conc": "4", "duration": "<seconds>", ...}
+  ]'
+```
+
+Every object needs the full field set shown in the smoke-test example above — only `conc`
+(and `exp-name`, so results stay distinguishable) should vary across the ladder.
+
+**No `REMOTE_RESET_URL` configured means the ladder isn't a clean comparison.** A remote
+target is one persistent engine across the whole sweep (unlike local recipes, which get a
+fresh process per `conc` job) — without a reset endpoint, each subsequent point in the
+ladder inherits KV/prefix cache warmth from every prior point (and from any earlier runs
+against the same endpoint). Confirmed in practice: repeated runs against the same dataset
+with no reset showed ~92-94% prefix-cache hit rate regardless of concurrency. If the
+endpoint's operator can't provide a real reset endpoint, treat ladder results as smoke-test
+validation that the sweep mechanics work, not as clean per-concurrency performance numbers.
+
+`workflow_dispatch` only works once the workflow file exists on the **default branch**
+(`main`) — you cannot dispatch a brand-new `remote-bench-e2e.yml`-style workflow from a
+feature branch before it merges. For pre-merge validation, use the debug loop below instead.
+
+## 7. Debug loop (do this before wiring into CI)
 
 Mirrors `/debug-runs`'s tight-loop philosophy: reproduce directly rather than iterating
 through full CI dispatch cycles you can't even trigger yet pre-merge.
@@ -139,7 +203,7 @@ through full CI dispatch cycles you can't even trigger yet pre-merge.
    `profile_export_aiperf.{csv,json}` / `server_metrics_export.json` files with actual data
    in them (not empty) before considering the recipe done.
 
-## 7. What a real, ingest-able run produces
+## 8. What a real, ingest-able run produces
 
 For `scenario-type: agentic-coding` (which all remote-bench recipes are), `benchmark-tmpl.yml`
 uploads:
