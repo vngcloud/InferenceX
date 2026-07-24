@@ -109,8 +109,9 @@ def validate_config(
     agentic = scenarios.get("agentic-coding") or []
     spaces = [space for item in agentic for space in item.get("search-space", [])]
     actual_ccus = [value for space in spaces for value in space.get("conc-list", [])]
-    if actual_ccus != ccus:
-        fail(f"CCU mismatch: expected {ccus}, got {actual_ccus}", errors)
+    selected_ccus = [value for value in actual_ccus if value in ccus]
+    if selected_ccus != ccus:
+        fail(f"CCUs {ccus} are not an ordered subset of {actual_ccus}", errors)
     for space in spaces:
         kv_offloading = space.get("kv-offloading")
         backend = space.get("kv-offload-backend") or {}
