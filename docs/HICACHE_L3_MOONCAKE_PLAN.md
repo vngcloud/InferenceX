@@ -1,6 +1,6 @@
 # HiCache L3 (Mooncake + SSD) bring-up plan — GLM-5.2 FP8 B300
 
-Status: **plan, not yet validated**. Target config key
+Status: **COMPLETE — negative result, see §10**. Target config key
 `glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-mooncake-ssd`, recipe
 `benchmarks/single_node/agentic/glm5.2_fp8_b300-netperf_sglang.sh`, node `b300-netperf_00`.
 
@@ -299,7 +299,73 @@ The expected shape: as coverage rises, SSD hits replace recompute and the TTFT t
 *improve*. If it does not improve with warmth, `wait_complete` is the wrong trade and the
 bounded `timeout` variant in §5.1 is the fallback.
 
-## 9. References
+## 10. RESULT — host-tier caching is irrelevant on this config
+
+Status: **experiment complete.** L3 works mechanically and contributes nothing.
+
+### 10.1 All runs
+
+| run | CCU | L2 ratio | store at open | GPU hit | host hit | L3 hit | overall |
+|---|---|---|---|---|---|---|---|
+| CCU 12 ref | 12 | 1.0 | — | 0.622 | **0.340** | — | **0.962** |
+| smoke | 32 | 1.0 | 0 | 0.656 | 0.032 | 0.00025 | 0.688 |
+| warmth 1 | 32 | 1.0 | 4 KB | 0.535 | 0.051 | 0.00298 | 0.589 |
+| warmth 2 | 32 | 1.0 | 126 GB | 0.538 | 0.053 | 0.00226 | 0.594 |
+| final | 64 | **0.25** | 196 GB | 0.609 | 0.00027 | 0.00029 | 0.610 |
+
+### 10.2 The decisive test
+
+The final run starved L2 to 0.68M tokens so that L1 misses had nowhere to go but the warm SSD
+tier. L2's contribution duly collapsed — and **L3 did not pick it up**:
+
+```
+                 L2 hit      L3 hit      overall
+  ratio 1.00     0.053       0.00226     0.594
+  ratio 0.25     0.00027     0.00029     0.610     <- L2 removed, L3 flat, overall UNCHANGED
+```
+
+Token sources in the final run: `device 99.91%`, `host 0.05%`, `storage_MooncakeStore 0.05%`.
+**The GPU tier does 99.9% of all cache serving.** Both host tiers are noise, and removing L2
+entirely did not hurt — overall hit actually rose slightly, because the GPU tier gained.
+
+### 10.3 Why — reuse interval vs tier residency
+
+A tier below HBM only helps when a prefix is re-requested **before** that tier evicts it. The
+CCU 12 reference shows the content itself is highly reusable (96.2% hit, with L2 serving 0.340
+of it). What changes with concurrency is the reuse *interval*:
+
+```
+  CCU 12   reuse interval  <  L2 residency        → L2 serves 34% of tokens
+  CCU 32   reuse interval  >  L2 residency        → L2 serves 5%
+  CCU 64   reuse interval >> L2 and L3 residency  → both serve ~0.03%
+```
+
+At high concurrency the request stream churns faster than any host tier can retain a prefix, so
+capacity below HBM stops mattering. Adding a 16 TB SSD does not fix a residency problem.
+
+### 10.4 Conclusions
+
+1. **Do not deploy HiCache L3 (Mooncake+SSD) for this config.** It functions correctly and
+   contributes 0.03% of tokens even when it is the only tier below HBM with a warm store.
+2. **The lever is GPU pool size, not host capacity.** The FP4 DP-attention config with a
+   21.9M-token pool reaches 96–98% GPU hit (run 30099003901). This FP8 TP8/EP1 config has 2.73M
+   and cannot be rescued by DRAM or SSD.
+3. **Host DRAM (L2) is worth keeping at low concurrency only** — 0.340 hit at CCU 12 versus 0.05
+   at CCU 32. Its value is a function of offered load, not of its size.
+4. **L3's remaining plausible use case is cross-instance or cross-restart reuse**, where the
+   reuse interval is hours rather than seconds — not single-node steady-state serving. Untested.
+
+### 10.5 What this experiment did not settle
+
+- **Equal-DRAM L2 vs L3.** Arm B was attempted at `hicache-ratio 10.0` and OOM-killed the node's
+  runner; `hicache-ratio` is applied **per TP rank** (~8 x ratio x 122.6 GB), so the ceiling is
+  ~2.4 and the intended 10x L2 comparison is impossible on this node. Corrected to 2.0 in
+  `configs/nvidia-master.yaml`.
+- **The middle concurrency band (CCU 16-24)** where L2 residency may still hold but L1 overflows.
+  Never run; the most likely place for a positive result if this is revisited.
+- **SSD read bandwidth and latency.** Never measured, because L3 never served enough reads.
+
+## 11. References
 
 - Broken L3 run: [30075783267](https://github.com/vngcloud/InferenceX/actions/runs/30075783267)
 - FP4 DP-attn + MTP baseline: [30099003901](https://github.com/vngcloud/InferenceX/actions/runs/30099003901)
