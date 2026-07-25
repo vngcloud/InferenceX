@@ -28,6 +28,16 @@ nvidia-smi
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 MAX_RUNNING_REQUESTS=$((2 * CONC))
+# The GPU KV pool holds ~2.73M tokens ~= 17 mean-sized agentic contexts (157k tokens each).
+# A blind 2*CONC admits 64 at CCU 32, which drove token usage to 0.99 with 3.3M pending
+# tokens against a 2.73M pool and killed the server on a cuBLAS GEMM. Cap admission so
+# pending work cannot run that far past the pool.
+MAX_RUNNING_REQUESTS_CAP="${MAX_RUNNING_REQUESTS_CAP:-32}"
+if [ "$MAX_RUNNING_REQUESTS" -gt "$MAX_RUNNING_REQUESTS_CAP" ]; then
+    MAX_RUNNING_REQUESTS="$MAX_RUNNING_REQUESTS_CAP"
+fi
+# Larger == more conservative admission (server_args.py:717). Default 1.0 over-admits here.
+SCHEDULE_CONSERVATIVENESS="${SCHEDULE_CONSERVATIVENESS:-2.0}"
 HICACHE_L3=0
 HICACHE_BACKEND=""
 HICACHE_WRITE_POLICY=write_back
@@ -42,9 +52,12 @@ elif [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-mooncake-ssd* ]]; then
     # write_through pushes every page to L2+L3 as it is produced; write_back only pushes on
     # eviction, which never populates the store enough to measure L3.
     HICACHE_WRITE_POLICY=write_through
-    # DRAM tier for the store. The node has ~2895 GiB and TOTAL_CPU_DRAM_GB=2399; the L2
-    # hicache pool at ratio 1.0 costs ~142 GB, leaving ample room for 1 TB here.
-    MOONCAKE_GLOBAL_SEGMENT_SIZE="${MOONCAKE_GLOBAL_SEGMENT_SIZE:-1024gb}"
+    # DRAM tier for the store. Sized to SATURATE inside the measured window, not to be large:
+    # SSD only receives data via eviction, so a segment the run never fills means SSD stays at
+    # 0 B. At 1024gb the store reached just 49.8% (510 GB / 460k keys) after ~29 min at CCU 32
+    # and never crossed the 0.85 watermark, so nothing offloaded. At 256gb it saturates around
+    # ~15 min, leaving most of the window with eviction and SSD offload actually active.
+    MOONCAKE_GLOBAL_SEGMENT_SIZE="${MOONCAKE_GLOBAL_SEGMENT_SIZE:-256gb}"
     MOONCAKE_PREFETCH_POLICY="${MOONCAKE_PREFETCH_POLICY:-wait_complete}"
     MOONCAKE_SSD_DIR="/mnt/test-raid0/mooncake/${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-0}-c${CONC}"
     mkdir -p "$MOONCAKE_SSD_DIR"
@@ -84,6 +97,7 @@ SGLANG_CMD=(
     --allow-auto-truncate
     --enable-cache-report
     --schedule-policy lpm
+    --schedule-conservativeness "$SCHEDULE_CONSERVATIVENESS"
     --kv-cache-dtype fp8_e4m3
     --bf16-gemm-backend cutedsl
     --max-prefill-tokens 8192

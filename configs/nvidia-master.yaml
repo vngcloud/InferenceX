@@ -8026,7 +8026,7 @@ glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-mooncake-ssd:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache, version: "l3-mooncake-ssd" }, hicache-ratio: 1.0, conc-list: [32, 48, 64] }
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache, version: "l3-mooncake-ssd" }, hicache-ratio: 1.0, conc-list: [32] }
 
 glm5.2-fp4-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
