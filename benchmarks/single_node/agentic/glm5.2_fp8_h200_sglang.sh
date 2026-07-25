@@ -39,7 +39,7 @@ PARALLEL_ARGS=(--tp-size "$TP")
 if [ "$DP_ATTENTION" = "true" ]; then
   PARALLEL_ARGS=(
     --tp "$TP"
-    --dp 4
+    --dp 2
     --enable-dp-attention
     --moe-a2a-backend deepep
   )
@@ -71,7 +71,7 @@ SGLANG_CMD=(
   --host 0.0.0.0
   --port "$SGLANG_BACKEND_PORT"
   "${PARALLEL_ARGS[@]}"
-  --chunked-prefill-size 32768
+  --chunked-prefill-size 16384
   --tool-call-parser glm47
   --reasoning-parser glm45
   --mem-fraction-static 0.85
