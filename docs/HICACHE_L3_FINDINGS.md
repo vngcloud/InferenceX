@@ -8,14 +8,15 @@
 ## Recommendation
 
 **Do not deploy HiCache L3 (Mooncake + SSD) for single-node serving of this workload.**
-It functions correctly and contributes **0.03%** of served tokens — measured under conditions
-deliberately arranged to favour it.
+It functions correctly and contributes **0.03–0.4%** of served tokens across CCU 16–64,
+including under conditions deliberately arranged to favour it.
 
 **Invest in GPU KV capacity instead.** The same model on a DP-attention topology reaches
 96–98% cache hit from GPU memory alone, versus 61% here. That is an 8× larger GPU pool, and it
 removes the need for any host-side tier.
 
-Retain host DRAM (L2) only at low concurrency — its value is a function of offered load, not size.
+Keep host DRAM (L2) as configured — it supplies ~10% of served tokens and is already paid for.
+Do not enlarge it: its contribution is 5–7% at every concurrency tested, not a function of size.
 
 ---
 
@@ -58,6 +59,7 @@ Sequence of tests, each 3600 s except where noted:
 | 3 | 30146707202 | 32 | 1.0 | 126 GB | Warmth point 2 |
 | 4 | 30150276114 | 32 | 10.0 | n/a | DRAM control — **failed**, see §5 |
 | 5 | 30153620526 | 64 | **0.25** | 196 GB | Decisive test: starve L2, force traffic to L3 |
+| 6 | 30159497063 | 16 | 1.0 | 250 GB | Full-length low-concurrency reference, replacing test 0 |
 
 Test 5 is the critical one. L2 was reduced to 0.68M tokens so that L1 misses had no destination
 except the SSD tier, at high offered concurrency, against a store already warmed by two prior
@@ -70,19 +72,23 @@ runs of the identical trace.
 | # | CCU | L2 ratio | L1 GPU hit | L2 host hit | **L3 hit** | overall hit |
 |---|---|---|---|---|---|---|
 | 0† | 12 | 1.0 | 0.622 | 0.340 | — | 0.962 |
-| 1 | 32 | 1.0 | 0.656 | 0.032 | 0.00025 | 0.688 |
+| 6 | **16** | 1.0 | 0.553 | **0.071** | 0.00254 | 0.627 |
 | 2 | 32 | 1.0 | 0.535 | 0.051 | 0.00298 | 0.589 |
 | 3 | 32 | 1.0 | 0.538 | 0.053 | 0.00226 | 0.594 |
-| 5 | 64 | 0.25 | 0.609 | 0.00027 | **0.00029** | 0.610 |
+| 5 | 64 | 0.25 | 0.609 | 0.00027 | 0.00029 | 0.610 |
 
-† 113 s window, 101 requests — not comparable to the 3600 s rows. Superseded by run
-30159497063 (CCU 16, full duration); see §6.2.
+† 113 s window, 101 requests. **Contradicted by test 6** — at full duration and adjacent
+concurrency, L2 serves 0.071, not 0.340. Treat the 0.340 as a short-window artifact.
 
 Reference, same model, DP-attention topology (run 30099003901): **L1 GPU hit 0.96–0.98**,
 host tier 0.0007–0.001.
 
 **Result 1 — more store did not help.** Between tests 2 and 3 the store grew from empty to
 126 GB. L3 hit rate did not rise (0.00298 → 0.00226); no other metric moved.
+
+**Result 1b — no concurrency favours the host tiers.** Across every full-length run, L2 serves
+5–7% and L3 serves 0.2–0.4%. L3 peaks at CCU 16 (0.00254) and is flat thereafter. There is no
+operating band in which either host tier becomes material.
 
 **Result 2 — L3 does not substitute for DRAM.** Starving L2 in test 5 removed its contribution
 (0.053 → 0.00027). L3 did not absorb it (0.00226 → 0.00029). Overall hit was unchanged.
@@ -144,8 +150,8 @@ the hardware window.
 1. **Equal-DRAM control not performed.** `hicache-ratio` is per TP rank, capping L2 at ~2.4×
    (~2 TB) — too small to reach a meaningful fraction of the working set. Test 4 OOM'd attempting
    10×.
-2. **Low-concurrency behaviour.** The CCU 12 row is a 113 s smoke. Run 30159497063 provides the
-   full-length CCU 16 reference; CCU 20–28 remains untested.
+2. **Concurrency coverage** is CCU 16, 32 and 64 at full duration. CCU 20–28 untested, but the
+   16→64 trend is flat, so a hidden band there is unlikely.
 3. **SSD read bandwidth/latency unmeasured** — L3 never served enough reads to sample. The cost
    side of the trade is unquantified.
 4. **Single model/precision** (GLM-5.2 FP8, 51.4 KB/token). Do not generalise to different KV
