@@ -180,7 +180,83 @@ Must all hold, or the run is another no-op:
 4. TTFT p50/p95 and total tok/s per CCU, with an explicit note on whether `wait_complete`
    moved the TTFT tail.
 
-## 8. References
+## 8. Follow-up: the real comparison run
+
+**Prepare after CCU 32 of run 30139838426 lands. Do nothing here until acceptance criteria 1
+and 2 hold — if L3 is still a no-op, none of this matters.**
+
+Run 30139838426 is still a bring-up: it proves the L3 path works and nothing more. Two
+things in it are deliberately *not* tuned for performance, and both must be unlocked before
+any number is comparable to a best run.
+
+### 8.1 Every job starts with an empty store — the biggest problem
+
+`ssd_offload_path` is `/mnt/test-raid0/mooncake/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-c${CONC}`,
+unique per run **and per CCU**. So c32, c48 and c64 each begin against a cold 16 TB tier and
+spend the measured window populating it. That measures warm-up, not steady state, and it
+systematically understates L3.
+
+The trace is 393 sessions replayed for 3600 s, so a cold store cannot reach the reuse regime
+L3 exists for. Options, cheapest first:
+
+1. Drop `-c${CONC}` from the path so the three CCUs share one store and 48/64 inherit 32's
+   fill. Asymmetric — c32 stays cold — but nearly free.
+2. Drop `${GITHUB_RUN_ID}` too, giving a persistent store across runs. Fastest path to a warm
+   measurement, but results then depend on prior runs, so it must be stated in any comparison
+   and the directory wiped deliberately between experiments.
+3. Add an explicit pre-measurement warm pass. Correct and self-contained, most work.
+
+Whichever is chosen, the store state at window start has to be reported alongside the
+numbers, or the comparison is not interpretable.
+
+### 8.2 L2 is throttled on purpose, and it competes with L3 for the same DRAM
+
+`hicache-ratio 1.0` gives L2 ~142 GB of a 2399 GB budget — chosen in §3 to force traffic
+into the store, not because it is good. The trap: **L2 and the Mooncake DRAM segment are the
+same physical memory.** You cannot maximise both; a real run has to pick a split.
+
+That makes the decisive experiment a three-way, not a before/after:
+
+| Arm | L2 (hicache) | Mooncake DRAM | Mooncake SSD | Question it answers |
+|---|---|---|---|---|
+| A (current) | 142 GB / 2.73M tok | 1024 GB | 16 TB | does the L3 path function |
+| B — **all-DRAM control** | ~1800 GB / ~34.7M tok | none | none | is L3 better than simply spending the DRAM on L2? |
+| C — balanced | ~600 GB / ~11.6M tok | 1024 GB | 16 TB | best achievable with L3 |
+
+**Arm B is the one that can kill the feature**, and it does not exist yet. On a single node
+Mooncake's DRAM segment is redundant with L2 — same memory, one extra hop — so L3 only earns
+its place via the 16 TB SSD. If B beats C, Mooncake is not worth running single-node and the
+FP4 result (§6) is the honest best run.
+
+Hypothesis worth stating so it can be falsified: at 51.4 KB/token, the ~7k tok/s of real
+uncached prefill this trace sustains is only ~360 MB/s of KV-equivalent, while a RAID0 NVMe
+array reads at multiple GB/s. So an SSD hit should beat recompute by roughly 5–20x, and C
+should beat B once the store is warm. If it does not, suspect §8.1 (cold store) before
+concluding the tier is useless.
+
+### 8.3 Not comparable to run 30099003901 as-is
+
+The current best run is FP4, TP8/**EP8**/DP-attention, MTP, cache-aware router, 21.9M-token
+GPU pool. This L3 config is FP8, TP8/**EP1**, no DP-attention, no router, 2.73M-token pool —
+an 8x smaller L1 and a different precision. Any throughput gap between them is dominated by
+topology and precision, not by L3.
+
+To compare against the best run rather than to a strawman, the FP8 arm needs `ep: 8`,
+`dp-attn: true`, the `sglang-router` with `cache_aware`, and `lpm` (already present). Note
+this cuts both ways: DP-attention raises the GPU pool ~8x, which shrinks the headroom L3 has
+to work with — the same reason §6 says not to bother on FP4. Expect the honest answer to be
+"L3 helps small-L1 configs and does little for large-L1 ones", and design the arms to show
+that rather than to hide it.
+
+### 8.4 Carried-over levers
+
+- `max_running_requests = 2 * CONC` (§5.3) — cap it if the upper rungs thrash.
+- `MOONCAKE_PREFETCH_POLICY` / `MOONCAKE_GLOBAL_SEGMENT_SIZE` are env-overridable, so retries
+  need no commit.
+- If `wait_complete` wrecks the TTFT tail, switch to the bounded `timeout` variant in §5.1
+  before abandoning the aggressive policy.
+
+## 9. References
 
 - Broken L3 run: [30075783267](https://github.com/vngcloud/InferenceX/actions/runs/30075783267)
 - FP4 DP-attn + MTP baseline: [30099003901](https://github.com/vngcloud/InferenceX/actions/runs/30099003901)
