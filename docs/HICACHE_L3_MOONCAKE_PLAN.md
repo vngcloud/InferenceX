@@ -170,15 +170,31 @@ is where the headroom is.
 
 ## 7. Acceptance criteria
 
-Must all hold, or the run is another no-op:
+This run answers exactly one question — **does the L3 path function** — and it is judged on
+absolute signals only. It cannot answer "is L3 faster", see §7.1.
 
 1. `mooncake_master.log`: **`SSD Storage:` non-zero**, and `Eviction: Success/Attempts` is
    not `0/N`. If SSD stays at 0 B, `offload_on_evict` did not take and nothing else matters.
 2. Result JSON: `external_cache_hit_rate` is **no longer `null`**, and
    `cached_tokens_by_source` gains a third source beyond `device`/`host`.
-3. `overall_cache_hit_rate` at CCU 12 vs the 0.96196 baseline from run 30075783267.
-4. TTFT p50/p95 and total tok/s per CCU, with an explicit note on whether `wait_complete`
-   moved the TTFT tail.
+3. Recorded for later use, **not** pass/fail: per-tier hit rates, TTFT p50/p95, total tok/s,
+   and whether `wait_complete` moved the TTFT tail.
+
+### 7.1 Do not compare this run to 30075783267
+
+Eight parameters differ between the two runs: `offload_on_evict`, both eviction watermarks,
+`global_segment_size` (1gb -> 1024gb), write policy, prefetch policy, `prefetch_threshold`,
+CCU (12 -> 32, so `max_running_requests` 24 -> 64), and duration (90 s -> 3600 s). No delta
+between them is attributable to any single change.
+
+The tempting number is actively misleading. That run's `overall_cache_hit_rate: 0.96196`
+decomposes as **L1 0.62226 + L2 0.33970 — L3 contributed zero.** It is an "L1+L2 were
+sufficient" result measured at a concurrency where the working set fit. At CCU 32 it will not
+fit, so this run can report a *lower* overall hit rate while L3 works correctly. Treating
+0.96196 as a baseline would score a success as a regression.
+
+A real perf comparison needs the matched-CCU, matched-duration arm-B control in §8.2. Until
+that exists there is no valid baseline for this config, and none should be implied.
 
 ## 8. Follow-up: the real comparison run
 
