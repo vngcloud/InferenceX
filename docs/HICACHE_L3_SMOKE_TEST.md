@@ -208,45 +208,42 @@ The only reason it is not the default is that we have no SSH access to `b300-net
 every hypothesis costs a CI run. Getting node access (the premise of the `debug-runs` skill) is
 the single change that would make the remaining Mooncake tuning cheap.
 
-## Appendix A — current Mooncake-related parameters (real run values)
+## Appendix A — config record
 
-These are the standing configuration values, **not** smoke-test quirks. The smoke test changes
-exactly one input, `duration-override`, and everything else below is identical between a 90 s
-trigger test and a 3600 s real run. Source:
-`benchmarks/single_node/agentic/glm5.2_fp8_b300-netperf_sglang.sh`, config key
-`glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-mooncake-ssd`.
+Source: `benchmarks/single_node/agentic/glm5.2_fp8_b300-netperf_sglang.sh`, config key
+`glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-mooncake-ssd`. Real-run values; the smoke test
+changes only `duration-override`.
 
-### A.1 Mooncake master (job-local, started by the recipe)
+### A.1 mooncake_master
 
-| Flag | Value | Why |
-|---|---|---|
-| `--rpc_port` | `50051` | client `master_server_address` |
-| `--metrics_port` | `9003` | readiness poll + admin metrics |
-| `--enable_offload` | `true` | mounts the local disk segment |
-| `--offload_on_evict` | `true` | **the unblock** — without it evicted objects are never written to SSD |
-| `--eviction_high_watermark_ratio` | `0.85` | start offloading before saturation |
-| `--eviction_ratio` | `0.10` | free 10% per pass; 0.05 caused a ~10 ms retry loop |
-| `--logtostderr` | `true` | captured to `$RESULT_DIR/mooncake_master.log` |
+```
+--rpc_port=50051
+--metrics_port=9003
+--enable_offload=true
+--offload_on_evict=true
+--eviction_high_watermark_ratio=0.85
+--eviction_ratio=0.10
+--logtostderr=true
+```
 
-Left at master defaults and *not* currently tuned: `default_kv_lease_ttl=5000`,
-`default_kv_soft_pin_ttl=1800000`, `allow_evict_soft_pinned_objects=1`,
-`offload_force_evict=0`, `memory_allocator=offset`. `offload_force_evict` is the next lever if
-eviction is attempted but keeps failing.
+At master defaults: `default_kv_lease_ttl=5000`, `default_kv_soft_pin_ttl=1800000`,
+`allow_evict_soft_pinned_objects=1`, `offload_force_evict=0`, `memory_allocator=offset`.
 
 ### A.2 SGLang HiCache flags
 
-| Flag | Value | Notes |
-|---|---|---|
-| `--enable-hierarchical-cache` | on | |
-| `--hicache-ratio` | `1.0` | from config `hicache-ratio`; L2 = 1x the device pool |
-| `--hicache-size` | *unset* | ratio governs instead |
-| `--hicache-write-policy` | `write_through` | mooncake path only; other paths stay `write_back` |
-| `--hicache-io-backend` | `direct` | required pairing with `page_first_direct` |
-| `--hicache-mem-layout` | `page_first_direct` | mooncake rejects `layer_first` (`server_args.py:5414`) |
-| `--hicache-storage-backend` | `mooncake` | |
-| `--hicache-storage-prefetch-policy` | `wait_complete` | no timeout escape; all-reduced across TP ranks |
+```
+--enable-hierarchical-cache
+--hicache-ratio 1.0
+--hicache-write-policy write_through
+--hicache-io-backend direct
+--hicache-mem-layout page_first_direct
+--hicache-storage-backend mooncake
+--hicache-storage-prefetch-policy wait_complete
+```
 
-### A.3 Mooncake client `extra_config`
+`--hicache-size` unset.
+
+### A.3 Mooncake client extra_config
 
 ```json
 {
@@ -254,57 +251,48 @@ eviction is attempted but keeps failing.
   "metadata_server":       "P2PHANDSHAKE",
   "local_hostname":        "127.0.0.1",
   "protocol":              "tcp",
-  "global_segment_size":   "<derived, see §3>",
   "enable_ssd_offload":    true,
   "ssd_offload_path":      "/mnt/test-raid0/mooncake/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-c${CONC}",
   "prefetch_threshold":    64
 }
 ```
 
-`protocol: tcp` — not RDMA. `prefetch_threshold` is 64 tokens (= `page_size`), down from the
-default 256. Prefetch timeout knobs are left at defaults (`base=2.0`, `per_ki_token=0.1`,
-`max=30.0`) and are inert under `wait_complete`.
+Prefetch timeout knobs at defaults: `base=2.0`, `per_ki_token=0.1`, `max=30.0`.
 
-### A.4 Storage and capacity
+### A.4 Capacity
 
-At 51.4 KB/token for GLM-5.2 FP8 (`KV size: 140.35 GB` for 2,728,896 tokens):
+51.4 KB/token (GLM-5.2 FP8, `KV size: 140.35 GB` for 2,728,896 tokens).
 
-| Tier | Backing | Size | Tokens | Persistence |
-|---|---|---|---|---|
-| L1 | GPU HBM, `mem-fraction-static 0.88` | 140 GB | 2.73M | per-process |
-| L2 | host DRAM, `hicache-ratio 1.0` | 142 GB | 2.73M | per-process |
-| L3a | host DRAM, Mooncake segment | derived — **252 GB** @ 3600 s/CCU 32 | ~4.9M | per-process |
-| L3b | `/mnt/test-raid0` NVMe RAID0 | **16.00 TB** | ~311M | on disk, but see below |
-
-Host DRAM accounting, against `TOTAL_CPU_DRAM_GB=2399` (0.80 of 2895 GiB):
-
-```
-  L2 hicache      142 GB
-  L3a segment     252 GB   ← derived; was 1024 GB, which left SSD unreachable
-  ────────────────────────
-  committed       394 GB   (16% of budget)
-  remaining      2005 GB   weights page cache, aiperf, tokenizers, SSD write-back cache
-```
-
-`global_segment_size` is divided across TP ranks
-(`per_tp_global_segment_size = global_segment_size // tp_size`, `mooncake_store.py:396`), so
-252 GB at TP8 is ~31.5 GB registered per rank.
-
-**The 16 TB is effectively cold every job.** `ssd_offload_path` embeds `GITHUB_RUN_ID`,
-`GITHUB_RUN_ATTEMPT` *and* `CONC`, so no two jobs — and no two CCUs within one run — ever share a
-store. Nothing accumulates across runs, and stale directories are never reclaimed by the recipe.
-See plan §8.1; this is the main thing standing between a functioning L3 path and a meaningful
-perf number.
-
-### A.5 What the smoke test actually changes
-
-| Input | Real run | Smoke | Mechanism |
+| Tier | Backing | Size | Tokens |
 |---|---|---|---|
-| `duration-override` | `3600` | `90` | workflow input |
-| `global_segment_size` | 252gb | 6gb | **derived** from the above, not set by hand |
-| everything in A.1–A.3 | — | unchanged | — |
+| L1 | GPU HBM, `mem-fraction-static 0.88` | 140 GB | 2.73M |
+| L2 | host DRAM, `hicache-ratio 1.0` | 142 GB | 2.73M |
+| L3a | host DRAM, Mooncake segment | 252 GB @ 3600 s / CCU 32 | ~4.9M |
+| L3b | `/mnt/test-raid0` NVMe RAID0 | 16.00 TB | ~311M |
 
-Admission knobs, listed for completeness since they are shared and were retuned after the CCU 32
-crash: `max_running_requests = min(2·CONC, 32)`, `--schedule-conservativeness 2.0`,
-`--schedule-policy lpm`, `--chunked-prefill-size 8192`, `--max-prefill-tokens 8192`,
-`--cuda-graph-max-bs 256`, `--watchdog-timeout 1800`.
+Host DRAM: 142 + 252 = 394 GB committed of `TOTAL_CPU_DRAM_GB=2399`.
+
+### A.5 Admission
+
+```
+--max-running-requests   min(2*CONC, 32)
+--schedule-policy        lpm
+--schedule-conservativeness 2.0
+--chunked-prefill-size   8192
+--max-prefill-tokens     8192
+--cuda-graph-max-bs      256
+--watchdog-timeout       1800
+--mem-fraction-static    0.88
+```
+
+### A.6 Model / topology
+
+```
+model      zai-org/GLM-5.2-FP8  (/mnt/models/zai-org/GLM-5.2-FP8)
+image      lmsysorg/sglang:v0.5.15.post1-cu130
+tp 8, ep 1, no dp-attention, no router
+kv-cache-dtype fp8_e4m3, page_size 64, attention_backend dsa
+spec       EAGLE, num-steps 3, eagle-topk 1, num-draft-tokens 4
+dataset    semianalysis_cc_traces_weka_062126 (393 entries)
+node       b300-netperf_00 (cluster:b300-nv)
+```
