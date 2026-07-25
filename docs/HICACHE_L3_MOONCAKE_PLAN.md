@@ -328,20 +328,34 @@ Token sources in the final run: `device 99.91%`, `host 0.05%`, `storage_Mooncake
 **The GPU tier does 99.9% of all cache serving.** Both host tiers are noise, and removing L2
 entirely did not hurt — overall hit actually rose slightly, because the GPU tier gained.
 
-### 10.3 Why — reuse interval vs tier residency
+### 10.3 Why — write-path latency and key-chain divergence
 
-A tier below HBM only helps when a prefix is re-requested **before** that tier evicts it. The
-CCU 12 reference shows the content itself is highly reusable (96.2% hit, with L2 serving 0.340
-of it). What changes with concurrency is the reuse *interval*:
+An earlier draft of this section attributed the result to "reuse interval vs tier residency".
+That is wrong and is corrected here: store-side counters show L3 evicted nothing (433 GB of
+16 TB used), so residency was never the binding constraint.
+
+The tier was actively interrogated and returned misses:
 
 ```
-  CCU 12   reuse interval  <  L2 residency        → L2 serves 34% of tokens
-  CCU 32   reuse interval  >  L2 residency        → L2 serves 5%
-  CCU 64   reuse interval >> L2 and L3 residency  → both serve ~0.03%
+  ExistKey (lookups)   21.6 req/s  ->  46,932 keys/s
+  Get      (fetches)    9.6 req/s  ->   1,309 items/s   ~2.8% conversion
 ```
 
-At high concurrency the request stream churns faster than any host tier can retain a prefix, so
-capacity below HBM stops mattering. Adding a 16 TB SSD does not fix a residency problem.
+Two kinds of reuse exist, on different timescales, and L3 can serve neither:
+
+- **Within-run** (session turn N -> N+1, ~seconds, 39% of tokens at CCU 64). L3's write path is
+  GPU -> Mooncake DRAM segment -> eviction -> disk. The reuse moment passes before the data
+  lands on disk.
+- **Cross-run** (same trace replayed later, ~hours). Prefix keys form a **chain**: each 64-token
+  page's key depends on all preceding tokens. Model-generated tokens enter the next turn's
+  context and generation is not bit-identical between runs, so key chains diverge after the
+  first generated token and everything downstream is invalidated.
+
+This explains all three observations together: the store is asked constantly, holds data from
+the same trace, and still misses -- the keys requested are not the keys stored.
+
+Confidence: the counters are measured; the two mechanisms are inference consistent with them.
+The key-chain divergence claim was not tested in isolation.
 
 ### 10.4 Conclusions
 
@@ -371,4 +385,5 @@ capacity below HBM stops mattering. Adding a 16 TB SSD does not fix a residency 
 - FP4 DP-attn + MTP baseline: [30099003901](https://github.com/vngcloud/InferenceX/actions/runs/30099003901)
 - Upstream plain-TP8 collapse at c16/c32: [29741710665](https://github.com/SemiAnalysisAI/InferenceX/actions/runs/29741710665)
 - Smoke test / segment sizing math: [HICACHE_L3_SMOKE_TEST.md](HICACHE_L3_SMOKE_TEST.md)
+- Executive summary: [HICACHE_L3_FINDINGS.md](HICACHE_L3_FINDINGS.md)
 - Dispatch workflow: `.agents/skills/inferencex-agentic-dispatch/SKILL.md`

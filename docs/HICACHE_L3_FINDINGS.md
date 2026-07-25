@@ -1,0 +1,183 @@
+# HiCache L3 (SSD KV cache) evaluation — GLM-5.2 FP8 on B300
+
+**Date:** 2026-07-25 · **Hardware:** 8× B300 (`b300-netperf_00`) · **Engine:** SGLang v0.5.15.post1
+**Workload:** agentic-coding trace, `semianalysis_cc_traces_weka_062126`, 393 sessions
+
+---
+
+## Recommendation
+
+**Do not deploy HiCache L3 (Mooncake + SSD) for single-node serving of this workload.**
+It functions correctly and contributes **0.03%** of served tokens — measured under conditions
+deliberately arranged to favour it.
+
+**Invest in GPU KV capacity instead.** The same model on a DP-attention topology reaches
+96–98% cache hit from GPU memory alone, versus 61% here. That is an 8× larger GPU pool, and it
+removes the need for any host-side tier.
+
+Retain host DRAM (L2) only at low concurrency — its value is a function of offered load, not size.
+
+---
+
+## 1. Problem
+
+Agentic coding requests carry very large prefixes (median ~110k tokens, p95 ~410k). A prefix
+found in cache costs nothing; a prefix not found must be recomputed by prefill, which is GPU
+time. Throughput therefore scales as `1/(1 − hit_rate)`.
+
+GPU memory holds only 2.73M tokens (140 GB) on this configuration — about 11 session contexts.
+The proposition under test: a 16 TB NVMe tier can hold ~311M tokens for a fraction of the cost
+of HBM, so it should absorb the misses and raise effective capacity.
+
+**Question:** does an SSD-backed KV cache tier raise cache hit rate enough to matter?
+
+---
+
+## 2. Method
+
+Four-tier hierarchy, each tier consulted on a miss of the one above:
+
+```
+  L1  GPU HBM              2.73M tokens / 140 GB
+  L2  host DRAM            configurable via hicache-ratio
+  L3a Mooncake DRAM        write staging for L3b
+  L3b Mooncake SSD         16 TB on NVMe RAID0
+```
+
+Metric of record is `cached_tokens_by_source` from the engine's own counters, which attributes
+every served token to the tier that supplied it. Latency was not used as a primary metric, as
+it confounds cache effects with queueing.
+
+Sequence of tests, each 3600 s except where noted:
+
+| # | Run | CCU | L2 ratio | L3 store at start | Purpose |
+|---|---|---|---|---|---|
+| 0 | 30075783267 | 12 | 1.0 | — | Pre-existing baseline; L3 found non-functional |
+| 1 | 30141767135 | 32 | 1.0 | empty | 90 s smoke: verify L3 writes and reads at all |
+| 2 | 30143803931 | 32 | 1.0 | empty | Warmth point 1 |
+| 3 | 30146707202 | 32 | 1.0 | 126 GB | Warmth point 2 |
+| 4 | 30150276114 | 32 | 10.0 | n/a | DRAM control — **failed**, see §5 |
+| 5 | 30153620526 | 64 | **0.25** | 196 GB | Decisive test: starve L2, force traffic to L3 |
+
+Test 5 is the critical one. L2 was reduced to 0.68M tokens so that L1 misses had no destination
+except the SSD tier, at high offered concurrency, against a store already warmed by two prior
+runs of the identical trace.
+
+---
+
+## 3. Results
+
+| # | CCU | L2 ratio | L1 GPU hit | L2 host hit | **L3 hit** | overall hit |
+|---|---|---|---|---|---|---|
+| 0 | 12 | 1.0 | 0.622 | **0.340** | — | **0.962** |
+| 1 | 32 | 1.0 | 0.656 | 0.032 | 0.00025 | 0.688 |
+| 2 | 32 | 1.0 | 0.535 | 0.051 | 0.00298 | 0.589 |
+| 3 | 32 | 1.0 | 0.538 | 0.053 | 0.00226 | 0.594 |
+| 5 | 64 | 0.25 | 0.609 | 0.00027 | **0.00029** | 0.610 |
+
+Reference, same model, DP-attention topology (run 30099003901): **L1 GPU hit 0.96–0.98**,
+host tier 0.0007–0.001.
+
+**Result 1 — more store did not help.** Between tests 2 and 3 the store grew from empty to
+126 GB. L3 hit rate did not rise (0.00298 → 0.00226); no other metric moved.
+
+**Result 2 — L3 does not substitute for DRAM.** Starving L2 in test 5 removed its contribution
+(0.053 → 0.00027). L3 did not absorb it (0.00226 → 0.00029). Overall hit was unchanged.
+
+Token attribution, test 5:
+
+```
+  L1 GPU                  54,470,720   99.91%
+  L3 SSD                      25,856    0.05%
+  L2 host                     24,576    0.05%
+```
+
+**Result 3 — the tier was exercised, and returned misses.** Store-side request counters:
+
+```
+  ExistKey (lookups)   21.6 req/s   →  46,932 keys/s
+  Get      (fetches)    9.6 req/s   →   1,309 items/s   ≈ 2.8% conversion
+```
+
+The engine interrogated the store ~47,000 keys per second; it answered "not present" ~97% of
+the time. Store utilisation at run end: 433 GB of 16 TB (2.7%), 491,152 keys. The tier was
+neither idle nor full.
+
+---
+
+## 4. Mechanism
+
+Two kinds of reuse exist in this workload, on different timescales:
+
+```
+  WITHIN-RUN   session turn N → turn N+1 shares a ~150k-token prefix   → seconds
+  CROSS-RUN    same trace replayed later                              → hours
+```
+
+L3 cannot serve either:
+
+- **Within-run reuse** is the large prize (39% of tokens at CCU 64). L3's write path is
+  GPU → DRAM segment → eviction → disk. The reuse moment passes before data lands on disk.
+  L1 serves what it can hold; the rest is recomputed.
+- **Cross-run reuse** is unreachable because prefix cache keys form a **chain** — each 64-token
+  page's key depends on all preceding tokens. Model-generated tokens enter the next turn's
+  context, and generation is not bit-identical between runs. Key chains therefore diverge after
+  the first generated token, invalidating everything downstream.
+
+This is consistent with all three results: the store is asked constantly, holds data from the
+same trace, and still misses, because the keys requested are not the keys stored.
+
+Confidence: Results 1–3 are direct measurements. The mechanism in §4 is inference consistent
+with them; the key-chain divergence claim in particular was not tested in isolation.
+
+---
+
+## 5. Defects found and fixed
+
+The evaluation began by repairing the feature, which had never worked. All fixed and committed.
+
+| Defect | Effect |
+|---|---|
+| `offload_on_evict` not set on the Mooncake master | SSD tier mounted but received **0 bytes**; 990 eviction attempts, 0 successes |
+| `global_segment_size` hardcoded `1gb` | Saturated in seconds; master spun 74,531 eviction retries in a ~10 ms loop |
+| Store path keyed by run ID and concurrency | Every job started against an empty store, measuring warm-up |
+| `hicache-ratio` misunderstood as global | It is **per TP rank**. Ratio 10 requested 1226 GB × 8 ranks ≈ 9.8 TB against 3023 GB of RAM; OOM-killed the container and the CI runner (test 4). Ceiling is ~2.4 |
+| Dispatch preflight `--allow-unverified-model` | Nulled the value it then required; unusable for any recipe |
+| Runner env allowlist | Silently stripped four tuning variables, so documented overrides had no effect |
+
+Test 4 (the equal-DRAM control) was lost to the fourth defect and could not be repeated within
+the hardware window.
+
+---
+
+## 6. Limitations
+
+1. **Equal-DRAM comparison not performed.** The intended control — same DRAM given to L2 instead
+   of L3 — is impossible on this node: the per-rank ratio ceiling of ~2.4 caps L2 at ~2× its
+   current size, which cannot reach a meaningful fraction of the working set.
+2. **Concurrency band CCU 16–24 untested.** L2 serves 0.340 at CCU 12 and 0.05 at CCU 32. If any
+   operating point favours a host tier, it lies between. This is the most likely place for a
+   positive result and is the recommended follow-up.
+3. **SSD read bandwidth and latency never measured**, because L3 never served enough reads to
+   sample. The cost side of the trade remains unquantified.
+4. **Single model and precision.** GLM-5.2 FP8 only. Findings should not be generalised to
+   models with materially different KV cost per token (51.4 KB/token here).
+5. **Cross-instance reuse untested.** Where reuse intervals are hours and prefixes are stable
+   (e.g. a shared system prompt across many tenants), the key-chain problem does not apply. This
+   is L3's remaining plausible use case and was out of scope.
+
+---
+
+## 7. Reproduction
+
+```
+  Config keys   glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-mooncake-ssd
+                glm5.2-fp8-b300-sglang-eagle-hicache-r025-l3-mooncake-ssd-c64
+  Recipe        benchmarks/single_node/agentic/glm5.2_fp8_b300-netperf_sglang.sh
+  Branch        vng-benchmark
+  Method doc    docs/HICACHE_L3_SMOKE_TEST.md   (segment sizing, 40-min pre-check)
+  Detail log    docs/HICACHE_L3_MOONCAKE_PLAN.md
+```
+
+Before any further L3 work, run the pre-check in `HICACHE_L3_SMOKE_TEST.md` §5. A misconfigured
+L3 tier reports success and silently serves nothing — that is how the original defect survived.
