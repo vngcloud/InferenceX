@@ -30,6 +30,7 @@ SERVER_LOG="$RESULT_DIR/server.log"
 MAX_RUNNING_REQUESTS=$((2 * CONC))
 HICACHE_L3=0
 HICACHE_BACKEND=""
+HICACHE_WRITE_POLICY=write_back
 if [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-nixl-posix* ]]; then
     HICACHE_L3=1
     HICACHE_BACKEND=nixl
@@ -38,10 +39,22 @@ if [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-nixl-posix* ]]; then
 elif [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-mooncake-ssd* ]]; then
     HICACHE_L3=1
     HICACHE_BACKEND=mooncake
+    # write_through pushes every page to L2+L3 as it is produced; write_back only pushes on
+    # eviction, which never populates the store enough to measure L3.
+    HICACHE_WRITE_POLICY=write_through
+    # DRAM tier for the store. The node has ~2895 GiB and TOTAL_CPU_DRAM_GB=2399; the L2
+    # hicache pool at ratio 1.0 costs ~142 GB, leaving ample room for 1 TB here.
+    MOONCAKE_GLOBAL_SEGMENT_SIZE="${MOONCAKE_GLOBAL_SEGMENT_SIZE:-1024gb}"
+    MOONCAKE_PREFETCH_POLICY="${MOONCAKE_PREFETCH_POLICY:-wait_complete}"
     MOONCAKE_SSD_DIR="/mnt/test-raid0/mooncake/${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-0}-c${CONC}"
     mkdir -p "$MOONCAKE_SSD_DIR"
+    # offload_on_evict is required: --enable_offload alone mounts the disk segment but never
+    # writes to it, because offload happens via eviction. Without it every eviction attempt
+    # fails (the master will not drop the only replica), so SSD stays at 0 B and the master
+    # spins on EVICT-TRIGGER. See docs/HICACHE_L3_MOONCAKE_PLAN.md.
     mooncake_master --rpc_port=50051 --metrics_port=9003 --enable_offload=true \
-        --eviction_high_watermark_ratio=0.95 --logtostderr=true \
+        --offload_on_evict=true \
+        --eviction_high_watermark_ratio=0.85 --eviction_ratio=0.10 --logtostderr=true \
         > "$RESULT_DIR/mooncake_master.log" 2>&1 &
     for _ in {1..30}; do
         if curl -fsS http://127.0.0.1:9003/metrics >/dev/null; then
@@ -76,7 +89,7 @@ SGLANG_CMD=(
     --max-prefill-tokens 8192
     --cuda-graph-max-bs 256
     --enable-hierarchical-cache
-    --hicache-write-policy write_back
+    --hicache-write-policy "$HICACHE_WRITE_POLICY"
     --hicache-io-backend direct
     --hicache-mem-layout page_first_direct
     --hicache-ratio "$HICACHE_RATIO"
@@ -96,8 +109,11 @@ if [ "$HICACHE_L3" -eq 1 ]; then
     else
         SGLANG_CMD+=(
             --hicache-storage-backend mooncake
-            --hicache-storage-prefetch-policy timeout
-            --hicache-storage-backend-extra-config "{\"master_server_address\":\"127.0.0.1:50051\",\"metadata_server\":\"P2PHANDSHAKE\",\"local_hostname\":\"127.0.0.1\",\"protocol\":\"tcp\",\"global_segment_size\":\"1gb\",\"enable_ssd_offload\":true,\"ssd_offload_path\":\"$MOONCAKE_SSD_DIR\"}"
+            # wait_complete blocks the batch until a prefetch fully lands (no timeout escape,
+            # all-reduced across TP workers). global_segment_size is the cluster-wide DRAM
+            # segment and is divided by tp_size, so "1gb" gave each of 8 ranks only 128 MB.
+            --hicache-storage-prefetch-policy "$MOONCAKE_PREFETCH_POLICY"
+            --hicache-storage-backend-extra-config "{\"master_server_address\":\"127.0.0.1:50051\",\"metadata_server\":\"P2PHANDSHAKE\",\"local_hostname\":\"127.0.0.1\",\"protocol\":\"tcp\",\"global_segment_size\":\"$MOONCAKE_GLOBAL_SEGMENT_SIZE\",\"enable_ssd_offload\":true,\"ssd_offload_path\":\"$MOONCAKE_SSD_DIR\",\"prefetch_threshold\":64}"
         )
     fi
 fi

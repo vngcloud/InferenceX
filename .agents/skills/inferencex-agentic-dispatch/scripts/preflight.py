@@ -364,7 +364,10 @@ def main() -> int:
     validate_recipe(
         recipe_path,
         args.dataset,
-        None if args.allow_unverified_model else args.model_container_path,
+        # --allow-unverified-model waives *remote/host* verification only. The recipe's
+        # container model path is a static text check needing no SSH, so keep it: nulling it
+        # here made the override unusable for every recipe with a local MODEL_PATH.
+        args.model_container_path,
         {str(space.get("kv-offloading")) for space in spaces},
         errors,
     )
