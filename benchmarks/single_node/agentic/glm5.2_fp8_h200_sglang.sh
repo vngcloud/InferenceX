@@ -7,9 +7,14 @@ source "$(dirname "$0")/../../benchmark_lib.sh"
 check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION
 require_agentic_kv_offload_backend hicache
 
+SPEC_DECODING="${SPEC_DECODING:-none}"
+
 export MODEL_PATH="$HF_HUB_CACHE/models--zai-org--GLM-5.2-FP8/snapshots/70311cfa0158cce7dd2cf5d2e04f68e3fdc3efc1"
 export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126_256k
 export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
+# ponytail: spec-decode is prefill-bursty + long-context; borrow B300 recipe's crash/timeout guards
+export SGLANG_TIMEOUT_KEEP_ALIVE=900
+export AIPERF_HTTP_TCP_USER_TIMEOUT=900000
 
 USE_SGLANG_ROUTER=false
 SGLANG_BACKEND_PORT="$PORT"
@@ -40,6 +45,26 @@ if [ "$DP_ATTENTION" = "true" ]; then
   )
 fi
 
+# EAGLE spec-decode: draft head is baked into the GLM-5.2 checkpoint (no separate draft model).
+# Guards mirror glm5.2_fp8_b300-netperf recipe's spec path: size the decode cuda-graph to the full
+# running-request budget (verification runs draft-tokens per req) and enable crash dumps + watchdog.
+SPEC_ARGS=()
+CRASH_ARGS=()
+WATCHDOG_ARGS=()
+if [ "$SPEC_DECODING" = "mtp" ]; then
+  CUDA_GRAPH_MAX_BS=$MAX_RUNNING_REQUESTS
+  SPEC_ARGS=(
+    --speculative-algorithm EAGLE
+    --speculative-num-steps 3
+    --speculative-eagle-topk 1
+    --speculative-num-draft-tokens 4
+  )
+  CRASH_DUMP_FOLDER="$RESULT_DIR/crash_dumps"
+  mkdir -p "$CRASH_DUMP_FOLDER"
+  CRASH_ARGS=(--crash-dump-folder "$CRASH_DUMP_FOLDER")
+  WATCHDOG_ARGS=(--watchdog-timeout 1800)
+fi
+
 SGLANG_CMD=(
   python3 -m sglang.launch_server
   --model-path "$MODEL_PATH"
@@ -60,6 +85,9 @@ SGLANG_CMD=(
   --enable-hierarchical-cache
   --hicache-size 128
   --schedule-policy lpm
+  "${SPEC_ARGS[@]}"
+  "${CRASH_ARGS[@]}"
+  "${WATCHDOG_ARGS[@]}"
   --served-model-name "$MODEL"
 )
 
