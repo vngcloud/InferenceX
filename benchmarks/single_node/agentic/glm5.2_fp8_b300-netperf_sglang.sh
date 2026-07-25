@@ -67,8 +67,13 @@ elif [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-mooncake-ssd* ]]; then
     fi
     echo "mooncake: global_segment_size=$MOONCAKE_GLOBAL_SEGMENT_SIZE (CONC=$CONC DURATION=$DURATION)"
     MOONCAKE_PREFETCH_POLICY="${MOONCAKE_PREFETCH_POLICY:-wait_complete}"
-    MOONCAKE_SSD_DIR="/mnt/test-raid0/mooncake/${GITHUB_RUN_ID:-manual}-${GITHUB_RUN_ATTEMPT:-0}-c${CONC}"
+    # STABLE store path, keyed only on what invalidates keys (model + precision). It previously
+    # embedded GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT and CONC, so every job started against an empty
+    # 16 TB tier and spent its window populating it -- measuring warm-up, not steady state.
+    # Warmth now accumulates across runs, so always report store size at window start.
+    MOONCAKE_SSD_DIR="/mnt/test-raid0/mooncake/store-${MODEL_PREFIX:-model}-${PRECISION:-x}"
     mkdir -p "$MOONCAKE_SSD_DIR"
+    echo "mooncake: ssd_offload_path=$MOONCAKE_SSD_DIR (pre-existing: $(du -sh "$MOONCAKE_SSD_DIR" 2>/dev/null | cut -f1))"
     # offload_on_evict is required: --enable_offload alone mounts the disk segment but never
     # writes to it, because offload happens via eviction. Without it every eviction attempt
     # fails (the master will not drop the only replica), so SSD stays at 0 B and the master

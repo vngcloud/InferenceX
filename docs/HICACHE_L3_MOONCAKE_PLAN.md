@@ -272,6 +272,33 @@ that rather than to hide it.
 - If `wait_complete` wrecks the TTFT tail, switch to the bounded `timeout` variant in §5.1
   before abandoning the aggressive policy.
 
+## 9. The two factors that decide the result
+
+Everything else is plumbing. These are the variables that determine whether L3 helps.
+
+### 9.1 Store warmth — the gating factor
+
+L3 can only help on a prefix it already holds. Working set is ~4-6 TB; fill rate is
+~9.7 GB/min at CCU 32, and one 3600 s job delivers ~88 min of traffic (~28 min warmup +
+60 min measured) ~= **850 GB**. So a single run covers ~15-20% of the working set at best,
+and its *measured window* starts at only ~6%.
+
+Consequence: one run cannot show L3's value, regardless of configuration. Warmth has to
+accumulate across runs on the stable store path, which makes coverage-at-window-start the
+independent variable and `external_cache_hit_rate` the dependent one. Report both, always.
+
+### 9.2 `wait_complete` — the cost factor
+
+`wait_complete` maximises hit rate by blocking a batch until a prefetch fully lands, with no
+timeout escape and an all-reduce across TP ranks (`hiradix_cache.py:1451`). Smoke run
+30141767135 returned **TTFT p50 9.19 s / p95 50.5 s** at CCU 32. That sample is confounded
+(cold store, 49 profiled requests, L1 and L2 both saturated) so it is not yet a verdict — but
+it is the number that decides whether an aggressive policy is usable.
+
+The expected shape: as coverage rises, SSD hits replace recompute and the TTFT tail should
+*improve*. If it does not improve with warmth, `wait_complete` is the wrong trade and the
+bounded `timeout` variant in §5.1 is the fallback.
+
 ## 9. References
 
 - Broken L3 run: [30075783267](https://github.com/vngcloud/InferenceX/actions/runs/30075783267)
