@@ -52,20 +52,15 @@ elif [[ "${KV_OFFLOAD_BACKEND_METADATA:-}" == *l3-mooncake-ssd* ]]; then
     # write_through pushes every page to L2+L3 as it is produced; write_back only pushes on
     # eviction, which never populates the store enough to measure L3.
     HICACHE_WRITE_POLICY=write_through
-    # DRAM tier for the store. This must be sized to SATURATE inside the run, not sized to
-    # available memory: SSD only receives data via eviction, so a segment the run never fills
-    # leaves SSD at 0 B. Both previous values failed, in opposite directions -- 1gb saturated
-    # in seconds and could not evict, 1024gb reached only 49.8% (510 GB / 460k keys) in ~29 min
-    # at CCU 32 and never crossed the 0.85 watermark.
-    #
-    # So derive it from the run instead of hardcoding. Measured fill rate with write_through is
-    # ~18 GB/min at CONC 32, i.e. ~0.56 GB/min per unit of concurrency. Target crossing the
-    # 0.85 watermark at ~20% of the window, leaving ~80% with eviction and offload active:
-    #     gb = 0.56 * CONC * (DURATION/60) * 0.20 / 0.85  ==  56 * CONC * DURATION / 25500
-    # That yields ~253 GB for a 3600 s run at CONC 32 and ~6 GB for a 90 s smoke, so the same
-    # rule covers both the real run and a cheap trigger test.
+    # DRAM tier for the store. Must SATURATE inside the run: SSD is only written via eviction,
+    # so a segment the run never fills leaves SSD at 0 B. Derived, not hardcoded.
+    # Fill rate with write_through is ~0.31 GB/min per unit concurrency (measured: 272 GB in
+    # ~28 min at CONC 32, run 30141767135). Target crossing the 0.85 watermark at 20% of the
+    # window, leaving ~80% with offload active:
+    #     gb = 0.31 * CONC * (DURATION/60) * 0.20 / 0.85  ==  31 * CONC * DURATION / 25500
+    # See docs/HICACHE_L3_SMOKE_TEST.md §3.
     if [ -z "${MOONCAKE_GLOBAL_SEGMENT_SIZE:-}" ]; then
-        SEG_GB=$(( 56 * CONC * DURATION / 25500 ))
+        SEG_GB=$(( 31 * CONC * DURATION / 25500 ))
         [ "$SEG_GB" -lt 4 ] && SEG_GB=4        # 1gb proved pathological; never go that small
         [ "$SEG_GB" -gt 512 ] && SEG_GB=512    # host RAM safety ceiling
         MOONCAKE_GLOBAL_SEGMENT_SIZE="${SEG_GB}gb"

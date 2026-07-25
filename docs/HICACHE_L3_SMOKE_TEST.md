@@ -1,12 +1,11 @@
 # HiCache L3 smoke test — validating the eviction→SSD trigger cheaply
 
-Companion to [HICACHE_L3_MOONCAKE_PLAN.md](HICACHE_L3_MOONCAKE_PLAN.md). That doc is the
-experiment; this one is the method for checking the plumbing works **before** spending an hour
-of GPU time on it.
+Companion to [HICACHE_L3_MOONCAKE_PLAN.md](HICACHE_L3_MOONCAKE_PLAN.md): that doc is the
+experiment, this is the pre-check that the plumbing works.
 
-Why it exists: three full runs produced zero bytes on SSD, for three different reasons. Each
-cost ~1.5 h to discover. The question "does data reach disk at all" is binary and can be
-answered in ~90 s of traffic. Do that first.
+Validated by run 30141767135 — 272 GB reached SSD, `external_cache_hit_rate` 0.00025,
+`cached_tokens_by_source` gained `storage_MooncakeStore`. Run this before any 3600 s run; a
+misconfigured L3 is silent, not loud.
 
 ## 1. The one constraint everything follows from
 
@@ -28,7 +27,7 @@ watermark:
                     │  write_through  →  Mooncake put()
                     ▼
         ┌───────────────────────┐
-        │ L3a  Mooncake DRAM  S │ ◄── fills at ~18 GB/min @ CCU 32
+        │ L3a  Mooncake DRAM  S │ ◄── fills at ~9.7 GB/min @ CCU 32
         └───────────┬───────────┘
                     │
                     │   ONLY path to disk: eviction, and
@@ -40,22 +39,22 @@ watermark:
         └───────────────────────┘
 ```
 
-So `global_segment_size` (`S`) is **not** "how much cache do I want". **`S` sets a deadline.**
-Too large and the deadline never arrives inside the run, so nothing ever offloads.
+`global_segment_size` (`S`) therefore sets a **deadline**, not a capacity: too large and the
+watermark is never crossed inside the run, so nothing offloads.
 
 ## 2. The measurement
 
-One data point, from run 30139838426 (CCU 32, `write_through`, cold store):
+From run 30141767135 (CCU 32, `write_through`, 6gb segment, offload active):
 
 ```
-  510 GB stored, 460,055 keys, over ~28 min of traffic
+  272 GB written to SSD over ~28 min of traffic
 
-  rate                  =  510 GB / 28 min   ≈  18.2 GB/min
-  per unit concurrency  =  18.2 / 32         ≈  0.56 GB/min/CCU
+  rate                  =  272 GB / 28 min   ~=  9.7 GB/min
+  per unit concurrency  =  9.7 / 32          ~=  0.31 GB/min/CCU
 ```
 
-Dividing by concurrency assumes write volume scales with in-flight requests — each request
-produces KV pages at its own rate and `write_through` pushes every one. First-order, adequate.
+Assumes write volume scales with in-flight requests, since `write_through` pushes every page
+produced. First-order, adequate.
 
 ## 3. The derivation
 
@@ -81,18 +80,18 @@ Then choose *when* that should happen — a fraction `f` of the window, `t_cross
                             0.85
 ```
 
-Substituting `rate = 0.56 · CONC` GB/min, `DURATION` in seconds (÷60 → minutes), `f = 0.20`:
+Substituting `rate = 0.31 · CONC` GB/min, `DURATION` in seconds (÷60 → minutes), `f = 0.20`:
 
 ```
-              0.20 · (DURATION/60) · 0.56 · CONC
+              0.20 · (DURATION/60) · 0.31 · CONC
         S  =  ──────────────────────────────────
                             0.85
 ```
 
-Clearing decimals — rate ×100 (`0.56 → 56`), watermark ×100 (`0.85 → 85`), and `1/f = 5`:
+Clearing decimals — rate ×100 (`0.31 → 31`), watermark ×100 (`0.85 → 85`), and `1/f = 5`:
 
 ```
-                 56 · CONC · DURATION            56 · CONC · DURATION
+                 31 · CONC · DURATION            31 · CONC · DURATION
         S  =  ─────────────────────────   =    ──────────────────────
                   60 · 85 · 5                          25500
                   ▲    ▲    ▲
@@ -109,34 +108,24 @@ Resulting values:
 
 | DURATION | CONC 12 | CONC 32 | CONC 64 |
 |---|---|---|---|
-| 90 s   | 4gb  | **6gb** | 12gb  |
-| 3600 s | 94gb | 252gb   | 505gb |
+| 90 s   | 4gb  | 4gb       | 7gb   |
+| 3600 s | 52gb | **140gb** | 280gb |
 
-## 4. Why every hardcoded value failed
+## 4. Why `S` must be small
 
-Fill timeline, CCU 32, 3600 s window. `▓` = filling, no offload. `█` = eviction + offload active.
+Fill timeline, CCU 32, 3600 s window. `▓` = filling, no offload. `█` = offload active.
 
 ```
  t=0min      12          24          36          48        60min
  ├───────────┼───────────┼───────────┼───────────┼───────────┤
 
- S=1gb     ▓ 0:00.3  evict FAILS (offload_on_evict=0) → 990 attempts, 0 successes
-           └ watermark = 0.85 GB, crossed in 3 seconds
-
- S=1024gb  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ died 28:00
-           └ watermark = 870 GB, would need 48:20 — never reached, 0/0 attempts
-
- S=252gb   ▓▓▓▓▓▓▓▓▓▓█████████████████████████████████████████  ← 80% of window active
-           └ watermark = 214 GB, crossed 11:54
-
- S=6gb     ▓█████ (90 s window)                                  ← smoke test
-           └ watermark = 5.1 GB, crossed 0:17
+ S=1gb     ▓ 0:05   watermark hit, but offload_on_evict was off → 0 B to SSD
+ S=1024gb  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  never reached → 0 B to SSD
+ S=140gb   ▓▓▓▓▓▓▓▓▓▓█████████████████████████████████████████  crossed 11:53
+ S=4gb     ▓█████ (90 s smoke)                                   crossed 0:20
 ```
 
-The two hardcoded values bracket the target from opposite sides: `1gb` hit the watermark
-instantly but had no working eviction path; `1024gb` had the path but never armed it. They did
-not fail "by a bit" — they failed by different mechanisms, which is why fixing one did not
-reveal the other until both had been tried.
+Too small is recoverable; too large silently yields zero bytes on disk. When in doubt, undersize.
 
 ## 5. Running the smoke test
 
@@ -150,7 +139,8 @@ gh workflow run e2e-tests.yml --repo vngcloud/InferenceX --ref vng-benchmark \
   -f ref=vng-benchmark -f duration-override=90 -f skip-agentic-ingest=true
 ```
 
-Job wall-clock is dominated by model load (~8 min), so expect a verdict in ~12–15 min, not 90 s.
+Expect **~40 min wall-clock**, not 90 s: `duration-override` sets only the measured window, and
+model load (~8 min) plus aiperf warmup (~28 min) dominate. The long warmup is what fills L3.
 
 Overrides now reach the container (`MOONCAKE_GLOBAL_SEGMENT_SIZE`, `MOONCAKE_PREFETCH_POLICY`,
 `MAX_RUNNING_REQUESTS_CAP`, `SCHEDULE_CONSERVATIVENESS` were added to `RUN_ENV` in
@@ -173,10 +163,14 @@ grep "Master Admin Metrics" out/results/mooncake_master.log | tail -1 \
 
 | Observation | Meaning | Next step |
 |---|---|---|
-| `SSD Storage:` non-zero, `Eviction: Success/Attempts` = `N/M` with N>0 | mechanism works | run 3600 s at CCU 32 (auto-sizes to 252gb) |
-| `SSD Storage: 0 B`, eviction `0/M` (attempted, all failed) | offload path still refuses | try `--offload_force_evict=true` |
-| `SSD Storage: 0 B`, eviction `0/0` (never attempted) | watermark not reached — `S` too large for the window | recheck the rate estimate in §2 |
-| `Mem Storage: 0 B`, `Keys: 0` | nothing written at all | write path broken, not eviction — check `write_through` and backend creation |
+| `SSD Storage:` non-zero and rising; `Mem Storage` recycling below its cap | works | run 3600 s |
+| `SSD Storage: 0 B`, `Mem Storage` pinned at cap | offload refuses | `--offload_force_evict=true` |
+| `SSD Storage: 0 B`, `Mem Storage` well below cap | watermark not reached, `S` too large | recheck the rate in §2 |
+| `Mem Storage: 0 B`, `Keys: 0` | nothing written at all | write path, not offload — check `write_through` and backend creation |
+
+Ignore `Eviction: Success/Attempts` — it stays `0/0` even when offload works, because offload
+moves objects to disk rather than dropping them. Judge by `SSD Storage` and the master line
+`Offload-on-evict mode enabled: DRAM offload to LOCAL_DISK will occur at eviction time`.
 
 If `--offload_force_evict=true` also fails, stop tuning Mooncake. The repo already has
 `glm5.2-fp8-b300-sglang-eagle-hicache-r10-l3-nixl-posix` — a different storage backend with no
@@ -185,19 +179,12 @@ failure class. It is also where a GDS plugin would eventually attach (currently 
 
 ## 7. Limits of the math
 
-Stated plainly, because it rests on a single data point:
-
-- **`0.56 GB/min/CCU` was measured once** — CCU 32, GLM-5.2 FP8, `write_through`, cold store. A
-  different model or precision changes KV bytes/token and invalidates it.
-- **The rate almost certainly decays.** As the store warms, more lookups hit and fewer new pages
-  are written. 18 GB/min is an average over the first 28 min from cold, so late-run fill is
-  slower and real crossing lands *later* than predicted.
-- **`f = 0.20` is the safety margin.** If the true rate is 4x lower than measured, crossing slips
-  from 20% to 80% of the window and the design still barely works. Below that it breaks. That
-  ~4x cushion is what makes a single-point estimate tolerable.
-
-This is also why the smoke test is the right first step: at a 17 s deadline, even a 10x rate
-error still crosses inside the window.
+- **`0.31 GB/min/CCU` is one data point** — CCU 32, GLM-5.2 FP8, `write_through`. Different model
+  or precision changes KV bytes/token and invalidates it.
+- **The rate decays** as the store warms and more lookups hit, so real crossing lands later than
+  predicted.
+- **`f = 0.20` is the margin.** At 4x lower than measured, crossing slips to 80% of the window and
+  still works; below that it breaks.
 
 ## 8. The cheaper test that does not exist yet
 
@@ -267,10 +254,10 @@ Prefetch timeout knobs at defaults: `base=2.0`, `per_ki_token=0.1`, `max=30.0`.
 |---|---|---|---|
 | L1 | GPU HBM, `mem-fraction-static 0.88` | 140 GB | 2.73M |
 | L2 | host DRAM, `hicache-ratio 1.0` | 142 GB | 2.73M |
-| L3a | host DRAM, Mooncake segment | 252 GB @ 3600 s / CCU 32 | ~4.9M |
+| L3a | host DRAM, Mooncake segment | 140 GB @ 3600 s / CCU 32 | ~2.7M |
 | L3b | `/mnt/test-raid0` NVMe RAID0 | 16.00 TB | ~311M |
 
-Host DRAM: 142 + 252 = 394 GB committed of `TOTAL_CPU_DRAM_GB=2399`.
+Host DRAM: 142 + 140 = 282 GB committed of `TOTAL_CPU_DRAM_GB=2399`.
 
 ### A.5 Admission
 

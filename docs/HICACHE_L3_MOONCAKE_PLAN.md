@@ -60,7 +60,7 @@ deep tier even if the above were fixed.
 |---|---|---|---|
 | L1 GPU | `mem-fraction-static 0.88` | 140 GB | 2.73M |
 | L2 host (hicache) | `--hicache-ratio 1.0` *(unchanged)* | 142 GB | 2.73M |
-| L3 Mooncake DRAM | `global_segment_size: 1024gb` | 1024 GB | ~19.9M |
+| L3 Mooncake DRAM | `global_segment_size` derived, [smoke §3](HICACHE_L3_SMOKE_TEST.md) | 140 GB @ 3600 s/CCU 32 | ~2.7M |
 | L3 Mooncake SSD | auto-detected on `/mnt/test-raid0` | 16 TB | ~311M |
 | Headroom | weights page cache, aiperf, tokenizers | ~1230 GB | |
 
@@ -98,7 +98,7 @@ before saturation and frees 2x more per pass, which removes the 10 ms thrash loo
   "metadata_server":"P2PHANDSHAKE",
   "local_hostname":"127.0.0.1",
   "protocol":"tcp",
-  "global_segment_size":"1024gb",
+  "global_segment_size":"<derived, see HICACHE_L3_SMOKE_TEST.md §3>",
   "enable_ssd_offload":true,
   "ssd_offload_path":"<MOONCAKE_SSD_DIR>",
   "prefetch_threshold":64
