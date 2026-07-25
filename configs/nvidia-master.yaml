@@ -8045,7 +8045,30 @@ glm5.2-fp8-b300-sglang-eagle-hicache-r100-l2max-nol3:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 10.0, conc-list: [32] }
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [32] }
+
+# Final L3 test: starve L2 so misses have nowhere to go but the SSD tier, at high offered
+# concurrency, against a store already warmed by two prior runs of this same trace.
+# CCU 12 proved this content is reusable (96.2% hit) but it was served by L2 (0.340 of it).
+# Shrinking L2 to ratio 0.25 (~245 GB total) forces that traffic down to L3 and answers whether
+# cheap SSD can substitute for expensive DRAM as tier 2.
+# NOTE hicache-ratio is applied PER TP RANK: total host bytes ~= 8 * ratio * 122.6 GB.
+# ratio 10.0 requested 1226 GB per rank (~9.8 TB) and OOM-killed the node's runner; keep <= 2.4.
+# Admission stays capped at min(2*CONC, 32) by the recipe, so CCU 64 raises queue depth rather
+# than server-side load.
+glm5.2-fp8-b300-sglang-eagle-hicache-r025-l3-mooncake-ssd-c64:
+  image: lmsysorg/sglang:v0.5.15.post1-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2
+  runner: cluster:b300-nv
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache, version: "l3-mooncake-ssd" }, hicache-ratio: 0.25, conc-list: [64] }
 
 glm5.2-fp4-h200-greennode-sglang-agentic:
   image: lmsysorg/sglang:v0.5.14-cu130
