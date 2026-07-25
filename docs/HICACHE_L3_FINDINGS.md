@@ -52,7 +52,7 @@ Sequence of tests, each 3600 s except where noted:
 
 | # | Run | CCU | L2 ratio | L3 store at start | Purpose |
 |---|---|---|---|---|---|
-| 0 | 30075783267 | 12 | 1.0 | — | Pre-existing baseline; L3 found non-functional |
+| 0 | 30075783267 | 12 | 1.0 | — | Pre-existing baseline. **113 s only**, L3 non-functional |
 | 1 | 30141767135 | 32 | 1.0 | empty | 90 s smoke: verify L3 writes and reads at all |
 | 2 | 30143803931 | 32 | 1.0 | empty | Warmth point 1 |
 | 3 | 30146707202 | 32 | 1.0 | 126 GB | Warmth point 2 |
@@ -69,11 +69,14 @@ runs of the identical trace.
 
 | # | CCU | L2 ratio | L1 GPU hit | L2 host hit | **L3 hit** | overall hit |
 |---|---|---|---|---|---|---|
-| 0 | 12 | 1.0 | 0.622 | **0.340** | — | **0.962** |
+| 0† | 12 | 1.0 | 0.622 | 0.340 | — | 0.962 |
 | 1 | 32 | 1.0 | 0.656 | 0.032 | 0.00025 | 0.688 |
 | 2 | 32 | 1.0 | 0.535 | 0.051 | 0.00298 | 0.589 |
 | 3 | 32 | 1.0 | 0.538 | 0.053 | 0.00226 | 0.594 |
 | 5 | 64 | 0.25 | 0.609 | 0.00027 | **0.00029** | 0.610 |
+
+† 113 s window, 101 requests — not comparable to the 3600 s rows. Superseded by run
+30159497063 (CCU 16, full duration); see §6.2.
 
 Reference, same model, DP-attention topology (run 30099003901): **L1 GPU hit 0.96–0.98**,
 host tier 0.0007–0.001.
@@ -107,30 +110,16 @@ neither idle nor full.
 
 ## 4. Mechanism
 
-Two kinds of reuse exist in this workload, on different timescales:
+The store was interrogated and returned misses, so the constraint is not capacity or wiring.
+Two kinds of reuse exist, and L3 reaches neither:
 
-```
-  WITHIN-RUN   session turn N → turn N+1 shares a ~150k-token prefix   → seconds
-  CROSS-RUN    same trace replayed later                              → hours
-```
+| Reuse | Timescale | Why L3 misses it |
+|---|---|---|
+| Within-run (turn N → N+1) | seconds | Write path is GPU → DRAM segment → eviction → disk. The reuse moment passes before data lands. |
+| Cross-run (same trace later) | hours | Prefix keys form a chain — each page's key depends on all preceding tokens. Generated tokens enter the next context and are not bit-identical between runs, so chains diverge after the first generated token. |
 
-L3 cannot serve either:
-
-- **Within-run reuse** is the large prize (39% of tokens at CCU 64). L3's write path is
-  GPU → DRAM segment → eviction → disk. The reuse moment passes before data lands on disk.
-  L1 serves what it can hold; the rest is recomputed.
-- **Cross-run reuse** is unreachable because prefix cache keys form a **chain** — each 64-token
-  page's key depends on all preceding tokens. Model-generated tokens enter the next turn's
-  context, and generation is not bit-identical between runs. Key chains therefore diverge after
-  the first generated token, invalidating everything downstream.
-
-This is consistent with all three results: the store is asked constantly, holds data from the
-same trace, and still misses, because the keys requested are not the keys stored.
-
-Confidence: Results 1–3 are direct measurements. The mechanism in §4 is inference consistent
-with them; the key-chain divergence claim in particular was not tested in isolation.
-
----
+Confidence: §3 is measured. This section is inference consistent with it; key-chain divergence
+was not tested in isolation.
 
 ## 5. Defects found and fixed
 
@@ -152,21 +141,18 @@ the hardware window.
 
 ## 6. Limitations
 
-1. **Equal-DRAM comparison not performed.** The intended control — same DRAM given to L2 instead
-   of L3 — is impossible on this node: the per-rank ratio ceiling of ~2.4 caps L2 at ~2× its
-   current size, which cannot reach a meaningful fraction of the working set.
-2. **Concurrency band CCU 16–24 untested.** L2 serves 0.340 at CCU 12 and 0.05 at CCU 32. If any
-   operating point favours a host tier, it lies between. This is the most likely place for a
-   positive result and is the recommended follow-up.
-3. **SSD read bandwidth and latency never measured**, because L3 never served enough reads to
-   sample. The cost side of the trade remains unquantified.
-4. **Single model and precision.** GLM-5.2 FP8 only. Findings should not be generalised to
-   models with materially different KV cost per token (51.4 KB/token here).
-5. **Cross-instance reuse untested.** Where reuse intervals are hours and prefixes are stable
-   (e.g. a shared system prompt across many tenants), the key-chain problem does not apply. This
-   is L3's remaining plausible use case and was out of scope.
-
----
+1. **Equal-DRAM control not performed.** `hicache-ratio` is per TP rank, capping L2 at ~2.4×
+   (~2 TB) — too small to reach a meaningful fraction of the working set. Test 4 OOM'd attempting
+   10×.
+2. **Low-concurrency behaviour.** The CCU 12 row is a 113 s smoke. Run 30159497063 provides the
+   full-length CCU 16 reference; CCU 20–28 remains untested.
+3. **SSD read bandwidth/latency unmeasured** — L3 never served enough reads to sample. The cost
+   side of the trade is unquantified.
+4. **Single model/precision** (GLM-5.2 FP8, 51.4 KB/token). Do not generalise to different KV
+   costs.
+5. **Cross-instance reuse untested.** Where prefixes are stable and shared across tenants (e.g. a
+   common system prompt), key-chain divergence does not apply. This is L3's remaining plausible
+   case.
 
 ## 7. Reproduction
 
