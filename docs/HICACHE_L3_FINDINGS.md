@@ -15,8 +15,10 @@ including under conditions deliberately arranged to favour it.
 96–98% cache hit from GPU memory alone, versus 61% here. That is an 8× larger GPU pool, and it
 removes the need for any host-side tier.
 
-Keep host DRAM (L2) as configured — it supplies ~10% of served tokens and is already paid for.
-Do not enlarge it: its contribution is 5–7% at every concurrency tested, not a function of size.
+Keep host DRAM (L2) as configured, and do not enlarge it. It supplies 5–7% of input tokens at
+every concurrency tested (11.3% of *cached* tokens at CCU 16), and that share does not grow with
+concurrency. Whether removing L2 would actually cost those tokens was **not** isolated — the one
+run that shrank it also changed concurrency (§6.6).
 
 ---
 
@@ -159,6 +161,9 @@ the hardware window.
 5. **Cross-instance reuse untested.** Where prefixes are stable and shared across tenants (e.g. a
    common system prompt), key-chain divergence does not apply. This is L3's remaining plausible
    case.
+6. **L2's causal value not isolated.** Its 5–7% hit share is measured, but no run removed L2 with
+   concurrency held constant — test 5 changed both. So "keep L2" rests on the share, not on a
+   measured penalty for removing it. A single CCU 32 run at `hicache-ratio 0.25` would settle it.
 
 ## 7. Reproduction
 
