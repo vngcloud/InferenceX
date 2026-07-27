@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   validate-configs:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, benchmark-client]
     outputs:
       configs: ${{ steps.validate.outputs.configs }}
     steps:
@@ -97,7 +97,7 @@ jobs:
   calc-success-rate:
     needs: collect-results
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, benchmark-client]
 
     env:
       RESULTS_DIR: "results/"

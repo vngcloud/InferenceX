@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   collect-results:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, benchmark-client]
 
     steps:
       - name: Checkout code
