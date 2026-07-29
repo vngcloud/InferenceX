@@ -107,10 +107,15 @@ unset:
 - Redact the key when writing `benchmark_command.txt`, substituting the literal string
   `$REMOTE_API_KEY` for the value. This file is uploaded as an artifact and GitHub Actions
   does not mask artifact contents.
-- Suppress `set -x` around the exec when `REMOTE_API_KEY` is set. The existing
-  `$REPLAY_CMD 2>&1 | tee benchmark.log` redirects the pipeline's stderr into `tee`, so the
-  xtrace of the expanded command lands in `benchmark.log`. The command is already recorded
-  (redacted) in `benchmark_command.txt`, so nothing is lost.
+- Suppress `set -x` around the exec when `REMOTE_API_KEY` is set. The xtrace line expands
+  `$REPLAY_CMD` and therefore carries the credential. **Corrected after testing:** an earlier
+  draft of this spec claimed the `2>&1` in `$REPLAY_CMD 2>&1 | tee benchmark.log` routes that
+  trace into `benchmark.log`. It does not. Verified on bash 3.2 — the trace goes to the
+  shell's own stderr (the CI job log) and the tee'd file receives zero trace lines. Actions
+  masks registered secrets in job logs, so this guard is defense in depth rather than the
+  primary control; it stays because masking only works while the value remains a registered
+  secret, and the guard costs nothing. The command is already recorded (redacted) in
+  `benchmark_command.txt`, so nothing is lost by skipping the trace.
 
 **New `remote_bench_preflight()`** — the body currently duplicated across remote-bench
 recipes, plus the new behavior:
@@ -278,7 +283,10 @@ from a dispatch. Steps 1–2 do not depend on that.
 - The key lives in one place: the `GREENNODE_API_KEY` repo secret in `vngcloud/InferenceX`.
 - It reaches the runner as process environment only, and reaches aiperf as an argv element.
 - Actions masks it in job logs. Artifacts are not masked, which is why
-  `benchmark_command.txt` is redacted explicitly and xtrace is suppressed.
+  `benchmark_command.txt` is redacted explicitly — that redaction is the primary control.
+- Suppressing xtrace is a second, weaker layer. The trace lands in the job log, not in
+  `benchmark.log` (verified on bash 3.2), so Actions masking already covers it; the guard
+  exists because that masking depends on the value staying a registered secret.
 - aiperf redacts `api_key` in its own exported configuration by default.
 - Anyone with `ps` access on the controller box during a run can read the key from argv.
   This is accepted: `bench-client_01` is a dedicated single-tenant controller, and aiperf

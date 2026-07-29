@@ -39,7 +39,9 @@ Copied verbatim from `docs/superpowers/specs/2026-07-29-remote-bench-authenticat
 
 ### Task 1: API key reaches aiperf, never reaches an artifact
 
-This is the security-critical task. aiperf has no env-var binding for `api_key`, so the key must be an argv element. GitHub Actions masks secrets in **job logs** but not in **uploaded artifact files**, so `benchmark_command.txt` must be redacted explicitly, and shell xtrace must be suppressed because `$REPLAY_CMD 2>&1 | tee benchmark.log` redirects the shell's stderr into the log file.
+This is the security-critical task. aiperf has no env-var binding for `api_key`, so the key must be an argv element. GitHub Actions masks secrets in **job logs** but not in **uploaded artifact files**, so `benchmark_command.txt` must be redacted explicitly — that is the primary control. Shell xtrace is suppressed as a second, weaker layer.
+
+> **Correction applied during execution (fix round 2).** This plan originally asserted that `$REPLAY_CMD 2>&1 | tee benchmark.log` routes xtrace into the log file. That is false: verified on bash 3.2, the trace goes to the shell's own stderr — the CI job log — and the tee'd file receives zero trace lines. The guard still earns its place, because Actions masking only holds while the value is a registered secret, but the mechanism stated in the comment below was corrected in the shipped code. Prefer the shipped comment over the block quoted in Step 5.
 
 **Files:**
 - Modify: `benchmarks/benchmark_lib.sh` (inside `build_replay_cmd`, which starts at line 1736; and `run_agentic_replay_and_write_outputs`, which starts at line 1895)
@@ -941,9 +943,11 @@ Two consequences, both handled:
 - `benchmark_command.txt` is uploaded as an artifact and GitHub Actions does
   **not** mask artifact contents, so `redact_replay_cmd()` substitutes the
   literal `$REMOTE_API_KEY` before the file is written.
-- Shell xtrace of the replay pipeline would land in `benchmark.log` via the
-  `2>&1 | tee`, so `run_agentic_replay_and_write_outputs` skips `set -x` when a
-  key is set.
+- Shell xtrace of the replay pipeline expands `$REPLAY_CMD`, so
+  `run_agentic_replay_and_write_outputs` skips `set -x` when a key is set. That
+  trace goes to the job log, not into `benchmark.log` (verified on bash 3.2 —
+  the tee'd file gets zero trace lines), so Actions masking already covers it;
+  the guard is defense in depth, and the redaction above is the real control.
 
 Job logs are masked by Actions itself. Anyone with `ps` access on the
 controller box during a run can read the key from argv; this is accepted
