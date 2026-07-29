@@ -168,6 +168,11 @@ on:
         required: false
         type: string
         default: ""
+      remote-insecure-tls:
+        description: "Set true to skip TLS certificate verification for the remote target, in both the pre-flight probes and aiperf's metrics scrape. Needed when the endpoint sits behind a self-signed or Kubernetes ingress-default certificate; leave false for anything with a real certificate."
+        required: false
+        type: boolean
+        default: false
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -214,6 +219,7 @@ env:
   REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
   REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
   REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}
+  REMOTE_INSECURE_TLS: ${{ inputs.remote-insecure-tls }}
   # Bearer token for authenticated remote targets. Empty for every other
   # recipe, which leaves build_replay_cmd's --api-key branch inert.
   REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}

@@ -97,6 +97,7 @@ Optional:
 | `REMOTE_MAX_CONTEXT_LENGTH` | a *safe* trace-length cap, not necessarily the model's full deployed context window. Three cases: target window **above** the corpus → omit it entirely; **below** the corpus → set it to the real enforced limit; run **hangs** at the nominal window → binary-search the value downward. **Confirmed by incident**: with a cap needed and absent, aiperf replays trace turns longer than the model supports, relying on server-side auto-truncate — this triggered a silent 100%-GPU hang in SGLang's chunked-prefill continuation on oversized inputs. But setting it to the real deployed context window (e.g. `131072`) is **not automatically safe either** — on a single small/dev GPU (confirmed on an RTX 5090), individual traces near that limit (~120K tokens) still hung in decode after prefill completed cleanly (throughput collapsing to ~0.07 tok/s, never recovering). Note also that capping below the corpus's shortest trace length (e.g. `32768`) fails outright with `DatasetLoaderError: All N traces exceed --max-context-length`. |
 | `REMOTE_API_KEY` | bearer token, supplied by `benchmark-tmpl.yml` from the `GREENNODE_API_KEY` repo secret. Never commit a key. When set, the pre-flight probes `GET $REMOTE_BASE_URL/v1/models` with the token instead of `/health`, so a wrong or expired key fails in seconds rather than after a full-duration run of 401s. See §6b. |
 | `REMOTE_TOKENIZER` | HuggingFace repo id, when the endpoint serves the model under an alias. aiperf's dataset manager loads a tokenizer by `--model` unless this overrides it, and an alias will not resolve on the Hub. |
+| `REMOTE_INSECURE_TLS` | `true` disables TLS certificate verification for **both** the pre-flight `curl` probes and aiperf (via `AIPERF_HTTP_SSL_VERIFY=false`, which the metrics scrape shares with the request path). Needed when the endpoint sits behind a self-signed or Kubernetes ingress-default certificate — a `.nip.io` host fronted by an ingress controller typically serves `CN=Kubernetes Ingress Controller Fake Certificate`, and the pre-flight then dies with `curl` exit 60 before any benchmark starts. **Confirmed by incident**: run 30444369870 failed exactly this way on GreenNode's GLM-5.2 worker-metrics ingress. Check with `curl -sS --fail <url>` (no `-k`) before setting it — and do not reach for a plain-`http://` URL instead, which the same ingress answers with a 308 back to https that `--fail` treats as success while returning no metrics. |
 
 On the `remote-bench-e2e.yml` workflow_dispatch side, also required per config (these exist for every
 recipe, but for remote-bench they're pure self-reported metadata rather than values that
@@ -351,6 +352,9 @@ through full CI dispatch cycles you can't even trigger yet pre-merge.
    may hit; if aiperf's own reachability probe (HEAD-first, GET-fallback) still reports an
    endpoint unreachable despite curl succeeding, don't assume it's fixed — retest after any
    endpoint-side change, this has been flaky/order-dependent in practice.
+   Curl **without** `-k` here. If you habitually add it you will not see the certificate
+   problem the job is going to hit; exit 60 on any of these URLs means the target needs
+   `remote-insecure-tls: true`, not a different URL.
    Also confirm `benchmark_command.txt` came out redacted before you share any artifact:
    `grep -c "$REMOTE_API_KEY" "$RESULT_DIR"/benchmark_command.txt "$RESULT_DIR"/benchmark.log`
    must report 0 for both.

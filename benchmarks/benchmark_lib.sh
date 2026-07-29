@@ -1747,7 +1747,25 @@ resolve_trace_source() {
 #   REMOTE_GPU_TELEMETRY_URL   DCGM /metrics; absent => --no-gpu-telemetry
 #   REMOTE_MAX_CONTEXT_LENGTH  trace-length cap; absent => no cap at all
 #   REMOTE_RESET_URL           POSTed before each concurrency point
+#   REMOTE_INSECURE_TLS        "true" => skip TLS verification (see below)
 remote_bench_preflight() {
+    # Kubernetes ingress controllers serve a self-signed "Fake Certificate"
+    # until a real one is installed, and cluster-internal metrics endpoints
+    # commonly never get one. curl --fail then dies with exit 60 before any
+    # benchmark starts, and aiperf's own scrape would fail the same way later,
+    # so this has to cover both. Opt-in and loud: verification stays on unless
+    # an operator explicitly turns it off for a target they trust.
+    #
+    # _tls_opt is used unquoted on purpose -- it is empty or "--insecure", a
+    # single space-free token, so word-splitting is the intent (same idiom as
+    # $REPLAY_CMD). An array would need bash 4.4+ to survive `set -u` empty.
+    local _tls_opt=""
+    if [ "${REMOTE_INSECURE_TLS:-}" = "true" ]; then
+        echo "WARNING: REMOTE_INSECURE_TLS=true -- TLS certificate verification is DISABLED for both the pre-flight probes and aiperf. Only use this for a target you trust that is behind a self-signed or ingress-default certificate." >&2
+        _tls_opt="--insecure"
+        export AIPERF_HTTP_SSL_VERIFY=false
+    fi
+
     # build_replay_cmd appends "--endpoint /v1/chat/completions", so a base URL
     # that already ends in /v1 would produce /v1/v1/chat/completions. Strip any
     # trailing slash *before* testing for a trailing /v1 -- a bare glob match
@@ -1766,7 +1784,7 @@ remote_bench_preflight() {
     # remote-bench result is not interpretable, so fail here rather than let a
     # full-duration run finish without them. aiperf's own probing soft-fails,
     # which is the right default for a general-purpose client but not for us.
-    if ! curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_ENGINE_METRICS_URL"; then
+    if ! curl $_tls_opt --output /dev/null --silent --fail --max-time 10 "$REMOTE_ENGINE_METRICS_URL"; then
         echo "ERROR: REMOTE_ENGINE_METRICS_URL ($REMOTE_ENGINE_METRICS_URL) is not reachable. Required for remote-bench." >&2
         return 1
     fi
@@ -1776,7 +1794,7 @@ remote_bench_preflight() {
     # that was explicitly supplied but does not answer is still an error —
     # that is a misconfiguration, not an absent capability.
     if [ -n "${REMOTE_GPU_TELEMETRY_URL:-}" ]; then
-        if ! curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_GPU_TELEMETRY_URL"; then
+        if ! curl $_tls_opt --output /dev/null --silent --fail --max-time 10 "$REMOTE_GPU_TELEMETRY_URL"; then
             echo "ERROR: REMOTE_GPU_TELEMETRY_URL ($REMOTE_GPU_TELEMETRY_URL) was supplied but is not reachable." >&2
             return 1
         fi
@@ -1804,7 +1822,7 @@ remote_bench_preflight() {
     set +x
     if [ -n "${REMOTE_API_KEY:-}" ]; then
         local probe_code
-        probe_code=$(curl --output /dev/null --silent --max-time 10 \
+        probe_code=$(curl $_tls_opt --output /dev/null --silent --max-time 10 \
             --write-out '%{http_code}' \
             --header "Authorization: Bearer $REMOTE_API_KEY" \
             "$REMOTE_BASE_URL/v1/models")
@@ -1814,7 +1832,7 @@ remote_bench_preflight() {
             return 1
         fi
     else
-        if curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_BASE_URL/health"; then
+        if curl $_tls_opt --output /dev/null --silent --fail --max-time 10 "$REMOTE_BASE_URL/health"; then
             [ "$_preflight_xtrace_was_on" = "1" ] && set -x
         else
             [ "$_preflight_xtrace_was_on" = "1" ] && set -x
@@ -1825,7 +1843,7 @@ remote_bench_preflight() {
 
     if [ -n "${REMOTE_RESET_URL:-}" ]; then
         echo "Resetting remote engine state via REMOTE_RESET_URL before this concurrency point ..."
-        curl --output /dev/null --silent --fail --max-time 30 -X POST "$REMOTE_RESET_URL"
+        curl $_tls_opt --output /dev/null --silent --fail --max-time 30 -X POST "$REMOTE_RESET_URL"
     fi
 
     # Self-report the real hardware key for downstream ingest. RUNNER_TYPE is

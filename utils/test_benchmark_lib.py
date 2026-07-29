@@ -378,3 +378,75 @@ def test_remote_bench_e2e_does_not_hardcode_kv_offloading() -> None:
     assert "kv-offloading: ${{ matrix.config.kv-offloading || 'none' }}" in wf
     assert "kv-offload-backend: ${{ matrix.config.kv-offload-backend || '' }}" in wf
     assert "remote-tokenizer: ${{ matrix.config.remote-tokenizer || '' }}" in wf
+
+
+# A Kubernetes ingress serves a self-signed "Fake Certificate" until a real
+# one is installed, so curl --fail dies with exit 60 and aiperf's own scrape
+# would fail identically later. REMOTE_INSECURE_TLS has to cover both, and
+# must stay off unless explicitly requested.
+_CURL_STUB_RECORDING = r"""
+    CURL_LOG=$(mktemp)
+    curl() {
+        printf '%s\n' "$*" >> "$CURL_LOG"
+        for a in "$@"; do
+            if [[ "$a" == "--write-out" ]]; then printf '200'; return 0; fi
+        done
+        return 0
+    }
+"""
+
+
+def test_preflight_passes_insecure_to_curl_when_opted_in() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_INSECURE_TLS=true
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_RECORDING + r'''
+        remote_bench_preflight
+        # Every probe must carry it, not merely one of them: a partial
+        # rollout still dies on whichever endpoint was left verifying.
+        [[ -s "$CURL_LOG" ]]
+        ! grep -qv -- "--insecure" "$CURL_LOG"
+        grep -- "--insecure" "$CURL_LOG" | grep -q "worker-metrics"
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_disables_aiperf_ssl_verify_when_opted_in() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_INSECURE_TLS=true
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        [[ "$AIPERF_HTTP_SSL_VERIFY" == "false" ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_verifies_tls_by_default() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_RECORDING + r'''
+        remote_bench_preflight
+        ! grep -q -- "--insecure" "$CURL_LOG"
+        [[ -z "${AIPERF_HTTP_SSL_VERIFY:-}" ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_treats_non_true_insecure_flag_as_off() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_INSECURE_TLS=false
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_RECORDING + r'''
+        remote_bench_preflight
+        ! grep -q -- "--insecure" "$CURL_LOG"
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_workflows_wire_the_insecure_tls_flag() -> None:
+    tmpl = Path(".github/workflows/benchmark-tmpl.yml").read_text()
+    assert "remote-insecure-tls:" in tmpl
+    assert "REMOTE_INSECURE_TLS: ${{ inputs.remote-insecure-tls }}" in tmpl
+    wf = Path(".github/workflows/remote-bench-e2e.yml").read_text()
+    assert "remote-insecure-tls: ${{ matrix.config.remote-insecure-tls || false }}" in wf

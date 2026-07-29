@@ -23,7 +23,9 @@ on:
           remote-tokenizer (HF tokenizer repo id when the endpoint serves the
           model under an alias), remote-gpu-telemetry-url (absent means the run
           reports no GPU telemetry), remote-max-context-length (omit when the
-          target's window exceeds the trace corpus), kv-offloading,
+          target's window exceeds the trace corpus), remote-insecure-tls (true
+          to skip TLS verification, required when the endpoint sits behind a
+          self-signed or Kubernetes ingress-default certificate), kv-offloading,
           kv-offload-backend, kv-offload-backend-metadata, total-cpu-dram-gb.
           Note that setting kv-offloading to dram requires BOTH a non-empty
           kv-offload-backend AND a positive total-cpu-dram-gb --
@@ -97,6 +99,7 @@ jobs:
       remote-runner-type: ${{ matrix.config.remote-runner-type }}
       remote-max-context-length: ${{ matrix.config.remote-max-context-length }}
       remote-tokenizer: ${{ matrix.config.remote-tokenizer || '' }}
+      remote-insecure-tls: ${{ matrix.config.remote-insecure-tls || false }}
       ref: ${{ inputs.ref }}
 
   collect-results:
