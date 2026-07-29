@@ -116,8 +116,8 @@ def test_run_agentic_replay_and_write_outputs_redacts_key_end_to_end(tmp_path) -
         AIPERF_CLI=true
         AIPERF_PYTHON=true
         write_agentic_result_json() { :; }
-        build_replay_cmd "''' + str(result_dir) + r'''"
         set -x
+        build_replay_cmd "''' + str(result_dir) + r'''"
         run_agentic_replay_and_write_outputs "''' + str(result_dir) + r'''"
         set +x
     '''

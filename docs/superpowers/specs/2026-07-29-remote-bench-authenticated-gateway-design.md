@@ -102,6 +102,12 @@ unset:
   split into two argv elements and authenticate with a truncated credential.
 - `--tokenizer "$AIPERF_TOKENIZER"` when `AIPERF_TOKENIZER` is non-empty.
 
+  The whole `--api-key` block runs with xtrace suppressed and restored. Suppression must
+  begin *before* the `[ -n "$REMOTE_API_KEY" ]` test, because that test itself traces as
+  `+ '[' -n <key> ']'` — as do the whitespace test and the append. Restoring rather than
+  leaving tracing off matters here: `build_replay_cmd` runs in every recipe, including
+  native ones that never set a key, and must not silently reduce their debug output.
+
 **`run_agentic_replay_and_write_outputs()`** — close the two leak points:
 
 - Redact the key when writing `benchmark_command.txt`, substituting the literal string
@@ -288,10 +294,12 @@ from a dispatch. Steps 1–2 do not depend on that.
 - It reaches the runner as process environment only, and reaches aiperf as an argv element.
 - Actions masks it in job logs. Artifacts are not masked, which is why
   `benchmark_command.txt` is redacted explicitly — that redaction is the primary control.
-- Suppressing xtrace is a second, weaker layer. Because recipe scripts already run `set -x`
-  before this code executes (and `remote_bench_preflight` restores whatever xtrace state it
-  found), the guard must actively turn tracing off (`set +x`) when a key is set — declining to
-  turn it on is not sufficient. The trace lands in the job log, not in `benchmark.log`
+- Suppressing xtrace is a second, weaker layer, applied in all three functions that touch the
+  key — `remote_bench_preflight`, `build_replay_cmd`, and
+  `run_agentic_replay_and_write_outputs`. Because recipe scripts already run `set -x` before
+  any of this executes, each guard must actively turn tracing off (`set +x`) — declining to
+  turn it on is not sufficient — and must begin before the `[ -n "$REMOTE_API_KEY" ]` test,
+  which traces the key itself. The trace lands in the job log, not in `benchmark.log`
   (verified on bash 3.2), so Actions masking already covers it; the guard exists because that
   masking depends on the value staying a registered secret.
 - aiperf redacts `api_key` in its own exported configuration by default.

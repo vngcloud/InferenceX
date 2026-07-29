@@ -294,14 +294,21 @@ both handled in `benchmark_lib.sh`:
   artifact contents, so `redact_replay_cmd()` substitutes the literal `$REMOTE_API_KEY`
   before the file is written. **This is the primary control.**
 - Shell xtrace expands the command and the bearer header. Every `*-remote-bench.sh` recipe
-  runs `set -x` on line 3, and `remote_bench_preflight` restores xtrace to whatever state it
-  found on entry, so xtrace is already ON by the time either of these run. Because of that,
-  `run_agentic_replay_and_write_outputs` actively runs `set +x` (not merely skips `set -x`)
-  when a key is set, and `remote_bench_preflight` suppresses and restores xtrace around the
-  authenticated probe. Both are defense in depth: that trace goes to the job log, not to
-  `benchmark.log` (verified on bash 3.2 — the tee'd file gets zero trace lines), and Actions
-  already masks registered secrets in job logs. They earn their place because masking only
-  holds while the value stays a registered secret.
+  runs `set -x` on line 3, so xtrace is already ON in all three functions that touch the key,
+  and a guard that merely *skips* `set -x` would be a no-op against an already-enabled
+  option. All three therefore run `set +x` actively:
+  - `remote_bench_preflight` — around the authenticated probe, restoring prior state
+  - `build_replay_cmd` — around the `-n` test, the whitespace test and the `--api-key`
+    append, restoring prior state so a native recipe's tracing survives
+  - `run_agentic_replay_and_write_outputs` — before the redaction call and the replay
+    pipeline
+
+  Note the suppression must start *before* the `[ -n "$REMOTE_API_KEY" ]` test, not just
+  around the line that uses the value — the test itself traces as `+ '[' -n <key> ']'`.
+  All of this is defense in depth: the trace goes to the job log, not to `benchmark.log`
+  (verified on bash 3.2 — the tee'd file gets zero trace lines), and Actions already masks
+  registered secrets in job logs. It earns its place because masking only holds while the
+  value stays a registered secret.
 
 Anyone with `ps` access on the controller box during a run can read the key from argv. This
 is accepted: `bench-client_01` is a dedicated single-tenant controller, and aiperf offers no

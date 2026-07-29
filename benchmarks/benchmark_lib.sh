@@ -1891,16 +1891,29 @@ build_replay_cmd() {
     # api_key, so it has to be an argv element; redact_replay_cmd keeps it out
     # of benchmark_command.txt, which is uploaded as an artifact and is not
     # masked by GitHub Actions the way job logs are.
+    #
+    # Every *-remote-bench.sh recipe runs `set -x`, so all three lines below
+    # would otherwise trace the key: the `-n` test, the whitespace test, and
+    # the append itself. Suppress around the whole block and restore only if
+    # tracing was already on, so a native recipe's `set -x` survives intact.
+    # Same pattern as remote_bench_preflight's probe. Defense in depth: the
+    # trace goes to the job log, which Actions masks while the value stays a
+    # registered secret; benchmark_command.txt's redaction is the real control.
+    local _build_xtrace_was_on=0
+    [[ $- == *x* ]] && _build_xtrace_was_on=1
+    set +x
     if [ -n "${REMOTE_API_KEY:-}" ]; then
         # $REPLAY_CMD is word-split at exec, so a key containing whitespace
         # would split into separate argv elements and authenticate with a
         # truncated credential. Fail loudly rather than send a broken header.
         if [[ "$REMOTE_API_KEY" == *[[:space:]]* ]]; then
+            [ "$_build_xtrace_was_on" = "1" ] && set -x
             echo "ERROR: REMOTE_API_KEY must not contain whitespace" >&2
             return 1
         fi
         REPLAY_CMD+=" --api-key $REMOTE_API_KEY"
     fi
+    [ "$_build_xtrace_was_on" = "1" ] && set -x
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
     REPLAY_CMD+=" --random-seed 42"
