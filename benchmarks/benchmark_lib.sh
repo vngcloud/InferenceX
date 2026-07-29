@@ -1769,6 +1769,21 @@ build_replay_cmd() {
     REPLAY_CMD+=" --endpoint-type chat"
     REPLAY_CMD+=" --streaming"
     REPLAY_CMD+=" --model $MODEL"
+    # Authenticated targets (e.g. a managed MaaS gateway). aiperf turns this
+    # into "Authorization: Bearer <key>". aiperf has no env-var transport for
+    # api_key, so it has to be an argv element; redact_replay_cmd keeps it out
+    # of benchmark_command.txt, which is uploaded as an artifact and is not
+    # masked by GitHub Actions the way job logs are.
+    if [ -n "${REMOTE_API_KEY:-}" ]; then
+        # $REPLAY_CMD is word-split at exec, so a key containing whitespace
+        # would split into separate argv elements and authenticate with a
+        # truncated credential. Fail loudly rather than send a broken header.
+        if [[ "$REMOTE_API_KEY" == *[[:space:]]* ]]; then
+            echo "ERROR: REMOTE_API_KEY must not contain whitespace" >&2
+            return 1
+        fi
+        REPLAY_CMD+=" --api-key $REMOTE_API_KEY"
+    fi
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
     REPLAY_CMD+=" --random-seed 42"
@@ -1892,15 +1907,34 @@ write_agentic_result_json() {
     "$AIPERF_PYTHON" "$INFMAX_CONTAINER_WORKSPACE/utils/generate_aiperf_plots.py" "$result_dir" 2>&1 || true
 }
 
+# Strip REMOTE_API_KEY out of a command string before it is written anywhere
+# that gets uploaded. GitHub Actions masks registered secrets in job logs but
+# not inside artifact files, so benchmark_command.txt needs this explicitly.
+# No-op when no key is set, which is every native (non-remote) recipe.
+redact_replay_cmd() {
+    local cmd="$1"
+    if [ -n "${REMOTE_API_KEY:-}" ]; then
+        cmd="${cmd//"$REMOTE_API_KEY"/\$REMOTE_API_KEY}"
+    fi
+    printf '%s' "$cmd"
+}
+
 run_agentic_replay_and_write_outputs() {
     local result_dir="$1"
     local replay_rc
     local validation_rc
 
-    echo "$REPLAY_CMD" > "$result_dir/benchmark_command.txt"
+    redact_replay_cmd "$REPLAY_CMD" > "$result_dir/benchmark_command.txt"
+    echo >> "$result_dir/benchmark_command.txt"
 
     set +e
-    set -x
+    # xtrace of the pipeline below expands $REPLAY_CMD, and the 2>&1 redirects
+    # the shell's stderr into tee — so with a key set the trace would write the
+    # credential straight into benchmark.log. The command is already recorded
+    # (redacted) above, so the trace is redundant when a key is present.
+    if [ -z "${REMOTE_API_KEY:-}" ]; then
+        set -x
+    fi
     $REPLAY_CMD 2>&1 | tee "$result_dir/benchmark.log"
     replay_rc=${PIPESTATUS[0]}
     set +x
