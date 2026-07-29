@@ -86,3 +86,46 @@ def test_redact_replay_cmd_is_a_noop_without_a_key() -> None:
         [[ "$(redact_replay_cmd "$REPLAY_CMD")" == "$REPLAY_CMD" ]]
     ''')
     assert result.returncode == 0, result.stderr
+
+
+def test_run_agentic_replay_and_write_outputs_redacts_key_end_to_end(tmp_path) -> None:
+    # Exercises the real write site and xtrace guard inside
+    # run_agentic_replay_and_write_outputs (not redact_replay_cmd in
+    # isolation), so this fails if benchmark_command.txt's write reverts to a
+    # bare `echo "$REPLAY_CMD" >` or the `set -x` guard is removed. AIPERF_CLI
+    # and AIPERF_PYTHON are shadowed to the `true` builtin, *after* sourcing
+    # (benchmark_lib.sh unconditionally sets both to an AIPERF_VENV path at
+    # source time, so pre-source exports get clobbered), so the replay,
+    # analysis, and validation subprocess calls are all no-ops requiring no
+    # network or real aiperf/python install; write_agentic_result_json does
+    # real cd + module-path work in a subshell before invoking $AIPERF_PYTHON,
+    # so it is shadowed directly as a no-op function.
+    result_dir = tmp_path / "result"
+    result_dir.mkdir()
+    script = _AGENTIC_ENV + r'''
+        export INFMAX_CONTAINER_WORKSPACE=/tmp
+        export REMOTE_API_KEY=sk-sentinel-do-not-leak
+        source benchmarks/benchmark_lib.sh
+        AIPERF_CLI=true
+        AIPERF_PYTHON=true
+        write_agentic_result_json() { :; }
+        build_replay_cmd "''' + str(result_dir) + r'''"
+        run_agentic_replay_and_write_outputs "''' + str(result_dir) + r'''"
+    '''
+    result = subprocess.run(["bash", "-c", "set -e\n" + script],
+                             capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+    cmd_text = (result_dir / "benchmark_command.txt").read_text()
+    log_text = (result_dir / "benchmark.log").read_text()
+
+    assert "sk-sentinel-do-not-leak" not in cmd_text
+    assert "$REMOTE_API_KEY" in cmd_text
+    assert "sk-sentinel-do-not-leak" not in log_text
+    # On this shell, a bare (unguarded) `set -x` traces the pipeline to the
+    # *script's own* stderr rather than into benchmark.log (verified by
+    # temporarily removing the guard and observing where the trace landed) --
+    # so the guard is checked here too, against the full captured output, to
+    # catch that regression regardless of which stream a given bash version
+    # routes the xtrace line to.
+    assert "sk-sentinel-do-not-leak" not in result.stdout + result.stderr
