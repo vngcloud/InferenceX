@@ -151,3 +151,110 @@ def test_replay_cmd_omits_tokenizer_when_unset() -> None:
         [[ "$REPLAY_CMD" == *' --tokenizer-trust-remote-code'* ]]
     ''')
     assert result.returncode == 0, result.stderr
+
+
+_CURL_STUB_OK = r"""
+    curl() {
+        for a in "$@"; do
+            if [[ "$a" == "--write-out" ]]; then printf '200'; return 0; fi
+        done
+        return 0
+    }
+"""
+
+_REMOTE_ENV = r"""
+    export REMOTE_BASE_URL=https://gw.example.test/v1
+    export REMOTE_ENGINE_METRICS_URL=https://m.example.test/worker-metrics
+    export REMOTE_RUNNER_TYPE=h200-nv
+"""
+
+
+def test_preflight_strips_trailing_v1_from_base_url() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        [[ "$REMOTE_BASE_URL" == "https://gw.example.test" ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_runs_without_gpu_telemetry() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        [[ -z "${AIPERF_GPU_TELEMETRY_URL:-}" ]]
+        build_replay_cmd /tmp/aiperf-test
+        [[ "$REPLAY_CMD" == *' --no-gpu-telemetry'* ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_omits_max_context_length_when_unset() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        build_replay_cmd /tmp/aiperf-test
+        [[ "$REPLAY_CMD" != *' --max-context-length'* ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_sets_max_context_length_when_supplied() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_MAX_CONTEXT_LENGTH=131072
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        build_replay_cmd /tmp/aiperf-test
+        [[ "$REPLAY_CMD" == *' --max-context-length 131072'* ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_exports_runner_type_and_tokenizer() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_TOKENIZER=zai-org/GLM-5.2-FP8
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        [[ "$RUNNER_TYPE" == "h200-nv" ]]
+        [[ "$AIPERF_TOKENIZER" == "zai-org/GLM-5.2-FP8" ]]
+        [[ "$AIPERF_SERVER_METRICS_URLS" == "https://m.example.test/worker-metrics" ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_fails_on_rejected_api_key() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_API_KEY=sk-wrong
+        source benchmarks/benchmark_lib.sh
+        curl() {
+            for a in "$@"; do
+                if [[ "$a" == "--write-out" ]]; then printf '401'; return 0; fi
+            done
+            return 0
+        }
+        remote_bench_preflight
+    ''')
+    assert result.returncode != 0
+    assert "HTTP 401" in result.stderr
+
+
+def test_preflight_fails_when_supplied_gpu_telemetry_is_unreachable() -> None:
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_GPU_TELEMETRY_URL=https://dcgm.example.test/metrics
+        source benchmarks/benchmark_lib.sh
+        curl() {
+            for a in "$@"; do
+                if [[ "$a" == "https://dcgm.example.test/metrics" ]]; then return 7; fi
+                if [[ "$a" == "--write-out" ]]; then printf '200'; return 0; fi
+            done
+            return 0
+        }
+        remote_bench_preflight
+    ''')
+    assert result.returncode != 0
+    assert "REMOTE_GPU_TELEMETRY_URL" in result.stderr

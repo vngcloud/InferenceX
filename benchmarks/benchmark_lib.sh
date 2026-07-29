@@ -1733,6 +1733,97 @@ resolve_trace_source() {
     "$AIPERF_HF_CLI" download --repo-type dataset "$dataset"
 }
 
+# Shared pre-flight for *-remote-bench.sh recipes: normalize the target URL,
+# verify the endpoints we depend on, and export what build_replay_cmd and
+# process_agentic_result.py read. Lives here rather than being copied into each
+# recipe so authentication and optional telemetry apply to every remote-bench
+# target, not only the newest one.
+#
+# Required (the calling recipe's check_env_vars enforces presence):
+#   REMOTE_BASE_URL, REMOTE_ENGINE_METRICS_URL, REMOTE_RUNNER_TYPE
+# Optional:
+#   REMOTE_API_KEY             bearer token; switches the probe to /v1/models
+#   REMOTE_TOKENIZER           HF repo id when the served name is an alias
+#   REMOTE_GPU_TELEMETRY_URL   DCGM /metrics; absent => --no-gpu-telemetry
+#   REMOTE_MAX_CONTEXT_LENGTH  trace-length cap; absent => no cap at all
+#   REMOTE_RESET_URL           POSTed before each concurrency point
+remote_bench_preflight() {
+    # build_replay_cmd appends "--endpoint /v1/chat/completions", so a base URL
+    # that already ends in /v1 would produce /v1/v1/chat/completions.
+    if [[ "$REMOTE_BASE_URL" == */v1 ]]; then
+        echo "NOTE: stripping trailing /v1 from REMOTE_BASE_URL; build_replay_cmd appends the endpoint path." >&2
+        REMOTE_BASE_URL="${REMOTE_BASE_URL%/v1}"
+    fi
+    REMOTE_BASE_URL="${REMOTE_BASE_URL%/}"
+
+    # Engine metrics are load-bearing: without KV, cache-hit and queue data a
+    # remote-bench result is not interpretable, so fail here rather than let a
+    # full-duration run finish without them. aiperf's own probing soft-fails,
+    # which is the right default for a general-purpose client but not for us.
+    if ! curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_ENGINE_METRICS_URL"; then
+        echo "ERROR: REMOTE_ENGINE_METRICS_URL ($REMOTE_ENGINE_METRICS_URL) is not reachable. Required for remote-bench." >&2
+        return 1
+    fi
+    export AIPERF_SERVER_METRICS_URLS="$REMOTE_ENGINE_METRICS_URL"
+
+    # GPU telemetry is optional: managed gateways rarely expose DCGM. A URL
+    # that was explicitly supplied but does not answer is still an error —
+    # that is a misconfiguration, not an absent capability.
+    if [ -n "${REMOTE_GPU_TELEMETRY_URL:-}" ]; then
+        if ! curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_GPU_TELEMETRY_URL"; then
+            echo "ERROR: REMOTE_GPU_TELEMETRY_URL ($REMOTE_GPU_TELEMETRY_URL) was supplied but is not reachable." >&2
+            return 1
+        fi
+        export AIPERF_GPU_TELEMETRY_URL="$REMOTE_GPU_TELEMETRY_URL"
+    else
+        echo "NOTE: REMOTE_GPU_TELEMETRY_URL not set; running with --no-gpu-telemetry. GPU power and utilization will be absent from this result." >&2
+    fi
+
+    # Reachability probe. An authenticated gateway 401s on /health, so probe
+    # /v1/models with the bearer token instead. This fails a wrong or expired
+    # key in seconds rather than after a full-duration run of 401s.
+    if [ -n "${REMOTE_API_KEY:-}" ]; then
+        local probe_code
+        probe_code=$(curl --output /dev/null --silent --max-time 10 \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $REMOTE_API_KEY" \
+            "$REMOTE_BASE_URL/v1/models")
+        if [ "$probe_code" != "200" ]; then
+            echo "ERROR: authenticated probe of $REMOTE_BASE_URL/v1/models returned HTTP $probe_code (expected 200). Check REMOTE_API_KEY and REMOTE_BASE_URL." >&2
+            return 1
+        fi
+    elif ! curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_BASE_URL/health"; then
+        echo "ERROR: REMOTE_BASE_URL ($REMOTE_BASE_URL) is not reachable at /health." >&2
+        return 1
+    fi
+
+    if [ -n "${REMOTE_RESET_URL:-}" ]; then
+        echo "Resetting remote engine state via REMOTE_RESET_URL before this concurrency point ..."
+        curl --output /dev/null --silent --fail --max-time 30 -X POST "$REMOTE_RESET_URL"
+    fi
+
+    # Self-report the real hardware key for downstream ingest. RUNNER_TYPE is
+    # otherwise the GH Actions runs-on label (cluster:remote-bench), which
+    # hwToGpuKey() in InferenceX-app's ingest cannot resolve. Exporting it here,
+    # in-process before aiperf runs, is what process_agentic_result.py
+    # (os.environ.get("RUNNER_TYPE")) actually sees.
+    export RUNNER_TYPE="$REMOTE_RUNNER_TYPE"
+    export REMOTE_BASE_URL
+
+    if [ -n "${REMOTE_TOKENIZER:-}" ]; then
+        export AIPERF_TOKENIZER="$REMOTE_TOKENIZER"
+    fi
+
+    # benchmark_lib.sh unsets MAX_MODEL_LEN at source time for agentic scripts
+    # so inherited workflow overrides never cap a local server's native
+    # context. Setting it back here is deliberate — it is the only route to
+    # build_replay_cmd's --max-context-length. Left unset when the target's
+    # window exceeds the corpus, where no cap is wanted at all.
+    if [ -n "${REMOTE_MAX_CONTEXT_LENGTH:-}" ]; then
+        export MAX_MODEL_LEN="$REMOTE_MAX_CONTEXT_LENGTH"
+    fi
+}
+
 build_replay_cmd() {
     # aiperf invocation for the inferencex-agentx-mvp scenario.
     #
