@@ -327,3 +327,33 @@ def test_remote_bench_recipes_use_shared_preflight() -> None:
         assert "REMOTE_GPU_TELEMETRY_URL" not in required, path
         assert "REMOTE_MAX_CONTEXT_LENGTH" not in required, path
         assert "REMOTE_ENGINE_METRICS_URL" in required, path
+
+
+# Logic that now lives exclusively in remote_bench_preflight(). A recipe that
+# calls remote_bench_preflight but ALSO keeps one of these would double-probe
+# endpoints and clobber exports the shared function already set correctly --
+# the exact regression this consolidation exists to make impossible. Header
+# comments legitimately mention some of these names by way of explanation, so
+# comment-only lines are stripped before matching.
+_FORBIDDEN_INLINE_PREFLIGHT_LOGIC = (
+    "curl",
+    "/health",
+    "export AIPERF_",
+    "export RUNNER_TYPE",
+    "export MAX_MODEL_LEN",
+)
+
+
+def test_remote_bench_recipes_do_not_reimplement_preflight_logic() -> None:
+    assert REMOTE_BENCH_RECIPES, "no remote-bench recipes found"
+    for path in REMOTE_BENCH_RECIPES:
+        lines = Path(path).read_text().splitlines()
+        code = "\n".join(
+            line for line in lines if not line.lstrip().startswith("#")
+        )
+        for needle in _FORBIDDEN_INLINE_PREFLIGHT_LOGIC:
+            assert needle not in code, (
+                f"{path} re-implements preflight logic: found {needle!r} "
+                "outside a comment; this belongs exclusively in "
+                "remote_bench_preflight()"
+            )
