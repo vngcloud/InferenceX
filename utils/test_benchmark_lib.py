@@ -357,3 +357,18 @@ def test_remote_bench_recipes_do_not_reimplement_preflight_logic() -> None:
                 "outside a comment; this belongs exclusively in "
                 "remote_bench_preflight()"
             )
+
+
+def test_benchmark_tmpl_wires_the_api_key_secret() -> None:
+    tmpl = Path(".github/workflows/benchmark-tmpl.yml").read_text()
+    assert "REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}" in tmpl
+    assert "REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}" in tmpl
+    assert "remote-tokenizer:" in tmpl
+
+
+def test_remote_bench_e2e_does_not_hardcode_kv_offloading() -> None:
+    wf = Path(".github/workflows/remote-bench-e2e.yml").read_text()
+    assert "kv-offloading: none" not in wf
+    assert "kv-offloading: ${{ matrix.config.kv-offloading || 'none' }}" in wf
+    assert "kv-offload-backend: ${{ matrix.config.kv-offload-backend || '' }}" in wf
+    assert "remote-tokenizer: ${{ matrix.config.remote-tokenizer || '' }}" in wf

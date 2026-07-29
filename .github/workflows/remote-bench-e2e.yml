@@ -16,11 +16,17 @@ on:
       configs:
         description: >
           JSON array of remote-bench configs (one element is fine for a
-          smoke test). Each object supports: exp-name, image, model,
+          smoke test). Each object requires: exp-name, image, model,
           model-prefix, framework, precision, conc, duration,
-          remote-base-url, remote-gpu-telemetry-url, remote-engine-metrics-url,
-          remote-runner-type, remote-max-context-length, and optionally
-          tp, ep, dp-attn, spec-decoding, remote-reset-url.
+          remote-base-url, remote-engine-metrics-url, remote-runner-type.
+          Optional: tp, ep, dp-attn, spec-decoding, remote-reset-url,
+          remote-tokenizer (HF tokenizer repo id when the endpoint serves the
+          model under an alias), remote-gpu-telemetry-url (absent means the run
+          reports no GPU telemetry), remote-max-context-length (omit when the
+          target's window exceeds the trace corpus), kv-offloading,
+          kv-offload-backend, kv-offload-backend-metadata. Note that setting
+          kv-offloading to dram requires a non-empty kv-offload-backend --
+          benchmark_lib.sh validates that pair at source time.
         required: true
         type: string
       ref:
@@ -76,7 +82,9 @@ jobs:
       max-model-len: '0'
       run-eval: false
       scenario-type: agentic-coding
-      kv-offloading: none
+      kv-offloading: ${{ matrix.config.kv-offloading || 'none' }}
+      kv-offload-backend: ${{ matrix.config.kv-offload-backend || '' }}
+      kv-offload-backend-metadata: ${{ matrix.config.kv-offload-backend-metadata || '' }}
       duration: ${{ matrix.config.duration }}
       remote-base-url: ${{ matrix.config.remote-base-url }}
       remote-gpu-telemetry-url: ${{ matrix.config.remote-gpu-telemetry-url }}
@@ -84,6 +92,7 @@ jobs:
       remote-reset-url: ${{ matrix.config.remote-reset-url || '' }}
       remote-runner-type: ${{ matrix.config.remote-runner-type }}
       remote-max-context-length: ${{ matrix.config.remote-max-context-length }}
+      remote-tokenizer: ${{ matrix.config.remote-tokenizer || '' }}
       ref: ${{ inputs.ref }}
 
   collect-results:

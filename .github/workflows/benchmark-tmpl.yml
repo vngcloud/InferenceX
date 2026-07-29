@@ -139,7 +139,7 @@ on:
         type: string
         default: ""
       remote-gpu-telemetry-url:
-        description: "DCGM /metrics endpoint on the remote target (required for remote-bench)"
+        description: "DCGM /metrics endpoint on the remote target (optional; absent means the run uses --no-gpu-telemetry and reports no GPU power or utilization). A URL that is supplied but unreachable still fails the job -- that is a misconfiguration, not an absent capability."
         required: false
         type: string
         default: ""
@@ -159,7 +159,12 @@ on:
         type: string
         default: ""
       remote-max-context-length:
-        description: "Actual deployed context window of the remote target (required for remote-bench). Caps aiperf's replayed trace length; without it aiperf may replay traces longer than the remote model supports, which was confirmed via smoke test to trigger a silent 100%-GPU hang relying on server-side --allow-auto-truncate."
+        description: "Trace-length cap for the remote target (optional; omit when the target's context window exceeds the trace corpus, set it when the window is smaller). Caps aiperf's replayed trace length; without it aiperf may replay traces longer than the remote model supports, which was confirmed via smoke test to trigger a silent 100%-GPU hang relying on server-side --allow-auto-truncate."
+        required: false
+        type: string
+        default: ""
+      remote-tokenizer:
+        description: "HuggingFace tokenizer repo id for the remote target, when the endpoint serves the model under a different name (e.g. gateway alias z-ai/glm-5.2 backed by zai-org/GLM-5.2-FP8). Optional; defaults to the --model value."
         required: false
         type: string
         default: ""
@@ -208,6 +213,10 @@ env:
   REMOTE_RESET_URL: ${{ inputs.remote-reset-url }}
   REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
   REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
+  REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}
+  # Bearer token for authenticated remote targets. Empty for every other
+  # recipe, which leaves build_replay_cmd's --api-key branch inert.
+  REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
