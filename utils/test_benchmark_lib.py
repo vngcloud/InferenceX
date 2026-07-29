@@ -95,8 +95,12 @@ def test_run_agentic_replay_and_write_outputs_redacts_key_end_to_end(tmp_path) -
     # Exercises the real write site and xtrace guard inside
     # run_agentic_replay_and_write_outputs (not redact_replay_cmd in
     # isolation), so this fails if benchmark_command.txt's write reverts to a
-    # bare `echo "$REPLAY_CMD" >` or the `set -x` guard is removed. AIPERF_CLI
-    # and AIPERF_PYTHON are shadowed to the `true` builtin, *after* sourcing
+    # bare `echo "$REPLAY_CMD" >` or the `set -x` guard is removed. `set -x`
+    # is enabled just before the call (and restored after) to mirror what
+    # every real *-remote-bench.sh recipe does -- xtrace is already ON by the
+    # time this function runs in production, so a test that never turns it on
+    # cannot exercise the guard at all and would pass even if the guard were
+    # a no-op. AIPERF_CLI and AIPERF_PYTHON are shadowed to the `true` builtin, *after* sourcing
     # (benchmark_lib.sh unconditionally sets both to an AIPERF_VENV path at
     # source time, so pre-source exports get clobbered), so the replay,
     # analysis, and validation subprocess calls are all no-ops requiring no
@@ -113,7 +117,9 @@ def test_run_agentic_replay_and_write_outputs_redacts_key_end_to_end(tmp_path) -
         AIPERF_PYTHON=true
         write_agentic_result_json() { :; }
         build_replay_cmd "''' + str(result_dir) + r'''"
+        set -x
         run_agentic_replay_and_write_outputs "''' + str(result_dir) + r'''"
+        set +x
     '''
     result = subprocess.run(["bash", "-c", "set -e\n" + script],
                              capture_output=True, text=True)

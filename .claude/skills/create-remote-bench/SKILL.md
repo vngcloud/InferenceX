@@ -231,6 +231,7 @@ gh workflow run remote-bench-e2e.yml -R vngcloud/InferenceX --ref <branch> \
      "model-prefix": "glm5.2", "framework": "sglang", "precision": "fp8",
      "tp": "8", "dp-attn": "true",
      "kv-offloading": "dram", "kv-offload-backend": "native",
+     "total-cpu-dram-gb": "<host DRAM GB>",
      "remote-base-url": "https://maas-llm-aiplatform-hcm.api.vngcloud.vn",
      "remote-tokenizer": "zai-org/GLM-5.2-FP8",
      "remote-engine-metrics-url": "https://49.213.86.184.nip.io/glm/sglang/worker-metrics",
@@ -243,7 +244,11 @@ Only `exp-name`, `image`, `model`, `model-prefix`, `framework`, `precision`, `co
 required. This example omits `remote-gpu-telemetry-url` (that gateway exposes no DCGM) and
 `remote-max-context-length` (its 500k window exceeds the corpus) — both are now optional.
 There is no `remote-api-key` field and there must never be one: the key arrives from the
-`GREENNODE_API_KEY` secret, never through the dispatch payload.
+`GREENNODE_API_KEY` secret, never through the dispatch payload. `total-cpu-dram-gb` is
+operator-supplied (the endpoint's actual configured CPU DRAM capacity in GB) — it defaults
+to `'0'` when omitted, and `kv-offloading: dram` fails at source time (in `benchmark_lib.sh`,
+after the runner is already allocated) unless it is set to a positive integer alongside a
+non-empty `kv-offload-backend`.
 
 Full sweep (the CCU ladder) — same shape, one object per conc value:
 
@@ -288,12 +293,15 @@ both handled in `benchmark_lib.sh`:
 - `benchmark_command.txt` is uploaded as an artifact and GitHub Actions does **not** mask
   artifact contents, so `redact_replay_cmd()` substitutes the literal `$REMOTE_API_KEY`
   before the file is written. **This is the primary control.**
-- Shell xtrace expands the command and the bearer header. `run_agentic_replay_and_write_outputs`
-  skips `set -x` when a key is set, and `remote_bench_preflight` suppresses and restores
-  xtrace around the authenticated probe. Both are defense in depth: that trace goes to the
-  job log, not to `benchmark.log` (verified on bash 3.2 — the tee'd file gets zero trace
-  lines), and Actions already masks registered secrets in job logs. They earn their place
-  because masking only holds while the value stays a registered secret.
+- Shell xtrace expands the command and the bearer header. Every `*-remote-bench.sh` recipe
+  runs `set -x` on line 3, and `remote_bench_preflight` restores xtrace to whatever state it
+  found on entry, so xtrace is already ON by the time either of these run. Because of that,
+  `run_agentic_replay_and_write_outputs` actively runs `set +x` (not merely skips `set -x`)
+  when a key is set, and `remote_bench_preflight` suppresses and restores xtrace around the
+  authenticated probe. Both are defense in depth: that trace goes to the job log, not to
+  `benchmark.log` (verified on bash 3.2 — the tee'd file gets zero trace lines), and Actions
+  already masks registered secrets in job logs. They earn their place because masking only
+  holds while the value stays a registered secret.
 
 Anyone with `ps` access on the controller box during a run can read the key from argv. This
 is accepted: `bench-client_01` is a dedicated single-tenant controller, and aiperf offers no

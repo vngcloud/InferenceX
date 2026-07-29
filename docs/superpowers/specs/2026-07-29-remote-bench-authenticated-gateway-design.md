@@ -107,11 +107,15 @@ unset:
 - Redact the key when writing `benchmark_command.txt`, substituting the literal string
   `$REMOTE_API_KEY` for the value. This file is uploaded as an artifact and GitHub Actions
   does not mask artifact contents.
-- Suppress `set -x` around the exec when `REMOTE_API_KEY` is set. The xtrace line expands
-  `$REPLAY_CMD` and therefore carries the credential. **Corrected after testing:** an earlier
-  draft of this spec claimed the `2>&1` in `$REPLAY_CMD 2>&1 | tee benchmark.log` routes that
-  trace into `benchmark.log`. It does not. Verified on bash 3.2 — the trace goes to the
-  shell's own stderr (the CI job log) and the tee'd file receives zero trace lines. Actions
+- Actively disable xtrace (`set +x`) around the exec when `REMOTE_API_KEY` is set — not merely
+  skip re-enabling it. Every `*-remote-bench.sh` recipe runs `set -x` on line 3, and
+  `remote_bench_preflight` restores xtrace to whatever state it found on entry, so by the time
+  this runs, xtrace is already ON whenever a key is present; an `if` with no `else` that only
+  declines to turn tracing on is a no-op against an already-enabled option. The xtrace line
+  expands `$REPLAY_CMD` and therefore carries the credential. **Corrected after testing:** an
+  earlier draft of this spec claimed the `2>&1` in `$REPLAY_CMD 2>&1 | tee benchmark.log`
+  routes that trace into `benchmark.log`. It does not. Verified on bash 3.2 — the trace goes to
+  the shell's own stderr (the CI job log) and the tee'd file receives zero trace lines. Actions
   masks registered secrets in job logs, so this guard is defense in depth rather than the
   primary control; it stays because masking only works while the value remains a registered
   secret, and the guard costs nothing. The command is already recorded (redacted) in
@@ -284,9 +288,12 @@ from a dispatch. Steps 1–2 do not depend on that.
 - It reaches the runner as process environment only, and reaches aiperf as an argv element.
 - Actions masks it in job logs. Artifacts are not masked, which is why
   `benchmark_command.txt` is redacted explicitly — that redaction is the primary control.
-- Suppressing xtrace is a second, weaker layer. The trace lands in the job log, not in
-  `benchmark.log` (verified on bash 3.2), so Actions masking already covers it; the guard
-  exists because that masking depends on the value staying a registered secret.
+- Suppressing xtrace is a second, weaker layer. Because recipe scripts already run `set -x`
+  before this code executes (and `remote_bench_preflight` restores whatever xtrace state it
+  found), the guard must actively turn tracing off (`set +x`) when a key is set — declining to
+  turn it on is not sufficient. The trace lands in the job log, not in `benchmark.log`
+  (verified on bash 3.2), so Actions masking already covers it; the guard exists because that
+  masking depends on the value staying a registered secret.
 - aiperf redacts `api_key` in its own exported configuration by default.
 - Anyone with `ps` access on the controller box during a run can read the key from argv.
   This is accepted: `bench-client_01` is a dedicated single-tenant controller, and aiperf

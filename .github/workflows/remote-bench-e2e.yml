@@ -24,9 +24,12 @@ on:
           model under an alias), remote-gpu-telemetry-url (absent means the run
           reports no GPU telemetry), remote-max-context-length (omit when the
           target's window exceeds the trace corpus), kv-offloading,
-          kv-offload-backend, kv-offload-backend-metadata. Note that setting
-          kv-offloading to dram requires a non-empty kv-offload-backend --
-          benchmark_lib.sh validates that pair at source time.
+          kv-offload-backend, kv-offload-backend-metadata, total-cpu-dram-gb.
+          Note that setting kv-offloading to dram requires BOTH a non-empty
+          kv-offload-backend AND a positive total-cpu-dram-gb --
+          benchmark_lib.sh validates that pair at source time and fails the
+          job (after runner allocation) if total-cpu-dram-gb is left at its
+          default of '0'.
         required: true
         type: string
       ref:
@@ -85,6 +88,7 @@ jobs:
       kv-offloading: ${{ matrix.config.kv-offloading || 'none' }}
       kv-offload-backend: ${{ matrix.config.kv-offload-backend || '' }}
       kv-offload-backend-metadata: ${{ matrix.config.kv-offload-backend-metadata || '' }}
+      total-cpu-dram-gb: ${{ matrix.config.total-cpu-dram-gb || '0' }}
       duration: ${{ matrix.config.duration }}
       remote-base-url: ${{ matrix.config.remote-base-url }}
       remote-gpu-telemetry-url: ${{ matrix.config.remote-gpu-telemetry-url }}

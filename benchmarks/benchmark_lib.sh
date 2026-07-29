@@ -2048,10 +2048,39 @@ run_agentic_replay_and_write_outputs() {
     local replay_rc
     local validation_rc
 
+    # Suppress xtrace unconditionally, before testing REMOTE_API_KEY, not
+    # just before the replay pipeline further down. Every *-remote-bench.sh
+    # recipe already has xtrace ON by the time this function runs (its own
+    # `set -x` on line 3, restored by remote_bench_preflight), so two things
+    # would otherwise still leak the key here: redact_replay_cmd below is
+    # invoked with the raw $REPLAY_CMD as its argument, and even the
+    # `[ -n "$REMOTE_API_KEY" ]` test's own trace line expands and prints the
+    # key as an argument before the branch runs. Suppress *before* the test,
+    # not after -- mirroring the same subtlety remote_bench_preflight already
+    # handles the same way for its equivalent probe. No restore is needed
+    # while a key is present: the unconditional `set +x` after the pipeline
+    # below leaves tracing off for everything that follows regardless. When
+    # no key is set, re-enable immediately to preserve prior debug behavior.
+    set +x
+    if [ -z "${REMOTE_API_KEY:-}" ]; then
+        set -x
+    fi
+
     redact_replay_cmd "$REPLAY_CMD" > "$result_dir/benchmark_command.txt"
     echo >> "$result_dir/benchmark_command.txt"
 
     set +e
+    # Every *-remote-bench.sh recipe runs `set -x` on line 3, and
+    # remote_bench_preflight restores xtrace to whatever state it found on
+    # entry -- so by the time this function runs, xtrace is already ON
+    # whenever a key is present. Merely declining to re-enable it (the old
+    # `if [ -z ... ]; then set -x; fi` with no else) was a no-op: it never
+    # disabled an already-enabled option. This guard must therefore actively
+    # turn tracing OFF when a key is set, not just skip turning it on. No
+    # restore-on-exit is needed here (unlike remote_bench_preflight, which
+    # does restore for its caller) because the unconditional `set +x` after
+    # the pipeline below already leaves tracing off regardless of branch.
+    #
     # The xtrace line for the pipeline below expands $REPLAY_CMD and so
     # carries the credential in cleartext. Verified on bash 3.2: that trace
     # goes to the shell's own stderr (the CI job log), not through this
@@ -2067,6 +2096,8 @@ run_agentic_replay_and_write_outputs() {
     # this guard just avoids also handing the raw key to the console.
     if [ -z "${REMOTE_API_KEY:-}" ]; then
         set -x
+    else
+        set +x
     fi
     $REPLAY_CMD 2>&1 | tee "$result_dir/benchmark.log"
     replay_rc=${PIPESTATUS[0]}
