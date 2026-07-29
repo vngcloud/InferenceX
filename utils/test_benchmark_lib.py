@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 def test_greennode_launcher_forwards_kv_backend_metadata() -> None:
     script = Path("runners/launch_h200-greennode.sh").read_text()
@@ -258,3 +260,44 @@ def test_preflight_fails_when_supplied_gpu_telemetry_is_unreachable() -> None:
     ''')
     assert result.returncode != 0
     assert "REMOTE_GPU_TELEMETRY_URL" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "input_url,expected_url",
+    [
+        ("https://host/v1", "https://host"),
+        ("https://host/v1/", "https://host"),
+        ("https://host", "https://host"),
+        ("https://host/", "https://host"),
+        ("https://host/glm/sglang", "https://host/glm/sglang"),
+    ],
+)
+def test_preflight_normalizes_base_url(input_url: str, expected_url: str) -> None:
+    result = _run_bash(r'''
+        export REMOTE_BASE_URL=''' + input_url + r'''
+        export REMOTE_ENGINE_METRICS_URL=https://m.example.test/worker-metrics
+        export REMOTE_RUNNER_TYPE=h200-nv
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        remote_bench_preflight
+        [[ "$REMOTE_BASE_URL" == "''' + expected_url + r'''" ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_preflight_authenticated_probe_suppresses_xtrace() -> None:
+    # Mirrors the Task 1 end-to-end redaction test: check the combined
+    # stdout+stderr of a run with the recipe's own `set -x` active, not just
+    # one stream, since GitHub Actions masking only covers stderr and only
+    # for registered secrets -- this guard (and this test) is defense in
+    # depth, not the primary control.
+    result = _run_bash(_REMOTE_ENV + r'''
+        export REMOTE_API_KEY=sk-sentinel-do-not-leak
+        source benchmarks/benchmark_lib.sh
+    ''' + _CURL_STUB_OK + r'''
+        set -x
+        remote_bench_preflight
+        set +x
+    ''')
+    assert result.returncode == 0, result.stderr
+    assert "sk-sentinel-do-not-leak" not in result.stdout + result.stderr

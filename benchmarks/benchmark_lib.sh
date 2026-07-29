@@ -1749,7 +1749,13 @@ resolve_trace_source() {
 #   REMOTE_RESET_URL           POSTed before each concurrency point
 remote_bench_preflight() {
     # build_replay_cmd appends "--endpoint /v1/chat/completions", so a base URL
-    # that already ends in /v1 would produce /v1/v1/chat/completions.
+    # that already ends in /v1 would produce /v1/v1/chat/completions. Strip any
+    # trailing slash *before* testing for a trailing /v1 -- a bare glob match
+    # against */v1 does not match "...v1/", which is one of the most common
+    # ways an operator pastes a base URL, and would otherwise leave the /v1
+    # collision this block exists to prevent. Strip a trailing slash again
+    # afterward too, so "https://host//v1" also lands on "https://host".
+    REMOTE_BASE_URL="${REMOTE_BASE_URL%/}"
     if [[ "$REMOTE_BASE_URL" == */v1 ]]; then
         echo "NOTE: stripping trailing /v1 from REMOTE_BASE_URL; build_replay_cmd appends the endpoint path." >&2
         REMOTE_BASE_URL="${REMOTE_BASE_URL%/v1}"
@@ -1782,19 +1788,39 @@ remote_bench_preflight() {
     # Reachability probe. An authenticated gateway 401s on /health, so probe
     # /v1/models with the bearer token instead. This fails a wrong or expired
     # key in seconds rather than after a full-duration run of 401s.
+    #
+    # GitHub Actions masks registered secrets in job logs, so an xtrace of
+    # this block (the recipe's own `set -x`, on by default) is not an active
+    # leak -- this guard is defense in depth, consistent with the same guard
+    # around the replay invocation in run_agentic_replay_and_write_outputs.
+    # benchmark_command.txt's own redaction remains the primary control; this
+    # just avoids also handing the raw key to the console, both via the
+    # Authorization header and via the trace of the `-n REMOTE_API_KEY` test
+    # itself. Suppress around the whole probe (not just the curl call) and
+    # restore only if it was on, so the caller's `set -x` survives the
+    # function.
+    local _preflight_xtrace_was_on=0
+    [[ $- == *x* ]] && _preflight_xtrace_was_on=1
+    set +x
     if [ -n "${REMOTE_API_KEY:-}" ]; then
         local probe_code
         probe_code=$(curl --output /dev/null --silent --max-time 10 \
             --write-out '%{http_code}' \
             --header "Authorization: Bearer $REMOTE_API_KEY" \
             "$REMOTE_BASE_URL/v1/models")
+        [ "$_preflight_xtrace_was_on" = "1" ] && set -x
         if [ "$probe_code" != "200" ]; then
             echo "ERROR: authenticated probe of $REMOTE_BASE_URL/v1/models returned HTTP $probe_code (expected 200). Check REMOTE_API_KEY and REMOTE_BASE_URL." >&2
             return 1
         fi
-    elif ! curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_BASE_URL/health"; then
-        echo "ERROR: REMOTE_BASE_URL ($REMOTE_BASE_URL) is not reachable at /health." >&2
-        return 1
+    else
+        if curl --output /dev/null --silent --fail --max-time 10 "$REMOTE_BASE_URL/health"; then
+            [ "$_preflight_xtrace_was_on" = "1" ] && set -x
+        else
+            [ "$_preflight_xtrace_was_on" = "1" ] && set -x
+            echo "ERROR: REMOTE_BASE_URL ($REMOTE_BASE_URL) is not reachable at /health." >&2
+            return 1
+        fi
     fi
 
     if [ -n "${REMOTE_RESET_URL:-}" ]; then
