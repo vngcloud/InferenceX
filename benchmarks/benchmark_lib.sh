@@ -1928,10 +1928,19 @@ run_agentic_replay_and_write_outputs() {
     echo >> "$result_dir/benchmark_command.txt"
 
     set +e
-    # xtrace of the pipeline below expands $REPLAY_CMD, and the 2>&1 redirects
-    # the shell's stderr into tee — so with a key set the trace would write the
-    # credential straight into benchmark.log. The command is already recorded
-    # (redacted) above, so the trace is redundant when a key is present.
+    # The xtrace line for the pipeline below expands $REPLAY_CMD and so
+    # carries the credential in cleartext. Verified on bash 3.2: that trace
+    # goes to the shell's own stderr (the CI job log), not through this
+    # command's own 2>&1 into tee -- zero trace lines land in benchmark.log.
+    # We couldn't verify the bash 5 Linux runner, so this is confirmed for
+    # bash 3.2 only, not claimed universally.
+    #
+    # GitHub Actions masks registered secrets in job logs, so that's already
+    # covered *if* the value was registered as a secret -- this guard is
+    # defense in depth for when it wasn't, and skipping it costs nothing.
+    # benchmark_command.txt (written above, already redacted) is the artifact
+    # Actions does NOT mask, so that redaction remains the primary control;
+    # this guard just avoids also handing the raw key to the console.
     if [ -z "${REMOTE_API_KEY:-}" ]; then
         set -x
     fi

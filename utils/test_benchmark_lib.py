@@ -122,10 +122,12 @@ def test_run_agentic_replay_and_write_outputs_redacts_key_end_to_end(tmp_path) -
     assert "sk-sentinel-do-not-leak" not in cmd_text
     assert "$REMOTE_API_KEY" in cmd_text
     assert "sk-sentinel-do-not-leak" not in log_text
-    # On this shell, a bare (unguarded) `set -x` traces the pipeline to the
-    # *script's own* stderr rather than into benchmark.log (verified by
-    # temporarily removing the guard and observing where the trace landed) --
-    # so the guard is checked here too, against the full captured output, to
-    # catch that regression regardless of which stream a given bash version
-    # routes the xtrace line to.
+    # A bare (unguarded) `set -x` doesn't land its trace in benchmark.log on
+    # this shell (bash 3.2) -- the trace goes to the shell's own stderr, i.e.
+    # the CI job log, not through the pipeline's own 2>&1 into tee. GitHub
+    # Actions masking only covers stderr, and only for values registered as
+    # secrets, so this guard is defense in depth, not the primary control
+    # (benchmark_command.txt's redaction is). Check the combined stdout+stderr
+    # here, not just the two files, so this regresses regardless of which
+    # stream a given bash version actually routes the xtrace line to.
     assert "sk-sentinel-do-not-leak" not in result.stdout + result.stderr
