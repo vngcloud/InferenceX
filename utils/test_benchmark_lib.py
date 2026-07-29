@@ -1,3 +1,4 @@
+import glob
 import subprocess
 from pathlib import Path
 
@@ -301,3 +302,28 @@ def test_preflight_authenticated_probe_suppresses_xtrace() -> None:
     ''')
     assert result.returncode == 0, result.stderr
     assert "sk-sentinel-do-not-leak" not in result.stdout + result.stderr
+
+
+REMOTE_BENCH_RECIPES = sorted(
+    glob.glob("benchmarks/single_node/agentic/*-remote-bench.sh")
+)
+
+
+def test_glm52_fp8_remote_bench_recipe_exists() -> None:
+    assert (
+        "benchmarks/single_node/agentic/glm5.2_fp8_sglang-remote-bench.sh"
+        in REMOTE_BENCH_RECIPES
+    )
+
+
+def test_remote_bench_recipes_use_shared_preflight() -> None:
+    assert REMOTE_BENCH_RECIPES, "no remote-bench recipes found"
+    for path in REMOTE_BENCH_RECIPES:
+        script = Path(path).read_text()
+        assert "remote_bench_preflight" in script, path
+        # Optional vars must not be in check_env_vars, or a target without
+        # DCGM or without a context cap fails before preflight can run.
+        required = script.split("check_env_vars", 1)[1].split("mkdir", 1)[0]
+        assert "REMOTE_GPU_TELEMETRY_URL" not in required, path
+        assert "REMOTE_MAX_CONTEXT_LENGTH" not in required, path
+        assert "REMOTE_ENGINE_METRICS_URL" in required, path
