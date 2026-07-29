@@ -1834,6 +1834,13 @@ build_replay_cmd() {
         # can opt in when their DCGM exporter has a stable metric schema.
         REPLAY_CMD+=" --no-gpu-telemetry"
     fi
+    # A gateway may alias the model (e.g. serve zai-org/GLM-5.2-FP8 as
+    # z-ai/glm-5.2). aiperf's dataset manager loads a tokenizer by --model
+    # unless --tokenizer overrides it, and an alias will not resolve on the
+    # Hub. Unset for every native recipe, where model and tokenizer coincide.
+    if [ -n "${AIPERF_TOKENIZER:-}" ]; then
+        REPLAY_CMD+=" --tokenizer $AIPERF_TOKENIZER"
+    fi
     # aiperf's dataset manager (separate from the inference parser) loads
     # the model's tokenizer for trace-prompt tokenization regardless of
     # --use-server-token-count. Models like kimi (amd/Kimi-K2.5-MXFP4,

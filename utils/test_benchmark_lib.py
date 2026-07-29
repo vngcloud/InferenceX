@@ -131,3 +131,23 @@ def test_run_agentic_replay_and_write_outputs_redacts_key_end_to_end(tmp_path) -
     # here, not just the two files, so this regresses regardless of which
     # stream a given bash version actually routes the xtrace line to.
     assert "sk-sentinel-do-not-leak" not in result.stdout + result.stderr
+
+
+def test_aiperf_tokenizer_is_passed_when_set() -> None:
+    result = _run_bash(r'''
+        export AIPERF_TOKENIZER=zai-org/GLM-5.2-FP8
+        source benchmarks/benchmark_lib.sh
+        build_replay_cmd /tmp/aiperf-test
+        [[ "$REPLAY_CMD" == *' --tokenizer zai-org/GLM-5.2-FP8'* ]]
+    ''')
+    assert result.returncode == 0, result.stderr
+
+
+def test_replay_cmd_omits_tokenizer_when_unset() -> None:
+    result = _run_bash(r'''
+        source benchmarks/benchmark_lib.sh
+        build_replay_cmd /tmp/aiperf-test
+        [[ "$REPLAY_CMD" != *' --tokenizer '* ]]
+        [[ "$REPLAY_CMD" == *' --tokenizer-trust-remote-code'* ]]
+    ''')
+    assert result.returncode == 0, result.stderr
