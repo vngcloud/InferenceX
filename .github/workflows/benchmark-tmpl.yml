@@ -173,6 +173,11 @@ on:
         required: false
         type: boolean
         default: false
+      weka-loader-override:
+        description: "Override the trace corpus selected by MODEL_PREFIX. resolve_trace_source() in benchmark_lib.sh maps each model-prefix to a default aiperf loader (e.g. glm5.2* -> the unfiltered semianalysis_cc_traces_weka_062126 corpus). Set this to an alternative loader key (e.g. semianalysis_cc_traces_weka_062126_256k) to swap corpora -- useful when the target's enforced context window is at or below 256k and the prefix's default corpus carries traces longer than that. Empty = use the prefix default. Consumed via the WEKA_LOADER_OVERRIDE env by every recipe that calls resolve_trace_source."
+        required: false
+        type: string
+        default: ""
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -220,6 +225,7 @@ env:
   REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
   REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}
   REMOTE_INSECURE_TLS: ${{ inputs.remote-insecure-tls }}
+  WEKA_LOADER_OVERRIDE: ${{ inputs.weka-loader-override }}
   # Bearer token for authenticated remote targets. Empty for every other
   # recipe, which leaves build_replay_cmd's --api-key branch inert.
   REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
