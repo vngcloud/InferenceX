@@ -44,15 +44,33 @@ history of what happened stays legible.
   server keep their own handlers). Plus `AIPERF_REPLAY_PID` / `AIPERF_REPLAY_PID_FILE` state vars
   and four helpers: `_write_agentic_replay_pid_file`, `stop_agentic_replay`,
   `_agentic_replay_signal_exit`, `reap_orphan_agentic_replays`.
-  **Why**: a cancelled job left the aiperf tree running against production. Actions cancels with
-  SIGINT → SIGTERM → SIGKILL, and **bash defers a trap until the current foreground command
-  finishes** — verified on bash 3.2 and on the runner's bash 5.1.16: with a foreground pipeline the
-  handler fires only when the pipeline ends, so a trap alone is useless without also
-  un-foregrounding the replay. `$!` must come from process substitution, not a pipe, or it is
-  `tee`'s PID. If upstream rewrites this function, **all three parts must be re-applied together**
-  (background + `wait`, the trap pair, the PID file) — any one alone does nothing. Run
-  30508401430 is the incident; `utils/test_benchmark_lib.py::test_sigterm_during_replay_kills_the_whole_tree`
-  is the regression test.
+  **Why**: a cancelled job left the aiperf tree running against production (run 30508401430: the
+  runner's orphan sweep killed the two `bash` wrappers and `tee` but not `aiperf
+  system_controller`, which was reparented to PID 1 and kept replaying for 35 more minutes at
+  15-22 req/min of 90k-255k-token prompts until killed by hand).
+
+  **Which part actually stops it — measured, not assumed.** Cancel drill on run 30513024391
+  (CCU1): the in-script `INT`/`TERM` handler **did not fire at all**; the post-run
+  `reap_orphan_agentic_replays` (see `benchmark-tmpl.yml` below) is what killed the tree, 8s after
+  the cancel. The job log shows the benchmark shells (`bash 224283/224284`) still alive at
+  04:11:15 and terminated by the runner's *own* orphan sweep afterwards — i.e. on the Actions
+  cancel path the recipe shell never receives a signal, so there is nothing for a trap to catch.
+  **The PID file is therefore the load-bearing piece, not the trap.** Do not "simplify" this to a
+  trap-only fix: that was the first design attempted and it would not have fixed the bug.
+
+  The trap still earns its place on the paths that *do* deliver a signal — local Ctrl-C, a manual
+  `kill`, a recipe run directly over SSH while debugging (how the 10-day-old orphan on `vmdev`
+  happened) — and there it needs the background + `wait`, because **bash defers a trap until the
+  current foreground command finishes**: verified on bash 3.2 and on the runner's bash 5.1.16, a
+  foreground pipeline handles a TERM only when the pipeline ends (t=3s of a 3s command) while
+  background + `wait` handles it immediately (t=1s). `$!` must come from process substitution, not
+  a pipe, or it is `tee`'s PID.
+
+  If upstream rewrites this function, the PID file + `wait` are mandatory and the trap pair goes
+  with them (a `setsid`-free background job keeps Ctrl-C working; `setsid` would break both that
+  and macOS, where `utils/test_benchmark_lib.py` drives this path).
+  `utils/test_benchmark_lib.py::test_sigterm_during_replay_kills_the_whole_tree` is the regression
+  test for the signal path; the cancel path is only provable by an actual cancel drill.
 
 ### `.github/workflows/benchmark-tmpl.yml`
 - 6 `workflow_call` inputs + matching `env:` entries, all optional/empty-default:
@@ -66,8 +84,9 @@ history of what happened stays legible.
   references these exact input names.
 - **Top of the `&resource-cleanup` anchor body**: `bash runners/reap_orphan_aiperf.sh || true`,
   guarded by `[ -f ... ]`.
-  **Why**: the backstop for the same cancellation bug — the one layer that survives SIGKILL of the
-  benchmark shell. Placed in the anchor on purpose so the pre-run (`:258`) and post-run
+  **Why**: this is the layer that actually stops a cancelled run's aiperf — not the in-script trap
+  (see the `benchmark_lib.sh` entry above for the drill evidence). It is also the only layer that
+  survives SIGKILL of the benchmark shell. Placed in the anchor on purpose so the pre-run (`:258`) and post-run
   (`:417`, `if: always()`) steps share it: post-run reaps this job's orphan, pre-run reaps a
   previously cancelled job's before it can double-load the endpoint. The `-f` guard exists because
   the pre-run copy runs **before** `actions/checkout`. If upstream restructures the anchor, re-add

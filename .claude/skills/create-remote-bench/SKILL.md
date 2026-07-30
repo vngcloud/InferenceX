@@ -281,6 +281,37 @@ validation that the sweep mechanics work, not as clean per-concurrency performan
 (`main`) — you cannot dispatch a brand-new `remote-bench-e2e.yml`-style workflow from a
 feature branch before it merges. For pre-merge validation, use the debug loop below instead.
 
+**Two payload gotchas that produce a run with no `remote-bench` job at all** (the matrix job is
+never created, and the run just fails with no failing step to read): `dp-attn` and
+`remote-insecure-tls` are **boolean** inputs, so they must be JSON `true`/`false`, not the strings
+`"true"`/`"false"`. And `exp-name`'s first underscore-delimited segment must equal `model-prefix`,
+since the recipe path is derived from `${EXP_NAME%%_*}`.
+
+### Cancelling a run
+
+Cancelling is safe now: aiperf gets reaped automatically. Measured on the CCU1 cancel drill (run
+30513024391) — cancel at 04:10:51, `##[error]The operation was canceled.` at 04:11:06, and
+`[aiperf] Reaping orphaned replay tree PID=… : aiperf system_controller` in the **Resource cleanup
+(post-run)** step at 04:11:14. Traffic at the gateway stopped inside the same minute.
+
+That reaper is the thing to look for in the log. Either message is a pass:
+- `Reaping orphaned replay tree PID=…` — it found and killed the tree.
+- `PID … is already gone` — something else got there first.
+
+A **silent** post-run cleanup step is the failure signal: it means no PID file was written, so
+nothing knew what to kill. In that case check by hand on the runner —
+`ps -ef | grep '[a]iperf'` and `ls /tmp/inferencex-agentic-*/aiperf-replay.pid` — and `kill -TERM`
+the `aiperf system_controller` PID, because a live replay keeps hammering the target for the rest
+of its `--benchmark-duration` (the original incident, run 30508401430, ran 35 minutes past its
+cancel and pushed real users' TTFT p95 over 40s).
+
+Do **not** try to stop a runaway replay by revoking the endpoint's API key: the key is shared with
+every other remote-bench run and with real traffic, and the client just retries against 401s. Kill
+the process.
+
+Orphans from before this fix landed have no PID file and no sweep will find them — they need one
+manual `kill -TERM`.
+
 ## 6b. Authenticated endpoints
 
 The key lives in exactly one place: the `GREENNODE_API_KEY` repo secret in
