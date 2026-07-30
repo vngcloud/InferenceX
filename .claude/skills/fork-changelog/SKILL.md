@@ -37,6 +37,22 @@ history of what happened stays legible.
   instead of the locally-launched server on `$PORT`. This is the single hardcode that caused
   the original remote-bench bug (issue #26) before it was fixed — if upstream changes how
   `build_replay_cmd` constructs `--url`, this fallback pattern must be re-applied, not dropped.
+- **`run_agentic_replay_and_write_outputs()`**: the replay runs backgrounded with process
+  substitution (`$REPLAY_CMD > >(tee …) 2>&1 &` + `wait "$AIPERF_REPLAY_PID"`) instead of
+  upstream's foreground `$REPLAY_CMD 2>&1 | tee` + `PIPESTATUS[0]`, with `INT`/`TERM` handlers
+  armed around it (snapshotted via `trap -p` and restored after, so recipes that manage a local
+  server keep their own handlers). Plus `AIPERF_REPLAY_PID` / `AIPERF_REPLAY_PID_FILE` state vars
+  and four helpers: `_write_agentic_replay_pid_file`, `stop_agentic_replay`,
+  `_agentic_replay_signal_exit`, `reap_orphan_agentic_replays`.
+  **Why**: a cancelled job left the aiperf tree running against production. Actions cancels with
+  SIGINT → SIGTERM → SIGKILL, and **bash defers a trap until the current foreground command
+  finishes** — verified on bash 3.2 and on the runner's bash 5.1.16: with a foreground pipeline the
+  handler fires only when the pipeline ends, so a trap alone is useless without also
+  un-foregrounding the replay. `$!` must come from process substitution, not a pipe, or it is
+  `tee`'s PID. If upstream rewrites this function, **all three parts must be re-applied together**
+  (background + `wait`, the trap pair, the PID file) — any one alone does nothing. Run
+  30508401430 is the incident; `utils/test_benchmark_lib.py::test_sigterm_during_replay_kills_the_whole_tree`
+  is the regression test.
 
 ### `.github/workflows/benchmark-tmpl.yml`
 - 6 `workflow_call` inputs + matching `env:` entries, all optional/empty-default:
@@ -48,6 +64,20 @@ history of what happened stays legible.
   empty. If upstream restructures this file's `inputs:`/`env:` blocks, all 6 pairs need to
   be re-added in the same input-name → env-var-name shape, since `remote-bench-e2e.yml`
   references these exact input names.
+- **Top of the `&resource-cleanup` anchor body**: `bash runners/reap_orphan_aiperf.sh || true`,
+  guarded by `[ -f ... ]`.
+  **Why**: the backstop for the same cancellation bug — the one layer that survives SIGKILL of the
+  benchmark shell. Placed in the anchor on purpose so the pre-run (`:258`) and post-run
+  (`:417`, `if: always()`) steps share it: post-run reaps this job's orphan, pre-run reaps a
+  previously cancelled job's before it can double-load the endpoint. The `-f` guard exists because
+  the pre-run copy runs **before** `actions/checkout`. If upstream restructures the anchor, re-add
+  this **first** in the body (before the docker loop, which can block for minutes).
+
+### `runners/reap_orphan_aiperf.sh` (new file)
+Sources `benchmark_lib.sh` and calls `reap_orphan_agentic_replays`. Exports `IS_AGENTIC=0` and
+`SCENARIO_TYPE=""` before sourcing — the lib's source-time agentic gate `exit 1`s on an
+inconsistent KV pair, and a sourced `exit` would take the cleanup step with it. No `set -e`:
+cleanup must never fail a job.
 
 ### `.github/workflows/remote-bench-e2e.yml` (new file)
 The single remote-bench entrypoint: takes a JSON array of configs directly (not via

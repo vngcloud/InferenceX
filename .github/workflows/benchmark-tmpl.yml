@@ -257,6 +257,19 @@ jobs:
     steps:
       - name: Resource cleanup (pre-run)
         run: &resource-cleanup |
+          # Reap aiperf replay trees orphaned by a SIGKILLed benchmark shell.
+          # Shared by the pre-run and post-run copies of this step on purpose:
+          # post-run stops this job's own orphan after a cancellation, pre-run
+          # stops a previously cancelled job's orphan before it can double-load
+          # the endpoint and corrupt this run's numbers. No-op on any runner
+          # that never ran aiperf outside a container. Runs first because the
+          # docker loop below can block for a while. The pre-run copy executes
+          # before actions/checkout, so it uses the previous checkout's copy of
+          # the script and is skipped on a never-checked-out workspace.
+          if [ -f runners/reap_orphan_aiperf.sh ]; then
+            bash runners/reap_orphan_aiperf.sh || true
+          fi
+
           # Cleanup Docker resources
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
             echo "[Docker] Cleaning up resources ..."

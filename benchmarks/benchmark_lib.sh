@@ -1584,6 +1584,13 @@ AIPERF_CLI="${AIPERF_VENV}/bin/aiperf"
 AIPERF_HF_CLI="${AIPERF_VENV}/bin/hf"
 AIPERF_DEPS_READY=0
 AIPERF_FAILED_REQUEST_THRESHOLD="${AIPERF_FAILED_REQUEST_THRESHOLD:-0.10}"
+AIPERF_REPLAY_PID=""
+# Where the running replay's root PID is recorded so a post-run reaper can
+# still find it after this shell is gone. Under AIPERF_RUNTIME_DIR and not the
+# workspace: actions/checkout runs with clean:true (git clean -ffdx), which
+# would delete a workspace state file before the next job's cleanup could read
+# it.
+AIPERF_REPLAY_PID_FILE="${AIPERF_RUNTIME_DIR}/aiperf-replay.pid"
 
 agentic_pip_install() {
     local pip_install=(python3 -m pip install)
@@ -2074,6 +2081,86 @@ redact_replay_cmd() {
     printf '%s' "$cmd"
 }
 
+# Record the replay tree's root PID where a reaper can still find it after this
+# shell is gone. A cancelled Actions job SIGINTs, then SIGTERMs, then SIGKILLs
+# the step's bash wrappers (and the tee beside them) roughly 8s after the
+# cancel, but never signals aiperf itself -- it is reparented to PID 1 and
+# keeps driving the target for the rest of its --benchmark-duration. The handle
+# has to be a file: nothing in-process survives SIGKILL. mkdir -p because a
+# caller may not have run install_agentic_deps yet.
+_write_agentic_replay_pid_file() {
+    mkdir -p "$AIPERF_RUNTIME_DIR" 2>/dev/null || true
+    {
+        echo "$1"
+        echo "run=${GITHUB_RUN_ID:-none} job=${RESULT_FILENAME:-none} conc=${CONC:-?} duration=${DURATION:-?} started=$(date -u +%FT%TZ)"
+    } > "$AIPERF_REPLAY_PID_FILE" 2>/dev/null || true
+}
+
+# Stop the replay and every process it spawned (dataset_manager,
+# timing_manager, worker_manager, records_manager, server_metrics_manager,
+# worker_* x concurrency, record_processor_*). No-op once the replay exited.
+stop_agentic_replay() {
+    stop_background_process_tree "$AIPERF_REPLAY_PID" "aiperf replay" 15
+    AIPERF_REPLAY_PID=""
+    rm -f "$AIPERF_REPLAY_PID_FILE" 2>/dev/null || true
+}
+
+# INT/TERM handler, armed only while the replay runs. `trap - INT TERM` first
+# so the runner's SIGTERM-after-SIGINT cannot re-enter this. Exiting (rather
+# than returning) re-raises through whatever EXIT trap the recipe installed, so
+# a recipe managing a local server still tears that server down afterwards.
+_agentic_replay_signal_exit() {
+    local exit_code="$1"
+    trap - INT TERM
+    stop_agentic_replay
+    exit "$exit_code"
+}
+
+# Reap replay trees orphaned by a previous benchmark shell being SIGKILLed
+# (Actions cancellation, timeout-minutes expiry, an operator's kill -9). Called
+# from benchmark-tmpl.yml's shared resource cleanup, pre-run AND post-run, via
+# runners/reap_orphan_aiperf.sh.
+#
+# Identification is by recorded PID, never by name: aiperf renames every
+# process in the tree with setproctitle ("aiperf system_controller", "aiperf
+# worker_<hash>"), so the "aiperf profile" command line we launched never
+# appears in pgrep -f output at all. The command check below is only a
+# recycled-PID veto -- a stale pid file must never make us signal an unrelated
+# process that happened to inherit the number. Both TMPDIR and /tmp are globbed
+# because the reaping shell need not share the benchmark's TMPDIR.
+reap_orphan_agentic_replays() {
+    local state_file root_pid label command
+    local found=0
+
+    for state_file in "${TMPDIR:-/tmp}"/inferencex-agentic-*/aiperf-replay.pid \
+                      /tmp/inferencex-agentic-*/aiperf-replay.pid; do
+        [ -f "$state_file" ] || continue
+        found=1
+        root_pid=""
+        label=""
+        { read -r root_pid; read -r label; } < "$state_file" || true
+
+        if [[ ! "$root_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[aiperf] Discarding malformed replay state file $state_file"
+            rm -f "$state_file"
+            continue
+        fi
+
+        command=$(ps -o command= -p "$root_pid" 2>/dev/null || true)
+        if [ -z "$command" ]; then
+            echo "[aiperf] PID $root_pid from $state_file is already gone ($label)"
+        elif [[ "$command" == *aiperf* ]]; then
+            echo "[aiperf] Reaping orphaned replay tree PID=$root_pid ($label): $command"
+            stop_background_process_tree "$root_pid" "orphaned aiperf replay" 15
+        else
+            echo "[aiperf] PID $root_pid from $state_file is not aiperf ($command); leaving it alone"
+        fi
+        rm -f "$state_file"
+    done
+
+    [ "$found" = "1" ] || echo "[aiperf] No replay state files found; nothing to reap"
+}
+
 run_agentic_replay_and_write_outputs() {
     local result_dir="$1"
     local replay_rc
@@ -2101,6 +2188,19 @@ run_agentic_replay_and_write_outputs() {
     echo >> "$result_dir/benchmark_command.txt"
 
     set +e
+    # Recipes that manage a local server install their own INT/TERM handlers
+    # that turn the signal into an `exit` so their EXIT trap tears the server
+    # down (kimik2.5_fp4_b300_mtp.sh:47-49). Snapshot and restore them around
+    # the replay so this override composes instead of silently disarming them,
+    # and so a TERM during the post-replay aggregation still reaches their
+    # handler. `trap -p` prints a re-executable command; an empty snapshot means
+    # the signal was at its default.
+    local prev_int prev_term
+    prev_int=$(trap -p INT)
+    prev_term=$(trap -p TERM)
+    trap '_agentic_replay_signal_exit 130' INT
+    trap '_agentic_replay_signal_exit 143' TERM
+
     # Every *-remote-bench.sh recipe runs `set -x` on line 3, and
     # remote_bench_preflight restores xtrace to whatever state it found on
     # entry -- so by the time this function runs, xtrace is already ON
@@ -2130,9 +2230,34 @@ run_agentic_replay_and_write_outputs() {
     else
         set +x
     fi
-    $REPLAY_CMD 2>&1 | tee "$result_dir/benchmark.log"
-    replay_rc=${PIPESTATUS[0]}
+    # Run the replay in the background and block in `wait`, rather than the
+    # foreground `$REPLAY_CMD 2>&1 | tee` this used to be. Bash defers a trap
+    # until the current foreground command completes, so with a pipeline the
+    # INT/TERM handlers armed above would not run until the full
+    # --benchmark-duration elapsed -- which is exactly how a cancelled job left
+    # `aiperf system_controller` reparented to PID 1, hammering a production
+    # gateway for another 35 minutes (run 30508401430). `wait` is interruptible,
+    # so the handler runs inside the runner's ~7.5s SIGINT->SIGKILL window.
+    #
+    # Process substitution rather than a pipe so $! is aiperf's own PID; with
+    # `| tee` it would be tee's, and PIPESTATUS is not reachable from a trap.
+    # amd_utils/server_sglang.sh:477-484 uses one for the same reason.
+    # Deliberately NO `setsid`: a new session would stop a local Ctrl-C from
+    # reaching aiperf, and macOS (where utils/test_benchmark_lib.py drives this
+    # path) has no setsid. `wait` returns what PIPESTATUS[0] did, 128+n on
+    # signal death included. Pre-creating the log keeps the artifact present
+    # even if aiperf never execs.
+    : > "$result_dir/benchmark.log"
+    $REPLAY_CMD > >(tee "$result_dir/benchmark.log") 2>&1 &
+    AIPERF_REPLAY_PID=$!
+    _write_agentic_replay_pid_file "$AIPERF_REPLAY_PID"
+    wait "$AIPERF_REPLAY_PID"
+    replay_rc=$?
     set +x
+    AIPERF_REPLAY_PID=""
+    rm -f "$AIPERF_REPLAY_PID_FILE" 2>/dev/null || true
+    eval "${prev_int:-trap - INT}"
+    eval "${prev_term:-trap - TERM}"
     set -e
 
     write_agentic_result_json "$result_dir"
