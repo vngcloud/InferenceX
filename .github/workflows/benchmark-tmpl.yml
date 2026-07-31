@@ -130,6 +130,54 @@ on:
         required: false
         type: string
         default: ""
+      # Remote-bench inputs. Only consumed by *-remote-bench.sh recipes
+      # (runner: cluster:remote-bench); every other recipe leaves these
+      # empty and is unaffected.
+      remote-base-url:
+        description: "Base URL of an already-running, externally-managed inference endpoint to benchmark (remote-bench only)"
+        required: false
+        type: string
+        default: ""
+      remote-gpu-telemetry-url:
+        description: "DCGM /metrics endpoint on the remote target (optional; absent means the run uses --no-gpu-telemetry and reports no GPU power or utilization). A URL that is supplied but unreachable still fails the job -- that is a misconfiguration, not an absent capability."
+        required: false
+        type: string
+        default: ""
+      remote-engine-metrics-url:
+        description: "Inference engine /metrics endpoint on the remote target (required for remote-bench)"
+        required: false
+        type: string
+        default: ""
+      remote-reset-url:
+        description: "Optional endpoint to reset KV/prefix cache + router affinity on the remote target before each concurrency point"
+        required: false
+        type: string
+        default: ""
+      remote-runner-type:
+        description: "Real, GPU_KEYS-resolvable hardware string for the remote target (e.g. h200-nv). Required for remote-bench; overrides RUNNER_TYPE for artifact ingest since the runner label (cluster:remote-bench) isn't a real hardware key."
+        required: false
+        type: string
+        default: ""
+      remote-max-context-length:
+        description: "Trace-length cap for the remote target (optional; omit when the target's context window exceeds the trace corpus, set it when the window is smaller). Caps aiperf's replayed trace length; without it aiperf may replay traces longer than the remote model supports, which was confirmed via smoke test to trigger a silent 100%-GPU hang relying on server-side --allow-auto-truncate."
+        required: false
+        type: string
+        default: ""
+      remote-tokenizer:
+        description: "HuggingFace tokenizer repo id for the remote target, when the endpoint serves the model under a different name (e.g. gateway alias z-ai/glm-5.2 backed by zai-org/GLM-5.2-FP8). Optional; defaults to the --model value."
+        required: false
+        type: string
+        default: ""
+      remote-insecure-tls:
+        description: "Set true to skip TLS certificate verification for the remote target, in both the pre-flight probes and aiperf's metrics scrape. Needed when the endpoint sits behind a self-signed or Kubernetes ingress-default certificate; leave false for anything with a real certificate."
+        required: false
+        type: boolean
+        default: false
+      weka-loader-override:
+        description: "Override the trace corpus selected by MODEL_PREFIX. resolve_trace_source() in benchmark_lib.sh maps each model-prefix to a default aiperf loader (e.g. glm5.2* -> the unfiltered semianalysis_cc_traces_weka_062126 corpus). Set this to an alternative loader key (e.g. semianalysis_cc_traces_weka_062126_256k) to swap corpora -- useful when the target's enforced context window is at or below 256k and the prefix's default corpus carries traces longer than that. Empty = use the prefix default. Consumed via the WEKA_LOADER_OVERRIDE env by every recipe that calls resolve_trace_source."
+        required: false
+        type: string
+        default: ""
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -168,6 +216,19 @@ env:
   DURATION: ${{ inputs.duration }}
   EVAL_LIMIT: ${{ inputs.eval-limit }}
   SWEBENCH_GEN_MODE: ${{ inputs.swebench-gen-mode }}
+  # Remote-bench env. Only consumed by *-remote-bench.sh recipes.
+  REMOTE_BASE_URL: ${{ inputs.remote-base-url }}
+  REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
+  REMOTE_ENGINE_METRICS_URL: ${{ inputs.remote-engine-metrics-url }}
+  REMOTE_RESET_URL: ${{ inputs.remote-reset-url }}
+  REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
+  REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
+  REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}
+  REMOTE_INSECURE_TLS: ${{ inputs.remote-insecure-tls }}
+  WEKA_LOADER_OVERRIDE: ${{ inputs.weka-loader-override }}
+  # Bearer token for authenticated remote targets. Empty for every other
+  # recipe, which leaves build_replay_cmd's --api-key branch inert.
+  REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
@@ -196,6 +257,19 @@ jobs:
     steps:
       - name: Resource cleanup (pre-run)
         run: &resource-cleanup |
+          # Reap aiperf replay trees orphaned by a SIGKILLed benchmark shell.
+          # Shared by the pre-run and post-run copies of this step on purpose:
+          # post-run stops this job's own orphan after a cancellation, pre-run
+          # stops a previously cancelled job's orphan before it can double-load
+          # the endpoint and corrupt this run's numbers. No-op on any runner
+          # that never ran aiperf outside a container. Runs first because the
+          # docker loop below can block for a while. The pre-run copy executes
+          # before actions/checkout, so it uses the previous checkout's copy of
+          # the script and is skipped on a never-checked-out workspace.
+          if [ -f runners/reap_orphan_aiperf.sh ]; then
+            bash runners/reap_orphan_aiperf.sh || true
+          fi
+
           # Cleanup Docker resources
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
             echo "[Docker] Cleaning up resources ..."

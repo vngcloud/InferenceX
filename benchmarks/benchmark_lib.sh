@@ -357,6 +357,7 @@ run_benchmark_serving() {
     local model=""
     local port=""
     local backend=""
+    local base_url=""
     local endpoint=""
     local input_len=""
     local output_len=""
@@ -385,6 +386,10 @@ run_benchmark_serving() {
                 ;;
             --backend)
                 backend="$2"
+                shift 2
+                ;;
+            --base-url)
+                base_url="$2"
                 shift 2
                 ;;
             --endpoint)
@@ -460,8 +465,8 @@ run_benchmark_serving() {
         echo "Error: --model is required"
         return 1
     fi
-    if [[ -z "$port" ]]; then
-        echo "Error: --port is required"
+    if [[ -z "$port" && -z "$base_url" ]]; then
+        echo "Error: --port is required (unless --base-url is given)"
         return 1
     fi
     if [[ -z "$backend" ]]; then
@@ -518,7 +523,7 @@ run_benchmark_serving() {
         python3 "$workspace_dir/utils/bench_serving/benchmark_serving.py"
         --model "$model"
         --backend "$backend"
-        --base-url "http://0.0.0.0:$port"
+        --base-url "${base_url:-http://0.0.0.0:$port}"
         --dataset-name random
         --random-input-len "$input_len"
         --random-output-len "$output_len"
@@ -795,6 +800,7 @@ setup_eval_context() {
 
 run_lm_eval() {
     local port="${PORT:-8888}"
+    local base_url=""
     local tasks_dir="${EVAL_TASKS_DIR:-utils/evals/gsm8k.yaml}"
     local results_dir="${EVAL_RESULT_DIR:-$(mktemp -d /tmp/eval_out-XXXXXX)}"
     local eval_context_len="${EVAL_MAX_MODEL_LEN:-16384}"
@@ -809,13 +815,14 @@ run_lm_eval() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --port|--task|--results-dir|--gen-max-tokens|--temperature|--top-p)
+            --port|--base-url|--task|--results-dir|--gen-max-tokens|--temperature|--top-p)
                 if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
                     echo "ERROR: $1 requires a value" >&2
                     return 2
                 fi
                 case "$1" in
                     --port)           port="$2" ;;
+                    --base-url)       base_url="$2" ;;
                     --task)           tasks_dir="$2" ;;
                     --results-dir)    results_dir="$2" ;;
                     --gen-max-tokens) eval_context_len="$2" ;;
@@ -846,7 +853,7 @@ run_lm_eval() {
         export INFERENCEX_LM_EVAL_RUNTIME_READY=true
     fi
 
-    local openai_server_base="http://0.0.0.0:${port}"
+    local openai_server_base="${base_url:-http://0.0.0.0:${port}}"
     local openai_chat_base="${openai_server_base}/v1/chat/completions"
     export OPENAI_API_KEY=${OPENAI_API_KEY:-EMPTY}
     MODEL_NAME=${MODEL_NAME:-$MODEL} # Prefer MODEL_NAME, else MODEL
@@ -1577,6 +1584,13 @@ AIPERF_CLI="${AIPERF_VENV}/bin/aiperf"
 AIPERF_HF_CLI="${AIPERF_VENV}/bin/hf"
 AIPERF_DEPS_READY=0
 AIPERF_FAILED_REQUEST_THRESHOLD="${AIPERF_FAILED_REQUEST_THRESHOLD:-0.10}"
+AIPERF_REPLAY_PID=""
+# Where the running replay's root PID is recorded so a post-run reaper can
+# still find it after this shell is gone. Under AIPERF_RUNTIME_DIR and not the
+# workspace: actions/checkout runs with clean:true (git clean -ffdx), which
+# would delete a workspace state file before the next job's cleanup could read
+# it.
+AIPERF_REPLAY_PID_FILE="${AIPERF_RUNTIME_DIR}/aiperf-replay.pid"
 
 agentic_pip_install() {
     local pip_install=(python3 -m pip install)
@@ -1726,6 +1740,141 @@ resolve_trace_source() {
     "$AIPERF_HF_CLI" download --repo-type dataset "$dataset"
 }
 
+# Shared pre-flight for *-remote-bench.sh recipes: normalize the target URL,
+# verify the endpoints we depend on, and export what build_replay_cmd and
+# process_agentic_result.py read. Lives here rather than being copied into each
+# recipe so authentication and optional telemetry apply to every remote-bench
+# target, not only the newest one.
+#
+# Required (the calling recipe's check_env_vars enforces presence):
+#   REMOTE_BASE_URL, REMOTE_ENGINE_METRICS_URL, REMOTE_RUNNER_TYPE
+# Optional:
+#   REMOTE_API_KEY             bearer token; switches the probe to /v1/models
+#   REMOTE_TOKENIZER           HF repo id when the served name is an alias
+#   REMOTE_GPU_TELEMETRY_URL   DCGM /metrics; absent => --no-gpu-telemetry
+#   REMOTE_MAX_CONTEXT_LENGTH  trace-length cap; absent => no cap at all
+#   REMOTE_RESET_URL           POSTed before each concurrency point
+#   REMOTE_INSECURE_TLS        "true" => skip TLS verification (see below)
+remote_bench_preflight() {
+    # Kubernetes ingress controllers serve a self-signed "Fake Certificate"
+    # until a real one is installed, and cluster-internal metrics endpoints
+    # commonly never get one. curl --fail then dies with exit 60 before any
+    # benchmark starts, and aiperf's own scrape would fail the same way later,
+    # so this has to cover both. Opt-in and loud: verification stays on unless
+    # an operator explicitly turns it off for a target they trust.
+    #
+    # _tls_opt is used unquoted on purpose -- it is empty or "--insecure", a
+    # single space-free token, so word-splitting is the intent (same idiom as
+    # $REPLAY_CMD). An array would need bash 4.4+ to survive `set -u` empty.
+    local _tls_opt=""
+    if [ "${REMOTE_INSECURE_TLS:-}" = "true" ]; then
+        echo "WARNING: REMOTE_INSECURE_TLS=true -- TLS certificate verification is DISABLED for both the pre-flight probes and aiperf. Only use this for a target you trust that is behind a self-signed or ingress-default certificate." >&2
+        _tls_opt="--insecure"
+        export AIPERF_HTTP_SSL_VERIFY=false
+    fi
+
+    # build_replay_cmd appends "--endpoint /v1/chat/completions", so a base URL
+    # that already ends in /v1 would produce /v1/v1/chat/completions. Strip any
+    # trailing slash *before* testing for a trailing /v1 -- a bare glob match
+    # against */v1 does not match "...v1/", which is one of the most common
+    # ways an operator pastes a base URL, and would otherwise leave the /v1
+    # collision this block exists to prevent. Strip a trailing slash again
+    # afterward too, so "https://host//v1" also lands on "https://host".
+    REMOTE_BASE_URL="${REMOTE_BASE_URL%/}"
+    if [[ "$REMOTE_BASE_URL" == */v1 ]]; then
+        echo "NOTE: stripping trailing /v1 from REMOTE_BASE_URL; build_replay_cmd appends the endpoint path." >&2
+        REMOTE_BASE_URL="${REMOTE_BASE_URL%/v1}"
+    fi
+    REMOTE_BASE_URL="${REMOTE_BASE_URL%/}"
+
+    # Engine metrics are load-bearing: without KV, cache-hit and queue data a
+    # remote-bench result is not interpretable, so fail here rather than let a
+    # full-duration run finish without them. aiperf's own probing soft-fails,
+    # which is the right default for a general-purpose client but not for us.
+    if ! curl $_tls_opt --output /dev/null --silent --fail --max-time 10 "$REMOTE_ENGINE_METRICS_URL"; then
+        echo "ERROR: REMOTE_ENGINE_METRICS_URL ($REMOTE_ENGINE_METRICS_URL) is not reachable. Required for remote-bench." >&2
+        return 1
+    fi
+    export AIPERF_SERVER_METRICS_URLS="$REMOTE_ENGINE_METRICS_URL"
+
+    # GPU telemetry is optional: managed gateways rarely expose DCGM. A URL
+    # that was explicitly supplied but does not answer is still an error —
+    # that is a misconfiguration, not an absent capability.
+    if [ -n "${REMOTE_GPU_TELEMETRY_URL:-}" ]; then
+        if ! curl $_tls_opt --output /dev/null --silent --fail --max-time 10 "$REMOTE_GPU_TELEMETRY_URL"; then
+            echo "ERROR: REMOTE_GPU_TELEMETRY_URL ($REMOTE_GPU_TELEMETRY_URL) was supplied but is not reachable." >&2
+            return 1
+        fi
+        export AIPERF_GPU_TELEMETRY_URL="$REMOTE_GPU_TELEMETRY_URL"
+    else
+        echo "NOTE: REMOTE_GPU_TELEMETRY_URL not set; running with --no-gpu-telemetry. GPU power and utilization will be absent from this result." >&2
+    fi
+
+    # Reachability probe. An authenticated gateway 401s on /health, so probe
+    # /v1/models with the bearer token instead. This fails a wrong or expired
+    # key in seconds rather than after a full-duration run of 401s.
+    #
+    # GitHub Actions masks registered secrets in job logs, so an xtrace of
+    # this block (the recipe's own `set -x`, on by default) is not an active
+    # leak -- this guard is defense in depth, consistent with the same guard
+    # around the replay invocation in run_agentic_replay_and_write_outputs.
+    # benchmark_command.txt's own redaction remains the primary control; this
+    # just avoids also handing the raw key to the console, both via the
+    # Authorization header and via the trace of the `-n REMOTE_API_KEY` test
+    # itself. Suppress around the whole probe (not just the curl call) and
+    # restore only if it was on, so the caller's `set -x` survives the
+    # function.
+    local _preflight_xtrace_was_on=0
+    [[ $- == *x* ]] && _preflight_xtrace_was_on=1
+    set +x
+    if [ -n "${REMOTE_API_KEY:-}" ]; then
+        local probe_code
+        probe_code=$(curl $_tls_opt --output /dev/null --silent --max-time 10 \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $REMOTE_API_KEY" \
+            "$REMOTE_BASE_URL/v1/models")
+        [ "$_preflight_xtrace_was_on" = "1" ] && set -x
+        if [ "$probe_code" != "200" ]; then
+            echo "ERROR: authenticated probe of $REMOTE_BASE_URL/v1/models returned HTTP $probe_code (expected 200). Check REMOTE_API_KEY and REMOTE_BASE_URL." >&2
+            return 1
+        fi
+    else
+        if curl $_tls_opt --output /dev/null --silent --fail --max-time 10 "$REMOTE_BASE_URL/health"; then
+            [ "$_preflight_xtrace_was_on" = "1" ] && set -x
+        else
+            [ "$_preflight_xtrace_was_on" = "1" ] && set -x
+            echo "ERROR: REMOTE_BASE_URL ($REMOTE_BASE_URL) is not reachable at /health." >&2
+            return 1
+        fi
+    fi
+
+    if [ -n "${REMOTE_RESET_URL:-}" ]; then
+        echo "Resetting remote engine state via REMOTE_RESET_URL before this concurrency point ..."
+        curl $_tls_opt --output /dev/null --silent --fail --max-time 30 -X POST "$REMOTE_RESET_URL"
+    fi
+
+    # Self-report the real hardware key for downstream ingest. RUNNER_TYPE is
+    # otherwise the GH Actions runs-on label (cluster:remote-bench), which
+    # hwToGpuKey() in InferenceX-app's ingest cannot resolve. Exporting it here,
+    # in-process before aiperf runs, is what process_agentic_result.py
+    # (os.environ.get("RUNNER_TYPE")) actually sees.
+    export RUNNER_TYPE="$REMOTE_RUNNER_TYPE"
+    export REMOTE_BASE_URL
+
+    if [ -n "${REMOTE_TOKENIZER:-}" ]; then
+        export AIPERF_TOKENIZER="$REMOTE_TOKENIZER"
+    fi
+
+    # benchmark_lib.sh unsets MAX_MODEL_LEN at source time for agentic scripts
+    # so inherited workflow overrides never cap a local server's native
+    # context. Setting it back here is deliberate — it is the only route to
+    # build_replay_cmd's --max-context-length. Left unset when the target's
+    # window exceeds the corpus, where no cap is wanted at all.
+    if [ -n "${REMOTE_MAX_CONTEXT_LENGTH:-}" ]; then
+        export MAX_MODEL_LEN="$REMOTE_MAX_CONTEXT_LENGTH"
+    fi
+}
+
 build_replay_cmd() {
     # aiperf invocation for the inferencex-agentx-mvp scenario.
     #
@@ -1757,11 +1906,39 @@ build_replay_cmd() {
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
     REPLAY_CMD="$AIPERF_CLI profile --scenario inferencex-agentx-mvp"
-    REPLAY_CMD+=" --url http://localhost:$PORT"
+    REPLAY_CMD+=" --url ${REMOTE_BASE_URL:-http://localhost:$PORT}"
     REPLAY_CMD+=" --endpoint /v1/chat/completions"
     REPLAY_CMD+=" --endpoint-type chat"
     REPLAY_CMD+=" --streaming"
     REPLAY_CMD+=" --model $MODEL"
+    # Authenticated targets (e.g. a managed MaaS gateway). aiperf turns this
+    # into "Authorization: Bearer <key>". aiperf has no env-var transport for
+    # api_key, so it has to be an argv element; redact_replay_cmd keeps it out
+    # of benchmark_command.txt, which is uploaded as an artifact and is not
+    # masked by GitHub Actions the way job logs are.
+    #
+    # Every *-remote-bench.sh recipe runs `set -x`, so all three lines below
+    # would otherwise trace the key: the `-n` test, the whitespace test, and
+    # the append itself. Suppress around the whole block and restore only if
+    # tracing was already on, so a native recipe's `set -x` survives intact.
+    # Same pattern as remote_bench_preflight's probe. Defense in depth: the
+    # trace goes to the job log, which Actions masks while the value stays a
+    # registered secret; benchmark_command.txt's redaction is the real control.
+    local _build_xtrace_was_on=0
+    [[ $- == *x* ]] && _build_xtrace_was_on=1
+    set +x
+    if [ -n "${REMOTE_API_KEY:-}" ]; then
+        # $REPLAY_CMD is word-split at exec, so a key containing whitespace
+        # would split into separate argv elements and authenticate with a
+        # truncated credential. Fail loudly rather than send a broken header.
+        if [[ "$REMOTE_API_KEY" == *[[:space:]]* ]]; then
+            [ "$_build_xtrace_was_on" = "1" ] && set -x
+            echo "ERROR: REMOTE_API_KEY must not contain whitespace" >&2
+            return 1
+        fi
+        REPLAY_CMD+=" --api-key $REMOTE_API_KEY"
+    fi
+    [ "$_build_xtrace_was_on" = "1" ] && set -x
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
     REPLAY_CMD+=" --random-seed 42"
@@ -1811,6 +1988,13 @@ build_replay_cmd() {
         # Keep the stable default for existing recipes; dedicated launchers
         # can opt in when their DCGM exporter has a stable metric schema.
         REPLAY_CMD+=" --no-gpu-telemetry"
+    fi
+    # A gateway may alias the model (e.g. serve zai-org/GLM-5.2-FP8 as
+    # z-ai/glm-5.2). aiperf's dataset manager loads a tokenizer by --model
+    # unless --tokenizer overrides it, and an alias will not resolve on the
+    # Hub. Unset for every native recipe, where model and tokenizer coincide.
+    if [ -n "${AIPERF_TOKENIZER:-}" ]; then
+        REPLAY_CMD+=" --tokenizer $AIPERF_TOKENIZER"
     fi
     # aiperf's dataset manager (separate from the inference parser) loads
     # the model's tokenizer for trace-prompt tokenization regardless of
@@ -1885,18 +2069,195 @@ write_agentic_result_json() {
     "$AIPERF_PYTHON" "$INFMAX_CONTAINER_WORKSPACE/utils/generate_aiperf_plots.py" "$result_dir" 2>&1 || true
 }
 
+# Strip REMOTE_API_KEY out of a command string before it is written anywhere
+# that gets uploaded. GitHub Actions masks registered secrets in job logs but
+# not inside artifact files, so benchmark_command.txt needs this explicitly.
+# No-op when no key is set, which is every native (non-remote) recipe.
+redact_replay_cmd() {
+    local cmd="$1"
+    if [ -n "${REMOTE_API_KEY:-}" ]; then
+        cmd="${cmd//"$REMOTE_API_KEY"/\$REMOTE_API_KEY}"
+    fi
+    printf '%s' "$cmd"
+}
+
+# Record the replay tree's root PID where a reaper can still find it after this
+# shell is gone. A cancelled Actions job SIGINTs, then SIGTERMs, then SIGKILLs
+# the step's bash wrappers (and the tee beside them) roughly 8s after the
+# cancel, but never signals aiperf itself -- it is reparented to PID 1 and
+# keeps driving the target for the rest of its --benchmark-duration. The handle
+# has to be a file: nothing in-process survives SIGKILL. mkdir -p because a
+# caller may not have run install_agentic_deps yet.
+_write_agentic_replay_pid_file() {
+    mkdir -p "$AIPERF_RUNTIME_DIR" 2>/dev/null || true
+    {
+        echo "$1"
+        echo "run=${GITHUB_RUN_ID:-none} job=${RESULT_FILENAME:-none} conc=${CONC:-?} duration=${DURATION:-?} started=$(date -u +%FT%TZ)"
+    } > "$AIPERF_REPLAY_PID_FILE" 2>/dev/null || true
+}
+
+# Stop the replay and every process it spawned (dataset_manager,
+# timing_manager, worker_manager, records_manager, server_metrics_manager,
+# worker_* x concurrency, record_processor_*). No-op once the replay exited.
+stop_agentic_replay() {
+    stop_background_process_tree "$AIPERF_REPLAY_PID" "aiperf replay" 15
+    AIPERF_REPLAY_PID=""
+    rm -f "$AIPERF_REPLAY_PID_FILE" 2>/dev/null || true
+}
+
+# INT/TERM handler, armed only while the replay runs. `trap - INT TERM` first
+# so the runner's SIGTERM-after-SIGINT cannot re-enter this. Exiting (rather
+# than returning) re-raises through whatever EXIT trap the recipe installed, so
+# a recipe managing a local server still tears that server down afterwards.
+_agentic_replay_signal_exit() {
+    local exit_code="$1"
+    trap - INT TERM
+    stop_agentic_replay
+    exit "$exit_code"
+}
+
+# Reap replay trees orphaned by a previous benchmark shell being SIGKILLed
+# (Actions cancellation, timeout-minutes expiry, an operator's kill -9). Called
+# from benchmark-tmpl.yml's shared resource cleanup, pre-run AND post-run, via
+# runners/reap_orphan_aiperf.sh.
+#
+# Identification is by recorded PID, never by name: aiperf renames every
+# process in the tree with setproctitle ("aiperf system_controller", "aiperf
+# worker_<hash>"), so the "aiperf profile" command line we launched never
+# appears in pgrep -f output at all. The command check below is only a
+# recycled-PID veto -- a stale pid file must never make us signal an unrelated
+# process that happened to inherit the number. Both TMPDIR and /tmp are globbed
+# because the reaping shell need not share the benchmark's TMPDIR.
+reap_orphan_agentic_replays() {
+    local state_file root_pid label command
+    local found=0
+
+    for state_file in "${TMPDIR:-/tmp}"/inferencex-agentic-*/aiperf-replay.pid \
+                      /tmp/inferencex-agentic-*/aiperf-replay.pid; do
+        [ -f "$state_file" ] || continue
+        found=1
+        root_pid=""
+        label=""
+        { read -r root_pid; read -r label; } < "$state_file" || true
+
+        if [[ ! "$root_pid" =~ ^[1-9][0-9]*$ ]]; then
+            echo "[aiperf] Discarding malformed replay state file $state_file"
+            rm -f "$state_file"
+            continue
+        fi
+
+        command=$(ps -o command= -p "$root_pid" 2>/dev/null || true)
+        if [ -z "$command" ]; then
+            echo "[aiperf] PID $root_pid from $state_file is already gone ($label)"
+        elif [[ "$command" == *aiperf* ]]; then
+            echo "[aiperf] Reaping orphaned replay tree PID=$root_pid ($label): $command"
+            stop_background_process_tree "$root_pid" "orphaned aiperf replay" 15
+        else
+            echo "[aiperf] PID $root_pid from $state_file is not aiperf ($command); leaving it alone"
+        fi
+        rm -f "$state_file"
+    done
+
+    [ "$found" = "1" ] || echo "[aiperf] No replay state files found; nothing to reap"
+}
+
 run_agentic_replay_and_write_outputs() {
     local result_dir="$1"
     local replay_rc
     local validation_rc
 
-    echo "$REPLAY_CMD" > "$result_dir/benchmark_command.txt"
+    # Suppress xtrace unconditionally, before testing REMOTE_API_KEY, not
+    # just before the replay pipeline further down. Every *-remote-bench.sh
+    # recipe already has xtrace ON by the time this function runs (its own
+    # `set -x` on line 3, restored by remote_bench_preflight), so two things
+    # would otherwise still leak the key here: redact_replay_cmd below is
+    # invoked with the raw $REPLAY_CMD as its argument, and even the
+    # `[ -n "$REMOTE_API_KEY" ]` test's own trace line expands and prints the
+    # key as an argument before the branch runs. Suppress *before* the test,
+    # not after -- mirroring the same subtlety remote_bench_preflight already
+    # handles the same way for its equivalent probe. No restore is needed
+    # while a key is present: the unconditional `set +x` after the pipeline
+    # below leaves tracing off for everything that follows regardless. When
+    # no key is set, re-enable immediately to preserve prior debug behavior.
+    set +x
+    if [ -z "${REMOTE_API_KEY:-}" ]; then
+        set -x
+    fi
+
+    redact_replay_cmd "$REPLAY_CMD" > "$result_dir/benchmark_command.txt"
+    echo >> "$result_dir/benchmark_command.txt"
 
     set +e
-    set -x
-    $REPLAY_CMD 2>&1 | tee "$result_dir/benchmark.log"
-    replay_rc=${PIPESTATUS[0]}
+    # Recipes that manage a local server install their own INT/TERM handlers
+    # that turn the signal into an `exit` so their EXIT trap tears the server
+    # down (kimik2.5_fp4_b300_mtp.sh:47-49). Snapshot and restore them around
+    # the replay so this override composes instead of silently disarming them,
+    # and so a TERM during the post-replay aggregation still reaches their
+    # handler. `trap -p` prints a re-executable command; an empty snapshot means
+    # the signal was at its default.
+    local prev_int prev_term
+    prev_int=$(trap -p INT)
+    prev_term=$(trap -p TERM)
+    trap '_agentic_replay_signal_exit 130' INT
+    trap '_agentic_replay_signal_exit 143' TERM
+
+    # Every *-remote-bench.sh recipe runs `set -x` on line 3, and
+    # remote_bench_preflight restores xtrace to whatever state it found on
+    # entry -- so by the time this function runs, xtrace is already ON
+    # whenever a key is present. Merely declining to re-enable it (the old
+    # `if [ -z ... ]; then set -x; fi` with no else) was a no-op: it never
+    # disabled an already-enabled option. This guard must therefore actively
+    # turn tracing OFF when a key is set, not just skip turning it on. No
+    # restore-on-exit is needed here (unlike remote_bench_preflight, which
+    # does restore for its caller) because the unconditional `set +x` after
+    # the pipeline below already leaves tracing off regardless of branch.
+    #
+    # The xtrace line for the pipeline below expands $REPLAY_CMD and so
+    # carries the credential in cleartext. Verified on bash 3.2: that trace
+    # goes to the shell's own stderr (the CI job log), not through this
+    # command's own 2>&1 into tee -- zero trace lines land in benchmark.log.
+    # We couldn't verify the bash 5 Linux runner, so this is confirmed for
+    # bash 3.2 only, not claimed universally.
+    #
+    # GitHub Actions masks registered secrets in job logs, so that's already
+    # covered *if* the value was registered as a secret -- this guard is
+    # defense in depth for when it wasn't, and skipping it costs nothing.
+    # benchmark_command.txt (written above, already redacted) is the artifact
+    # Actions does NOT mask, so that redaction remains the primary control;
+    # this guard just avoids also handing the raw key to the console.
+    if [ -z "${REMOTE_API_KEY:-}" ]; then
+        set -x
+    else
+        set +x
+    fi
+    # Run the replay in the background and block in `wait`, rather than the
+    # foreground `$REPLAY_CMD 2>&1 | tee` this used to be. Bash defers a trap
+    # until the current foreground command completes, so with a pipeline the
+    # INT/TERM handlers armed above would not run until the full
+    # --benchmark-duration elapsed -- which is exactly how a cancelled job left
+    # `aiperf system_controller` reparented to PID 1, hammering a production
+    # gateway for another 35 minutes (run 30508401430). `wait` is interruptible,
+    # so the handler runs inside the runner's ~7.5s SIGINT->SIGKILL window.
+    #
+    # Process substitution rather than a pipe so $! is aiperf's own PID; with
+    # `| tee` it would be tee's, and PIPESTATUS is not reachable from a trap.
+    # amd_utils/server_sglang.sh:477-484 uses one for the same reason.
+    # Deliberately NO `setsid`: a new session would stop a local Ctrl-C from
+    # reaching aiperf, and macOS (where utils/test_benchmark_lib.py drives this
+    # path) has no setsid. `wait` returns what PIPESTATUS[0] did, 128+n on
+    # signal death included. Pre-creating the log keeps the artifact present
+    # even if aiperf never execs.
+    : > "$result_dir/benchmark.log"
+    $REPLAY_CMD > >(tee "$result_dir/benchmark.log") 2>&1 &
+    AIPERF_REPLAY_PID=$!
+    _write_agentic_replay_pid_file "$AIPERF_REPLAY_PID"
+    wait "$AIPERF_REPLAY_PID"
+    replay_rc=$?
     set +x
+    AIPERF_REPLAY_PID=""
+    rm -f "$AIPERF_REPLAY_PID_FILE" 2>/dev/null || true
+    eval "${prev_int:-trap - INT}"
+    eval "${prev_term:-trap - TERM}"
     set -e
 
     write_agentic_result_json "$result_dir"

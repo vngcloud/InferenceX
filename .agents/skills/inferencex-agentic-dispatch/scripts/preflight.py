@@ -109,8 +109,9 @@ def validate_config(
     agentic = scenarios.get("agentic-coding") or []
     spaces = [space for item in agentic for space in item.get("search-space", [])]
     actual_ccus = [value for space in spaces for value in space.get("conc-list", [])]
-    if actual_ccus != ccus:
-        fail(f"CCU mismatch: expected {ccus}, got {actual_ccus}", errors)
+    selected_ccus = [value for value in actual_ccus if value in ccus]
+    if selected_ccus != ccus:
+        fail(f"CCUs {ccus} are not an ordered subset of {actual_ccus}", errors)
     for space in spaces:
         kv_offloading = space.get("kv-offloading")
         backend = space.get("kv-offload-backend") or {}
@@ -363,7 +364,10 @@ def main() -> int:
     validate_recipe(
         recipe_path,
         args.dataset,
-        None if args.allow_unverified_model else args.model_container_path,
+        # --allow-unverified-model waives *remote/host* verification only. The recipe's
+        # container model path is a static text check needing no SSH, so keep it: nulling it
+        # here made the override unusable for every recipe with a local MODEL_PATH.
+        args.model_container_path,
         {str(space.get("kv-offloading")) for space in spaces},
         errors,
     )
