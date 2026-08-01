@@ -92,7 +92,7 @@ run_agentic_replay_and_write_outputs() { :; }
     assert command[command.index("--speculative-dspark-block-size") + 1] == "7"
 
 
-def test_dspark_dp_attention_matches_reference_topology(tmp_path: Path):
+def test_dspark_dp_attention_matches_production_topology(tmp_path: Path):
     recipe_dir = tmp_path / "benchmarks" / "single_node" / "agentic"
     recipe_dir.mkdir(parents=True)
     recipe = recipe_dir / RECIPE.name
@@ -129,7 +129,7 @@ run_agentic_replay_and_write_outputs() { :; }
             "PATH": f"{fake_bin}:{env['PATH']}",
             "MODEL": "zai-org/GLM-5.2-FP8",
             "TP": "8",
-            "EP_SIZE": "1",
+            "EP_SIZE": "8",
             "CONC": "24",
             "KV_OFFLOADING": "dram",
             "HICACHE_RATIO": "2",
@@ -155,14 +155,24 @@ run_agentic_replay_and_write_outputs() { :; }
     assert completed.returncode == 0, completed.stderr
     command = shlex.split((result_dir / "sglang_command.txt").read_text())
     assert command[command.index("--tp") + 1] == "8"
-    assert command[command.index("--dp") + 1] == "8"
-    assert "--ep" not in command
+    assert command[command.index("--dp") + 1] == "4"
+    assert command[command.index("--ep") + 1] == "8"
     assert "--enable-dp-attention" in command
-    assert "--enable-dp-attention-local-control-broadcast" not in command
+    assert "--enable-dp-attention-local-control-broadcast" in command
     assert "--enable-dp-lm-head" in command
-    assert "--numa-node" not in command
-    assert "--disable-shared-experts-fusion" in command
+    numa_idx = command.index("--numa-node")
+    assert command[numa_idx + 1 : numa_idx + 9] == [
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+    ]
+    assert "--disable-shared-experts-fusion" not in command
     assert command[command.index("--mem-fraction-static") + 1] == "0.75"
     assert command[command.index("--max-running-requests") + 1] == "48"
     assert "--cuda-graph-max-bs" not in command
-    assert command[command.index("--schedule-policy") + 1] == "lpm"
+    assert command[command.index("--schedule-policy") + 1] == "dfs-weight"

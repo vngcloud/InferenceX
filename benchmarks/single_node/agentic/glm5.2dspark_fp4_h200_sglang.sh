@@ -70,11 +70,14 @@ if [ "$DP_ATTENTION" = "true" ]; then
   GRAPH_ARGS=()
   PARALLEL_ARGS=(
     --tp "$TP"
-    --dp "$TP"
+    --dp 4
+    --ep "$EP_SIZE"
     --enable-dp-attention
+    --enable-dp-attention-local-control-broadcast
     --enable-dp-lm-head
     --tokenizer-worker-num "$TP"
     --dist-init-addr "127.0.0.1:$((PORT + 2000))"
+    --numa-node 0 0 0 0 1 1 1 1
   )
 fi
 
@@ -82,7 +85,6 @@ SGLANG_CMD=(
   python3 -m sglang.launch_server
   --model-path "$MODEL_PATH"
   --quantization w4afp8
-  --disable-shared-experts-fusion
   --host 0.0.0.0
   --port "$SGLANG_BACKEND_PORT"
   "${PARALLEL_ARGS[@]}"
@@ -99,7 +101,7 @@ SGLANG_CMD=(
   --enable-cache-report
   "${CACHE_ARGS[@]}"
   "${SPEC_ARGS[@]}"
-  --schedule-policy lpm
+  --schedule-policy dfs-weight
   --served-model-name "$MODEL"
 )
 
