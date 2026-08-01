@@ -158,7 +158,7 @@ run_agentic_replay_and_write_outputs() { :; }
     assert "--ep" not in command
     assert "--enable-dp-attention" in command
     assert "--enable-dp-attention-local-control-broadcast" not in command
-    assert "--enable-dp-lm-head" not in command
+    assert "--enable-dp-lm-head" in command
     assert "--numa-node" not in command
     assert "--disable-shared-experts-fusion" in command
     assert command[command.index("--mem-fraction-static") + 1] == "0.85"
