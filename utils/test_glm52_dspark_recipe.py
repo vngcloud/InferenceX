@@ -161,7 +161,7 @@ run_agentic_replay_and_write_outputs() { :; }
     assert "--enable-dp-lm-head" in command
     assert "--numa-node" not in command
     assert "--disable-shared-experts-fusion" in command
-    assert command[command.index("--mem-fraction-static") + 1] == "0.85"
+    assert command[command.index("--mem-fraction-static") + 1] == "0.75"
     assert command[command.index("--max-running-requests") + 1] == "48"
     assert "--cuda-graph-max-bs" not in command
     assert command[command.index("--schedule-policy") + 1] == "lpm"

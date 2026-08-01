@@ -89,7 +89,7 @@ SGLANG_CMD=(
   --chunked-prefill-size "$CHUNKED_PREFILL_SIZE"
   --tool-call-parser glm47
   --reasoning-parser glm45
-  --mem-fraction-static 0.85
+  --mem-fraction-static 0.75
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   "${GRAPH_ARGS[@]}"
   --context-length 500000
