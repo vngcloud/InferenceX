@@ -67,16 +67,13 @@ GRAPH_ARGS=(--cuda-graph-max-bs "$CUDA_GRAPH_MAX_BS")
 if [ "$DP_ATTENTION" = "true" ]; then
   [ "$MAX_RUNNING_REQUESTS" -lt "$TP" ] && MAX_RUNNING_REQUESTS=$TP
   CHUNKED_PREFILL_SIZE=32768
+  GRAPH_ARGS=()
   PARALLEL_ARGS=(
     --tp "$TP"
-    --dp 4
-    --ep "$EP_SIZE"
+    --dp "$TP"
     --enable-dp-attention
-    --enable-dp-attention-local-control-broadcast
-    --enable-dp-lm-head
     --tokenizer-worker-num "$TP"
     --dist-init-addr "127.0.0.1:$((PORT + 2000))"
-    --numa-node 0 0 0 0 1 1 1 1
   )
 fi
 
@@ -84,13 +81,14 @@ SGLANG_CMD=(
   python3 -m sglang.launch_server
   --model-path "$MODEL_PATH"
   --quantization w4afp8
+  --disable-shared-experts-fusion
   --host 0.0.0.0
   --port "$SGLANG_BACKEND_PORT"
   "${PARALLEL_ARGS[@]}"
   --chunked-prefill-size "$CHUNKED_PREFILL_SIZE"
   --tool-call-parser glm47
   --reasoning-parser glm45
-  --mem-fraction-static 0.75
+  --mem-fraction-static 0.85
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   "${GRAPH_ARGS[@]}"
   --context-length 500000
@@ -100,7 +98,7 @@ SGLANG_CMD=(
   --enable-cache-report
   "${CACHE_ARGS[@]}"
   "${SPEC_ARGS[@]}"
-  --schedule-policy dfs-weight
+  --schedule-policy lpm
   --served-model-name "$MODEL"
 )
 
