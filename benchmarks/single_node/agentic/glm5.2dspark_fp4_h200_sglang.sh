@@ -25,7 +25,7 @@ if [ "$SPEC_DECODING" != "mtp" ]; then
 fi
 
 export MODEL_PATH=/models/PhalaCloud/GLM-5.2-W4AFP8
-export DRAFT_MODEL_PATH=/models/RedHatAI/GLM-5.2-speculator.dspark
+export DRAFT_MODEL_PATH="${DRAFT_MODEL_PATH:-/models/RedHatAI/GLM-5.2-speculator.dspark}"
 for required_file in config.json model.safetensors; do
   if [ ! -f "$DRAFT_MODEL_PATH/$required_file" ]; then
     echo "Missing DSpark draft file: $DRAFT_MODEL_PATH/$required_file" >&2
@@ -36,6 +36,7 @@ done
 SPEC_ARGS=(
   --speculative-algorithm DSPARK
   --speculative-draft-model-path "$DRAFT_MODEL_PATH"
+  --speculative-draft-model-quantization unquant
   --speculative-dspark-block-size 4
 )
 export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126_256k
