@@ -37,7 +37,7 @@ SPEC_ARGS=(
   --speculative-algorithm DSPARK
   --speculative-draft-model-path "$DRAFT_MODEL_PATH"
   --speculative-draft-model-quantization unquant
-  --speculative-dspark-block-size 4
+  --speculative-dspark-block-size 7
 )
 export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126_256k
 export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics

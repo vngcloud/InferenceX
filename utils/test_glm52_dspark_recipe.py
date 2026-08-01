@@ -89,6 +89,7 @@ run_agentic_replay_and_write_outputs() { :; }
         command[command.index("--speculative-draft-model-quantization") + 1]
         == "unquant"
     )
+    assert command[command.index("--speculative-dspark-block-size") + 1] == "7"
 
 
 def test_dspark_dp_attention_matches_reference_topology(tmp_path: Path):
