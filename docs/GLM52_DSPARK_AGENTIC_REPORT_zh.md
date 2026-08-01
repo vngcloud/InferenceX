@@ -41,6 +41,12 @@
 
 原始基准测试行由 AIPerf metrics extractor 统一提取。仓库提交 recipe 和测试；大型原始基准产物保存在基准测试工作区中，通过 run ID 引用，不直接提交到 Git。
 
+### Checkpoint 来源与一个已知的注意事项
+
+已在服务主机（`h200-greennode_01`）上直接核实草稿 checkpoint：挂载的 `model.safetensors` 指向 `RedHatAI/GLM-5.2-speculator.dspark` 的 snapshot `8bc9ac46fbf507f3ee3ad82304116a1f63e9edb4`，与 recipe A/B 测试中选定的 "current" checkpoint 一致。该主机上不存在任何其他草稿 checkpoint（此前探索过、后已放弃的 `robertgshaw2-afk/GLM-5.2-DSpark`）。
+
+Red Hat AI 官方 model card 将该 checkpoint 描述为"初步版本（可能变更）"，且仅在 B200 硬件上验证过。其 config 中 `speculators_config.verifier.name_or_path` 为 `RedHatAI/GLM-5.2-NVFP4-FP8`，并非本基准测试实际服务的目标模型 `zai-org/GLM-5.2-FP8`——草稿模型训练时对齐的目标量化与此处实际验证的目标不同。这一 mismatch 尚未被隔离验证或排除为第 4 节 accept-length 数据的影响因素；本 recipe 开发过程中记录的 accept-length 提升来自修复两个集成 bug（草稿 anchor-window 选择、辅助 hidden-state layer-id 偏移),而非确认了目标一致性。下文的 block-4/block-7 对比在内部仍然有效（同一 checkpoint、同一 mismatch，两行均适用），但不应将其中的 accept-length 绝对值解读为该 checkpoint 在目标一致情况下的真实上限。
+
 ## 2. 基准测试前完成的修复
 
 DSpark 生产路径经过以下调试过程：

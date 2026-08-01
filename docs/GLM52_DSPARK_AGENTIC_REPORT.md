@@ -41,6 +41,12 @@ Runs:
 
 The raw benchmark rows are normalized by the AIPerf metrics extractor. The committed repository contains the recipe and tests; large raw artifacts remain in the benchmark workspace and are referenced by run ID rather than vendored into Git.
 
+### Checkpoint provenance and a known caveat
+
+The draft checkpoint was confirmed by direct inspection on the serving host (`h200-greennode_01`): the mounted `model.safetensors` resolves to snapshot `8bc9ac46fbf507f3ee3ad82304116a1f63e9edb4` of `RedHatAI/GLM-5.2-speculator.dspark`, matching the "current" checkpoint selected in the recipe's A/B test. No alternate draft checkpoint (an earlier, since-abandoned `robertgshaw2-afk/GLM-5.2-DSpark` exploration) is present anywhere on the box.
+
+Red Hat AI's own model card describes this checkpoint as "preliminary (and subject to change)" and validated only on B200 hardware. Its config's `speculators_config.verifier.name_or_path` is `RedHatAI/GLM-5.2-NVFP4-FP8`, not the `zai-org/GLM-5.2-FP8` target actually served in this benchmark — the draft was trained against a different quantized target than the one it verifies against here. This mismatch has not been isolated or ruled out as a factor in the accept-length numbers in Section 4; the accept-length gains recorded in this recipe's development history came from fixing two integration bugs (draft anchor-window selection, auxiliary hidden-state layer-id offset), not from confirming target parity. The block-4/block-7 comparison below is still internally valid (same checkpoint, same mismatch, both rows), but the absolute accept-length ceiling should not be read as this checkpoint's true ceiling against a matched target.
+
 ## 2. What was fixed before benchmarking
 
 The experiment was preceded by a real serving-path debugging sequence:
