@@ -4974,3 +4974,17 @@
     - "EAGLE speculative decoding tuned to num-steps 3 / eagle-topk 1 / num-draft-tokens 4 (prod runs 5/1/6); HiCache fixed at --hicache-size 128 (no ratio)"
     - "sglang_router with --policy cache_aware + --dp-aware (reference run 30163138459). Single concurrency point conc 24 for an explore run."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - kimik3-mxfp4-b300-netperf-vllm-agentic
+  description:
+    - "Add Kimi-K3 MXFP4 single-node agentic benchmark on b300-netperf via vLLM, following the single_node_tp + blackwell profile of https://recipes.vllm.ai/moonshotai/Kimi-K3"
+    - "Image: vllm/vllm-openai:kimi-k3 (CUDA 13 only, needs an r580+ driver); model moonshotai/Kimi-K3 staged at /mnt/models/moonshotai/Kimi-K3 (1.56 TB, 96 shards)"
+    - "TP8 GPU-resident arm at conc [1, 8, 16, 24, 32]; fp8 KV, fastsafetensors load, prefix caching, TRTLLM_RAGGED MLA prefill, kimi_k3 tool/reasoning parsers, --language-model-only since the Claude Code corpus is text-only"
+    - "Ladder sized from the corpus against the measured pool rather than copied: over 98,827 requests in 393 traces the 062126 corpus has per-request context p50 142k / mean 219k / p90 550k / max 990k tokens, and per-trace resident working set p50 364k / mean 931k. Against a 4,322,142-token pool that is ~19.7 in-flight requests at mean context but only ~12 traces of resident prefix at p50, so the cache-eviction knee should fall between conc 8 and 16 -- conc 1 is the latency baseline and 8/16/24/32 bracket and cross it. The p90 of 550k also rules out the 256k-capped corpus variant for this model"
+    - "New cluster:b300-netperf runner label pins the sweep to b300-netperf_00: launch_b300-netperf.sh resolves bench scripts under the b300-netperf hardware string while the rest of cluster:b300-nv uses b300, and only the netperf script variant is shipped"
+    - "Serves the full 1M window on the unfiltered 062126 corpus, like the other 1M-context recipes; new 1M model prefix kimik3 added to the unfiltered agentic corpus branch in benchmark_lib.sh"
+    - "Measured on-node at TP8/gpu-mem-util 0.95: the 2.8T MXFP4 weights leave 56.17 GiB of KV per GPU = 4,322,142 tokens at ~13.6 KiB/token (24 full-attention MLA layers, kv_lora_rank 512 + qk_rope 64, fp8). vLLM's '4.12x maximum concurrency at 1,048,576 tokens per request' is the all-requests-at-full-window worst case, not a CCU cap; the ladder stops at 32 because the sibling glm5.2 TP8 arm thrashed its cache past conc 8 with a larger pool. A DRAM-offload arm is the follow-up if the knee lands early"
+    - "No DP-attention arm: the recipe's only single-node strategy is single_node_tp (it omits the single_node_dep/tep that sibling MoE recipes carry, and multi_node_dep has a 16-GPU floor), and DP+EP over hybrid GatedDeltaNet layers deadlocks during CUDA graph capture (vllm-project/vllm#41862), which K3's 69 KDA layers would hit"
+    - "Prefix reuse is coarser than the GQA/MLA-only recipes: the KDA layers force the attention block size to 1536 tokens so the attention page is >= the mamba page"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark

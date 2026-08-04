@@ -227,6 +227,12 @@ labels:
     - b300-cw_02
     - b300-cw_03
     - b300-cw_04
+  # Pins to the one netperf host. It is also a member of cluster:b300-nv, but
+  # that cluster's launcher resolves bench scripts under the `b300` hardware
+  # string while launch_b300-netperf.sh uses `b300-netperf`, so a config that
+  # only ships the netperf variant must target this label.
+  cluster:b300-netperf:
+    - b300-netperf_00
   cluster:b300-nv:
     - b300-netperf_00
     - b300-nv_01
@@ -316,6 +322,9 @@ hardware:
     gpus-per-node: 8
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_774_874
+    gpus-per-node: 8
+  cluster:b300-netperf:
+    available-cpu-dram-mib: 3_095_989
     gpus-per-node: 8
   cluster:b300-nv:
     available-cpu-dram-mib: 2_964_436
