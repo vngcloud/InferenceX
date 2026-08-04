@@ -4966,3 +4966,11 @@
     - "Run 29651235293 showed the 1M-context corpus working set outgrowing the HBM KV pool past conc 8 (TP8) / conc 64 (DP8): gpu_kv_cache_usage pinned at 1.0 and the radix hit rate collapsed from a ~0.97 theoretical ceiling to 0.04-0.06, so every post-knee turn re-prefilled its full history and throughput fell together with interactivity"
     - "HiCache spills evicted prefixes to host DRAM and restores them at C2C bandwidth instead of recomputing; sizing follows the qwen3.5-fp8-b300-sglang-agentic-hicache recipe (GLM-5.2 is plain GQA: one host pool per rank, GB-based --hicache-size)"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/2280
+
+- config-keys:
+    - glm5.2eagle-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+  description:
+    - "GLM-5.2 EAGLE agentic-coding smoke run at CCU24 mirroring prod serving topology (TP8/DP4/EP8 + dp-attention + local-control-broadcast + NUMA pinning + dfs-weight schedule, mem-fraction-static 0.75, chunked-prefill 32768, context 500000, kv fp8_e4m3) on lmsysorg/sglang:v0.5.16-cu130"
+    - "EAGLE speculative decoding tuned to num-steps 3 / eagle-topk 1 / num-draft-tokens 4 (prod runs 5/1/6); HiCache fixed at --hicache-size 128 (no ratio)"
+    - "sglang_router with --policy cache_aware + --dp-aware (reference run 30163138459). Single concurrency point conc 24 for an explore run."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
