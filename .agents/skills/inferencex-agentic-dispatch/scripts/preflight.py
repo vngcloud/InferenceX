@@ -134,16 +134,31 @@ def validate_recipe(
     model_container_path: str | None,
     kv_offloading: set[str],
     errors: list[str],
+    framework: str | None = None,
 ) -> str:
     text = recipe_path.read_text()
     checks = {
         "server metrics URL": "AIPERF_SERVER_METRICS_URLS=",
         "DCGM telemetry URL": "AIPERF_GPU_TELEMETRY_URL=",
-        "server metrics flag": "--enable-metrics",
-        "cache report flag": "--enable-cache-report",
-        "max running requests": "MAX_RUNNING_REQUESTS=$((2 * CONC))",
         "agentic replay": "run_agentic_replay_and_write_outputs",
     }
+    # The intent below -- Prometheus metrics on, prefix-cache reporting on, and
+    # the scheduler capped at 2*CCU -- is framework-independent, but the flags
+    # that express it are not. `vllm serve` has no --enable-metrics,
+    # --enable-cache-report, or --max-running-requests; requiring them would
+    # force a recipe that fails at server startup.
+    if framework == "vllm":
+        checks["max running requests"] = "MAX_NUM_SEQS=$((2 * CONC))"
+        if "--disable-log-stats" in text:
+            fail(
+                "server metrics flag: vLLM recipes must not pass "
+                "'--disable-log-stats' (it turns off the /metrics stats)",
+                errors,
+            )
+    else:
+        checks["server metrics flag"] = "--enable-metrics"
+        checks["cache report flag"] = "--enable-cache-report"
+        checks["max running requests"] = "MAX_RUNNING_REQUESTS=$((2 * CONC))"
     if "none" in kv_offloading:
         checks["GPU-resident KV validation"] = "require_agentic_kv_offload_none"
     if "dram" in kv_offloading:
@@ -370,6 +385,7 @@ def main() -> int:
         args.model_container_path,
         {str(space.get("kv-offloading")) for space in spaces},
         errors,
+        config.get("framework"),
     )
     validate_launcher(launcher_path, args.model_host_root, args.model_container_root, errors)
     validate_workflow(args.repo, errors)
