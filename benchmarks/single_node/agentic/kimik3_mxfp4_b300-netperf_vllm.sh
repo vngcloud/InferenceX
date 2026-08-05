@@ -141,9 +141,15 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
     fi
 
     unset VLLM_USE_SIMPLE_KV_OFFLOAD
+    # K3's KDA layers force block_size up to 1536 (see the VLLM_CMD comment);
+    # lmcache's validate_mamba_step_alignment then requires
+    # block_size <= max_num_batched_tokens < 2*block_size, i.e. exactly 1536
+    # here, so every prefill step advances one block and every block boundary
+    # gets a mamba state snapshot. The `none` arm keeps the 8192 default.
     OFFLOAD_ARGS=(
         --kv-transfer-config
         "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"$LMCACHE_CONNECT_HOST\",\"lmcache.mp.port\":$LMCACHE_PORT,\"lmcache.mp.mq_timeout\":$LMCACHE_MQ_TIMEOUT}}"
+        --max-num-batched-tokens 1536
     )
 fi
 
