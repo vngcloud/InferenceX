@@ -1589,6 +1589,26 @@ kimik3-mxfp4-b300-netperf-vllm-agentic:
       # way glm5.2 answered the same knee with HiCache.
       - { tp: 8, ep: 1, kv-offloading: none, conc-list: [1, 8, 16, 24, 32] }
 
+# Kimi-K3 2.8T MXFP4 with LMCache DRAM KV offload on B300 (b300-netperf).
+# Same single TP8 engine as the GPU-resident key above (no DP attention on one
+# node), but KV is cached in a 2 TB host-DRAM L1 pool behind the LMCache MP
+# server (LMCacheMPConnector) -- the vLLM counterpart of sglang HiCache, wired
+# like upstream dsv4_fp4_b300_vllm.sh. Same CCU ladder as the GPU-resident
+# baseline so the two arms are directly comparable on the agentic corpus.
+kimik3-mxfp4-b300-netperf-vllm-lmcache-agentic:
+  image: vllm/vllm-openai:kimi-k3
+  model: moonshotai/Kimi-K3
+  model-prefix: kimik3
+  runner: cluster:b300-netperf
+  precision: mxfp4
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, kv-offloading: dram, kv-offload-backend: { name: lmcache, version: "0.5.1" }, conc-list: [1, 8, 16, 24, 32] }
+
 dsr1-fp8-b200-trt:
   image: nvcr.io#nvidia/tensorrt-llm/release:1.3.0rc14
   model: deepseek-ai/DeepSeek-R1-0528

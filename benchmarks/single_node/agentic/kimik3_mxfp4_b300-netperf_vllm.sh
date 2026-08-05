@@ -25,9 +25,24 @@ source "$(dirname "$0")/../../benchmark_lib.sh"
 
 check_env_vars MODEL TP CONC KV_OFFLOADING RESULT_DIR DURATION EP_SIZE DP_ATTENTION SPEC_DECODING
 
-# The 2.8T MXFP4 checkpoint fills ~1.42 TiB of the node's 2149 GiB of HBM, so
-# every arm here is GPU-resident; there is no CPU-offload ladder to select.
-require_agentic_kv_offload_none
+# Offload ladder: `none` keeps the 2.8T MXFP4 checkpoint fully GPU-resident
+# (it fills ~1.42 TiB of the node's 2149 GiB of HBM); `dram` + lmcache is the
+# vLLM counterpart of sglang HiCache -- a dedicated LMCache MP server owns a
+# host-DRAM KV pool that vLLM reaches through the LMCacheMPConnector (same
+# wiring as upstream dsv4_fp4_b300_vllm.sh). K3 stays a single TP8 engine (no
+# DP attention on one node), so no vllm-router sits in front.
+case "$KV_OFFLOADING" in
+    none)
+        require_agentic_kv_offload_none
+        ;;
+    dram)
+        require_agentic_kv_offload_backend lmcache
+        ;;
+    *)
+        echo "Error: unsupported KV_OFFLOADING='$KV_OFFLOADING' (want none|dram)." >&2
+        exit 1
+        ;;
+esac
 
 export MODEL_PATH="${MODEL_PATH:-/mnt/models/moonshotai/Kimi-K3}"
 if [[ ! -d "$MODEL_PATH" || -z "$(ls -A "$MODEL_PATH" 2>/dev/null)" ]]; then
@@ -60,6 +75,77 @@ nvidia-smi
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 export AIPERF_SERVER_METRICS_URLS="http://localhost:$PORT/metrics"
+
+# ---- KV offload: LMCache MP server (dram arm only) ---------------------------
+OFFLOAD_ARGS=()
+LMCACHE_SERVER_PID=""
+if [ "$KV_OFFLOADING" = "dram" ]; then
+    # 2 TB host-DRAM L1 pool on b300-netperf (3.0 TiB RAM). The pool grows
+    # lazily from the initial allocation, so nothing is pinned at startup;
+    # the full target is only reached as the KV working set demands it.
+    LMCACHE_VERSION=0.5.1
+    agentic_pip_install --quiet --no-cache-dir "lmcache==$LMCACHE_VERSION"
+    python3 -c "import lmcache.integration.vllm.lmcache_mp_connector" >/dev/null
+
+    LMCACHE_HOST=127.0.0.1
+    LMCACHE_PORT=$((PORT + 12000))
+    LMCACHE_HTTP_PORT=$((PORT + 13000))
+    LMCACHE_CONNECT_HOST="tcp://$LMCACHE_HOST"
+    LMCACHE_L1_SIZE_GB="${LMCACHE_L1_SIZE_GB:-2048}"
+    LMCACHE_L1_INIT_SIZE_GB=20
+    LMCACHE_MQ_TIMEOUT=300
+    # Identical prefixes must hash to identical cache keys across runs.
+    export PYTHONHASHSEED=0
+    # Per-engine scheduler stats every 5s, to diagnose KV cache pressure.
+    export VLLM_LOG_STATS_INTERVAL=5
+
+    echo "Starting LMCache MP server on port $LMCACHE_PORT..."
+    lmcache server \
+        --host "$LMCACHE_HOST" \
+        --port "$LMCACHE_PORT" \
+        --http-host "$LMCACHE_HOST" \
+        --http-port "$LMCACHE_HTTP_PORT" \
+        --l1-size-gb "$LMCACHE_L1_SIZE_GB" \
+        --l1-init-size-gb "$LMCACHE_L1_INIT_SIZE_GB" \
+        --max-gpu-workers 1 \
+        --max-cpu-workers 8 \
+        --chunk-size 1024 \
+        --l1-align-bytes 16384 \
+        --eviction-trigger-watermark 0.85 \
+        --eviction-ratio 0.10 \
+        --eviction-policy LRU \
+        --supported-transfer-mode lmcache_driven \
+        --no-separate-object-groups \
+        > "$RESULT_DIR/lmcache_server.log" 2>&1 &
+    LMCACHE_SERVER_PID=$!
+    trap '[ -n "$LMCACHE_SERVER_PID" ] && kill "$LMCACHE_SERVER_PID" 2>/dev/null || true' EXIT
+
+    LMCACHE_READY=0
+    for _ in $(seq 1 60); do
+        if ! kill -0 "$LMCACHE_SERVER_PID" 2>/dev/null; then
+            echo "LMCache server died during startup." >&2
+            cat "$RESULT_DIR/lmcache_server.log" >&2
+            exit 1
+        fi
+        if curl --output /dev/null --silent --fail \
+            "http://127.0.0.1:$LMCACHE_HTTP_PORT/healthcheck"; then
+            LMCACHE_READY=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$LMCACHE_READY" -ne 1 ]; then
+        echo "LMCache server did not become healthy in time." >&2
+        cat "$RESULT_DIR/lmcache_server.log" >&2
+        exit 1
+    fi
+
+    unset VLLM_USE_SIMPLE_KV_OFFLOAD
+    OFFLOAD_ARGS=(
+        --kv-transfer-config
+        "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"$LMCACHE_CONNECT_HOST\",\"lmcache.mp.port\":$LMCACHE_PORT,\"lmcache.mp.mq_timeout\":$LMCACHE_MQ_TIMEOUT}}"
+    )
+fi
 
 PARALLEL_ARGS=(--tensor-parallel-size "$TP" --data-parallel-size 1)
 if [ "$DP_ATTENTION" = "true" ]; then
@@ -143,6 +229,7 @@ VLLM_CMD=(
     "${PARALLEL_ARGS[@]}"
     "${EP_ARGS[@]}"
     "${SPEC_ARGS[@]}"
+    "${OFFLOAD_ARGS[@]}"
 )
 printf '%q ' "${VLLM_CMD[@]}" | tee "$RESULT_DIR/vllm_command.txt"
 printf '\n' | tee -a "$RESULT_DIR/vllm_command.txt"

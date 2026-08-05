@@ -117,8 +117,11 @@ def validate_config(
         backend = space.get("kv-offload-backend") or {}
         if kv_offloading == "none" and backend:
             fail("GPU-resident KV must not set a KV offload backend", errors)
-        elif kv_offloading == "dram" and backend.get("name") != "hicache":
-            fail("agentic search space must use hicache backend", errors)
+        elif kv_offloading == "dram" and backend.get("name") not in {"hicache", "lmcache"}:
+            fail(
+                "agentic search space must use hicache or lmcache backend",
+                errors,
+            )
         elif kv_offloading not in {"none", "dram"}:
             fail(f"unsupported kv-offloading mode: {kv_offloading!r}", errors)
     pool = config.get("runner")
@@ -135,6 +138,7 @@ def validate_recipe(
     kv_offloading: set[str],
     errors: list[str],
     framework: str | None = None,
+    dram_backends: set[str] | None = None,
 ) -> str:
     text = recipe_path.read_text()
     checks = {
@@ -162,18 +166,33 @@ def validate_recipe(
     if "none" in kv_offloading:
         checks["GPU-resident KV validation"] = "require_agentic_kv_offload_none"
     if "dram" in kv_offloading:
-        checks.update(
-            {
-                "HiCache validation": "require_agentic_kv_offload_backend hicache",
-                "hierarchical cache flag": "--enable-hierarchical-cache",
-            }
-        )
+        backends = dram_backends or {"hicache"}
+        for backend in backends:
+            if backend == "hicache":
+                checks.update(
+                    {
+                        "HiCache validation": "require_agentic_kv_offload_backend hicache",
+                        "hierarchical cache flag": "--enable-hierarchical-cache",
+                    }
+                )
+            elif backend == "lmcache":
+                checks.update(
+                    {
+                        "LMCache validation": "require_agentic_kv_offload_backend lmcache",
+                        "LMCache connector": "LMCacheMPConnector",
+                        "LMCache server": "lmcache server",
+                    }
+                )
     for label, needle in checks.items():
         require_text(text, needle, label, errors)
-    if "dram" in kv_offloading and not any(
-        flag in text for flag in ("--hicache-size", "--hicache-ratio")
-    ):
-        fail("HiCache capacity: missing '--hicache-size' or '--hicache-ratio'", errors)
+    if "dram" in kv_offloading:
+        backends = dram_backends or {"hicache"}
+        if "hicache" in backends and not any(
+            flag in text for flag in ("--hicache-size", "--hicache-ratio")
+        ):
+            fail("HiCache capacity: missing '--hicache-size' or '--hicache-ratio'", errors)
+        if "lmcache" in backends and "LMCACHE_L1_SIZE_GB" not in text:
+            fail("LMCache capacity: missing 'LMCACHE_L1_SIZE_GB'", errors)
     dataset_assignment = rf"^\s*(?:export\s+)?WEKA_LOADER_OVERRIDE={re.escape(DATASETS[dataset])}\s*$"
     if not re.search(dataset_assignment, text, flags=re.MULTILINE):
         fail(f"dataset: missing exact WEKA_LOADER_OVERRIDE={DATASETS[dataset]!s}", errors)
@@ -376,6 +395,11 @@ def main() -> int:
     errors: list[str] = []
 
     config, spaces = validate_config(args.repo, config_path, args.config_key, args.runner_node, ccus, errors)
+    dram_backends = {
+        str((space.get("kv-offload-backend") or {}).get("name"))
+        for space in spaces
+        if space.get("kv-offloading") == "dram" and (space.get("kv-offload-backend") or {}).get("name")
+    }
     validate_recipe(
         recipe_path,
         args.dataset,
@@ -386,6 +410,7 @@ def main() -> int:
         {str(space.get("kv-offloading")) for space in spaces},
         errors,
         config.get("framework"),
+        dram_backends,
     )
     validate_launcher(launcher_path, args.model_host_root, args.model_container_root, errors)
     validate_workflow(args.repo, errors)
