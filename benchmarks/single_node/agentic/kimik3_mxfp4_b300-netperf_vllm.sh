@@ -109,7 +109,7 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
         --l1-init-size-gb "$LMCACHE_L1_INIT_SIZE_GB" \
         --max-gpu-workers 1 \
         --max-cpu-workers 8 \
-        --chunk-size 1024 \
+        --chunk-size 1536 \
         --l1-align-bytes 16384 \
         --eviction-trigger-watermark 0.85 \
         --eviction-ratio 0.10 \
