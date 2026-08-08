@@ -83,7 +83,7 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
     # 2 TB host-DRAM L1 pool on b300-netperf (3.0 TiB RAM). The pool grows
     # lazily from the initial allocation, so nothing is pinned at startup;
     # the full target is only reached as the KV working set demands it.
-    LMCACHE_VERSION=0.5.1
+    LMCACHE_VERSION=0.5.3
     agentic_pip_install --quiet --no-cache-dir "lmcache==$LMCACHE_VERSION"
     python3 -c "import lmcache.integration.vllm.lmcache_mp_connector" >/dev/null
 
@@ -109,13 +109,13 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
         --l1-init-size-gb "$LMCACHE_L1_INIT_SIZE_GB" \
         --max-gpu-workers 1 \
         --max-cpu-workers 8 \
-        --chunk-size 1536 \
+        --chunk-size 768 \
         --l1-align-bytes 16384 \
         --eviction-trigger-watermark 0.85 \
         --eviction-ratio 0.10 \
         --eviction-policy LRU \
         --supported-transfer-mode lmcache_driven \
-        --no-separate-object-groups \
+        --separate-object-groups \
         > "$RESULT_DIR/lmcache_server.log" 2>&1 &
     LMCACHE_SERVER_PID=$!
     trap '[ -n "$LMCACHE_SERVER_PID" ] && kill "$LMCACHE_SERVER_PID" 2>/dev/null || true' EXIT
@@ -141,15 +141,18 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
     fi
 
     unset VLLM_USE_SIMPLE_KV_OFFLOAD
-    # K3's KDA layers force block_size up to 1536 (see the VLLM_CMD comment);
-    # lmcache's validate_mamba_step_alignment then requires
-    # block_size <= max_num_batched_tokens < 2*block_size, i.e. exactly 1536
-    # here, so every prefill step advances one block and every block boundary
-    # gets a mamba state snapshot. The `none` arm keeps the 8192 default.
+    # K3 is a hybrid MLA + KDA (Mamba-style SSM) model. LMCache requires
+    # three settings for hybrids (see docs.lmcache.ai/recipes/kimi_k3):
+    #   1. --mamba-cache-mode align  (only mode KDA backend supports)
+    #   2. --separate-object-groups  (server, gives KDA layers own objects)
+    #   3. --chunk-size = N = 768    (unified block size for K3 at TP8)
+    # --max-num-batched-tokens must be within [N, 2N) = [768, 1536); the
+    # validated value is 1500. The `none` arm keeps the 8192 default.
     OFFLOAD_ARGS=(
         --kv-transfer-config
         "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"$LMCACHE_CONNECT_HOST\",\"lmcache.mp.port\":$LMCACHE_PORT,\"lmcache.mp.mq_timeout\":$LMCACHE_MQ_TIMEOUT}}"
-        --max-num-batched-tokens 1536
+        --mamba-cache-mode align
+        --max-num-batched-tokens 1500
     )
 fi
 
