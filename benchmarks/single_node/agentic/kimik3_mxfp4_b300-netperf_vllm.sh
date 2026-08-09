@@ -109,7 +109,7 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
         --l1-init-size-gb "$LMCACHE_L1_INIT_SIZE_GB" \
         --max-gpu-workers 1 \
         --max-cpu-workers 8 \
-        --chunk-size 768 \
+        --chunk-size 1536 \
         --l1-align-bytes 16384 \
         --eviction-trigger-watermark 0.85 \
         --eviction-ratio 0.10 \
@@ -145,14 +145,19 @@ if [ "$KV_OFFLOADING" = "dram" ]; then
     # three settings for hybrids (see docs.lmcache.ai/recipes/kimi_k3):
     #   1. --mamba-cache-mode align  (only mode KDA backend supports)
     #   2. --separate-object-groups  (server, gives KDA layers own objects)
-    #   3. --chunk-size = N = 768    (unified block size for K3 at TP8)
-    # --max-num-batched-tokens must be within [N, 2N) = [768, 1536); the
-    # validated value is 1500. The `none` arm keeps the 8192 default.
+    #   3. --chunk-size = N          (unified block size; multiple of both
+    #      MLA block 32 and KDA/Mamba block)
+    # The recipe claims N=768 for K3 at TP8, but the kimi-k3 pre-release image
+    # (v0.1.dev19262) picks N=1536 (log: "Setting attention block size to 1536
+    # tokens"). validate_mamba_step_alignment then requires
+    # block_size <= max_num_batched_tokens < 2*block_size, i.e. 1536 <= X < 3072.
+    # 1536 is the minimum (= block_size, one block per step, finest reuse).
+    # The `none` arm keeps the 8192 default.
     OFFLOAD_ARGS=(
         --kv-transfer-config
         "{\"kv_connector\":\"LMCacheMPConnector\",\"kv_role\":\"kv_both\",\"kv_connector_extra_config\":{\"lmcache.mp.host\":\"$LMCACHE_CONNECT_HOST\",\"lmcache.mp.port\":$LMCACHE_PORT,\"lmcache.mp.mq_timeout\":$LMCACHE_MQ_TIMEOUT}}"
         --mamba-cache-mode align
-        --max-num-batched-tokens 1500
+        --max-num-batched-tokens 1536
     )
 fi
 
