@@ -38,6 +38,11 @@ SERVER_LOG=/workspace/server.log
 export VLLM_DISABLE_COMPILE_CACHE=1
 export NCCL_P2P_LEVEL=NVL
 
+if [ "${EVAL_ONLY}" = "true" ]; then
+    setup_eval_context
+    MAX_MODEL_LEN="$EVAL_MAX_MODEL_LEN"
+fi
+
 start_gpu_monitor
 
 set -x
@@ -72,6 +77,11 @@ run_benchmark_serving \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/ \
     --trust-remote-code
+
+if [ "${RUN_EVAL}" = "true" ]; then
+    run_eval --framework lm-eval --port "$PORT"
+    append_lm_eval_summary
+fi
 
 stop_gpu_monitor
 set +x
