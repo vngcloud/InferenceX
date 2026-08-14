@@ -8177,7 +8177,7 @@ glm5.2eagle-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [24], router: { name: sglang-router, version: "0.3.2" } }
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
 
 glm5.2edeep-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic:
   image: lmsysorg/sglang:v0.5.16-cu130
