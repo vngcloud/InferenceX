@@ -10,7 +10,8 @@ export PORT="${PORT:-8888}"
 
 docker pull "$IMAGE"
 
-BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200_${FRAMEWORK}.sh"
+FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
+BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200${FRAMEWORK_SUFFIX}.sh"
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-h200-greennode_01}"
 RUN_ENV=(
   HF_TOKEN HF_HUB_CACHE PORT
