@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+# Gemma-4 31B FP8-block (RedHatAI/gemma-4-31B-it-FP8-block) single-GPU vLLM
+# recipe, fixed-seq-len. Distinct checkpoint from the FP8-dynamic one used by
+# the gemma4-fp8-h100-greennode-vllm agentic-replay recipe: this is the
+# compressed-tensors block-quantized variant, served with fp8_e4m3 KV cache
+# and tool/reasoning-call parsing enabled.
+
+source "$(dirname "$0")/../../benchmark_lib.sh"
+
+check_env_vars \
+    MODEL \
+    TP \
+    CONC \
+    ISL \
+    OSL \
+    MAX_MODEL_LEN \
+    RANDOM_RANGE_RATIO \
+    RESULT_FILENAME
+
+if [[ -n "$SLURM_JOB_ID" ]]; then
+  echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
+fi
+
+nvidia-smi
+
+if [[ -n "${MODEL_PATH:-}" ]]; then
+    if [[ ! -d "$MODEL_PATH" || -z "$(ls -A "$MODEL_PATH" 2>/dev/null)" ]]; then
+        hf download "$MODEL" --local-dir "$MODEL_PATH"
+    fi
+else
+    if [[ "$MODEL" != /* ]]; then hf download "$MODEL"; fi
+    export MODEL_PATH="$MODEL"
+fi
+
+SERVER_LOG=/workspace/server.log
+
+export VLLM_DISABLE_COMPILE_CACHE=1
+export NCCL_P2P_LEVEL=NVL
+
+start_gpu_monitor
+
+set -x
+vllm serve "$MODEL_PATH" --host 0.0.0.0 --port "$PORT" \
+    --served-model-name "$MODEL" \
+    --trust-remote-code \
+    --tensor-parallel-size "$TP" \
+    --gpu-memory-utilization 0.92 \
+    --kv-cache-dtype fp8_e4m3 \
+    --max-model-len "$MAX_MODEL_LEN" \
+    --max-num-seqs "$CONC" \
+    --max-num-batched-tokens 8192 \
+    --enable-auto-tool-choice \
+    --tool-call-parser gemma4 \
+    --reasoning-parser gemma4 > "$SERVER_LOG" 2>&1 &
+
+SERVER_PID=$!
+
+wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+
+pip install -q datasets pandas
+
+run_benchmark_serving \
+    --model "$MODEL" \
+    --port "$PORT" \
+    --backend vllm \
+    --input-len "$ISL" \
+    --output-len "$OSL" \
+    --random-range-ratio "$RANDOM_RANGE_RATIO" \
+    --num-prompts "$((CONC * 10))" \
+    --max-concurrency "$CONC" \
+    --result-filename "$RESULT_FILENAME" \
+    --result-dir /workspace/ \
+    --trust-remote-code
+
+stop_gpu_monitor
+set +x

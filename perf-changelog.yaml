@@ -4988,3 +4988,10 @@
     - "No DP-attention arm: the recipe's only single-node strategy is single_node_tp (it omits the single_node_dep/tep that sibling MoE recipes carry, and multi_node_dep has a 16-GPU floor), and DP+EP over hybrid GatedDeltaNet layers deadlocks during CUDA graph capture (vllm-project/vllm#41862), which K3's 69 KDA layers would hit"
     - "Prefix reuse is coarser than the GQA/MLA-only recipes: the KDA layers force the attention block size to 1536 tokens so the attention page is >= the mamba page"
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - gemma4-fp8block-h200-vllm
+  description:
+    - "Day-zero Gemma-4 31B FP8-block (RedHatAI/gemma-4-31B-it-FP8-block) single-GPU H200 vLLM recipe, 8k1k fixed-seq-len, TP1 conc [1,2,4,8,16,32,64]"
+    - "fp8_e4m3 KV cache, max-num-seqs/max-num-batched-tokens 64/8192, tool/reasoning parsing via gemma4 parser; served-model-name decoupled from the checkpoint id to match the production serving alias"
+  pr-link: TBD
