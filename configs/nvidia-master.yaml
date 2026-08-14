@@ -8248,3 +8248,17 @@ glm5.2-fp8-h200-greennode-sglang-dp4-deepep-cacheaware-router-agentic:
     - dram-utilization: 0.80
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 12, 20, 32], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.2eagle-fp4-4xh200-greennode-sglang-dpattn-router-hicache64-shmpeer-agentic:
+  image: vcr.vngcloud.vn/107710-huynp4-kc/sg-lang:fuochuy-hicache
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2eagle4x
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 4, ep: 4, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 24, 32], router: { name: sglang-router, version: "0.3.2" } }
