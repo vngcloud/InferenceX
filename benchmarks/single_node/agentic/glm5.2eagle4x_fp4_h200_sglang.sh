@@ -4,7 +4,7 @@ set -x
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
-# 4xH200 GLM-5.2-W4AFP8: TP=4 DP=4 EP=4, shm_peer_l2 HiCache, EAGLE, dp-attn always on.
+# 4xH200 GLM-5.2-W4AFP8: TP=4 DP=4 EP=4, HiCache (DRAM only), EAGLE, dp-attn always on.
 # Derived from docker-compose.yaml (2026-08-09 4xH200 dev mirror).
 
 check_env_vars MODEL TP EP_SIZE CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION SPEC_DECODING
@@ -66,7 +66,6 @@ SGLANG_CMD=(
   --hicache-io-backend direct
   --hicache-write-policy write_through
   --hicache-mem-layout page_first_direct
-  --hicache-storage-backend shm_peer_l2
   --speculative-algorithm EAGLE
   --speculative-num-steps 3
   --speculative-eagle-topk 1
