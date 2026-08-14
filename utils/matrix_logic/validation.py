@@ -291,7 +291,7 @@ class SingleNodeAgenticMatrixEntry(BaseModel):
     duration: int = Field(alias=Fields.DURATION.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
-    # Agentic eval rows (SWE-bench) carry run-eval/eval-only; benchmark rows
+    # Agentic GSM8K eval rows carry run-eval/eval-only; benchmark rows
     # omit them, and exclude_none keeps them out of dumped benchmark output.
     run_eval: Optional[bool] = Field(default=None, alias=Fields.RUN_EVAL.value)
     eval_only: Optional[bool] = Field(default=None, alias=Fields.EVAL_ONLY.value)
@@ -329,10 +329,18 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
     kv_p2p_transfer: Optional[str] = Field(
         default=None, alias=Fields.KV_P2P_TRANSFER.value, min_length=1
     )
+    total_cpu_dram_gb: int = Field(alias=Fields.TOTAL_CPU_DRAM_GB.value, ge=0)
     duration: int = Field(alias=Fields.DURATION.value)
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     disagg: bool
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
+    # Agentic eval rows (SWE-bench) carry run-eval/eval-only/eval-conc;
+    # benchmark rows omit them, and exclude_none keeps them out of dumped
+    # throughput output. SWE-bench doesn't support batched concurrencies
+    # (unlike lm-eval), so there is no eval-all-concs field here.
+    run_eval: Optional[bool] = Field(default=None, alias=Fields.RUN_EVAL.value)
+    eval_only: Optional[bool] = Field(default=None, alias=Fields.EVAL_ONLY.value)
+    eval_conc: Optional[int] = Field(default=None, alias=Fields.EVAL_CONC.value)
 
     @model_validator(mode='after')
     def validate_worker_hardware_pair(self):
@@ -867,6 +875,13 @@ class ChangelogEntry(BaseModel):
     pr_link: str = Field(alias="pr-link")
     evals_only: bool = Field(alias="evals-only", default=False)
     all_evals: bool = Field(alias="all-evals", default=False)
+    eval_min_prefill_ep: Optional[int] = Field(
+        alias="eval-min-prefill-ep", default=None, ge=1,
+        description=(
+            "When set, multinode eval rows whose prefill.ep is below this "
+            "threshold are dropped after eval selection."
+        ),
+    )
     scenario_type: Optional[List[Literal["fixed-seq-len", "agentic-coding"]]] = Field(
         alias="scenario-type", default=None, min_length=1,
         description="Restrict to specific scenario types (e.g., ['fixed-seq-len', 'agentic-coding'])"
@@ -894,7 +909,7 @@ class ChangelogMatrixEntry(BaseModel):
     multi_node: dict[str, list[Union[MultiNodeMatrixEntry, MultiNodeAgenticMatrixEntry]]
                      ] = Field(default_factory=dict)
     evals: list[SingleNodeMatrixEntry] = Field(default_factory=list)
-    # Agentic (SWE-bench) eval rows live in their own bucket rather than a
+    # Agentic GSM8K eval rows live in their own bucket rather than a
     # union inside `evals`: each bucket maps 1:1 to a run-sweep.yml job with a
     # static input block, so an agentic row can never reach the fixed-seq-len
     # eval dispatch (which reads isl/osl/max-model-len and would launch the
@@ -902,6 +917,12 @@ class ChangelogMatrixEntry(BaseModel):
     agentic_evals: list[SingleNodeAgenticMatrixEntry] = Field(
         default_factory=list)
     multinode_evals: list[MultiNodeMatrixEntry] = Field(default_factory=list)
+    # Multi-node agentic (SWE-bench) eval rows, split out of multinode_evals
+    # the same way agentic_evals is split out of evals: they carry the
+    # agentic input shape (scenario-type, kv-offloading, ...) rather than
+    # the fixed-seq-len shape (isl/osl/max-model-len) multinode_evals rows do.
+    multinode_agentic_evals: list[MultiNodeAgenticMatrixEntry] = Field(
+        default_factory=list)
     changelog_metadata: ChangelogMetadata
 
 
