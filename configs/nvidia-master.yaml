@@ -8261,7 +8261,7 @@ glm5.2eagle-fp4-4xh200-greennode-sglang-dpattn-router-hicache64-shmpeer-agentic:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 4, ep: 4, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16], router: { name: sglang-router, version: "0.3.2" } }
+      - { tp: 4, ep: 4, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [2], router: { name: sglang-router, version: "0.3.2" } }
 
 gemma4-fp8block-h200-vllm:
   image: vllm/vllm-openai:v0.25.0

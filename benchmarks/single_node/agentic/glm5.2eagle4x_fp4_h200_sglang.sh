@@ -67,7 +67,6 @@ SGLANG_CMD=(
   --hicache-write-policy write_through
   --hicache-mem-layout page_first_direct
   --hicache-storage-backend shm_peer_l2
-  --hicache-storage-backend-extra-config '{"peer_l2_capacity": 16384}'
   --speculative-algorithm EAGLE
   --speculative-num-steps 3
   --speculative-eagle-topk 1
