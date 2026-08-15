@@ -117,3 +117,13 @@ After dispatch, verify the run SHA equals the pushed SHA, `get-jobs` succeeds, a
 - A successful host download is not enough: verify the index and weight files from inside the benchmark image.
 - Never silently switch dataset variants, duration, runner, image, model path, CCUs, or ingest policy.
 - Do not use a successful smoke result as a substitute for the user's approval of the full-run preview.
+
+## 8. Troubleshooting reference
+
+Before dispatching or when a run fails, consult [`docs/TROUBLESHOOTING.md`](../../../docs/TROUBLESHOOTING.md) (append-only log of real failures and fixes). Common issues:
+
+- **Jobs stuck in `queued`**: runner label mismatch — the matrix emits a `cluster:*` label the runner doesn't have. Use `--runner-node-filter` to target the exact node.
+- **`uv pip install` git clone failure**: transient network error — just re-dispatch.
+- **`IndexerTopkCapturer` assertion**: only works with DP8 (`attn_tp_size=1`).
+
+When you encounter a new failure, append a new entry to `docs/TROUBLESHOOTING.md` with the symptom, root cause, fix, and prevention.

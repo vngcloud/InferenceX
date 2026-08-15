@@ -7,6 +7,7 @@ export HF_HUB_CACHE="${HF_HUB_CACHE:-/root/.cache/huggingface/hub}"
 export MODEL_STORE_MOUNT="${MODEL_STORE_MOUNT:-/mnt/models}"
 export MODEL_STORE="${MODEL_STORE:-/models}"
 export PORT="${PORT:-8888}"
+export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 
 docker pull "$IMAGE"
 
@@ -19,7 +20,7 @@ RUN_ENV=(
   KV_OFFLOADING KV_OFFLOAD_BACKEND KV_OFFLOAD_BACKEND_METADATA TOTAL_CPU_DRAM_GB DURATION
   HICACHE_RATIO
   RESULT_DIR RESULT_FILENAME RUN_EVAL EVAL_ONLY
-  GITHUB_WORKSPACE RUNNER_NAME RUNNER_TYPE
+  GITHUB_WORKSPACE RUNNER_NAME RUNNER_TYPE AIPERF_UV_CACHE_DIR
 )
 ENV_ARGS=()
 for name in "${RUN_ENV[@]}"; do
@@ -36,6 +37,7 @@ docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
   -v "$GITHUB_WORKSPACE:/workspace" \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
   -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" \
+  -v "$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR" \
   -w /workspace \
   "${ENV_ARGS[@]}" \
   --entrypoint bash \
