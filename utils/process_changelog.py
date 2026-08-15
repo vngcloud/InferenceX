@@ -16,6 +16,17 @@ from matrix_logic.validation import (
 SCENARIO_TYPES = ("fixed-seq-len", "agentic-coding")
 
 
+def _freeze_config_value(value):
+    """Convert JSON-shaped config values into deterministic hashable values."""
+    if isinstance(value, dict):
+        return tuple(
+            sorted((key, _freeze_config_value(item)) for key, item in value.items())
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_config_value(item) for item in value)
+    return value
+
+
 def get_added_lines(base_ref: str, head_ref: str, filepath: str) -> str:
     result = subprocess.run(
         ["git", "diff", base_ref, head_ref, "--", filepath],
@@ -54,11 +65,12 @@ def trim_conc(entries: list[dict]) -> list[dict]:
     the source ordering of ``conc-list`` / ``conc-start``.
 
     Input comes from ``json.loads(subprocess.stdout)`` so ``conc`` is always
-    ``int`` (single-node) or ``list`` (multi-node); other single-node fields
-    are hashable scalars.
+    ``int`` (single-node) or ``list`` (multi-node). Other fields may contain
+    nested dictionaries or lists, such as KV-offload backend metadata.
 
-    - Single-node entries: group by every other field and keep only the entry
-      with the lowest ``conc`` per group.
+    - Single-node entries: group by every configuration field other than
+      ``conc`` and the generated ``exp-name``, then keep only the entry with
+      the lowest ``conc`` per group.
     - Multi-node entries: trim the ``conc`` list in place to ``[min(conc)]``.
     """
     groups: dict[tuple, list[int]] = {}
@@ -72,7 +84,13 @@ def trim_conc(entries: list[dict]) -> list[dict]:
             out.append(entry)
             continue
 
-        key = tuple(sorted((k, v) for k, v in entry.items() if k != "conc"))
+        key = tuple(
+            sorted(
+                (k, _freeze_config_value(v))
+                for k, v in entry.items()
+                if k not in {"conc", "exp-name"}
+            )
+        )
         groups.setdefault(key, []).append(len(out))
         out.append(entry)
 
@@ -82,6 +100,26 @@ def trim_conc(entries: list[dict]) -> list[dict]:
             keep = min(idxs, key=lambda i: out[i]["conc"])
             drop.update(i for i in idxs if i != keep)
     return [e for i, e in enumerate(out) if i not in drop]
+
+
+def filter_eval_rows_by_prefill_ep(
+    eval_rows: list[dict], min_prefill_ep: int | None
+) -> list[dict]:
+    """Drop multinode eval rows below a prefill EP threshold."""
+    if min_prefill_ep is None:
+        return eval_rows
+    kept: list[dict] = []
+    for row in eval_rows:
+        prefill = row.get("prefill")
+        if isinstance(prefill, dict):
+            ep = prefill.get("ep", 1)
+            try:
+                if int(ep) < min_prefill_ep:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        kept.append(row)
+    return kept
 
 
 def get_config_keys_from_master(
@@ -139,6 +177,7 @@ def main():
         "evals": [],
         "agentic_evals": [],
         "multinode_evals": [],
+        "multinode_agentic_evals": [],
         "changelog_metadata": {
             "base_ref": args.base_ref,
             "head_ref": args.head_ref,
@@ -254,7 +293,11 @@ def main():
             except subprocess.CalledProcessError as e:
                 print(e.stderr)
                 raise
-            all_eval_results.extend(json.loads(eval_result.stdout))
+            entry_eval_results = json.loads(eval_result.stdout)
+            entry_eval_results = filter_eval_rows_by_prefill_ep(
+                entry_eval_results, entry.eval_min_prefill_ep
+            )
+            all_eval_results.extend(entry_eval_results)
 
     if args.trim_conc:
         all_benchmark_results = trim_conc(all_benchmark_results)
@@ -272,10 +315,13 @@ def main():
             seq_len_str = seq_len_to_str(result["isl"], result["osl"])
             final_results["single_node"][seq_len_str].append(result)
 
-    # Agentic eval rows go to their own bucket so run-sweep.yml can dispatch
+    # Agentic GSM8K eval rows go to their own bucket so run-sweep.yml can dispatch
     # them with agentic inputs (scenario-type, kv-offloading, ...) instead of
-    # the fixed-seq-len inputs (isl/osl/max-model-len) they don't have.
+    # the fixed-seq-len inputs (isl/osl/max-model-len) they don't have. Same
+    # split applies on the multi-node side (multinode_evals vs
+    # multinode_agentic_evals).
     single_node_evals = [e for e in all_eval_results if e.get("prefill") is None]
+    multi_node_evals = [e for e in all_eval_results if e.get("prefill") is not None]
     final_results["evals"] = [
         e for e in single_node_evals
         if e.get("scenario-type") != "agentic-coding"
@@ -284,7 +330,14 @@ def main():
         e for e in single_node_evals
         if e.get("scenario-type") == "agentic-coding"
     ]
-    final_results["multinode_evals"] = [e for e in all_eval_results if e.get("prefill") is not None]
+    final_results["multinode_evals"] = [
+        e for e in multi_node_evals
+        if e.get("scenario-type") != "agentic-coding"
+    ]
+    final_results["multinode_agentic_evals"] = [
+        e for e in multi_node_evals
+        if e.get("scenario-type") == "agentic-coding"
+    ]
 
     # Validate final results structure
     validated = ChangelogMatrixEntry.model_validate(final_results)

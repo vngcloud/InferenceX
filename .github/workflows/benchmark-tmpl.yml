@@ -5,6 +5,19 @@ on:
       runner:
         required: true
         type: string
+      priority:
+        description: "Higher-is-sooner CI priority score"
+        required: true
+        type: string
+      queue-token:
+        description: "One-shot queue token generated for this job"
+        required: true
+        type: string
+      skip-queue-pr:
+        description: "Requested skip_queue PR number"
+        required: false
+        type: string
+        default: ''
       image:
         required: true
         type: string
@@ -120,6 +133,16 @@ on:
         required: false
         type: string
         default: '3600'
+      require-power:
+        description: "Fail fixed-sequence result processing when GPU power is invalid"
+        required: false
+        type: boolean
+        default: false
+      agentx-fast:
+        description: "Use one warmup request per AgentX lane and a 20-minute profile"
+        required: false
+        type: boolean
+        default: false
       eval-limit:
         description: "Eval instance count: empty/full = whole split (default); N = first-N smoke slice"
         required: false
@@ -214,6 +237,8 @@ env:
   KV_P2P_TRANSFER: ${{ inputs.kv-p2p-transfer }}
   TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
+  REQUIRE_POWER: ${{ inputs.require-power && '1' || '0' }}
+  AIPERF_EXPERIMENTAL_FAST: ${{ inputs.agentx-fast && '1' || '0' }}
   EVAL_LIMIT: ${{ inputs.eval-limit }}
   SWEBENCH_GEN_MODE: ${{ inputs.swebench-gen-mode }}
   # Remote-bench env. Only consumed by *-remote-bench.sh recipes.
@@ -245,10 +270,30 @@ permissions:
 
 jobs:
   benchmark:
-    runs-on: ${{ inputs.runner }}
+    runs-on: >-
+      ${{ fromJSON(
+        vars.PRIORITY_SCHEDULER_ENABLED == 'true' &&
+        (
+          inputs.skip-queue-pr != '' &&
+          format(
+            '["self-hosted",{0},{1},{2},{3}]',
+            toJSON(inputs.runner),
+            toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
+            toJSON(format('ci-attempt-{0}', github.run_attempt)),
+            toJSON(format('ci-skip-queue-pr-{0}', inputs.skip-queue-pr))
+          ) ||
+          format(
+            '["self-hosted",{0},{1},{2}]',
+            toJSON(inputs.runner),
+            toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
+            toJSON(format('ci-attempt-{0}', github.run_attempt))
+          )
+        ) ||
+        format('[{0}]', toJSON(inputs.runner))
+      ) }}
     timeout-minutes: 500
     name: >-
-      ${{ inputs.model-prefix }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework == 'sglang' && 'sgl' || inputs.framework == 'dynamo-sglang' && 'dyn-sgl' || inputs.framework == 'sglang-disagg' && 'sgl-disagg' || inputs.framework }}
+      p${{ inputs.priority }} | ${{ inputs.model-prefix }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework == 'sglang' && 'sgl' || inputs.framework == 'dynamo-sglang' && 'dyn-sgl' || inputs.framework == 'sglang-disagg' && 'sgl-disagg' || inputs.framework }}
       TP${{ inputs.tp }}${{ inputs.pp != '' && inputs.pp != '1' && format('/PP{0}', inputs.pp) || '' }}${{ inputs.dcp-size != '' && inputs.dcp-size != '1' && format('/DCP{0}', inputs.dcp-size) || '' }}${{ inputs.pcp-size != '' && inputs.pcp-size != '1' && format('/PCP{0}', inputs.pcp-size) || '' }}${{ inputs.ep != '' && inputs.ep != '1' && format('/EP{0}', inputs.ep) || '' }}${{ inputs.dp-attn && '/DPA' || '' }}
       ${{ inputs.spec-decoding != 'none' && inputs.spec-decoding || '' }}
       ${{ inputs.kv-offloading != '' && inputs.kv-offloading != 'none' && format('{0} KV offload', inputs.kv-offloading) || '' }}
@@ -396,7 +441,26 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.eval-only && 'eval_gpu_metrics_' || 'gpu_metrics_' }}${{ env.RESULT_FILENAME }}
-          path: gpu_metrics.csv
+          path: |
+            gpu_metrics.csv
+            gpu_metrics_energy_start.csv
+            gpu_metrics_energy_end.csv
+            gpu_metrics_identity.json
+          if-no-files-found: ignore
+
+      - name: Upload power audit bundle
+        if: ${{ always() && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: power_audit_${{ env.RESULT_FILENAME }}
+          path: |
+            ${{ env.RESULT_FILENAME }}.json
+            agg_${{ env.RESULT_FILENAME }}.json
+            gpu_metrics.csv
+            gpu_metrics_energy_start.csv
+            gpu_metrics_energy_end.csv
+            gpu_metrics_identity.json
+            power_validation_${{ env.RESULT_FILENAME }}.json
           if-no-files-found: ignore
 
       - name: Upload eval results (if any)

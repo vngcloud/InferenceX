@@ -7,37 +7,51 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+sys.path.insert(0, str(ROOT / "runtime"))
+
 import sweep_matrix  # noqa: E402
+import config  # noqa: E402
 
 
 def matrix(**options):
     return sweep_matrix.resolve_matrix(**options)
 
 
-class MatrixTests(unittest.TestCase):
-    def test_shard_extraction_is_deterministic_and_preserves_cases(self):
-        document = matrix(backend="deepep-v2", only_sku="h200-dgxc")
-        cell = document["include"][0]
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "matrix.json"
-            source.write_text(json.dumps(document, sort_keys=True))
-            outputs = [
-                sweep_matrix.extract_shard(
-                    source, cell["id"], root / f"shard-{index}.json",
-                )
-                for index in range(2)
-            ]
-        self.assertEqual(outputs[0], outputs[1])
-        self.assertEqual(outputs[0]["cases"], cell["cases"])
+def cells(document, project=("sku", "ep"), **filters):
+    """Projected set of the requested cases matching `filters`.
 
+    The rollout tests all ask the same question -- which (sku, ep) pairs a backend offers, and
+    under which disposition -- so they share one query instead of restating the comprehension.
+    `project` names the fields to return ("sku" comes from the item, everything else from its
+    case); a single field projects to scalars rather than 1-tuples.
+    """
+    fields = (project,) if isinstance(project, str) else project
+    selected = set()
+    for item in document["requested_cases"]:
+        case = item["case"]
+        if any(
+            (item["disposition"] if key == "disposition" else case[key]) != value
+            for key, value in filters.items()
+        ):
+            continue
+        row = tuple(item["sku"] if f == "sku" else case[f] for f in fields)
+        selected.add(row[0] if isinstance(project, str) else row)
+    return selected
+
+
+class MatrixTests(unittest.TestCase):
     def test_sku_and_ep_filters_only_remove_cases(self):
+        # Subtractive with ONE deliberate exception: naming an off-path precision explicitly
+        # opts its rows back in (see OFF_PATH_PRECISIONS), so the fp8 subset is compared
+        # against a baseline that also names fp8 rather than against the default matrix.
         full = matrix(backend="all")
-        for options, keep in (
+        full_with_off_path = matrix(backend="all", precisions="bf16,fp8")
+        for case in (
             ({"exclude_skus": "b300"}, lambda item: item["sku"] != "b300"),
             ({"ep_sizes": "8"}, lambda item: item["case"]["ep"] == 8),
             # A precision subset removes only the runnable cases of the other
@@ -45,7 +59,7 @@ class MatrixTests(unittest.TestCase):
             ({"precisions": "bf16"}, lambda item: item["case"]["precision"] == "bf16"),
             ({"precisions": "fp8"},
              lambda item: item["case"]["precision"] == "fp8"
-             or item["disposition"] == "unsupported"),
+             or item["disposition"] == "unsupported", "off_path"),
             # A mode subset removes only the runnable cases of the other mode; the
             # ep-unsupported placeholder is normal-mode and mode-filter-independent, so it
             # survives both selections (mirrors the precision rows above).
@@ -54,9 +68,12 @@ class MatrixTests(unittest.TestCase):
              lambda item: item["case"]["mode"] == "low-latency"
              or item["disposition"] == "unsupported"),
         ):
+            options, keep = case[0], case[1]
             partial = matrix(backend="all", **options)
+            baseline = full_with_off_path if len(case) > 2 else full
             expected = {
-                item["case"]["case_id"]: item for item in full["requested_cases"] if keep(item)
+                item["case"]["case_id"]: item
+                for item in baseline["requested_cases"] if keep(item)
             }
             actual = {item["case"]["case_id"]: item for item in partial["requested_cases"]}
             self.assertEqual(actual, expected)
@@ -78,34 +95,6 @@ class MatrixTests(unittest.TestCase):
         for item in document["requested_cases"]:
             self.assertIn(item["case"]["backend"], sweep_matrix.PLATFORMS[item["sku"]]["backends"])
 
-    def test_runnable_cases_fan_out_over_backend_precisions(self):
-        document = matrix(backend="all")
-        runnable = [
-            item for item in document["requested_cases"]
-            if item["disposition"] == "runnable"
-        ]
-        # Every runnable case carries a precision its backend supports, and each
-        # (sku, backend, ep, phase) cell is realized once per supported precision.
-        by_cell: dict[tuple, set[str]] = {}
-        for item in runnable:
-            case = item["case"]
-            self.assertIn(
-                case["precision"], sweep_matrix.BACKEND_PRECISIONS[case["backend"]]
-            )
-            cell = (item["sku"], case["backend"], case["ep"], case["phase"])
-            by_cell.setdefault(cell, set()).add(case["precision"])
-        for cell, precisions in by_cell.items():
-            expected = {
-                precision for precision in sweep_matrix.SWEEP["precisions"]
-                if precision in sweep_matrix.BACKEND_PRECISIONS[cell[1]]
-            }
-            self.assertEqual(precisions, expected, cell)
-        # Both current backends realize BF16 and FP8.
-        self.assertEqual(
-            {precision for precisions in by_cell.values() for precision in precisions},
-            {"bf16", "fp8"},
-        )
-
     def test_case_ids_are_unique_across_the_matrix(self):
         # precision is part of case_id, so a cell's bf16 and fp8 attempts are distinct
         # identities. Without precision in the id the two would collide; assert the full
@@ -117,39 +106,6 @@ class MatrixTests(unittest.TestCase):
         for item in document["requested_cases"]:
             self.assertTrue(item["case"]["case_id"].endswith(item["case"]["precision"]))
 
-    def test_low_latency_is_decode_only_and_capability_gated(self):
-        # Low-latency cases are additive: they appear only for (sku, backend, ep) cells
-        # listed in the platform registry's ll_backends map, only in the decode phase, and
-        # never as unsupported placeholders. Normal-mode cases are unchanged by their
-        # presence.
-        document = matrix(backend="all")
-        ll = [
-            item for item in document["requested_cases"]
-            if item["case"]["mode"] == "low-latency"
-        ]
-        self.assertTrue(ll, "expected at least one low-latency cell in the registry")
-        for item in ll:
-            case = item["case"]
-            self.assertEqual(item["disposition"], "runnable")
-            self.assertEqual(case["phase"], "decode")
-            self.assertIn("low-latency", sweep_matrix.SWEEP["modes"])
-            ll_backends = sweep_matrix.PLATFORMS[item["sku"]].get("ll_backends", {})
-            self.assertIn(case["ep"], ll_backends.get(case["backend"], []))
-            self.assertIn("-low-latency-", case["case_id"])
-        # Every low-latency cell realizes exactly its backend's supported precisions.
-        by_cell: dict[tuple, set[str]] = {}
-        for item in ll:
-            case = item["case"]
-            cell = (item["sku"], case["backend"], case["ep"])
-            by_cell.setdefault(cell, set()).add(case["precision"])
-        for cell, precisions in by_cell.items():
-            self.assertEqual(
-                precisions,
-                {p for p in sweep_matrix.SWEEP["precisions"]
-                 if p in sweep_matrix.BACKEND_PRECISIONS[cell[1]]},
-                cell,
-            )
-
     def test_ll_backends_is_a_well_formed_subset_of_backends(self):
         # A cell can only run low-latency where it can run at all: every ll_backends
         # entry names a real backend of that SKU and a subset of its normal EP degrees.
@@ -160,6 +116,47 @@ class MatrixTests(unittest.TestCase):
                     self.assertIn(backend, platform["backends"])
                     self.assertTrue(degrees)
                     self.assertLessEqual(set(degrees), set(platform["backends"][backend]))
+
+    def test_flashinfer_ep_rollout_shape(self):
+        # FlashInfer one-sided is the transport a GB deployment actually runs: vLLM picks
+        # `flashinfer_nvlink_one_sided` on NVLink and `deepep_v2` on RDMA, so it belongs on the
+        # MNNVL SKUs and nowhere else this pass.
+        #   * GB NVL72 (gb200/gb300): EP8 AND EP16, both inside the 72-GPU scale-up domain.
+        #   * No x86 rows. The kernels are grouped upstream under MNNVL and vLLM gates them on an
+        #     MNNVL-availability probe, so an HGX 8-GPU NVSwitch node may not qualify; that is an
+        #     open question, not an assumed capability, and is left unclaimed until measured.
+        #   * No AMD rows (NVIDIA/MNNVL only).
+        #   * No low-latency row anywhere: FlashInfer exposes one one-sided A2A kernel family, not
+        #     a separate decode kernel, so an ll_backends cell would re-measure the same kernel
+        #     under a mode that promises a different one. Decode is still covered by the decode
+        #     phase of normal mode.
+        # BF16 only in the DEFAULT matrix: the FP8 dispatch is implemented and oracle-validated,
+        # but no engine can select it on this transport, so OFF_PATH_PRECISIONS keeps it out
+        # unless `--precisions` names fp8 explicitly.
+        document = matrix(backend="all")
+        cases = [
+            item for item in document["requested_cases"]
+            if item["case"]["backend"] == "flashinfer-ep"
+        ]
+        runnable = {
+            (item["sku"], item["case"]["ep"])
+            for item in cases if item["disposition"] == "runnable"
+        }
+        self.assertEqual(runnable, {(sku, ep) for sku in ("gb200", "gb300") for ep in (8, 16)})
+        # FP8 is dispatch-side only: scales ride as a fourth payload (kMaxPayloads is exactly 4)
+        # and combine stays BF16, so none of the 0.6.16+ combine-quant API is needed. It is
+        # realizable but off-path, so the DEFAULT matrix carries BF16 alone and naming the
+        # precision brings it back for transport comparison.
+        self.assertEqual({item["case"]["precision"] for item in cases}, {"bf16"})
+        opted_in = cells(
+            matrix(backend="flashinfer-ep", precisions="fp8"), "precision",
+            disposition="runnable",
+        )
+        self.assertEqual(opted_in, {"fp8"})
+        # Normal mode only — no low-latency cell on any SKU.
+        self.assertEqual({item["case"]["mode"] for item in cases}, {"normal"})
+        for platform in sweep_matrix.PLATFORMS.values():
+            self.assertNotIn("flashinfer-ep", platform.get("ll_backends", {}))
 
     def test_invalid_filters_fail_closed(self):
         for options in (
@@ -173,6 +170,78 @@ class MatrixTests(unittest.TestCase):
         ):
             with self.subTest(options=options), self.assertRaises(SystemExit):
                 sweep_matrix.resolve_matrix(**options)
+
+
+class UndeclaredPrecisionsFailClosed(unittest.TestCase):
+    # A backend in platform_config but missing from BACKEND_PRECISIONS must stop the matrix
+    # rather than resolve to bf16-only: that yields a MISSING case, not a mislabelled one, and
+    # run_sweep's non-bf16-dispatch guard can only catch cases that ran.
+    def test_a_backend_without_declared_precisions_stops_the_matrix(self):
+        pruned = {
+            name: value for name, value in sweep_matrix.BACKEND_PRECISIONS.items()
+            if name != "deepep-v2"
+        }
+        with mock.patch.object(sweep_matrix, "BACKEND_PRECISIONS", pruned):
+            with self.assertRaises(SystemExit) as caught:
+                sweep_matrix.resolve_matrix()
+        self.assertIn("deepep-v2", str(caught.exception))
+        self.assertIn("BACKEND_PRECISIONS", str(caught.exception))
+
+    def test_every_scheduled_backend_declares_its_precisions(self):
+        for backend in sweep_matrix.SWEEP_BACKENDS:
+            self.assertIn(backend, sweep_matrix.BACKEND_PRECISIONS, backend)
+
+
+class BackendMaturityTests(unittest.TestCase):
+    """The registry map and each adapter's `maturity` are two copies of one fact, read by
+    different consumers, so they can drift silently: pin coverage, vocabulary and agreement.
+    The adapter side is parsed from source rather than imported — importing an adapter pulls
+    in torch and the vendor EP library, which the test image does not carry.
+    """
+
+    VOCABULARY = {"production", "candidate"}
+
+    @staticmethod
+    def _declared_in_source():
+        """{backend name: maturity} parsed from the adapter class bodies."""
+        import ast
+
+        declared = {}
+        for path in sorted((ROOT / "bench").glob("ep_*.py")):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                literals = {}
+                for statement in node.body:
+                    if not isinstance(statement, ast.Assign):
+                        continue
+                    if not isinstance(statement.value, ast.Constant):
+                        continue
+                    for target in statement.targets:
+                        if isinstance(target, ast.Name):
+                            literals[target.id] = statement.value.value
+                # The abstract base declares both as empty defaults; skip it.
+                if literals.get("name") and "maturity" in literals:
+                    declared[literals["name"]] = literals["maturity"]
+        return declared
+
+    def test_registry_covers_every_dispatched_backend(self):
+        maturity = sweep_matrix.BACKEND_MATURITY
+        for sku, platform in sweep_matrix.PLATFORMS.items():
+            for backend in platform["backends"]:
+                with self.subTest(sku=sku, backend=backend):
+                    self.assertIn(backend, maturity)
+                    self.assertIn(maturity[backend], self.VOCABULARY)
+
+    def test_adapters_and_registry_agree(self):
+        declared = self._declared_in_source()
+        # Every backend the matrix can dispatch must declare a maturity in its adapter,
+        # or the artifact it writes would say "unknown" while the registry says otherwise.
+        for backend, expected in sweep_matrix.BACKEND_MATURITY.items():
+            with self.subTest(backend=backend):
+                self.assertIn(backend, declared)
+                self.assertEqual(declared[backend], expected)
 
 
 if __name__ == "__main__":

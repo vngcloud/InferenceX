@@ -109,7 +109,10 @@ unset _benchmark_caller
 # --------------------------------
 
 GPU_MONITOR_PID=""
-GPU_METRICS_CSV="/workspace/gpu_metrics.csv"
+GPU_MONITOR_VENDOR=""
+GPU_MONITOR_INTERVAL=1
+GPU_METRICS_CSV="${GPU_METRICS_CSV:-gpu_metrics.csv}"
+NVIDIA_GPU_MONITOR_QUERY="timestamp,index,power.draw,temperature.gpu,clocks.current.sm,clocks.current.memory,utilization.gpu,utilization.memory"
 export GPU_METRICS_CSV
 
 # Start background GPU monitoring that logs metrics every second to CSV.
@@ -128,21 +131,33 @@ start_gpu_monitor() {
     done
 
     GPU_METRICS_CSV="$output"
+    GPU_MONITOR_INTERVAL="$interval"
     export GPU_METRICS_CSV
 
     if command -v nvidia-smi &>/dev/null; then
-        nvidia-smi --query-gpu=timestamp,index,power.draw,temperature.gpu,clocks.current.sm,clocks.current.memory,utilization.gpu,utilization.memory \
+        GPU_MONITOR_VENDOR="nvidia"
+        nvidia-smi --query-gpu="$NVIDIA_GPU_MONITOR_QUERY" \
             --format=csv -l "$interval" > "$output" 2>/dev/null &
         GPU_MONITOR_PID=$!
         echo "[GPU Monitor] Started NVIDIA (PID=$GPU_MONITOR_PID, interval=${interval}s, output=$output)"
     elif command -v amd-smi &>/dev/null; then
+        GPU_MONITOR_VENDOR="amd"
         # Use amd-smi native watch mode (-w) which includes timestamps automatically.
-        # Pipe through awk to: skip preamble lines, keep first CSV header, skip repeated headers.
-        amd-smi metric -p -c -t -u -w "$interval" --csv 2>/dev/null \
-            | awk '/^timestamp,/{if(!h){print;h=1};next} h{print}' > "$output" &
+        # PYTHONUNBUFFERED defeats the tool's own stdout block buffering (amd-smi is
+        # Python; measured on MI355X: trailing ticks were lost at kill without it).
+        # Pipe through awk to: skip preamble lines, keep first CSV header, skip repeated
+        # headers, and flush every row so killing the pipe cannot discard buffered samples.
+        PYTHONUNBUFFERED=1 amd-smi metric -p -c -t -u -w "$interval" --csv 2>/dev/null \
+            | awk '/^timestamp,/{if(!h){print;h=1};next} h{print;fflush()}' > "$output" &
         GPU_MONITOR_PID=$!
+        # Hardware energy-accumulator + identity snapshots; the end-side twin in
+        # stop_gpu_monitor lets auditors cross-check the integrated energy
+        # against the accumulator delta.
+        _write_amd_smi_sidecar "${output%.csv}_energy_start.csv" metric -E --csv
+        _write_amd_smi_sidecar "${output%.csv}_identity.json" static --json
         echo "[GPU Monitor] Started AMD (PID=$GPU_MONITOR_PID, interval=${interval}s, output=$output)"
     else
+        GPU_MONITOR_VENDOR=""
         echo "[GPU Monitor] No GPU monitoring tool found (nvidia-smi or amd-smi), skipping"
         return 0
     fi
@@ -151,8 +166,33 @@ start_gpu_monitor() {
 # Stop the background GPU monitor and report file size.
 stop_gpu_monitor() {
     if [[ -n "$GPU_MONITOR_PID" ]] && kill -0 "$GPU_MONITOR_PID" 2>/dev/null; then
+        # benchmark_end_time_unix is recorded shortly before the benchmark
+        # process exits, so the stream must cover one more sample past it for
+        # deterministic boundary interpolation. NVIDIA appends a one-shot
+        # post-exit sample below; amd-smi one-shot CSV has no timestamp column,
+        # so the AMD path instead lets the watch stream emit final ticks before
+        # the kill. Two extra intervals: amd-smi stamps integer seconds, so a
+        # tick in the same second as the window end still fails bracketing —
+        # the stream needs a tick at the NEXT whole second (measured on MI355X:
+        # end=...153.325 vs last sample ...153.0).
+        if [[ "$GPU_MONITOR_VENDOR" == "amd" ]]; then
+            sleep $(( ${GPU_MONITOR_INTERVAL:-1} + 2 ))
+        fi
         kill "$GPU_MONITOR_PID" 2>/dev/null
         wait "$GPU_MONITOR_PID" 2>/dev/null || true
+        case "$GPU_MONITOR_VENDOR" in
+            nvidia)
+                if _repair_truncated_gpu_metrics_tail; then
+                    nvidia-smi --query-gpu="$NVIDIA_GPU_MONITOR_QUERY" \
+                        --format=csv,noheader >> "$GPU_METRICS_CSV" 2>/dev/null ||
+                        echo "[GPU Monitor] Warning: final NVIDIA sample failed" >&2
+                fi
+                ;;
+            amd)
+                _repair_truncated_gpu_metrics_tail || true
+                _write_amd_smi_sidecar "${GPU_METRICS_CSV%.csv}_energy_end.csv" metric -E --csv
+                ;;
+        esac
         echo "[GPU Monitor] Stopped (PID=$GPU_MONITOR_PID)"
         if [[ -f "$GPU_METRICS_CSV" ]]; then
             local lines
@@ -161,6 +201,60 @@ stop_gpu_monitor() {
         fi
     fi
     GPU_MONITOR_PID=""
+    GPU_MONITOR_VENDOR=""
+}
+
+# Drop a partial trailing row left behind when the monitor dies mid-write.
+# Returns non-zero when a truncated row was detected but could not be removed.
+_repair_truncated_gpu_metrics_tail() {
+    local repaired_metrics="${GPU_METRICS_CSV}.repair.$$"
+    if [[ -s "$GPU_METRICS_CSV" ]] &&
+        ! tail -c 1 "$GPU_METRICS_CSV" | grep -q '^$'; then
+        if sed '$d' "$GPU_METRICS_CSV" > "$repaired_metrics" &&
+            mv "$repaired_metrics" "$GPU_METRICS_CSV"; then
+            echo "[GPU Monitor] Dropped truncated trailing sample"
+        else
+            rm -f "$repaired_metrics"
+            echo "[GPU Monitor] Warning: could not repair truncated trailing sample" >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Write one best-effort amd-smi snapshot; remove the file rather than keep a
+# partial one when the invocation fails.
+_write_amd_smi_sidecar() {
+    local out="$1"
+    shift
+    if ! amd-smi "$@" > "$out" 2>/dev/null; then
+        rm -f "$out"
+        echo "[GPU Monitor] Warning: amd-smi $1 sidecar failed" >&2
+    fi
+}
+
+# Block until the GPUs have released a prior job's memory before starting a run.
+# Polls rocm-smi VRAM% every 10s for up to 15 minutes; succeeds once the busiest
+# GPU is at <=10% VRAM, otherwise returns 1 so the caller aborts rather than
+# starting a benchmark on GPUs still draining the previous run's memory.
+wait_for_amd_gpu_clean() {
+    local gpu_clean=false vram_max i
+    for i in $(seq 1 90); do
+        vram_max=$(rocm-smi --showmemuse 2>/dev/null \
+            | grep -oE "GPU Memory Allocated \(VRAM%\): [0-9]+" \
+            | awk '{if ($NF > m) m = $NF} END {print m+0}')
+        if [ "${vram_max:-0}" -le 10 ]; then
+            echo "GPUs clean (vram%max=$vram_max after $((i * 10))s)"
+            gpu_clean=true
+            break
+        fi
+        echo "waiting for prior-job GPU memory reclaim: vram%max=$vram_max"
+        sleep 10
+    done
+    if [ "$gpu_clean" != "true" ]; then
+        echo "Error: GPUs still draining prior job's memory after 15min" >&2
+        return 1
+    fi
 }
 
 # Return success only while a PID exists and is not a zombie waiting to be
@@ -249,37 +343,36 @@ check_env_vars() {
     fi
 }
 
-# Wait for server to be ready by polling the health endpoint
-# All parameters are required
-# Parameters:
-#   --port: Server port
-#   --server-log: Path to server log file
-#   --server-pid: Server process ID (required)
-#   --sleep-interval: Sleep interval between health checks (optional, default: 5)
-wait_for_server_ready() {
+# Poll an HTTP endpoint while streaming the owning process log.
+# Required: --endpoint, --log, --pid. A zero timeout waits indefinitely.
+wait_for_ready() {
     set +x
-    local port=""
-    local server_log=""
-    local server_pid=""
+    local endpoint=""
+    local process_log=""
+    local process_pid=""
     local sleep_interval=5
+    local timeout=0
 
-    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --port)
-                port="$2"
+            --endpoint)
+                endpoint="$2"
                 shift 2
                 ;;
-            --server-log)
-                server_log="$2"
+            --log)
+                process_log="$2"
                 shift 2
                 ;;
-            --server-pid)
-                server_pid="$2"
+            --pid)
+                process_pid="$2"
                 shift 2
                 ;;
             --sleep-interval)
                 sleep_interval="$2"
+                shift 2
+                ;;
+            --timeout)
+                timeout="$2"
                 shift 2
                 ;;
             *)
@@ -289,41 +382,112 @@ wait_for_server_ready() {
         esac
     done
 
-    # Validate required parameters
-    if [[ -z "$port" ]]; then
-        echo "Error: --port is required"
+    if [[ -z "$endpoint" ]]; then
+        echo "Error: --endpoint is required"
         return 1
     fi
-    if [[ -z "$server_log" ]]; then
-        echo "Error: --server-log is required"
+    if [[ -z "$process_log" ]]; then
+        echo "Error: --log is required"
         return 1
     fi
-    if [[ -z "$server_pid" ]]; then
-        echo "Error: --server-pid is required"
+    if [[ -z "$process_pid" ]]; then
+        echo "Error: --pid is required"
+        return 1
+    fi
+    if [[ ! "$sleep_interval" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: --sleep-interval must be a positive integer"
+        return 1
+    fi
+    if [[ ! "$timeout" =~ ^[0-9]+$ ]]; then
+        echo "Error: --timeout must be a non-negative integer"
         return 1
     fi
 
-    # Wait for server log file to be created (container startup may delay this)
-    while [ ! -f "$server_log" ]; do
-        if ! kill -0 "$server_pid" 2>/dev/null; then
-            echo "Server died before creating log file. Exiting."
+    local deadline=0
+    if [[ "$timeout" -gt 0 ]]; then
+        deadline=$((SECONDS + timeout))
+    fi
+
+    while [[ ! -f "$process_log" ]]; do
+        if ! kill -0 "$process_pid" 2>/dev/null; then
+            echo "Process died before creating $process_log." >&2
+            exit 1
+        fi
+        if [[ "$deadline" -gt 0 && "$SECONDS" -ge "$deadline" ]]; then
+            echo "Timed out waiting for $endpoint." >&2
             exit 1
         fi
         sleep 1
     done
 
-    # Show logs until server is ready
-    tail -f -n +1 "$server_log" &
-    local TAIL_PID=$!
-    until curl --output /dev/null --silent --fail http://0.0.0.0:$port/health; do
-        if ! kill -0 "$server_pid" 2>/dev/null; then
-            echo "Server died before becoming healthy. Exiting."
-            kill $TAIL_PID
+    tail -f -n +1 "$process_log" &
+    local tail_pid=$!
+    until curl --output /dev/null --silent --fail "$endpoint"; do
+        if ! kill -0 "$process_pid" 2>/dev/null; then
+            echo "Process died before $endpoint became ready." >&2
+            kill "$tail_pid" 2>/dev/null || true
+            exit 1
+        fi
+        if [[ "$deadline" -gt 0 && "$SECONDS" -ge "$deadline" ]]; then
+            echo "Timed out waiting for $endpoint." >&2
+            kill "$tail_pid" 2>/dev/null || true
             exit 1
         fi
         sleep "$sleep_interval"
     done
-    kill $TAIL_PID
+    kill "$tail_pid" 2>/dev/null || true
+    wait "$tail_pid" 2>/dev/null || true
+}
+
+wait_for_server_ready() {
+    local port=""
+    local server_log=""
+    local server_pid=""
+    local sleep_interval=5
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --port) port="$2"; shift 2 ;;
+            --server-log) server_log="$2"; shift 2 ;;
+            --server-pid) server_pid="$2"; shift 2 ;;
+            --sleep-interval) sleep_interval="$2"; shift 2 ;;
+            *) echo "Unknown parameter: $1"; return 1 ;;
+        esac
+    done
+
+    if [[ -z "$port" || -z "$server_log" || -z "$server_pid" ]]; then
+        echo "Error: --port, --server-log, and --server-pid are required"
+        return 1
+    fi
+
+    wait_for_ready \
+        --endpoint "http://0.0.0.0:${port}/health" \
+        --log "$server_log" \
+        --pid "$server_pid" \
+        --sleep-interval "$sleep_interval"
+}
+
+# Persist an argv array in shell-replayable form.
+write_command() {
+    local output_file="$1"
+    shift
+    printf '%q ' "$@" | tee "$output_file"
+    printf '\n' | tee -a "$output_file"
+}
+
+append_command() {
+    local output_file="$1"
+    shift
+    printf '%q ' "$@" >> "$output_file"
+    printf '\n' >> "$output_file"
+}
+
+# Persist an argv array in shell-replayable form.
+write_command() {
+    local output_file="$1"
+    shift
+    printf '%q ' "$@" | tee "$output_file"
+    printf '\n' | tee -a "$output_file"
 }
 
 # Run benchmark serving with standardized parameters
@@ -961,6 +1125,142 @@ _eval_concs_to_json() {
     printf '[%s]' "$joined"
 }
 
+_env_is_true() {
+    case "${1,,}" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_resolve_disagg_ep() {
+    local ep="${1:-1}"
+    local enable_flag="${2:-false}"
+    local tp_size="${3:-1}"
+    if [[ "$ep" == "1" ]] && _env_is_true "$enable_flag"; then
+        echo "$tp_size"
+    else
+        echo "$ep"
+    fi
+}
+
+_normalize_bool_json() {
+    if _env_is_true "${1:-false}"; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+# Export TP/EP/DP metadata for append_lm_eval_summary / meta_env.json.
+# Prefer workflow PREFILL_EP/DECODE_EP and *_DP_ATTN (from job.slurm) over
+# ENABLE_* launch booleans so DEP8/DPA arms record the correct topology.
+bridge_disagg_eval_metadata() {
+    export TP="${PREFILL_TP:-${PREFILL_TP_SIZE:-${TP:-1}}}"
+    export PREFILL_TP="${PREFILL_TP:-${PREFILL_TP_SIZE:-${TP:-1}}}"
+    export PREFILL_EP="$(_resolve_disagg_ep "${PREFILL_EP:-1}" "${PREFILL_ENABLE_EP:-false}" "${PREFILL_TP_SIZE:-${PREFILL_TP:-1}}")"
+    export EP_SIZE="${PREFILL_EP}"
+    export PREFILL_NUM_WORKERS="${PREFILL_NUM_WORKERS:-${xP:-1}}"
+    export DECODE_TP="${DECODE_TP:-${DECODE_TP_SIZE:-${TP:-1}}}"
+    export DECODE_EP="$(_resolve_disagg_ep "${DECODE_EP:-1}" "${DECODE_ENABLE_EP:-false}" "${DECODE_TP_SIZE:-${DECODE_TP:-1}}")"
+    export DECODE_NUM_WORKERS="${DECODE_NUM_WORKERS:-${yD:-1}}"
+
+    local prefill_dp="${PREFILL_DP_ATTN:-${PREFILL_DP_ATTENTION:-${PREFILL_ENABLE_DP:-false}}}"
+    local decode_dp="${DECODE_DP_ATTN:-${DECODE_DP_ATTENTION:-${DECODE_ENABLE_DP:-false}}}"
+    export DP_ATTENTION="$(_normalize_bool_json "$prefill_dp")"
+    export PREFILL_DP_ATTENTION="$(_normalize_bool_json "$prefill_dp")"
+    export DECODE_DP_ATTENTION="$(_normalize_bool_json "$decode_dp")"
+}
+
+_write_lm_eval_meta_json() {
+    local meta_json="$1"
+    local batch_metadata="${2:-}"
+    local metadata_conc="${3:-${CONC:-1}}"
+
+    bridge_disagg_eval_metadata
+
+    local model_name="${MODEL_NAME:-$MODEL}"
+    local is_multinode_json="false"
+    if [ "${IS_MULTINODE:-false}" = "true" ]; then
+        is_multinode_json="true"
+    fi
+
+    local prefill_tp="${PREFILL_TP:-${TP:-1}}"
+    local prefill_pp="${PREFILL_PP_SIZE:-${PP_SIZE:-1}}"
+    local prefill_dcp_size="${PREFILL_DCP_SIZE:-${DCP_SIZE:-1}}"
+    local prefill_pcp_size="${PREFILL_PCP_SIZE:-${PCP_SIZE:-1}}"
+    local prefill_ep="${PREFILL_EP:-${EP_SIZE:-1}}"
+    local prefill_num_workers="${PREFILL_NUM_WORKERS:-1}"
+    local decode_tp="${DECODE_TP:-${TP:-1}}"
+    local decode_pp="${DECODE_PP_SIZE:-${PP_SIZE:-1}}"
+    local decode_dcp_size="${DECODE_DCP_SIZE:-${DCP_SIZE:-1}}"
+    local decode_pcp_size="${DECODE_PCP_SIZE:-${PCP_SIZE:-1}}"
+    local decode_ep="${DECODE_EP:-${EP_SIZE:-1}}"
+    local decode_num_workers="${DECODE_NUM_WORKERS:-1}"
+
+    local dp_json
+    dp_json="$(_normalize_bool_json "${DP_ATTENTION:-false}")"
+    local prefill_dp_json
+    prefill_dp_json="$(_normalize_bool_json "${PREFILL_DP_ATTENTION:-${DP_ATTENTION:-false}}")"
+    local decode_dp_json
+    decode_dp_json="$(_normalize_bool_json "${DECODE_DP_ATTENTION:-${DP_ATTENTION:-false}}")"
+
+    local fw="${FRAMEWORK:-}"
+    local prec="${PRECISION:-}"
+    if [[ -z "$fw" || -z "$prec" ]]; then
+        if [[ -n "${RESULT_FILENAME:-}" ]]; then
+            local parsed
+            parsed=$(echo "${RESULT_FILENAME}" | sed -n 's/.*_\([^_][^_]*\)_\([^_][^_]*\)_tp.*/\1 \2/p')
+            local p1="${parsed%% *}"
+            local p2="${parsed#* }"
+            if [[ -z "$prec" && -n "$p1" && "$p1" != "$parsed" ]]; then
+                prec="$p1"
+            fi
+            if [[ -z "$fw" && -n "$p2" && "$p2" != "$parsed" ]]; then
+                fw="$p2"
+            fi
+        fi
+    fi
+
+    cat > "${meta_json}" <<META
+{
+  "is_multinode": ${is_multinode_json},
+  "framework": "${fw:-unknown}",
+  "precision": "${prec:-unknown}",
+  "spec_decoding": "${SPEC_DECODING:-}",
+  "tp": ${TP:-1},
+  "pp": ${PP_SIZE:-1},
+  "dcp_size": ${DCP_SIZE:-1},
+  "pcp_size": ${PCP_SIZE:-1},
+  "conc": ${metadata_conc},
+${batch_metadata}  "ep": ${EP_SIZE:-1},
+  "dp_attention": ${dp_json},
+  "prefill_tp": ${prefill_tp},
+  "prefill_pp": ${prefill_pp},
+  "prefill_dcp_size": ${prefill_dcp_size},
+  "prefill_pcp_size": ${prefill_pcp_size},
+  "prefill_ep": ${prefill_ep},
+  "prefill_dp_attention": ${prefill_dp_json},
+  "prefill_num_workers": ${prefill_num_workers},
+  "decode_tp": ${decode_tp},
+  "decode_pp": ${decode_pp},
+  "decode_dcp_size": ${decode_dcp_size},
+  "decode_pcp_size": ${decode_pcp_size},
+  "decode_ep": ${decode_ep},
+  "decode_dp_attention": ${decode_dp_json},
+  "decode_num_workers": ${decode_num_workers},
+  "model": "${model_name:-}",
+  "infmax_model_prefix": "${MODEL_PREFIX:-unknown}",
+  "hw": "${RUNNER_TYPE:-unknown}",
+  "isl": "${ISL:-0}",
+  "osl": "${OSL:-0}"
+}
+META
+}
+
+rewrite_lm_eval_meta_env() {
+    _write_lm_eval_meta_json "./meta_env.json" "" "${CONC:-1}"
+}
+
 append_lm_eval_summary() {
     local batch_concs="${EVAL_BATCHED_CONCS:-}"
     local results_dir="${EVAL_RESULT_DIR:-}"
@@ -998,96 +1298,7 @@ append_lm_eval_summary() {
         meta_json="${out_dir}/meta_env.json"
     fi
 
-    # Write minimal meta for collectors that expect it
-    local model_name="${MODEL_NAME:-$MODEL}"
-    local is_multinode_json="false"
-    if [ "${IS_MULTINODE:-false}" = "true" ]; then
-        is_multinode_json="true"
-    fi
-
-    local prefill_tp="${PREFILL_TP:-${TP:-1}}"
-    local prefill_pp="${PREFILL_PP_SIZE:-${PP_SIZE:-1}}"
-    local prefill_dcp_size="${PREFILL_DCP_SIZE:-${DCP_SIZE:-1}}"
-    local prefill_pcp_size="${PREFILL_PCP_SIZE:-${PCP_SIZE:-1}}"
-    local prefill_ep="${PREFILL_EP:-${EP_SIZE:-1}}"
-    local prefill_num_workers="${PREFILL_NUM_WORKERS:-1}"
-    local decode_tp="${DECODE_TP:-${TP:-1}}"
-    local decode_pp="${DECODE_PP_SIZE:-${PP_SIZE:-1}}"
-    local decode_dcp_size="${DECODE_DCP_SIZE:-${DCP_SIZE:-1}}"
-    local decode_pcp_size="${DECODE_PCP_SIZE:-${PCP_SIZE:-1}}"
-    local decode_ep="${DECODE_EP:-${EP_SIZE:-1}}"
-    local decode_num_workers="${DECODE_NUM_WORKERS:-1}"
-
-    local dp_json="false"
-    if [ "${DP_ATTENTION:-false}" = "true" ]; then dp_json="true"; fi
-    local prefill_dp_json="$dp_json"
-    if [ "${PREFILL_DP_ATTENTION:-${DP_ATTENTION:-false}}" = "true" ]; then
-        prefill_dp_json="true"
-    else
-        prefill_dp_json="false"
-    fi
-    local decode_dp_json="$dp_json"
-    if [ "${DECODE_DP_ATTENTION:-${DP_ATTENTION:-false}}" = "true" ]; then
-        decode_dp_json="true"
-    else
-        decode_dp_json="false"
-    fi
-
-    # Derive framework/precision from env, fallback to parsing RESULT_FILENAME
-    # RESULT_FILENAME format (from workflow):
-    #   <exp_name>_<precision>_<framework>_tp<...>_ep<...>_dpa_<...>_conc<...>_<runner>
-    local fw="${FRAMEWORK:-}"
-    local prec="${PRECISION:-}"
-    if [[ -z "$fw" || -z "$prec" ]]; then
-        if [[ -n "${RESULT_FILENAME:-}" ]]; then
-            # Extract the two fields immediately before "_tp"
-            # Handles arbitrary underscores in exp_name by matching from the end
-            local parsed
-            parsed=$(echo "${RESULT_FILENAME}" | sed -n 's/.*_\([^_][^_]*\)_\([^_][^_]*\)_tp.*/\1 \2/p')
-            local p1="${parsed%% *}"
-            local p2="${parsed#* }"
-            if [[ -z "$prec" && -n "$p1" && "$p1" != "$parsed" ]]; then
-                prec="$p1"
-            fi
-            if [[ -z "$fw" && -n "$p2" && "$p2" != "$parsed" ]]; then
-                fw="$p2"
-            fi
-        fi
-    fi
-    cat > "${meta_json}" <<META
-{
-  "is_multinode": ${is_multinode_json},
-  "framework": "${fw:-unknown}",
-  "precision": "${prec:-unknown}",
-  "spec_decoding": "${SPEC_DECODING:-}",
-  "tp": ${TP:-1},
-  "pp": ${PP_SIZE:-1},
-  "dcp_size": ${DCP_SIZE:-1},
-  "pcp_size": ${PCP_SIZE:-1},
-  "conc": ${metadata_conc},
-${batch_metadata}  "ep": ${EP_SIZE:-1},
-  "dp_attention": ${dp_json},
-  "prefill_tp": ${prefill_tp},
-  "prefill_pp": ${prefill_pp},
-  "prefill_dcp_size": ${prefill_dcp_size},
-  "prefill_pcp_size": ${prefill_pcp_size},
-  "prefill_ep": ${prefill_ep},
-  "prefill_dp_attention": ${prefill_dp_json},
-  "prefill_num_workers": ${prefill_num_workers},
-  "decode_tp": ${decode_tp},
-  "decode_pp": ${decode_pp},
-  "decode_dcp_size": ${decode_dcp_size},
-  "decode_pcp_size": ${decode_pcp_size},
-  "decode_ep": ${decode_ep},
-  "decode_dp_attention": ${decode_dp_json},
-  "decode_num_workers": ${decode_num_workers},
-  "model": "${model_name:-}",
-  "infmax_model_prefix": "${MODEL_PREFIX:-unknown}",
-  "hw": "${RUNNER_TYPE:-unknown}",
-  "isl": "${ISL:-0}",
-  "osl": "${OSL:-0}"
-}
-META
+    _write_lm_eval_meta_json "$meta_json" "$batch_metadata" "$metadata_conc"
 
     if [ -n "$batch_concs" ]; then
         echo "Prepared batched eval artifacts in: $(pwd)"
@@ -1120,7 +1331,7 @@ _install_swebench_agent_deps() {
     python3 -m pip install -q --no-cache-dir --break-system-packages \
         'mini-swe-agent==2.4.5' 'swe-rex[modal]==1.4.0' || true
     _patch_swebench_agent || \
-        echo "WARN: mini-swe-agent/swe-rex patches failed; sandboxes will leak until runtime_timeout and budget-exhausted instances will submit nothing" >&2
+        echo "WARN: mini-swe-agent/swe-rex patches failed; sandbox cleanup, submission fallback, or non-interactive stdin handling may be degraded" >&2
 }
 
 _patch_swebench_agent() {
@@ -1143,7 +1354,12 @@ _patch_swebench_scoring() {
 
 # SWE-bench requires ~/.modal.toml despite env credentials.
 _ensure_modal_credentials() {
-    if [ "${SWEBENCH_USE_MODAL:-false}" != "true" ]; then return 0; fi
+    # Agentic generation uses swerex_modal sandboxes even when scoring is local.
+    if [ "${SWEBENCH_USE_MODAL:-false}" != "true" ] \
+        && [ "${IS_AGENTIC:-0}" != "1" ] \
+        && [ "${SCENARIO_TYPE:-}" != "agentic-coding" ]; then
+        return 0
+    fi
     # CI secrets may include whitespace or quotes.
     if [ -n "${MODAL_TOKEN_ID:-}" ]; then
         MODAL_TOKEN_ID=$(printf %s "$MODAL_TOKEN_ID" | tr -d "[:space:]\"'")
@@ -1166,7 +1382,7 @@ _ensure_modal_credentials() {
         chmod 600 "$HOME/.modal.toml"
         echo "[swebench] wrote ~/.modal.toml from MODAL_TOKEN_ID/MODAL_TOKEN_SECRET env"
     else
-        echo "WARN: SWEBENCH_USE_MODAL=true but no ~/.modal.toml and no MODAL_TOKEN_ID/MODAL_TOKEN_SECRET env; Modal scoring will fail credential validation" >&2
+        echo "WARN: Modal credentials required but no ~/.modal.toml and no MODAL_TOKEN_ID/MODAL_TOKEN_SECRET env; Modal sandboxes will fail authentication" >&2
     fi
 }
 
@@ -1198,7 +1414,7 @@ import os, sys, yaml
 default_path, out_path = sys.argv[1], sys.argv[2]
 d = yaml.safe_load(open(default_path)) or {}
 d.setdefault("agent", {})
-step_limit = int(os.environ.get("SWEBENCH_AGENT_STEP_LIMIT", "75"))
+step_limit = int(os.environ.get("SWEBENCH_AGENT_STEP_LIMIT", "250"))
 guidance = f"""
 
 <additional_critical_guidance>
@@ -1253,7 +1469,7 @@ PYGEN
 
     export MSWEA_COST_TRACKING=ignore_errors
     local expected="${EVAL_LIMIT:-${SWEBENCH_EXPECTED_INSTANCES:-300}}"
-    echo "[swebench-agentic] mini-swe-agent: workers=${SWEBENCH_AGENT_WORKERS:-${CONC:-64}} step_limit=${SWEBENCH_AGENT_STEP_LIMIT:-75} slice=${EVAL_LIMIT:-full} expected=$expected"
+    echo "[swebench-agentic] mini-swe-agent: workers=${SWEBENCH_AGENT_WORKERS:-${CONC:-64}} step_limit=${SWEBENCH_AGENT_STEP_LIMIT:-250} slice=${EVAL_LIMIT:-full} expected=$expected"
     local agen_rc=0
     mini-extra swebench \
         -c "$cfg" \
@@ -1265,12 +1481,12 @@ PYGEN
     local mini_pid=$!
     # preds.json detects completion despite teardown hangs.
     local preds_file="$gen_dir/agent_out/preds.json"
-    local deadline=$(( $(date +%s) + ${SWEBENCH_AGENT_TIMEOUT:-14400} ))
+    local deadline=$(( $(date +%s) + ${SWEBENCH_AGENT_TIMEOUT:-21600} ))
     local grace_until=0
     local killed_after_complete=0
     while kill -0 "$mini_pid" 2>/dev/null; do
         if [ "$(date +%s)" -ge "$deadline" ]; then
-            echo "ERROR: generation exceeded SWEBENCH_AGENT_TIMEOUT (${SWEBENCH_AGENT_TIMEOUT:-14400}s); killing mini-extra" >&2
+            echo "ERROR: generation exceeded SWEBENCH_AGENT_TIMEOUT (${SWEBENCH_AGENT_TIMEOUT:-21600}s); killing mini-extra" >&2
             kill "$mini_pid" 2>/dev/null; sleep 5; kill -9 "$mini_pid" 2>/dev/null
             agen_rc=124
             break
@@ -1471,7 +1687,6 @@ run_eval() {
     local scenario_default="lm-eval"
     local scenario_is_agentic=0
     if [ "${IS_AGENTIC:-0}" = "1" ] || [ "${SCENARIO_TYPE:-}" = "agentic-coding" ]; then
-        scenario_default="swebench"
         scenario_is_agentic=1
     fi
 
@@ -1591,6 +1806,8 @@ AIPERF_REPLAY_PID=""
 # would delete a workspace state file before the next job's cleanup could read
 # it.
 AIPERF_REPLAY_PID_FILE="${AIPERF_RUNTIME_DIR}/aiperf-replay.pid"
+AIPERF_LIVE_FAILED_REQUEST_THRESHOLD="${AIPERF_LIVE_FAILED_REQUEST_THRESHOLD:-$AIPERF_FAILED_REQUEST_THRESHOLD}"
+AIPERF_TRACE_IDLE_GAP_CAP_SECONDS="${AIPERF_TRACE_IDLE_GAP_CAP_SECONDS:-300}"
 
 agentic_pip_install() {
     local pip_install=(python3 -m pip install)
@@ -1637,8 +1854,19 @@ install_agentic_deps() {
     rm -rf "$AIPERF_VENV"
     mkdir -p "$AIPERF_UV_CACHE_DIR"
 
+    # Request an explicit interpreter version rather than binding to whatever
+    # `python3` resolves to in the server container. aiperf's pyproject.toml
+    # dropped Python 3.10 support (SemiAnalysisAI/aiperf#1107); the sglang-rocm
+    # /vllm-rocm images still ship 3.10.12 as their default python3, so
+    # `--python "$(command -v python3)"` pinned the venv to an interpreter that
+    # can no longer satisfy `requires-python = ">=3.11,<3.14"`, leaving the venv
+    # without aiperf/hf installed (silent until the aiperf/hf calls below hit
+    # "No such file or directory"). uv auto-downloads a standalone build of the
+    # requested version when the system doesn't have one (same network path
+    # already used to fetch uv itself above), so this doesn't depend on the
+    # container image bundling a new-enough Python.
     UV_CACHE_DIR="$AIPERF_UV_CACHE_DIR" \
-        "$AIPERF_UV_BIN" venv --python "$(command -v python3)" "$AIPERF_VENV"
+        "$AIPERF_UV_BIN" venv --python "${AIPERF_PYTHON_VERSION:-3.11}" "$AIPERF_VENV"
     UV_CACHE_DIR="$AIPERF_UV_CACHE_DIR" \
         "$AIPERF_UV_BIN" pip install --python "$AIPERF_PYTHON" \
         -r "$AGENTIC_DIR/requirements.txt" \
@@ -1885,14 +2113,21 @@ build_replay_cmd() {
     # the worker threads the server's live assistant response back into the
     # session.
     #
-    # The scenario plugin locks: --cache-bust first_turn_prefix and
-    # --trace-idle-gap-cap-seconds 10 (per-trace idle-gap compression
-    # against parent + subagent request-start timestamps; supersedes the
-    # legacy --use-think-time-only / --inter-turn-delay-cap-seconds path),
-    # and auto-injects them — so we do not pass them. See
+    # The scenario plugin locks --cache-bust first_turn_prefix and a 10-second
+    # whole-system idle cap. InferenceX also applies a 300-second per-trajectory
+    # runtime idle cap below. Source end-to-start delays remain intact; either
+    # cap advances pending timers only while its scope is idle. See
     # utils/aiperf/docs/tutorials/agentx-mvp.md.
     local result_dir="$1"
     local duration="$DURATION"
+    local warmup_requests_per_lane="${AIPERF_WARMUP_REQUESTS_PER_LANE:-10}"
+
+    # Fast mode minimizes setup by advancing each trajectory lane only once
+    # and shortens profiling to 20 minutes.
+    if [[ "${AIPERF_EXPERIMENTAL_FAST:-0}" == "1" ]]; then
+        duration=1200
+        warmup_requests_per_lane=1
+    fi
 
     export AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES="${AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES:-0}"
     # Dataset configuration (load + reconstruct + inputs.json + mmap)
@@ -1905,6 +2140,9 @@ build_replay_cmd() {
     # aiperf validates that SERVICE_PROFILE_CONFIGURE_TIMEOUT >=
     # DATASET_CONFIGURATION_TIMEOUT at startup. Bump it in lockstep.
     export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
+    # Headless realtime metrics are opt-in on current AIPerf main. Enable the
+    # rolling TTFT/ITL/throughput block and emit it every 30 seconds.
+    export AIPERF_UI_REALTIME_METRICS_ENABLED=true
     REPLAY_CMD="$AIPERF_CLI profile --scenario inferencex-agentx-mvp"
     REPLAY_CMD+=" --url ${REMOTE_BASE_URL:-http://localhost:$PORT}"
     REPLAY_CMD+=" --endpoint /v1/chat/completions"
@@ -1941,21 +2179,29 @@ build_replay_cmd() {
     [ "$_build_xtrace_was_on" = "1" ] && set -x
     REPLAY_CMD+=" --concurrency $CONC"
     REPLAY_CMD+=" --benchmark-duration $duration"
+    REPLAY_CMD+=" --stats-interval 30"
     REPLAY_CMD+=" --random-seed 42"
-    # Fail runs once more than 10% of requests error. This keeps known
-    # transient low-rate failures from killing long sweeps while still
-    # catching malformed payloads or server crashes before they get aggregated
-    # as benchmarkable data.
-    REPLAY_CMD+=" --failed-request-threshold $AIPERF_FAILED_REQUEST_THRESHOLD"
+    # Fail runs early once the live error ratio crosses the configured limit.
+    # Recipes with correlated low-concurrency trajectories may allow a larger
+    # live sample while retaining AIPERF_FAILED_REQUEST_THRESHOLD as the strict
+    # post-run validity gate below.
+    REPLAY_CMD+=" --failed-request-threshold $AIPERF_LIVE_FAILED_REQUEST_THRESHOLD"
     # Sample each trajectory's warmup start position uniformly from
     # [25%, 75%] of the trace's turn count, clamped by AIPerf to leave at
     # least one profile turn after warmup.
     REPLAY_CMD+=" --trajectory-start-min-ratio 0.25"
     REPLAY_CMD+=" --trajectory-start-max-ratio 0.75"
-    # After the normal t* snapshot warmup, continue those exact trajectories
-    # with one-token outputs and no idle delays for 10 minutes. Profiling begins
-    # only after those requests drain and resumes from the resulting live state.
-    REPLAY_CMD+=" --agentic-cache-warmup-duration 600"
+    # After the normal t* snapshot primers, advance every trajectory lane by
+    # this many additional one-token requests with no idle delay. Profiling
+    # begins after those requests drain and resumes from the resulting live
+    # state. Do not pass --burst-phase-starts: AIPerf main's spread default
+    # preserves each lane's recorded phase-start offset.
+    REPLAY_CMD+=" --warmup-requests-per-lane $warmup_requests_per_lane"
+    # Limit observed end-to-start idle time across each complete trajectory
+    # tree, including root and subagent streams. AIPerf advances that tree's
+    # pending timers uniformly without bypassing spawn/join dependencies or
+    # changing request order.
+    REPLAY_CMD+=" --trace-idle-gap-cap-seconds $AIPERF_TRACE_IDLE_GAP_CAP_SECONDS"
     # Give long-context warmup requests up to 30 minutes to drain before
     # declaring warmup failed. Recipes whose saturation arms carry a larger
     # in-flight working set may override via AGENTIC_WARMUP_GRACE_PERIOD
@@ -1974,7 +2220,15 @@ build_replay_cmd() {
     # X-Correlation-ID is useful tracing metadata but does not establish that
     # binding by itself. AIPerf emits nvext.session_control bind/close actions
     # keyed by the stable conversation correlation ID when this flag is set.
-    if [[ "${FRAMEWORK:-}" == dynamo-* ]]; then
+    # Opt-out: recipes set AIPERF_USE_DYNAMO_CONV_AWARE_ROUTING=0 to skip this.
+    # aiperf's conv-aware routing emits nvext.session_control, a removed POC field
+    # (dynamo #9920 / v1.3.0-dev) that current dynamo builds reject with a 400
+    # (they moved to router/routing_constraints/agent_context). Default stays on.
+    # New recipes instead set AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID=true
+    # to route by X-Dynamo-Session-ID header, which needs no routing CLI flag.
+    if [[ "${FRAMEWORK:-}" == dynamo-* \
+          && "${AIPERF_USE_DYNAMO_CONV_AWARE_ROUTING:-1}" != "0" \
+          && "${AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID:-false}" != "true" ]]; then
         REPLAY_CMD+=" --use-dynamo-conv-aware-routing"
         # The upstream 300s affinity TTL is shorter than an overloaded
         # high-concurrency agentic request. Keep bindings alive across long
@@ -2161,6 +2415,36 @@ reap_orphan_agentic_replays() {
     [ "$found" = "1" ] || echo "[aiperf] No replay state files found; nothing to reap"
 }
 
+validate_required_agentic_server_metrics() {
+    local result_dir="$1"
+    local required_prefix="${AIPERF_REQUIRED_SERVER_METRIC_PREFIX:-}"
+    local metrics_dir="$result_dir/aiperf_artifacts"
+    local metrics_json="$metrics_dir/server_metrics_export.json"
+    local metrics_csv="$metrics_dir/server_metrics_export.csv"
+
+    # Opt-in so existing AgentX configurations retain their current contract.
+    # Recipes that require trace charts set a metric prefix (for example
+    # `sglang:`) and fail loudly instead of publishing a partial trace artifact.
+    if [ -z "$required_prefix" ]; then
+        return 0
+    fi
+
+    if [ ! -s "$metrics_json" ] || [ ! -s "$metrics_csv" ]; then
+        echo "ERROR: required AIPerf server metrics artifacts are missing or empty in $metrics_dir" >&2
+        return 1
+    fi
+
+    # Avoid parsing the potentially multi-GiB JSON into memory. AIPerf writes
+    # metric names as JSON object keys, so a fixed-string scan establishes that
+    # backend engine metrics—not only frontend/router metrics—were captured.
+    if ! grep -F -m 1 -q "\"${required_prefix}" "$metrics_json"; then
+        echo "ERROR: $metrics_json contains no metric with required prefix '$required_prefix'" >&2
+        return 1
+    fi
+
+    echo "Validated required AIPerf server metrics prefix '$required_prefix'"
+}
+
 run_agentic_replay_and_write_outputs() {
     local result_dir="$1"
     local replay_rc
@@ -2284,4 +2568,6 @@ run_agentic_replay_and_write_outputs() {
         echo "ERROR: agentic trace replay produced invalid results after writing available artifacts" >&2
         return "$validation_rc"
     fi
+
+    validate_required_agentic_server_metrics "$result_dir"
 }
