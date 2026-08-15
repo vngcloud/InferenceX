@@ -234,6 +234,7 @@ labels:
     - h200-nb_0
   cluster:h200-greennode:
     - h200-greennode_01
+    - h200-greennode_03
     - h200-greennode_04
   cluster:b200-dgxc:
     - b200-dgxc_00
