@@ -8276,4 +8276,4 @@ gemma4-fp8block-h200-vllm:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 1, conc-start: 1, conc-end: 64 }
+      - { tp: 1, conc-start: 1, conc-end: 256 }
