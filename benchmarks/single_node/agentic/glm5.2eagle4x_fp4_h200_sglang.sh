@@ -55,7 +55,7 @@ SGLANG_CMD=(
   --reasoning-parser glm45
   --mem-fraction-static 0.88
   --max-running-requests "$MAX_RUNNING_REQUESTS"
-  --context-length 500000
+  --context-length 131072
   --kv-cache-dtype fp8_e4m3
   --dsa-prefill-backend flashmla_sparse_q8
   --allow-auto-truncate

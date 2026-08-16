@@ -5955,6 +5955,13 @@
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/2577
 
 - config-keys:
+    - glm5.2eagle-fp4-4xh200-greennode-sglang-dpattn-router-hicache64-shmpeer-agentic
+  description:
+    - "GLM-5.2-W4AFP8 4xH200 greennode agentic recipe: reduce --context-length 500000 → 131072 to prevent KV-OOM on 256k-dataset sessions. With mem-fraction-static=0.88 and hicache-size=64, each DP rank has ~161k-token KV capacity; sessions up to 191k tokens (from 256k-capped corpus) saturate the scheduler and stall warmup indefinitely."
+    - "Router: switched from cache_aware to round_robin (smg sgl-model-gateway cache_aware deadlocks on prefix-score queries in DP-attention setup), removed --dp-aware (caused smg to auto-discover 4 DP ranks and hang on multi-worker scoring)."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
     - glm5.2eagle-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
   description:
     - "GLM-5.2 EAGLE agentic-coding smoke run at CCU24 mirroring prod serving topology (TP8/DP4/EP8 + dp-attention + local-control-broadcast + NUMA pinning + dfs-weight schedule, mem-fraction-static 0.75, chunked-prefill 32768, context 500000, kv fp8_e4m3) on lmsysorg/sglang:v0.5.16-cu130"
