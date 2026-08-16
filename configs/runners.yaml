@@ -50,6 +50,9 @@ labels:
     - h200-dgxc-slurm_11
     - h200-dgxc-slurm_12
     - h200-dgxc-slurm_13
+  h200-1x:
+    - h200-greennode_03
+    - h200-greennode_05
   b200:
     - b200-cw_00
     - b200-cw_01
