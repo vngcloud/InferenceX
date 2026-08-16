@@ -4,7 +4,7 @@ set -x
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
-# 4xH200 GLM-5.2-W4AFP8: TP=4 DP=4 EP=4, HiCache (DRAM only), EAGLE, dp-attn always on.
+# 4xH200 GLM-5.2-W4AFP8: TP=4 DP=4 EP=4, shm_peer_l2 HiCache, EAGLE, dp-attn always on.
 # Derived from docker-compose.yaml (2026-08-09 4xH200 dev mirror).
 
 check_env_vars MODEL TP EP_SIZE CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION SPEC_DECODING
@@ -57,7 +57,7 @@ SGLANG_CMD=(
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   --context-length 500000
   --kv-cache-dtype fp8_e4m3
-  --dsa-prefill-backend flashmla_sparse
+  --dsa-prefill-backend flashmla_sparse_q8
   --allow-auto-truncate
   --enable-metrics
   --enable-cache-report
@@ -66,6 +66,7 @@ SGLANG_CMD=(
   --hicache-io-backend direct
   --hicache-write-policy write_through
   --hicache-mem-layout page_first_direct
+  --hicache-storage-backend shm_peer_l2
   --speculative-algorithm EAGLE
   --speculative-num-steps 3
   --speculative-eagle-topk 1
@@ -90,6 +91,7 @@ python3 -m sglang_router.launch_router \
   --port "$PORT" \
   --prometheus-host 127.0.0.1 \
   --prometheus-port "$SGLANG_ROUTER_METRICS_PORT" \
+  --connect-timeout-secs 900 \
   --request-timeout-secs 14400 \
   --disable-health-check \
   --disable-retries > "$ROUTER_LOG" 2>&1 &
