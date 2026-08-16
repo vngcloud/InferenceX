@@ -8387,7 +8387,7 @@ glm5.2eagle-fp4-4xh200-greennode-sglang-dpattn-router-hicache64-shmpeer-agentic:
   image: vcr.vngcloud.vn/107710-huynp4-kc/sg-lang:fuochuy-hicache
   model: zai-org/GLM-5.2-FP8
   model-prefix: glm5.2eagle4x
-  runner: cluster:h200-greennode
+  runner: h200-greennode_04
   precision: fp4
   framework: sglang
   multinode: false
