@@ -346,6 +346,9 @@ hardware:
   cluster:h200-greennode:
     available-cpu-dram-mib: 1_502_319
     gpus-per-node: 8
+  cluster:h200-greennode_04:
+    available-cpu-dram-mib: 806_148
+    gpus-per-node: 4
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_095_781
     gpus-per-node: 8
