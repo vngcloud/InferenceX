@@ -8410,7 +8410,7 @@ gemma4-fp8block-h200-vllm:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192, 224, 256] }
+      - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192] }
 
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
