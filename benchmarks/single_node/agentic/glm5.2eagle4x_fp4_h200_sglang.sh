@@ -86,7 +86,6 @@ python3 -m sglang_router.launch_router \
   --policy cache_aware \
   --balance-abs-threshold 8 \
   --request-id-headers x-correlation-id \
-  --dp-aware \
   --host 0.0.0.0 \
   --port "$PORT" \
   --prometheus-host 127.0.0.1 \
