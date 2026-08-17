@@ -83,7 +83,8 @@ wait_for_server_ready --port "$SGLANG_BACKEND_PORT" --server-log "$SERVER_LOG" -
 
 python3 -m sglang_router.launch_router \
   --worker-urls "http://localhost:$SGLANG_BACKEND_PORT" \
-  --policy round_robin \
+  --policy cache_aware \
+  --dp-aware \
   --balance-abs-threshold 8 \
   --request-id-headers x-correlation-id \
   --host 0.0.0.0 \
