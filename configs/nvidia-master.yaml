@@ -8474,6 +8474,25 @@ gemma4-fp8block-h200-sglang:
       search-space:
       - { tp: 1, conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
+# TP2 twin of gemma4-fp8block-h200-sglang: identical checkpoint, image, runner
+# and 8k1k ladder, sharded across 2 of the box's 4 H200s. Kept as its own
+# config key rather than a second search-space entry so the TP2 ladder can be
+# dispatched on its own without re-running the already-collected TP1 sweep.
+gemma4-fp8block-h200-sglang-tp2:
+  image: lmsysorg/sglang:v0.5.16-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-list: [8, 16, 32, 64, 128, 160, 192] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
