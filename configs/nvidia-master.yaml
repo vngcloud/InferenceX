@@ -8454,6 +8454,26 @@ gemma4-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192] }
 
+# SGLang framework twin of gemma4-fp8block-h200-vllm: same checkpoint, same
+# 8k1k fixed-seq-len workload, TP1 on a single H200. Pinned to
+# cluster:h200-greennode_04 (hoanq3-h2) so the whole ladder lands on one
+# physical box -- the vLLM ladder was split across a 1-GPU and a 4-GPU host,
+# which confounded its throughput deltas with host variance.
+gemma4-fp8block-h200-sglang:
+  image: lmsysorg/sglang:v0.5.16-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8, 16, 32, 64, 128, 160, 192] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
