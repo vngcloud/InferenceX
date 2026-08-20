@@ -8558,6 +8558,53 @@ gemma4-fp8block-h200-vllm-dp2:
       search-space:
       - { tp: 1, conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
+# Speculative-decoding twins of the DP2 pair above, same checkpoint, images,
+# runner, 8k1k workload and tp1 x dp2 = 2-GPU topology -- the only added axis is
+# spec decoding, so each is a clean spec-on vs spec-off comparison against its
+# gemma4dp2 sibling at equal CONC. The two engines use DIFFERENT spec methods
+# because that is what each supports on its released image today (see the recipe
+# headers): vLLM runs EAGLE3 with RedHat's speculator (upstreamed ~v0.22.0, so
+# the pinned v0.25.0 image has it); SGLang runs model-free NGRAM, because gemma-4
+# EAGLE3 is not in mainline SGLang (only in the ThoughtWorks fork). So the
+# cross-engine delta is not apples-to-apples; the within-engine spec speedup is.
+# Distinct model-prefixes (gemma4eagle / gemma4ngram) route each to its own
+# recipe -- this runner selects the recipe by prefix, not a spec-suffix.
+#
+# CAVEAT: fixed-seq-len feeds random token content, which understates spec gains
+# for both methods (a draft/n-gram cache cannot predict random tokens). The
+# recipes pass --use-chat-template to make structural tokens predictable, but the
+# faithful acceptance measurement is the agentic real-trace scenario; read these
+# numbers as a conservative floor.
+gemma4-fp8block-h200-vllm-eagle3-dp2:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4eagle
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: "eagle3", conc-list: [8, 16, 32, 64, 128, 160, 192] }
+
+gemma4-fp8block-h200-sglang-ngram-dp2:
+  image: lmsysorg/sglang:v0.5.16-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4ngram
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: "ngram", conc-list: [8, 16, 32, 64, 128, 160, 192] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
