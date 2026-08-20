@@ -8513,6 +8513,48 @@ gemma4-fp8block-h200-vllm-tp2:
       search-space:
       - { tp: 2, conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
+# 2-way data-parallel variants of the gemma4 8k1k ladder, same checkpoint,
+# images, runner and conc ladder as the TP1/TP2 twins above. gemma-4-31B is
+# dense (plain GQA, no MoE and no MLA), so these are DP *replicas* and neither
+# recipe passes a dp-attention flag -- dp-attn stays false, and the topology is
+# recorded by the gemma4dp2 model-prefix, which also routes both configs to
+# their own gemma4dp2_* recipes. nvidia-master.yaml has no DP-size field
+# (dp-attn is a bool and the shared convention wires dp=tp), so DP_SIZE=2 is a
+# constant inside those recipes.
+#
+# SGLang's --dp-size in classic (non-dp-attention) mode multiplies GPUs rather
+# than dividing them, so tp2 x dp2 spans all 4 H200s on the box; the vLLM twin
+# at tp1 x dp2 spans 2.
+gemma4-fp8block-h200-sglang-dp2:
+  image: lmsysorg/sglang:v0.5.16-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4dp2
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 2, conc-list: [8, 16, 32, 64, 128, 160, 192] }
+
+gemma4-fp8block-h200-vllm-dp2:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4dp2
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8, 16, 32, 64, 128, 160, 192] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
