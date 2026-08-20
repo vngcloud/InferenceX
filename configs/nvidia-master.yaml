@@ -8538,7 +8538,10 @@ gemma4-fp8block-h200-sglang-dp2:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 2, conc-list: [8, 16, 32, 64, 128, 160, 192] }
+      # tp1 x dp2 = two independent replicas, 1 GPU each = 2 GPUs total
+      # (pure data-parallel, mirrors the vllm-dp2 tp1/dp2 twin). The recipe
+      # passes --dp 2 unconditionally; tp1 keeps the footprint at 2 GPUs.
+      - { tp: 1, conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
 gemma4-fp8block-h200-vllm-dp2:
   image: vllm/vllm-openai:v0.25.0
