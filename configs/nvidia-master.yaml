@@ -8579,7 +8579,7 @@ gemma4-fp8block-h200-vllm-router:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 1, conc-list: [8, 32, 192] }
+      - { tp: 1, conc-list: [8, 32, 160] }
 
 # Speculative-decoding twins of the DP2 pair above, same checkpoint, images,
 # runner, 8k1k workload and tp1 x dp2 = 2-GPU topology -- the only added axis is
