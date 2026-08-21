@@ -126,7 +126,7 @@ pip install -q vllm-router==0.1.14
 
 set -x
 vllm-router \
-    --worker-urls "http://localhost:$BACKEND0_PORT,http://localhost:$BACKEND1_PORT" \
+    --worker-urls "http://localhost:$BACKEND0_PORT" "http://localhost:$BACKEND1_PORT" \
     --policy round_robin \
     --host 0.0.0.0 \
     --port "$PORT" \
