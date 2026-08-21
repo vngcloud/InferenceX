@@ -8558,6 +8558,29 @@ gemma4-fp8block-h200-vllm-dp2:
       search-space:
       - { tp: 1, conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
+# Router variant of the vllm-dp2 twin: same checkpoint, image, runner and 8k1k
+# workload, but instead of one internally-data-parallel server this runs TWO
+# independent tp1 vllm replicas fronted by vllm-router (round_robin). It measures
+# the external-router / isolated-KV-pool topology against gemma4dp2's shared
+# internal-DP front-end at equal CONC. The gemma4router model-prefix routes to
+# the gemma4router_fp8block_h200.sh recipe, which pins the two replicas to GPUs
+# 2,3 (0,1 are occupied on this box) and scopes the GPU monitor to 2,3. Shorter
+# 4-point conc ladder (a subset of the dp2 ladder's points) for a first pass.
+gemma4-fp8block-h200-vllm-router:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4router
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8, 32, 128, 192] }
+
 # Speculative-decoding twins of the DP2 pair above, same checkpoint, images,
 # runner, 8k1k workload and tp1 x dp2 = 2-GPU topology -- the only added axis is
 # spec decoding, so each is a clean spec-on vs spec-off comparison against its

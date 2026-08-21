@@ -111,32 +111,44 @@ unset _benchmark_caller
 GPU_MONITOR_PID=""
 GPU_MONITOR_VENDOR=""
 GPU_MONITOR_INTERVAL=1
+GPU_MONITOR_IDS=""
 GPU_METRICS_CSV="${GPU_METRICS_CSV:-gpu_metrics.csv}"
 NVIDIA_GPU_MONITOR_QUERY="timestamp,index,power.draw,temperature.gpu,clocks.current.sm,clocks.current.memory,utilization.gpu,utilization.memory"
 export GPU_METRICS_CSV
 
 # Start background GPU monitoring that logs metrics every second to CSV.
 # Auto-detects NVIDIA (nvidia-smi) or AMD (amd-smi) GPUs.
-# Usage: start_gpu_monitor [--output /path/to/output.csv] [--interval 1]
+# Usage: start_gpu_monitor [--output /path/to/output.csv] [--interval 1] [--gpu-ids 2,3]
+# --gpu-ids restricts monitoring to a comma-separated device list (nvidia-smi
+# -i). Use it when the job owns only a subset of the box's GPUs -- nvidia-smi
+# ignores CUDA_VISIBLE_DEVICES and would otherwise report every physical card,
+# polluting power/util telemetry with other tenants' load. Applies to the
+# NVIDIA path only; empty means all GPUs (default, unchanged behavior).
 start_gpu_monitor() {
     local output="$GPU_METRICS_CSV"
     local interval=1
+    local gpu_ids=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
             --output)   output="$2"; shift 2 ;;
             --interval) interval="$2"; shift 2 ;;
+            --gpu-ids)  gpu_ids="$2"; shift 2 ;;
             *)          shift ;;
         esac
     done
 
     GPU_METRICS_CSV="$output"
     GPU_MONITOR_INTERVAL="$interval"
+    GPU_MONITOR_IDS="$gpu_ids"
     export GPU_METRICS_CSV
+
+    local nvidia_id_args=()
+    [[ -n "$gpu_ids" ]] && nvidia_id_args=(-i "$gpu_ids")
 
     if command -v nvidia-smi &>/dev/null; then
         GPU_MONITOR_VENDOR="nvidia"
-        nvidia-smi --query-gpu="$NVIDIA_GPU_MONITOR_QUERY" \
+        nvidia-smi "${nvidia_id_args[@]}" --query-gpu="$NVIDIA_GPU_MONITOR_QUERY" \
             --format=csv -l "$interval" > "$output" 2>/dev/null &
         GPU_MONITOR_PID=$!
         echo "[GPU Monitor] Started NVIDIA (PID=$GPU_MONITOR_PID, interval=${interval}s, output=$output)"
@@ -183,7 +195,9 @@ stop_gpu_monitor() {
         case "$GPU_MONITOR_VENDOR" in
             nvidia)
                 if _repair_truncated_gpu_metrics_tail; then
-                    nvidia-smi --query-gpu="$NVIDIA_GPU_MONITOR_QUERY" \
+                    local nvidia_id_args=()
+                    [[ -n "$GPU_MONITOR_IDS" ]] && nvidia_id_args=(-i "$GPU_MONITOR_IDS")
+                    nvidia-smi "${nvidia_id_args[@]}" --query-gpu="$NVIDIA_GPU_MONITOR_QUERY" \
                         --format=csv,noheader >> "$GPU_METRICS_CSV" 2>/dev/null ||
                         echo "[GPU Monitor] Warning: final NVIDIA sample failed" >&2
                 fi
@@ -202,6 +216,7 @@ stop_gpu_monitor() {
     fi
     GPU_MONITOR_PID=""
     GPU_MONITOR_VENDOR=""
+    GPU_MONITOR_IDS=""
 }
 
 # Drop a partial trailing row left behind when the monitor dies mid-write.
