@@ -8605,6 +8605,40 @@ gemma4-fp8block-h200-sglang-ngram-dp2:
       search-space:
       - { tp: 1, spec-decoding: "ngram", conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
+# Agentic-scenario twins of the two spec-decoding DP2 configs above. Same
+# checkpoint/image/runner/DP2 topology, but replay the SemiAnalysis Claude Code
+# trace corpus (real repeated context) instead of synthetic fixed-length
+# prompts -- the faithful place to measure EAGLE3/NGRAM acceptance. The recipes
+# serve gemma-4's native 256k window but cap the admitted workload at 128k
+# (aiperf --max-context-length) via MAX_MODEL_LEN. kv-offloading: none (dense
+# model, GPU-resident KV); dp-attn: false (dense GQA -> classic DP, not
+# dp-attention). tp:1 is the GPU-accounting knob; the recipe runs --dp 2.
+gemma4-fp8block-h200-vllm-eagle3-agentic:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4eagle
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, dp-attn: false, kv-offloading: none, spec-decoding: "eagle3", conc-list: [4, 8, 16, 32] }
+
+gemma4-fp8block-h200-sglang-ngram-agentic:
+  image: lmsysorg/sglang:v0.5.16-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4ngram
+  runner: cluster:h200-greennode_04
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, dp-attn: false, kv-offloading: none, spec-decoding: "ngram", conc-list: [4, 8, 16, 32] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
