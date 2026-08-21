@@ -14,6 +14,11 @@ docker pull "$IMAGE"
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
 BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200${FRAMEWORK_SUFFIX}.sh"
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-h200-greennode_01}"
+# InferenceX-owned containers carry label inferencex=1 so the workflow's
+# Resource cleanup step can reap only our own containers (see benchmark-tmpl.yml)
+# instead of every container on a shared runner. The benchmark container is
+# otherwise anonymous, so it also gets a stable name for pre-run reaping.
+BENCH_CONT_NAME="inferencex-bench-${RUNNER_NAME:-h200-greennode_01}"
 RUN_ENV=(
   HF_TOKEN HF_HUB_CACHE PORT
   EXP_NAME MODEL MODEL_PREFIX IMAGE FRAMEWORK PRECISION TP EP_SIZE DP_ATTENTION
@@ -32,10 +37,14 @@ done
 docker rm -f "$DCGM_NAME" 2>/dev/null || true
 docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
   --name "$DCGM_NAME" \
+  --label inferencex=1 \
   nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04
 trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 
+docker rm -f "$BENCH_CONT_NAME" 2>/dev/null || true
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
+  --name "$BENCH_CONT_NAME" \
+  --label inferencex=1 \
   -v "$GITHUB_WORKSPACE:/workspace" \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
   -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" \

@@ -315,13 +315,16 @@ jobs:
             bash runners/reap_orphan_aiperf.sh || true
           fi
 
-          # Cleanup Docker resources
+          # Cleanup Docker resources. Scoped to InferenceX-owned containers
+          # (label inferencex=1, set by the runner launchers) so a shared runner
+          # hosting other tenants' containers keeps them running -- the blanket
+          # `docker ps -aq` this replaced reaped every container on the box.
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-            echo "[Docker] Cleaning up resources ..."
-            docker ps -aq | xargs -r docker rm -f
+            echo "[Docker] Cleaning up InferenceX resources ..."
+            docker ps -aq --filter label=inferencex | xargs -r docker rm -f
             docker network prune -f
-            while [ -n "$(docker ps -aq)" ]; do
-              docker ps -a
+            while [ -n "$(docker ps -aq --filter label=inferencex)" ]; do
+              docker ps -a --filter label=inferencex
               sleep 5
             done
           fi
