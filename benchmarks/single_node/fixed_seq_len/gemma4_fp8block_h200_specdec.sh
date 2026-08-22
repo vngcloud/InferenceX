@@ -82,7 +82,13 @@ ROUTER_LOG=/workspace/router.log
 NUM_REPLICAS="$TP"
 REPLICA_GPUS=()
 for ((i = 0; i < NUM_REPLICAS; i++)); do REPLICA_GPUS+=("$i"); done
-PER_REPLICA_MAX_SEQS=$(( (CONC + NUM_REPLICAS - 1) / NUM_REPLICAS ))
+# DIAGNOSTIC: doubled (was ceil(CONC/NUM_REPLICAS), the exact expected
+# per-replica load under even router splitting) to test whether the tight
+# --max-num-seqs ceiling itself -- e.g. narrower CUDA-graph batch-size
+# coverage, less scheduler admission headroom for bursts -- explains the
+# 2-replica output_tput_per_gpu regression vs single-replica, independent
+# of chunked-prefill/router-policy/eagle3 (all three already ruled out).
+PER_REPLICA_MAX_SEQS=$(( 2 * (CONC + NUM_REPLICAS - 1) / NUM_REPLICAS ))
 
 export VLLM_DISABLE_COMPILE_CACHE=1
 export NCCL_P2P_LEVEL=NVL
