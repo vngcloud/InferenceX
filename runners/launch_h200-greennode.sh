@@ -22,7 +22,17 @@ case "$SPEC_DECODING" in
   draft_model) SPEC_SUFFIX="_specdec" ;;
   *) SPEC_SUFFIX="" ;;
 esac
-BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200${FRAMEWORK_SUFFIX}${SPEC_SUFFIX}.sh"
+BENCH_BASE="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200${FRAMEWORK_SUFFIX}"
+BENCH_SCRIPT="${BENCH_BASE}${SPEC_SUFFIX}.sh"
+# Fall back to the unsuffixed name when no spec-specific script exists (same
+# idiom as launch_b300-nv.sh). This pool's twelve pre-existing mtp recipes
+# (glm5.2, glm5.2dspark, glm5.2eagle*, glm5.2prod/pdeep/psymm, glm5.2edeep,
+# glm5.2elmhead) all ship a single script that branches on SPEC_DECODING
+# internally, so an unconditional SPEC_SUFFIX makes every one of them exit
+# 127 on a missing file.
+if [[ ! -f "$BENCH_SCRIPT" ]]; then
+  BENCH_SCRIPT="${BENCH_BASE}.sh"
+fi
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-h200-greennode_01}"
 RUN_ENV=(
   HF_TOKEN HF_HUB_CACHE PORT

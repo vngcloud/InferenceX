@@ -5998,3 +5998,25 @@
     - "Bump SGLang image from lmsysorg/sglang:v0.5.14-cu130 to v0.5.18-cu130 to pick up #30393 (HiCache packed/sidecar draft DSA indexer — root-cause fix for #32176 EAGLE accept collapse after HiCache loadback), plus #32886/#32887 (skip target-verify tree mask + fast-path chain draft) and #33662 (EAGLE prefill host-sync perf)."
     - "Set conc-list [8, 16, 24] for apples-to-apples A/B against reference run 30163138459 (v0.5.14, CCU 16/24, same TP8/DP-attn/MTP/HiCache-ratio-2 config)."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic
+    - glm5.2dspark-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic
+    - glm5.2eagle-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+    - glm5.2edeep-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+    - glm5.2elmhead-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+    - glm5.2prod-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+    - glm5.2pdeep-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+    - glm5.2psymm-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic
+    - glm5.2eagle-fp4-4xh200-greennode-sglang-rr-hicache64-shmpeer-agentic
+    - glm5.2eagle-fp4-4xh200-greennode-sglang-rr-hicache64-local-agentic
+    - glm5.2eagle-fp4-4xh200-greennode-sglang-dpattn-router-hicache64-local-agentic
+    - glm5.2eagle-fp4-4xh200-greennode-sglang-dpattn-router-hicache64-shmpeer-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Restore bench-script resolution for every cluster:h200-greennode spec-decoding recipe. The SPEC_SUFFIX case added to runners/launch_h200-greennode.sh for the gemma4 router+eagle3 fixed-seq-len recipe appends _mtp unconditionally, but all twelve pre-existing mtp recipes on this pool ship one script that branches on SPEC_DECODING internally (glm5.2_fp4_h200_sglang.sh and siblings). Every one of them resolved to a nonexistent *_mtp.sh and would have exited 127 inside the container, minutes into each job."
+    - "Fix falls back to the unsuffixed script name when no spec-specific variant exists on disk, the same idiom already used by launch_b300-nv.sh. The gemma4 _specdec path is unaffected."
+    - "No change to any benchmark's flags, workload or measurement -- this only restores the script that was being launched before the SPEC_SUFFIX change."
+    - "Guarded by runners/test_launch_h200_greennode.py, which asserts every cluster:h200-greennode search-space entry resolves to a file that exists."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
