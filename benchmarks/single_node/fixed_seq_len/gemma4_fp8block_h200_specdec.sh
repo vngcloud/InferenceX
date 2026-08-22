@@ -94,12 +94,17 @@ fi
 
 start_gpu_monitor
 
-# --enable-chunked-prefill is on by default in this vLLM build; passed
-# explicitly to document intent and survive a future default flip.
+# TEMPORARILY DISABLED for a diagnostic A/B: c8/c32 output_tput_per_gpu on
+# the 2-replica run (140/350 tok/s) came in well under the earlier
+# single-replica run's c8/c32 (232/467 tok/s) with these flags on. Could be
+# an inherent per-replica-batch-size effect of splitting low total conc
+# across 2 backends, or these anti-HOL-blocking flags actively hurting at
+# low concurrency where there's no head-of-line blocking to prevent in the
+# first place. Comment back in (or delete this comment) once compared.
 CHUNKED_PREFILL_FLAGS=(
-    --enable-chunked-prefill
-    --max-num-batched-tokens 16384
-    --long-prefill-token-threshold 8192
+    # --enable-chunked-prefill
+    # --max-num-batched-tokens 16384
+    # --long-prefill-token-threshold 8192
 )
 
 set -x
