@@ -5989,3 +5989,12 @@
     - "Day-zero Gemma-4 31B FP8-block (RedHatAI/gemma-4-31B-it-FP8-block) single-GPU H200 vLLM recipe, 8k1k fixed-seq-len, TP1 conc [1,2,4,8,16,32,64]"
     - "fp8_e4m3 KV cache, max-num-seqs/max-num-batched-tokens 64/8192, tool/reasoning parsing via gemma4 parser; served-model-name decoupled from the checkpoint id to match the production serving alias"
   pr-link: TBD
+
+- config-keys:
+    - glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Bump SGLang image from lmsysorg/sglang:v0.5.14-cu130 to v0.5.18-cu130 to pick up #30393 (HiCache packed/sidecar draft DSA indexer — root-cause fix for #32176 EAGLE accept collapse after HiCache loadback), plus #32886/#32887 (skip target-verify tree mask + fast-path chain draft) and #33662 (EAGLE prefill host-sync perf)."
+    - "Set conc-list [8, 16, 24] for apples-to-apples A/B against reference run 30163138459 (v0.5.14, CCU 16/24, same TP8/DP-attn/MTP/HiCache-ratio-2 config)."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark

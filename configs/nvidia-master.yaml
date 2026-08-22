@@ -8230,7 +8230,7 @@ glm5.2-fp4-h200-greennode-sglang-agentic:
       - { tp: 8, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 12, 16] }
 
 glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
-  image: lmsysorg/sglang:v0.5.14-cu130
+  image: lmsysorg/sglang:v0.5.18-cu130
   model: zai-org/GLM-5.2-FP8
   model-prefix: glm5.2
   runner: cluster:h200-greennode
@@ -8241,7 +8241,7 @@ glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [1, 8, 32], router: { name: sglang-router, version: "0.3.2" } }
+      - { tp: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
 
 glm5.2dspark-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: thangquang0909/sglang:v0.5.16-dspark-v2-g4
