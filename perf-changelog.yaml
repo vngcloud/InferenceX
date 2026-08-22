@@ -6045,3 +6045,15 @@
     - "deepep_mode is left at auto, which DeepEPMode.resolve splits per batch -- NORMAL for extend, LOW_LATENCY for decode -- the correct split for one aggregated server serving both phases. --disable-shared-experts-fusion is kept: only Waterfill (forces it on) and the flashinfer A2A backend (forces it off) override it, and neither is in play."
     - "Known ceiling: mem-fraction-static stays at 0.85 to hold the pair with the baseline arm, but DeepEP allocates its NVLink dispatch buffers outside the static fraction and nothing auto-reduces the fraction. The sibling glm5.2edeep/glm5.2pdeep recipes run 0.75. If the warmup request OOMs, drop this arm to 0.75 and record that the pair is no longer exact."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Re-scopes the entry above, which was superseded before it ever produced a result: run 32576946019 was cancelled while still queued, so no data exists under the previous definition. Nothing else in this file changes."
+    - "glm5.2deep_fp4_h200_sglang.sh is now a copy of glm5.2dplm_fp4_h200_sglang.sh plus DeepEP, not a copy of glm5.2_fp4_h200_sglang.sh. The arm therefore stacks all four additions over the baseline recipe: --enable-dp-attention-local-control-broadcast, --enable-dp-lm-head, --dsa-prefill-backend flashmla_sparse_q8, and --moe-a2a-backend deepep with --ep 8."
+    - "Two readings come out of one 3h arm: against glm5.2dplm (run 32576541822) the only delta is DeepEP, so that pair still isolates expert parallelism; and the arm itself is the stacked maximum-throughput candidate on this pool. The previous scoping gave only the first reading and would have needed a fourth arm for the second."
+    - "Unchanged from the superseded entry: v0.5.18 is the first tag carrying #33669 (Correct W4AFP8 DeepEP scaling and mode-specific dtypes, merge a58fa038) which closed #33660, deep_ep imports cleanly in lmsysorg/sglang:v0.5.18-cu130, --ep 8 is metadata-only because overrides.py:_a2a_ep_size already forces ep_size = tp_size for A2A-spanning backends, deepep_mode stays auto (NORMAL extend / LOW_LATENCY decode), and --disable-shared-experts-fusion is kept since neither Waterfill nor the flashinfer A2A backend is in play."
+    - "Same known ceiling: mem-fraction-static stays 0.85 to hold the pair with glm5.2dplm while DeepEP allocates NVLink dispatch buffers outside the static fraction with no auto-reduction. If the warmup request OOMs, drop to 0.75 and record that the pair is no longer exact."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark

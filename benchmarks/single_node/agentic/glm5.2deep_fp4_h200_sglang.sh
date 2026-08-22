@@ -2,10 +2,11 @@
 set -euo pipefail
 set -x
 
-# Identical to glm5.2_fp4_h200_sglang.sh except for DeepEP expert parallelism,
-# so the pair against that recipe isolates the A2A backend. v0.5.18 is the
-# first tag carrying #33669 (W4AFP8 DeepEP scaling + mode-specific dtypes),
-# which closed #33660 -- W4AFP8 + DeepEP crashed at first inference before it.
+# Stacked arm: glm5.2dplm_fp4_h200_sglang.sh plus DeepEP expert parallelism.
+# So relative to glm5.2_fp4_h200_sglang.sh this carries four additions -- the
+# two DP-attention sync flags, --dsa-prefill-backend flashmla_sparse_q8, and
+# --moe-a2a-backend deepep with --ep 8 -- and relative to glm5.2dplm it carries
+# only DeepEP, which is the pair that reads DeepEP's contribution.
 # Everything else -- dp == tp, mem-fraction 0.85, lpm, hicache ratio from the
 # config, EAGLE 3/1/4, --disable-shared-experts-fusion -- is unchanged.
 source "$(dirname "$0")/../../benchmark_lib.sh"
@@ -70,6 +71,12 @@ if [ "$DP_ATTENTION" = "true" ]; then
     # backend, DeepEP included, whether or not --ep is given.
     --ep "$EP_SIZE"
     --enable-dp-attention
+    # dp == tp here, so attn_tp_size is 1: local-control-broadcast drops the
+    # all-ranks gloo control sync per scheduler iteration, and dp-lm-head
+    # drops the cross-DP logits all-gather (logits_processor.py gates its own
+    # all-gather on attn_tp_size > 1, so a group of 1 skips both).
+    --enable-dp-attention-local-control-broadcast
+    --enable-dp-lm-head
     --tokenizer-worker-num "$TP"
     --dist-init-addr "127.0.0.1:$((PORT + 2000))"
   )
@@ -84,13 +91,15 @@ SGLANG_CMD=(
   --model-path "$MODEL_PATH"
   --quantization w4afp8
   --disable-shared-experts-fusion
-  # deepep_mode defaults to auto, which resolves per batch: NORMAL for extend
-  # and LOW_LATENCY for decode (moe/utils.py DeepEPMode.resolve). That is the
-  # right split for one aggregated server doing both, so no explicit mode.
-  # ponytail: kept mem-fraction-static at 0.85 to hold the pair with the
-  # baseline arm, but DeepEP allocates its NVLink dispatch buffers outside the
-  # static fraction and nothing auto-reduces it. If the warmup request OOMs,
-  # drop to 0.75 (what glm5.2edeep/glm5.2pdeep use) and note it in the run.
+  # deepep_mode defaults to auto, which DeepEPMode.resolve splits per batch:
+  # NORMAL for extend, LOW_LATENCY for decode -- the right split for one
+  # aggregated server serving both phases, so no explicit mode.
+  # --disable-shared-experts-fusion above stays: only Waterfill (forces it on)
+  # and the flashinfer A2A backend (forces it off) override it, neither in play.
+  # ponytail: kept mem-fraction-static at 0.85 to hold the pair with glm5.2dplm,
+  # but DeepEP allocates its NVLink dispatch buffers outside the static fraction
+  # and nothing auto-reduces it. If the warmup request OOMs, drop to 0.75 (what
+  # glm5.2edeep/glm5.2pdeep use) and record that the pair is no longer exact.
   --moe-a2a-backend deepep
   --host 0.0.0.0
   --port "$SGLANG_BACKEND_PORT"
@@ -103,6 +112,12 @@ SGLANG_CMD=(
   "${GRAPH_ARGS[@]}"
   --context-length 500000
   --kv-cache-dtype fp8_e4m3
+  # Prod's prefill kernel. Without this, overrides.py auto-detects
+  # flashmla_kv for fp8_e4m3 on Hopper (trtllm only from SM100), so the
+  # native FP8 SM90 sparse-prefill path never runs in the sibling recipes.
+  # Prefill-only on purpose: dsa_backend.py rejects it as a decode backend
+  # and auto-detect leaves decode on flashmla_kv, which is what prod does.
+  --dsa-prefill-backend flashmla_sparse_q8
   --allow-auto-truncate
   --enable-metrics
   --enable-cache-report
