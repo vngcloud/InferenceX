@@ -94,17 +94,15 @@ fi
 
 start_gpu_monitor
 
-# TEMPORARILY DISABLED for a diagnostic A/B: c8/c32 output_tput_per_gpu on
-# the 2-replica run (140/350 tok/s) came in well under the earlier
-# single-replica run's c8/c32 (232/467 tok/s) with these flags on. Could be
-# an inherent per-replica-batch-size effect of splitting low total conc
-# across 2 backends, or these anti-HOL-blocking flags actively hurting at
-# low concurrency where there's no head-of-line blocking to prevent in the
-# first place. Comment back in (or delete this comment) once compared.
+# RULED OUT as the cause of the 2-replica c8/c32 output_tput_per_gpu
+# regression (232/467 tok/s single-replica -> 140/350 tok/s 2-replica):
+# disabling these produced 137 tok/s @ c8, statistically the same as with
+# them on. Restored. Current suspect: router policy -- see ROUTER_POLICY
+# below (testing round_robin against the cache_aware baseline).
 CHUNKED_PREFILL_FLAGS=(
-    # --enable-chunked-prefill
-    # --max-num-batched-tokens 16384
-    # --long-prefill-token-threshold 8192
+    --enable-chunked-prefill
+    --max-num-batched-tokens 16384
+    --long-prefill-token-threshold 8192
 )
 
 set -x
@@ -139,8 +137,14 @@ for i in "${!BACKEND_PORTS[@]}"; do
 done
 
 agentic_pip_install --quiet 'vllm-router==0.1.14'
-if ! vllm-router --help 2>/dev/null | grep -q -- "cache_aware"; then
-    echo "ERROR: installed vllm-router does not expose --policy cache_aware; aborting before benching" >&2
+
+# DIAGNOSTIC: testing round_robin against the cache_aware baseline to see
+# if cache_aware's routing overhead/imbalance explains the 2-replica
+# output_tput_per_gpu regression at low conc (chunked-prefill flags were
+# already ruled out above). Revert to cache_aware once compared.
+ROUTER_POLICY=round_robin
+if ! vllm-router --help 2>/dev/null | grep -q -- "$ROUTER_POLICY"; then
+    echo "ERROR: installed vllm-router does not expose --policy $ROUTER_POLICY; aborting before benching" >&2
     exit 1
 fi
 
@@ -149,7 +153,7 @@ for port in "${BACKEND_PORTS[@]}"; do WORKER_URLS+=("http://localhost:$port"); d
 
 vllm-router \
     --worker-urls "${WORKER_URLS[@]}" \
-    --policy cache_aware \
+    --policy "$ROUTER_POLICY" \
     --host 0.0.0.0 \
     --port "$PORT" \
     --request-timeout-secs 14400 \
