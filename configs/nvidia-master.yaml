@@ -8485,6 +8485,30 @@ gemma4-fp8block-h200-vllm-router-eagle:
       # rather than relying on pool-based GPU-count scheduling.
       - { tp: 2, spec-decoding: draft_model, router: { name: vllm-router, version: "0.1.14" }, conc-list: [8, 32, 128, 160, 192] }
 
+# Original, unmodified gemma4router_fp8block_h200.sh from
+# vng-benchmark-gemma4-sgl @ 67c95da64912d77b3827b0569d0ef745ff20527d (the
+# script actually run by Actions run 32473887153) -- copied verbatim, not
+# rewritten. round_robin policy, no eagle3, no chunked-prefill flags, GPUs
+# pinned to indices 2,3 (that branch's runner had 0,1 occupied by another
+# tenant). runner here is the broader cluster:h200-greennode pool (rather
+# than that commit's cluster:h200-greennode_04, a single-node-only pool)
+# purely so --runner-node-filter h200-greennode_03 can target this specific
+# node for a rerun -- the script itself is untouched.
+gemma4-fp8block-h200-vllm-router:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4router
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8, 32, 192] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
