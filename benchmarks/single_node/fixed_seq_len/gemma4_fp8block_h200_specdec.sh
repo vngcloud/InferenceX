@@ -80,8 +80,13 @@ NUM_SPEC_TOKENS=3
 
 ROUTER_LOG=/workspace/router.log
 NUM_REPLICAS="$TP"
-REPLICA_GPUS=()
-for ((i = 0; i < NUM_REPLICAS; i++)); do REPLICA_GPUS+=("$i"); done
+# DIAGNOSTIC: pinned to GPUs 2,3 instead of 0,1 -- isolating GPU index as
+# the one remaining untested variable against the original
+# gemma4router_fp8block_h200.sh's 625 tok/s/gpu @ c32 (this script's own
+# 0,1-pinned runs only got 320-350). NVLink topology confirmed symmetric
+# (all pairs NV18, all links up) so this isn't expected to matter, but it
+# hasn't actually been tested. Revert to the 0-indexed loop once compared.
+REPLICA_GPUS=(2 3)
 # DIAGNOSTIC: doubled (was ceil(CONC/NUM_REPLICAS), the exact expected
 # per-replica load under even router splitting) to test whether the tight
 # --max-num-seqs ceiling itself -- e.g. narrower CUDA-graph batch-size
