@@ -8478,7 +8478,12 @@ gemma4-fp8block-h200-vllm-router-eagle:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 1, spec-decoding: draft_model, router: { name: vllm-router, version: "0.1.14" }, conc-list: [8, 32, 128, 160, 192] }
+      # tp:2 here is NUM_REPLICAS (2 independent full-model TP1 backends,
+      # not real tensor-parallelism) -- see the recipe script's header. Node
+      # is still labeled runner: h200-1x (no h200-2x pool exists) since this
+      # exploratory dispatch pins the exact node via --runner-node-filter
+      # rather than relying on pool-based GPU-count scheduling.
+      - { tp: 2, spec-decoding: draft_model, router: { name: vllm-router, version: "0.1.14" }, conc-list: [8, 32, 128, 160, 192] }
 
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
