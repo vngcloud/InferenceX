@@ -12,11 +12,22 @@
 #     step so it can't starve other requests' decode steps;
 #     --max-num-batched-tokens is raised to fit a full chunk plus decode
 #     tokens from in-flight requests in the same step)
-#   - CPU RAM as an L2 KV-cache tier via vLLM's native
-#     SimpleCPUOffloadConnector (vllm/distributed/kv_transfer/kv_connector/v1/
-#     simple_cpu_offload_connector.py) — no LMCache install required
 #   - a vllm-router (cache_aware policy) sitting in front of the single vLLM
 #     backend, so the benchmark client always talks to the router's port
+#
+# CPU RAM as an L2 KV-cache tier via vLLM's native SimpleCPUOffloadConnector
+# was tried and REMOVED: at conc>=128 (GPU KV cache saturating to ~99-100%)
+# the engine hit a fatal `assert block.ref_cnt == 0` in
+# vllm/v1/core/block_pool.py:get_new_blocks and died (EngineDeadError),
+# poisoning every in-flight/queued request with 500s for the rest of that
+# conc point. Confirmed reproducible across conc 128/160/192 on run
+# https://github.com/vngcloud/InferenceX/actions/runs/32552828503 (server
+# logs: server_logs_gemma4_8k1k_..._conc{128,160,192}_h200-greennode_03);
+# conc 8/32 (GPU KV cache peaking at 10%/42%) never hit it. Root cause looks
+# like SimpleCPUOffloadConnector's block reclaim/eviction bookkeeping racing
+# the scheduler's free-list once the GPU tier fills — it's explicitly flagged
+# experimental in vLLM (KVConnectorBase_V1 warning at server startup). Not
+# reinstating until that's fixed upstream or root-caused further.
 #
 # TP is pinned to 1 (single backend); the router is still useful here for its
 # cache_aware policy semantics even fronting one worker, and this recipe is
@@ -74,13 +85,6 @@ fi
 
 start_gpu_monitor
 
-# CPU RAM as an L2 KV-cache tier, 96 GiB, server-wide (== per-replica here
-# since TP1/DP1 -> world_size=1). swap_space (V0 CPU-swap-for-preemption) is
-# deprecated/ignored in this vLLM build -- SimpleCPUOffloadConnector is the
-# supported native path, no lmcache pip install needed.
-CPU_KV_BYTES=103079215104
-KV_TRANSFER_CONFIG='{"kv_connector":"SimpleCPUOffloadConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":'"${CPU_KV_BYTES}"'}}'
-
 # --enable-chunked-prefill is on by default in this vLLM build; passed
 # explicitly to document intent and survive a future default flip.
 CHUNKED_PREFILL_FLAGS=(
@@ -100,7 +104,6 @@ vllm serve "$MODEL_PATH" --host 0.0.0.0 --port "$BACKEND_PORT" \
     --max-num-seqs "$CONC" \
     "${CHUNKED_PREFILL_FLAGS[@]}" \
     --speculative-config "{\"model\": \"$DRAFT_MODEL\", \"num_speculative_tokens\": $NUM_SPEC_TOKENS, \"method\": \"eagle3\"}" \
-    --kv-transfer-config "$KV_TRANSFER_CONFIG" \
     --enable-auto-tool-choice \
     --tool-call-parser gemma4 \
     --reasoning-parser gemma4 > "$BACKEND_LOG" 2>&1 &
