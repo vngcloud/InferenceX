@@ -105,6 +105,14 @@ CHUNKED_PREFILL_FLAGS=(
     --long-prefill-token-threshold 8192
 )
 
+# DIAGNOSTIC: chunked-prefill and router policy (round_robin vs cache_aware)
+# were both ruled out as causes of the 2-replica output_tput_per_gpu
+# regression vs single-replica (232/467 -> 140/350, then 338 @ round_robin
+# c32 -- statistically the same as cache_aware's 350). Disabling eagle3
+# next to see if speculative decoding itself is the variable. Restore the
+# --speculative-config line above once compared.
+SPEC_DECODE_FLAGS=()
+
 set -x
 
 BACKEND_PORTS=()
@@ -123,7 +131,7 @@ for i in "${!REPLICA_GPUS[@]}"; do
         --max-model-len "$MAX_MODEL_LEN" \
         --max-num-seqs "$PER_REPLICA_MAX_SEQS" \
         "${CHUNKED_PREFILL_FLAGS[@]}" \
-        --speculative-config "{\"model\": \"$DRAFT_MODEL\", \"num_speculative_tokens\": $NUM_SPEC_TOKENS, \"method\": \"eagle3\"}" \
+        "${SPEC_DECODE_FLAGS[@]}" \
         --enable-auto-tool-choice \
         --tool-call-parser gemma4 \
         --reasoning-parser gemma4 > "$log" 2>&1 &
@@ -138,11 +146,9 @@ done
 
 agentic_pip_install --quiet 'vllm-router==0.1.14'
 
-# DIAGNOSTIC: testing round_robin against the cache_aware baseline to see
-# if cache_aware's routing overhead/imbalance explains the 2-replica
-# output_tput_per_gpu regression at low conc (chunked-prefill flags were
-# already ruled out above). Revert to cache_aware once compared.
-ROUTER_POLICY=round_robin
+# round_robin (338 tok/s/gpu @ c32) was statistically the same as
+# cache_aware (350) -- ruled out too. Reverted to the intended baseline.
+ROUTER_POLICY=cache_aware
 if ! vllm-router --help 2>/dev/null | grep -q -- "$ROUTER_POLICY"; then
     echo "ERROR: installed vllm-router does not expose --policy $ROUTER_POLICY; aborting before benching" >&2
     exit 1
