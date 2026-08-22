@@ -6020,3 +6020,16 @@
     - "No change to any benchmark's flags, workload or measurement -- this only restores the script that was being launched before the SPEC_SUFFIX change."
     - "Guarded by runners/test_launch_h200_greennode.py, which asserts every cluster:h200-greennode search-space entry resolves to a file that exists."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - glm5.2dplm-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "A/B arm for three flags the live glm-52-fp8-h200-8x-worker sets and sglang v0.5.18 defaults off, layered on the v0.5.18 HiCache EAGLE recipe: --enable-dp-attention-local-control-broadcast, --enable-dp-lm-head and --dsa-prefill-backend flashmla_sparse_q8. Prod runs all three; the glm5.2 arm runs none, so nothing currently measures them on this pool."
+    - "glm5.2dplm_fp4_h200_sglang.sh is a byte-for-byte copy of glm5.2_fp4_h200_sglang.sh apart from those three flags, and the config key is identical to glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic (image v0.5.18-cu130, tp 8, dp-attn, mtp, hicache-ratio 2.0, conc-list [8,16,24], sglang-router 0.3.2 cache_aware + dp-aware). Reference run for the paired comparison is 32575614602."
+    - "Measures the three together, not one at a time: a regression or gain cannot be attributed to a single flag from this arm alone. That is deliberate -- the question asked is whether prod's flag set beats the pool default at all, which is one 3h arm instead of three."
+    - "local-control-broadcast eliminates the all-ranks gloo control sync each scheduler iteration; dp-lm-head makes the vocabulary parallel over the attention TP group instead of all-gathering logits across DP groups. With dp == tp the attention TP group is size 1, so logits_processor.py's attn_tp_size > 1 gate skips both all-gathers -- the effect is expected to differ from prod, which runs dp 4 / tp 8 and genuinely shards the vocab across 2 ranks."
+    - "flashmla_sparse_q8 is the native FP8 SM90 sparse-prefill kernel. overrides.py auto-detects flashmla_kv for fp8_e4m3 on Hopper (trtllm only from SM100), which is what reference run 32575614602 resolved to, so this is a real kernel swap rather than a restatement of the default. Set on prefill only: dsa_backend.py rejects it as a decode backend and auto-detect leaves decode on flashmla_kv, matching prod. Its preconditions (kv_cache_dtype fp8_e4m3, sm_90) both hold here."
+    - "Still not prod-equivalent and not intended to be: this arm keeps dp 8, no --ep 8, mem-fraction-static 0.85, --schedule-policy lpm, --disable-shared-experts-fusion, no --numa-node, and none of prod's SGLANG_DP_USE_GATHERV / NCCL_P2P_LEVEL=NVL env. One consequence of dp 8 worth reading the results against: server_args.py:6686 divides chunked-prefill-size by dp_size under DP attention, so this arm resolves to 4096/rank where prod gets 8192/rank from the same 32768. glm5.2prod-* remains the prod-replica arm."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
