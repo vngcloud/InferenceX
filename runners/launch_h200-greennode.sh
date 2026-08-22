@@ -12,7 +12,17 @@ export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 docker pull "$IMAGE"
 
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
-BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200${FRAMEWORK_SUFFIX}.sh"
+# Mirrors the SPEC_SUFFIX convention in launch_h200-cw.sh / launch_h200-nb.sh /
+# launch_h200-dgxc-slurm.sh, extended to "draft_model" (external-draft methods
+# like eagle3/dspark, as opposed to internal "mtp") since this pool's first
+# fixed-seq-len draft-model recipe (gemma4 router+eagle3) needs a distinct
+# script name from the no-spec-decoding baseline sharing the same precision.
+case "$SPEC_DECODING" in
+  mtp) SPEC_SUFFIX="_mtp" ;;
+  draft_model) SPEC_SUFFIX="_specdec" ;;
+  *) SPEC_SUFFIX="" ;;
+esac
+BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200${FRAMEWORK_SUFFIX}${SPEC_SUFFIX}.sh"
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-h200-greennode_01}"
 RUN_ENV=(
   HF_TOKEN HF_HUB_CACHE PORT
