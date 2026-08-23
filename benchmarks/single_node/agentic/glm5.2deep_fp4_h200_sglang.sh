@@ -6,9 +6,11 @@ set -x
 # So relative to glm5.2_fp4_h200_sglang.sh this carries four additions -- the
 # two DP-attention sync flags, --dsa-prefill-backend flashmla_sparse_q8, and
 # --moe-a2a-backend deepep with --ep 8 -- and relative to glm5.2dplm it carries
-# only DeepEP, which is the pair that reads DeepEP's contribution.
-# Everything else -- dp == tp, mem-fraction 0.85, lpm, hicache ratio from the
-# config, EAGLE 3/1/4, --disable-shared-experts-fusion -- is unchanged.
+# only DeepEP plus a mem-fraction drop, which is the pair that reads DeepEP's
+# contribution (see the OOM note at --moe-a2a-backend for why the pair is no
+# longer exact).
+# Everything else -- dp == tp, lpm, hicache ratio from the config, EAGLE 3/1/4,
+# --disable-shared-experts-fusion -- is unchanged.
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
 check_env_vars MODEL TP EP_SIZE CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION SPEC_DECODING
@@ -39,6 +41,10 @@ fi
 export MODEL_PATH=/models/PhalaCloud/GLM-5.2-W4AFP8
 export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126_256k
 export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
+# Run 32585352758 OOMed at c16/c24 on a 2.38-2.53 GiB DeepEP dispatch buffer with
+# 5.4 GiB sitting reserved-but-unallocated. Expandable segments let the caching
+# allocator grow a segment instead of needing that much contiguous free space.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 USE_SGLANG_ROUTER=false
 SGLANG_BACKEND_PORT="$PORT"
@@ -96,10 +102,18 @@ SGLANG_CMD=(
   # aggregated server serving both phases, so no explicit mode.
   # --disable-shared-experts-fusion above stays: only Waterfill (forces it on)
   # and the flashinfer A2A backend (forces it off) override it, neither in play.
-  # ponytail: kept mem-fraction-static at 0.85 to hold the pair with glm5.2dplm,
-  # but DeepEP allocates its NVLink dispatch buffers outside the static fraction
-  # and nothing auto-reduces it. If the warmup request OOMs, drop to 0.75 (what
-  # glm5.2edeep/glm5.2pdeep use) and record that the pair is no longer exact.
+  # It OOMed, as predicted: run 32585352758 died at c16/c24 ~2 min into serving.
+  # Measured on that run -- DeepEP's graph capture costs 10.65 GB vs glm5.2dplm's
+  # 3.74 GB (a2a buffers get pinned into the graph pool), leaving only 9.82 GB
+  # free at ready, and ~7.4 GiB of the crash footprint is non-PyTorch DeepEP
+  # NVSHMEM/IPC allocated outside mem-fraction-static entirely. 0.80 frees
+  # 6.99 GiB for a 2.53 GiB alloc (2.8x margin) and costs ~16% of the KV pool,
+  # which is close to free here: dplm c24 already peaks at token usage 1.00 and
+  # cache hit is at 99.76% of the workload's theoretical ceiling, so the device
+  # pool is not the binding constraint. The glm5.2dplm pair is no longer exact
+  # -- dplm ran 0.85. Do NOT "match prod" with max-running-requests 256: graphs
+  # are captured up to max_running_requests/dp_size, so 256 means bs 32 (20
+  # graphs, ~35 GB) instead of bs 6, and peak observed #running-req is 5-6.
   --moe-a2a-backend deepep
   --host 0.0.0.0
   --port "$SGLANG_BACKEND_PORT"
@@ -107,7 +121,7 @@ SGLANG_CMD=(
   --chunked-prefill-size "$CHUNKED_PREFILL_SIZE"
   --tool-call-parser glm47
   --reasoning-parser glm45
-  --mem-fraction-static 0.85
+  --mem-fraction-static 0.80
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   "${GRAPH_ARGS[@]}"
   --context-length 500000
