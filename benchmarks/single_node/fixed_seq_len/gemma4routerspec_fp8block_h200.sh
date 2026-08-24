@@ -49,7 +49,7 @@ check_env_vars \
 # Two independent single-GPU replicas pinned to GPUs 2,3 (0,1 are occupied).
 # Each replica is CUDA_VISIBLE_DEVICES-pinned to exactly one card, so it is TP1
 # by construction regardless of the matrix's TP input (recorded via the
-# gemma4routereagle model-prefix, like gemma4router records the router topology).
+# gemma4routerspec model-prefix, like gemma4router records the router topology).
 REPLICA_GPUS=(2 3)
 GPU_IDS_CSV="$(IFS=,; echo "${REPLICA_GPUS[*]}")"
 

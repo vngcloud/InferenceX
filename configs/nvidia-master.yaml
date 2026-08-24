@@ -8590,16 +8590,16 @@ gemma4-fp8block-h200-vllm-router:
 # h200-greennode_03 (the box currently running the gemma4dp2 c32 sweep); with
 # only one runner process there this job queues behind that run rather than
 # co-tenanting -- pre-run cleanup reaps all InferenceX containers on the host, so
-# concurrent InferenceX jobs on one box are unsafe. The gemma4routereagle
-# model-prefix routes to the gemma4routereagle_fp8block_h200.sh recipe, which
+# concurrent InferenceX jobs on one box are unsafe. The gemma4routerspec
+# model-prefix routes to the gemma4routerspec_fp8block_h200.sh recipe, which
 # pins the two replicas to GPUs 2,3 and scopes the GPU monitor to 2,3. Single
 # c32 point for a first pass. Same acceptance caveat as the other fixed-seq-len
 # spec configs: random token content understates spec gains; --use-chat-template
 # mitigates, agentic real-trace is the faithful measurement.
-gemma4-fp8block-h200-vllm-router-eagle3:
+gemma4-fp8block-h200-vllm-router-spec:
   image: vllm/vllm-openai:v0.25.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
-  model-prefix: gemma4routereagle
+  model-prefix: gemma4routerspec
   runner: h200-greennode_03
   precision: fp8block
   framework: vllm
