@@ -8658,6 +8658,61 @@ gemma4-fp8block-h200-sglang-ngram-dp2:
       search-space:
       - { tp: 1, spec-decoding: "ngram", conc-list: [8, 16, 32, 64, 128, 160, 192] }
 
+# max-num-batched-tokens (MNBT) sweep over the tp1xdp2 + EAGLE3 8k1k config.
+# Hypothesis: 8k1k is decode/TPOT-bound with ~4x TTFT-avg slack, so a smaller
+# MNBT chunks the 8k prefill into pieces that interleave with decode -> lower
+# TPOT at the cost of TTFT we can afford -> higher max-concurrency-at-SLO
+# (TTFT avg < 8s, TPOT avg < 50ms). Three arms (MNBT 2048/4096/8192) x conc
+# {32,48,64}; 8192 is the control (== the production _04 config's value). MNBT is
+# not a matrix field, so each arm is its own config key whose model-prefix routes
+# to a thin wrapper recipe (gemma4emnbt{2k,4k,8k}_fp8block_h200.sh) that fixes the
+# value and delegates to the shared gemma4eagle recipe. Pinned to h200-greennode_03
+# GPUs 0,1 via GPU_IDS in the wrappers (that box's GPUs 4-7 host another tenant).
+gemma4-fp8block-h200-vllm-eagle3-mnbt2k:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4emnbt2k
+  runner: h200-greennode_03
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: "eagle3", conc-list: [32, 48, 64] }
+
+gemma4-fp8block-h200-vllm-eagle3-mnbt4k:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4emnbt4k
+  runner: h200-greennode_03
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: "eagle3", conc-list: [32, 48, 64] }
+
+gemma4-fp8block-h200-vllm-eagle3-mnbt8k:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4emnbt8k
+  runner: h200-greennode_03
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: "eagle3", conc-list: [32, 48, 64] }
+
 # Agentic-scenario twins of the two spec-decoding DP2 configs above. Same
 # checkpoint/image/runner/DP2 topology, but replay the SemiAnalysis Claude Code
 # trace corpus (real repeated context) instead of synthetic fixed-length
