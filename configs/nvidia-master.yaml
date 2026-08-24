@@ -8581,6 +8581,36 @@ gemma4-fp8block-h200-vllm-router:
       search-space:
       - { tp: 1, conc-list: [160] }
 
+# Speculative-decoding twin of gemma4-fp8block-h200-vllm-router: same 2-replica
+# + vllm-router topology, checkpoint, image and 8k1k workload, but each replica
+# adds EAGLE3 speculative decoding (RedHat's gemma-4 speculator, the same draft
+# gemma4-fp8block-h200-vllm-eagle3-dp2 uses). Measures the spec-on vs spec-off
+# delta for the external-router topology at equal CONC, the router counterpart
+# to the gemma4dp2-vs-gemma4eagle internal-DP comparison. Pinned to
+# h200-greennode_03 (the box currently running the gemma4dp2 c32 sweep); with
+# only one runner process there this job queues behind that run rather than
+# co-tenanting -- pre-run cleanup reaps all InferenceX containers on the host, so
+# concurrent InferenceX jobs on one box are unsafe. The gemma4routereagle
+# model-prefix routes to the gemma4routereagle_fp8block_h200.sh recipe, which
+# pins the two replicas to GPUs 2,3 and scopes the GPU monitor to 2,3. Single
+# c32 point for a first pass. Same acceptance caveat as the other fixed-seq-len
+# spec configs: random token content understates spec gains; --use-chat-template
+# mitigates, agentic real-trace is the faithful measurement.
+gemma4-fp8block-h200-vllm-router-eagle3:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4routereagle
+  runner: h200-greennode_03
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: "eagle3", conc-list: [32] }
+
 # Speculative-decoding twins of the DP2 pair above, same checkpoint, images,
 # runner, 8k1k workload and tp1 x dp2 = 2-GPU topology -- the only added axis is
 # spec decoding, so each is a clean spec-on vs spec-off comparison against its
