@@ -72,6 +72,15 @@ DP_SIZE=2
 DRAFT_MODEL="RedHatAI/gemma-4-31B-it-speculator.eagle3"
 NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-3}"
 SERVER_MAX_MODEL_LEN=131072
+
+# GPU pinning, same convention as the gemma4emnbt* wrappers. h200-greennode_03
+# hosts another tenant on GPUs 4-7, and this recipe's --data-parallel-size 2
+# would otherwise take "the first DP_SIZE visible cards" -- correct today, but
+# only by accident of enumeration order. Pin it so the engine provably cannot
+# allocate outside 0,1 no matter what else is on the box. Override with GPU_IDS
+# if 0,1 are busy (the gemma4routerspec recipe uses 2,3 on this same host for
+# exactly that reason).
+export CUDA_VISIBLE_DEVICES="${GPU_IDS:-0,1}"
 # Agentic scheduler headroom convention: admit up to 2x the offered concurrency.
 MAX_NUM_SEQS=$((2 * CONC))
 
@@ -79,6 +88,9 @@ if [[ -n "${SLURM_JOB_ID:-}" ]]; then
     echo "JOB $SLURM_JOB_ID running on ${SLURMD_NODENAME:-unknown}"
 fi
 
+# Unfiltered, so the log records the whole box: which cards the other tenant is
+# using and how much memory is already committed there. CUDA_VISIBLE_DEVICES
+# does not affect nvidia-smi, so this stays a full-box view on purpose.
 nvidia-smi
 
 if [[ -n "${MODEL_PATH:-}" ]]; then
