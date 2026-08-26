@@ -36,14 +36,18 @@ set -x
 # server-metrics/GPU-telemetry scrape and the same result aggregation and
 # validation as every other agentic recipe.
 #
-# CONTEXT: the trace's longest request is 44,171 input + 974 output = 45,145
-# tokens, so the server window is 49,152 (48k) rather than gemma-4's native
-# 256k. A smaller window is not just cheaper to compile -- it leaves far more
-# of the 141 GB card for KV, which is what decides how much of the shared
-# prefix survives eviction. There is no client-side cap to match it: aiperf's
-# --max-context-length is Weka-only and is rejected for mooncake traces, and
-# none is needed because every record in this file already fits the window by
-# construction.
+# CONTEXT: 131,072 (128k), the same admitted-workload cap the sibling agentic
+# recipes use, rather than gemma-4's native 256k. The trace's longest request
+# is 44,171 input + 974 output = 45,145 tokens, so every record fits with ~3x
+# headroom. Note the window does NOT trade against KV capacity: vLLM sizes the
+# KV pool from whatever GPU memory is left after weights and peak activation
+# under --gpu-memory-utilization, not from --max-model-len; the window only has
+# to be small enough that the pool can hold one full-length sequence. How much
+# of the trace's shared prefix survives eviction is therefore set by the pool
+# size logged below, not by this number.
+#
+# There is no client-side cap to match it: aiperf's --max-context-length is
+# Weka-only and is rejected outright for mooncake traces.
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -67,7 +71,7 @@ export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
 DP_SIZE=2
 DRAFT_MODEL="RedHatAI/gemma-4-31B-it-speculator.eagle3"
 NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-3}"
-SERVER_MAX_MODEL_LEN=49152
+SERVER_MAX_MODEL_LEN=131072
 # Agentic scheduler headroom convention: admit up to 2x the offered concurrency.
 MAX_NUM_SEQS=$((2 * CONC))
 
