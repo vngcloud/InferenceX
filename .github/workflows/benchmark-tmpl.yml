@@ -315,13 +315,19 @@ jobs:
             bash runners/reap_orphan_aiperf.sh || true
           fi
 
-          # Cleanup Docker resources
+          # Cleanup Docker resources.
+          # Scoped to InferenceX's own containers via the inferencex-bench label
+          # (set on the DCGM + bench containers in the launch_*.sh runners) so a
+          # shared box's OTHER tenants' containers are never touched. Purpose is
+          # only to reap this framework's orphans from a SIGKILLed prior job; the
+          # normal-path containers self-clean via --rm. No `docker network prune`
+          # here: the runners use --network host and create no networks, so a
+          # prune would only ever remove other tenants' idle networks.
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-            echo "[Docker] Cleaning up resources ..."
-            docker ps -aq | xargs -r docker rm -f
-            docker network prune -f
-            while [ -n "$(docker ps -aq)" ]; do
-              docker ps -a
+            echo "[Docker] Cleaning up InferenceX benchmark containers (label=inferencex-bench) ..."
+            docker ps -aq --filter "label=inferencex-bench" | xargs -r docker rm -f
+            while [ -n "$(docker ps -aq --filter "label=inferencex-bench")" ]; do
+              docker ps -a --filter "label=inferencex-bench"
               sleep 5
             done
           fi
