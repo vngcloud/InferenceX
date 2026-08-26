@@ -2320,6 +2320,145 @@ build_replay_cmd() {
     REPLAY_CMD+=" $TRACE_SOURCE_FLAG"
 }
 
+build_mooncake_replay_cmd() {
+    # aiperf invocation for a LOCAL mooncake-trace JSONL, as an alternative to
+    # build_replay_cmd's inferencex-agentx-mvp / Weka-corpus path.
+    #
+    # Why a separate builder rather than a flag on build_replay_cmd: the two
+    # share almost nothing. agentx-mvp is a scenario plugin that replays
+    # multi-turn trajectory trees pulled from a HuggingFace dataset, and it
+    # locks --cache-bust, trajectory start ratios, warmup lanes and an idle-gap
+    # cap. A mooncake trace is a flat list of independent single-turn requests
+    # whose `hash_ids` encode the prefix-sharing structure we want the engine's
+    # prefix cache to actually see -- cache-busting or reordering it destroys
+    # exactly the thing being measured. Keeping the two builders apart means
+    # neither can silently change the other's semantics.
+    #
+    # Required env:
+    #   MOONCAKE_TRACE_FILE  path to the JSONL (absolute, or relative to
+    #                        $INFMAX_CONTAINER_WORKSPACE)
+    # Optional env:
+    #   MOONCAKE_REQUEST_COUNT     stop after N requests (default: every record
+    #                              in the file, counted here)
+    #   MOONCAKE_REQUEST_RATE      requests/sec -> OPEN loop. Mutually exclusive
+    #                              with the default closed-loop --concurrency.
+    #   MOONCAKE_ARRIVAL_PATTERN   poisson (default) | constant; rate mode only
+    #   MOONCAKE_DURATION_CEILING  seconds; safety cap so a diverging queue
+    #                              cannot pin the runner for the job's whole
+    #                              500-minute timeout. Defaults to $DURATION.
+    #                              Set to 0 to run purely to request-count.
+    local result_dir="$1"
+
+    if [ -z "${MOONCAKE_TRACE_FILE:-}" ]; then
+        echo "ERROR: MOONCAKE_TRACE_FILE must be set before build_mooncake_replay_cmd" >&2
+        return 1
+    fi
+    local trace_file="$MOONCAKE_TRACE_FILE"
+    [[ "$trace_file" != /* ]] && trace_file="$INFMAX_CONTAINER_WORKSPACE/$trace_file"
+    if [ ! -s "$trace_file" ]; then
+        echo "ERROR: mooncake trace file not found or empty: $trace_file" >&2
+        return 1
+    fi
+
+    # Default the stop condition to the whole file. A partially replayed trace
+    # is not comparable across concurrency points: the hit rate the file was
+    # generated for is only realized once every record has been sent (the cold
+    # first touch of each shared prefix is paid in the first decile and
+    # amortized over the rest), so truncating one arm and not another moves the
+    # cache hit rate, not just the sample size.
+    local request_count="${MOONCAKE_REQUEST_COUNT:-}"
+    if [ -z "$request_count" ]; then
+        request_count="$(grep -c '[^[:space:]]' "$trace_file")"
+    fi
+
+    export AIPERF_DATASET_CONFIGURATION_TIMEOUT=1800
+    export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
+    export AIPERF_UI_REALTIME_METRICS_ENABLED=true
+
+    REPLAY_CMD="$AIPERF_CLI profile"
+    REPLAY_CMD+=" --url ${REMOTE_BASE_URL:-http://localhost:$PORT}"
+    REPLAY_CMD+=" --endpoint /v1/chat/completions"
+    REPLAY_CMD+=" --endpoint-type chat"
+    REPLAY_CMD+=" --streaming"
+    REPLAY_CMD+=" --model $MODEL"
+    REPLAY_CMD+=" --input-file $trace_file"
+    REPLAY_CMD+=" --custom-dataset-type mooncake_trace"
+    # These records carry no `timestamp`, so aiperf does not auto-promote to
+    # fixed-schedule and the load mode chosen below is honored as written.
+    # Passing --no-fixed-schedule anyway keeps that true for a future trace
+    # file that does carry timestamps: the load axis stays ours, not the
+    # trace's.
+    REPLAY_CMD+=" --no-fixed-schedule"
+    # Replay records in file order. `sequential` is already the documented
+    # default for trace datasets, but the alternatives (`random`, `shuffle`)
+    # would reorder requests and therefore change which prefixes are still
+    # resident when a reuse arrives -- pin it so the measured hit rate is a
+    # property of the trace, not of an aiperf default.
+    REPLAY_CMD+=" --dataset-sampling-strategy sequential"
+
+    if [ -n "${MOONCAKE_REQUEST_RATE:-}" ]; then
+        # Open loop: arrivals are independent of how fast the server drains
+        # them, so an under-provisioned rate shows up as unbounded queueing --
+        # which is the point of an RPS ladder.
+        REPLAY_CMD+=" --request-rate $MOONCAKE_REQUEST_RATE"
+        REPLAY_CMD+=" --arrival-pattern ${MOONCAKE_ARRIVAL_PATTERN:-poisson}"
+    else
+        # Closed loop: at most CONC requests in flight, the next arrival waits
+        # for a completion. This is the CCU sweep.
+        REPLAY_CMD+=" --concurrency $CONC"
+    fi
+
+    REPLAY_CMD+=" --request-count $request_count"
+    local duration_ceiling="${MOONCAKE_DURATION_CEILING-$DURATION}"
+    if [ -n "$duration_ceiling" ] && [ "$duration_ceiling" != "0" ]; then
+        REPLAY_CMD+=" --benchmark-duration $duration_ceiling"
+    fi
+
+    REPLAY_CMD+=" --stats-interval 30"
+    REPLAY_CMD+=" --random-seed 42"
+    REPLAY_CMD+=" --failed-request-threshold $AIPERF_LIVE_FAILED_REQUEST_THRESHOLD"
+    # No warmup flags on purpose. The engine's prefix cache starting cold is
+    # part of the measurement: the trace's realized hit rate was computed
+    # against an empty cache, so priming it with extra traffic would inflate
+    # the early deciles.
+    REPLAY_CMD+=" --use-server-token-count"
+    REPLAY_CMD+=" --tokenizer-trust-remote-code"
+    if [ -n "${AIPERF_TOKENIZER:-}" ]; then
+        REPLAY_CMD+=" --tokenizer $AIPERF_TOKENIZER"
+    fi
+    # Deliberately NO --max-context-length: aiperf rejects it for anything but
+    # Weka trace replay ("--max-context-length only applies to Weka trace
+    # replay ... other formats do not implement this filter"). A mooncake trace
+    # is a fixed, known set of lengths, so the cap belongs on the generator and
+    # on the recipe's --max-model-len, not here.
+    if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
+        REPLAY_CMD+=" --gpu-telemetry $AIPERF_GPU_TELEMETRY_URL"
+    else
+        REPLAY_CMD+=" --no-gpu-telemetry"
+    fi
+    REPLAY_CMD+=" --slice-duration 1.0"
+    if [ -n "${AIPERF_SERVER_METRICS_URLS:-}" ]; then
+        local metrics_url
+        local -a metrics_urls
+        IFS=',' read -r -a metrics_urls <<< "$AIPERF_SERVER_METRICS_URLS"
+        REPLAY_CMD+=" --server-metrics"
+        for metrics_url in "${metrics_urls[@]}"; do
+            if [ -z "$metrics_url" ] || [[ "$metrics_url" == *[[:space:]]* ]]; then
+                echo "ERROR: AIPERF_SERVER_METRICS_URLS must be a comma-separated list of non-empty URLs" >&2
+                return 1
+            fi
+            REPLAY_CMD+=" $metrics_url"
+        done
+    fi
+    REPLAY_CMD+=" --output-artifact-dir $result_dir/aiperf_artifacts"
+
+    local mode_desc="concurrency $CONC"
+    if [ -n "${MOONCAKE_REQUEST_RATE:-}" ]; then
+        mode_desc="rate ${MOONCAKE_REQUEST_RATE}/s ${MOONCAKE_ARRIVAL_PATTERN:-poisson}"
+    fi
+    echo "Mooncake replay: $trace_file | $request_count requests | $mode_desc"
+}
+
 write_agentic_result_json() {
     # Aggregate aiperf's profile_export.{json,jsonl} + server_metrics_export.json
     # into $AGENTIC_OUTPUT_DIR/$RESULT_FILENAME.json. The workflow checks that

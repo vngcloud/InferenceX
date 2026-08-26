@@ -239,6 +239,8 @@ labels:
     - h200-greennode_01
     - h200-greennode_03
     - h200-greennode_04
+  cluster:h200-greennode_03:
+    - h200-greennode_03
   cluster:h200-greennode_04:
     - h200-greennode_04
   cluster:b200-dgxc:
@@ -347,6 +349,9 @@ hardware:
     available-cpu-dram-mib: 1_472_512
     gpus-per-node: 8
   cluster:h200-greennode:
+    available-cpu-dram-mib: 1_502_319
+    gpus-per-node: 8
+  cluster:h200-greennode_03:
     available-cpu-dram-mib: 1_502_319
     gpus-per-node: 8
   cluster:h200-greennode_04:

@@ -8747,6 +8747,39 @@ gemma4-fp8block-h200-sglang-ngram-agentic:
     - search-space:
       - { tp: 1, dp-attn: false, kv-offloading: none, spec-decoding: "ngram", conc-list: [4, 8, 16, 32] }
 
+# Mooncake-trace CCU smoke test: same tp1 x dp2 + EAGLE3 topology as
+# gemma4-fp8block-h200-vllm-eagle3-dp2 (Actions run 32392516834), but replaying
+# utils/agentic/datasets/traces/gemma4_prod_cache30_910.jsonl -- 910 requests
+# fitted to the measured production ISL distribution with hash_ids tiled so 30%
+# of prefill tokens are a re-sent shared prefix. Purpose is to find how much of
+# that 30% ceiling vLLM's prefix cache actually delivers once LRU eviction is in
+# play at each concurrency, which the synthetic 8k1k fixed-seq-len arms cannot
+# show (random tokens, zero reuse).
+#
+# This is scenario-type agentic-coding only because that is the scenario that
+# routes to the aiperf driver; it is NOT the AgentX Weka corpus. The recipe
+# calls build_mooncake_replay_cmd, not build_replay_cmd, precisely because the
+# inferencex-agentx-mvp scenario locks --cache-bust first_turn_prefix.
+#
+# c8/c16/c32 is a smoke ladder, not a saturation curve: at ISL ~27.7k the
+# interesting variable is KV residency, and 32 in-flight requests is already
+# ~1.4M tokens of live context against a ~2M-token break point. The dataset is
+# pinned in the recipe (the matrix has no per-config dataset field), so the
+# cache60 / cache90 / coldfloor levels get their own model-prefix + recipe when
+# they are swept -- same pattern as gemma4emnbt{2k,4k,8k}.
+gemma4-fp8block-h200-vllm-eagle3-mooncake30:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4mc30
+  runner: cluster:h200-greennode_03
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, dp-attn: false, kv-offloading: none, spec-decoding: "eagle3", conc-list: [8, 16, 32] }
+
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
 # enabling native EAGLE MTP with golden AL and GPU-resident decode KV cache.
