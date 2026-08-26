@@ -48,6 +48,10 @@ set -x
 #
 # There is no client-side cap to match it: aiperf's --max-context-length is
 # Weka-only and is rejected outright for mooncake traces.
+#
+# PORT: not the harness default 8888. See the port-selection block below --
+# --network host makes $PORT a box-global port and another tenant owns 8888 on
+# this host.
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -56,6 +60,47 @@ check_env_vars MODEL TP CONC RESULT_DIR DURATION
 # GPU-resident KV (kv-offloading: none in the master config); assert the matrix
 # did not hand us an offload backend this recipe would silently ignore.
 require_agentic_kv_offload_none
+
+# --------------------------------------------------------------------------
+# Host port selection.
+#
+# The runner launcher starts this container with --network host, so $PORT is a
+# port on the physical box, NOT a private container port. h200-greennode_03
+# carries a non-InferenceX tenant (GPUs 6-7, ~144 GB each at 100% util) whose
+# inference server holds :8888 -- benchmark_lib.sh's default. Actions run
+# 32934050806 died on exactly that: `vllm serve` got
+#   OSError: [Errno 98] Address already in use
+# while wait_for_server_ready, which only curls /health, was satisfied by the
+# SQUATTER's server and released aiperf against it (404 "The model ... does not
+# exist" x 910, threshold abort in 0.1s).
+#
+# The pre-run Docker cleanup deliberately reaps only label=inferencex
+# containers, so a foreign listener is never cleared -- correct, and the reason
+# this has to be handled here instead.
+#
+# Bind the first candidate port that is genuinely free (a real bind(), not an
+# HTTP probe: a squatter that answers nothing on / would still pass a curl).
+PORT_CANDIDATES="${PORT_CANDIDATES:-8901 8902 8903 8904 8905}"
+PORT="$(python3 - $PORT_CANDIDATES <<'PY'
+import socket, sys
+for port in (int(a) for a in sys.argv[1:]):
+    sock = socket.socket()
+    try:
+        # No SO_REUSEADDR/SO_REUSEPORT on purpose: this must fail whenever
+        # anything at all -- including a TIME_WAIT remnant -- owns the port.
+        sock.bind(("0.0.0.0", port))
+    except OSError:
+        continue
+    finally:
+        sock.close()
+    print(port)
+    sys.exit(0)
+sys.exit(1)
+PY
+)" || { echo "ERROR: no free host port among: $PORT_CANDIDATES" >&2; exit 1; }
+export PORT
+echo "Serving on host port $PORT (harness default 8888 is held by another tenant)"
+# --------------------------------------------------------------------------
 
 # Local JSONL, not a HuggingFace corpus -- resolve_trace_source() is
 # deliberately NOT called. Path is relative to the repo checkout, which the
@@ -138,6 +183,20 @@ vllm serve "$MODEL_PATH" --host 0.0.0.0 --port "$PORT" \
 SERVER_PID=$!
 
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+
+# wait_for_server_ready only proves SOMETHING answers /health on this port. On
+# a --network host box that is not the same as "our engine is up": run
+# 32934050806 passed this check against a different tenant's server. That run
+# was saved by a model-name mismatch turning into 404s; a squatter serving the
+# same model id would instead have produced plausible numbers measured on
+# somebody else's GPUs. Assert the endpoint is really ours before spending an
+# hour benchmarking it.
+SERVED_MODELS="$(curl -sf -m 10 "http://localhost:$PORT/v1/models" || true)"
+if ! grep -qF -- "$MODEL" <<<"$SERVED_MODELS"; then
+    echo "ERROR: the server on :$PORT does not serve $MODEL -- refusing to benchmark a foreign endpoint" >&2
+    echo "  /v1/models returned: ${SERVED_MODELS:-<no response>}" >&2
+    exit 1
+fi
 
 # How many tokens of KV the engine actually got. This is the single number that
 # decides how much of the trace's 30% shared prefix survives eviction, so put it
