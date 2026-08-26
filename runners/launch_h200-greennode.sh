@@ -51,11 +51,13 @@ done
 
 docker rm -f "$DCGM_NAME" 2>/dev/null || true
 docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
+  --label inferencex-bench=1 \
   --name "$DCGM_NAME" \
   nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04
 trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
+  --label inferencex-bench=1 \
   -v "$GITHUB_WORKSPACE:/workspace" \
   -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
   -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" \
