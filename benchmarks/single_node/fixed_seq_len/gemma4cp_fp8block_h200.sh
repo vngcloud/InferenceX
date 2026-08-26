@@ -60,6 +60,15 @@ fi
 
 start_gpu_monitor
 
+# max_num_batched_tokens must not exceed max_num_seqs * max_model_len, else the
+# warmup dummy batch overruns a single sequence's max length and CUDA graph
+# capture dies with an illegal memory access (hit at conc 1: 16384 > 1*9472).
+# Cap it to CONC*MAX_MODEL_LEN so low-conc points stay valid; higher conc keeps
+# the full 16384. (conc 1 -> 9472, conc>=2 -> 16384 for max_model_len 9472.)
+MAX_BATCHED_TOKENS=16384
+CAP=$(( CONC * MAX_MODEL_LEN ))
+if [ "$MAX_BATCHED_TOKENS" -gt "$CAP" ]; then MAX_BATCHED_TOKENS="$CAP"; fi
+
 set -x
 CUDA_VISIBLE_DEVICES="$BENCH_GPU" vllm serve "$MODEL_PATH" --host 0.0.0.0 --port "$PORT" \
     --served-model-name "$MODEL" \
@@ -69,7 +78,7 @@ CUDA_VISIBLE_DEVICES="$BENCH_GPU" vllm serve "$MODEL_PATH" --host 0.0.0.0 --port
     --kv-cache-dtype fp8_e4m3 \
     --max-model-len "$MAX_MODEL_LEN" \
     --max-num-seqs "$CONC" \
-    --max-num-batched-tokens 16384 \
+    --max-num-batched-tokens "$MAX_BATCHED_TOKENS" \
     --enable-chunked-prefill \
     --long-prefill-token-threshold 8192 \
     --enable-auto-tool-choice \
