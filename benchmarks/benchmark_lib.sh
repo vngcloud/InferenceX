@@ -2421,6 +2421,33 @@ build_mooncake_replay_cmd() {
     # part of the measurement: the trace's realized hit rate was computed
     # against an empty cache, so priming it with extra traffic would inflate
     # the early deciles.
+    #
+    # ignore_eos is REQUIRED here, not a tuning knob. A mooncake record's
+    # `output_length` reaches the server only as `max_tokens` (mooncake_trace.py
+    # _build_turn) -- a ceiling, not a floor -- and this builder deliberately
+    # runs without a scenario, so nothing injects it the way
+    # inferencex-agentx-mvp's require_ignore_eos does for build_replay_cmd.
+    # Without it the model stops at its own EOS and the replayed OSL collapses
+    # (observed on run 32935416336: 670 and 723 tokens against a requested
+    # 1024, -34.6% / -29.4%).
+    #
+    # That matters more here than in a normal replay because these records carry
+    # no text_input/messages -- only input_length/output_length/hash_ids -- so
+    # aiperf SYNTHESIZES the prompt from the hash ids. Natural EOS on a
+    # synthetic token sequence is an artifact of how the model reacts to noise;
+    # it is not production behavior. The production behavior is the
+    # `output_length` column itself, which was measured from production. Letting
+    # EOS win therefore discards the very distribution the trace was fitted to.
+    #
+    # And the damage is not confined to decode-side metrics: sequences that
+    # finish early leave the batch early, so KV pressure drops and more of the
+    # shared prefix survives eviction. The prefix-cache hit rate -- the number
+    # these sweeps exist to produce -- would come out biased OPTIMISTIC.
+    #
+    # Known cost: with ignore_eos the model can emit tokens that break the JSON
+    # of an SSE packet. aiperf already handles exactly this (record_models.py
+    # stitches continuation lines, citing ignore_eos=True by name).
+    REPLAY_CMD+=" --extra-inputs ignore_eos:true"
     REPLAY_CMD+=" --use-server-token-count"
     REPLAY_CMD+=" --tokenizer-trust-remote-code"
     if [ -n "${AIPERF_TOKENIZER:-}" ]; then
