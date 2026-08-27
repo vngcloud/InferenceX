@@ -8454,6 +8454,43 @@ gemma4-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192] }
 
+# FlashAttention-version A/B on the FP8 KV cache. Single arm, conc 8 only.
+#
+# With --kv-cache-dtype fp8_e4m3 the engine logs
+#   [cuda.py:476] Using TRITON_ATTN attention backend out of potential
+#                 backends: ['TRITON_ATTN'].
+# whereas the BF16-KV twin (run 32946716838) logs FLASH_ATTN out of
+# ['FLASH_ATTN', 'TRITON_ATTN', 'FLEX_ATTENTION']. vLLM v0.25.0's
+# FlashAttentionBackend.supports_kv_cache_dtype admits fp8 only when
+# get_flash_attn_version() == 3 on capability family 90; H200 is family 90 but
+# this image resolves v4, so FLASH_ATTN is filtered out and Triton is the only
+# survivor. Cost at conc 8, measured against run 32946714039: TTFT mean
+# 798 -> 1376 ms, TPOT 17.9 -> 22.5 ms, 0.45 -> 0.36 req/s.
+#
+# This arm pins --attention-config.flash_attn_version=3 and changes nothing
+# else, to see whether fp8 KV can keep a FlashAttention kernel. If FA3 is not
+# built into the image the pin degrades to the Triton baseline rather than
+# failing, so the run is informative either way.
+#
+# model-prefix gemma4fa3 -> benchmarks/single_node/fixed_seq_len/
+# gemma4fa3_fp8block_h200.sh, a copy of the gemma4cp baseline recipe plus that
+# one flag. Dispatch with --runner-node-filter h200-greennode_03 so it lands on
+# the same box as the two runs it is being compared with.
+gemma4-fp8block-h200-vllm-fa3:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4fa3
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8] }
+
 # SGLang framework twin of gemma4-fp8block-h200-vllm: same checkpoint, same
 # 8k1k fixed-seq-len workload, TP1 on a single H200. Pinned to
 # cluster:h200-greennode_04 (hoanq3-h2) so the whole ladder lands on one
