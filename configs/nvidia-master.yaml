@@ -8556,6 +8556,26 @@ gemma4fi-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 8, 32, 64] }
 
+# sglang twin of gemma4fi-fp8block-h200-vllm: same model (RedHatAI/gemma-4-31B-it-FP8-block),
+# TP1, 8k1k, conc [1,8,32,64], runner cluster:h200-greennode. Uses sglang v0.5.18
+# with --reasoning-parser gemma4 --tool-call-parser gemma4 --mem-fraction-static 0.85.
+# Distinct model-prefix gemma4sg -> recipe gemma4sg_fp8block_h200_sglang.sh, pins
+# CUDA_VISIBLE_DEVICES=4. Exploration-only, never merged.
+gemma4sg-fp8block-h200-sglang:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sg
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
 # (cache_aware policy) in front of the single vLLM backend. Same

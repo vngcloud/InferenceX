@@ -6095,3 +6095,11 @@
     - "This arm is safe on v0.5.14 without --dsa-prefill-backend flashmla_sparse_q8, and deliberately omits it. Crash #1 (num_splits must have shape (b+1)) needs a prefill CUDA graph captured at runtime, and v0.5.14 defaults prefill to backend='disabled' where v0.5.18 defaults it to 'breakable' -- neither run passes --cuda-graph-backend-prefill, so this is an upstream default flip and crash #1 is a v0.5.18 regression rather than a latent bug. The reference run confirms the config survives a full 3600s. Adding the flag would change the config being reproduced and defeat the arm."
     - "Read it against glm5.2dplm (run 32585334238), not against the v0.5.18 baseline arm, which has never produced a result. That pair is a 5-variable bundle -- HiCache #30393, the prefill-graph default flip, flashmla_sparse_q8, --enable-dp-lm-head, --enable-dp-attention-local-control-broadcast -- and is the honest end-to-end upgrade delta, not an isolation of any single change. The isolated evidence for #30393 is already in hand from the accept metrics: collapsed decode batches (accept rate < 0.15) go from 3.28% at c16 and 2.02% at c24 on v0.5.14 to 0.00% at every concurrency on v0.5.18, with mean accept length 2.60 -> 3.04 and accept rate 0.53 -> 0.68, and v0.5.14's accept length degrades with batch size (2.81 at 2 running requests down to 2.31 at 5) where v0.5.18 stays flat at 3.03-3.07."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - gemma4sg-fp8block-h200-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "sglang twin of gemma4fi-fp8block-h200-vllm (run 32946716838). Same model RedHatAI/gemma-4-31B-it-FP8-block, TP1, 8k1k, conc [1,8,32,64], runner cluster:h200-greennode. Image lmsysorg/sglang:v0.5.18-cu130. Recipe gemma4sg_fp8block_h200_sglang.sh adds --reasoning-parser gemma4 --tool-call-parser gemma4 --mem-fraction-static 0.85, --chunked-prefill-size 16384, --context-length 65536, pins CUDA_VISIBLE_DEVICES=4. Scoped docker cleanup (label=inferencex-bench) from b5a6d354 preserves other tenants' containers on the shared node."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
