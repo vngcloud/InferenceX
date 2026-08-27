@@ -56,12 +56,20 @@ check_env_vars \
     RANDOM_RANGE_RATIO \
     RESULT_FILENAME
 
-# Same card gemma4cp pinned for the baseline, so the two runs sit on identical
-# silicon. h200-greennode_03 carries a non-InferenceX tenant on the high GPU
-# indices and the launcher runs --gpus all with no pin of its own, so without
-# this the engine would land on GPU 0. GPU_IDS is not in the launcher's env
-# allow-list, so this is the pin -- edit here if 3 is occupied at dispatch.
-BENCH_GPU="${GPU_IDS:-3}"
+# h200-greennode_03 shares GPUs with a non-InferenceX tenant and the launcher
+# runs --gpus all with no pin of its own, so without this the engine would land
+# on GPU 0. GPU_IDS is not in the launcher's env allow-list, so this is the pin
+# -- edit here if the pair is occupied at dispatch.
+#
+# 6,7 was requested at dispatch (2026-08-27); the gemma4cp baseline this run is
+# A/B'd against ran on GPU 3, which the tenant has since taken. Different card,
+# same SKU (H200 SXM), so the FA3-vs-Triton comparison still holds -- but note
+# the two runs are not the same physical die.
+#
+# This is TP1: vLLM only ever uses the first visible device, so the engine lands
+# on physical GPU 6 and 7 just sits exposed-but-idle. Kept as the pair anyway so
+# the pin matches what was granted, and so bumping TP to 2 needs no edit here.
+BENCH_GPU="${GPU_IDS:-6,7}"
 
 # Host port selection. The launcher uses --network host, so $PORT is a
 # box-global port; the harness default 8888 has been squatted by the other
