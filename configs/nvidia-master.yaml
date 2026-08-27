@@ -8556,6 +8556,50 @@ gemma4fi-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 8, 32, 64] }
 
+# STAGE 1 of the Gemma-4 optimization roadmap: the locked baseline arm
+# gemma4fi-fp8block-h200-vllm re-run on vLLM v0.28.0, still with NO speculative
+# decoding. Everything below is copied from that key except `image` and
+# `model-prefix`; the recipe gemma4v28_fp8block_h200.sh is likewise a verbatim
+# copy of gemma4fi_fp8block_h200.sh apart from BENCH_GPU 4 -> 6 and an added
+# backend-verdict grep. The image is therefore the only variable under test.
+#
+# BASELINE THIS IS COMPARED AGAINST: run 32946716838, 2026-08-26, on
+# h200-greennode_03, branch bench/gemma4cp-8k1k-1gpu @ b5a6d354. Engine startup
+# there logged speculative_config=None, kv_cache_dtype=auto, max_seq_len=65536,
+# prefix caching + chunked prefill on, Model Runner V2, FlashAttention 4.
+# Total tok/s/GPU by concurrency: 728.6 / 3,729.4 / 6,301.8 / 6,907.3.
+#
+# GPU 6: the pair 6,7 is what we hold on _03 as of 2026-08-27; the baseline's
+# card 4 has changed tenancy since. TP1 uses one card. GPU index is not a
+# performance variable on a homogeneous 8xH200 SXM box, contention is.
+#
+# DISPATCH: pin the host with --runner-node-filter h200-greennode_03. The
+# baseline key is likewise on the three-box cluster:h200-greennode pool and was
+# pinned at dispatch, not by label -- _03 has no node-specific label of its own.
+#
+# DO NOT add --kv-cache-dtype fp8_e4m3 to this or any later stage on H200. It
+# pins gemma4 to the Triton attention kernel (FA3 rejects head_size 512 on
+# SM90, FA4 requires SM100 for fp8, FlashInfer is excluded for gemma4 by
+# supports_mm_prefix() -> False) and cost +72% TTFT / +25% TPOT / -20% req/s at
+# 8k1k conc 8. This is a hardware constraint, independent of vLLM PR #52987.
+#
+# Exploration-only: dispatched via e2e-tests.yml against a branch, never merged.
+gemma4v28-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4v28
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
 # (cache_aware policy) in front of the single vLLM backend. Same
