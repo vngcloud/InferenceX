@@ -8454,43 +8454,6 @@ gemma4-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192] }
 
-# FlashAttention-version A/B on the FP8 KV cache. Single arm, conc 8 only.
-#
-# With --kv-cache-dtype fp8_e4m3 the engine logs
-#   [cuda.py:476] Using TRITON_ATTN attention backend out of potential
-#                 backends: ['TRITON_ATTN'].
-# whereas the BF16-KV twin (run 32946716838) logs FLASH_ATTN out of
-# ['FLASH_ATTN', 'TRITON_ATTN', 'FLEX_ATTENTION']. vLLM v0.25.0's
-# FlashAttentionBackend.supports_kv_cache_dtype admits fp8 only when
-# get_flash_attn_version() == 3 on capability family 90; H200 is family 90 but
-# this image resolves v4, so FLASH_ATTN is filtered out and Triton is the only
-# survivor. Cost at conc 8, measured against run 32946714039: TTFT mean
-# 798 -> 1376 ms, TPOT 17.9 -> 22.5 ms, 0.45 -> 0.36 req/s.
-#
-# This arm pins --attention-config.flash_attn_version=3 and changes nothing
-# else, to see whether fp8 KV can keep a FlashAttention kernel. If FA3 is not
-# built into the image the pin degrades to the Triton baseline rather than
-# failing, so the run is informative either way.
-#
-# model-prefix gemma4fa3 -> benchmarks/single_node/fixed_seq_len/
-# gemma4fa3_fp8block_h200.sh, a copy of the gemma4cp baseline recipe plus that
-# one flag. Dispatch with --runner-node-filter h200-greennode_03 so it lands on
-# the same box as the two runs it is being compared with.
-gemma4-fp8block-h200-vllm-fa3:
-  image: vllm/vllm-openai:v0.25.0
-  model: RedHatAI/gemma-4-31B-it-FP8-block
-  model-prefix: gemma4fa3
-  runner: cluster:h200-greennode
-  precision: fp8block
-  framework: vllm
-  multinode: false
-  scenarios:
-    fixed-seq-len:
-    - isl: 8192
-      osl: 1024
-      search-space:
-      - { tp: 1, conc-list: [8] }
-
 # SGLang framework twin of gemma4-fp8block-h200-vllm: same checkpoint, same
 # 8k1k fixed-seq-len workload, TP1 on a single H200. Pinned to
 # cluster:h200-greennode_04 (hoanq3-h2) so the whole ladder lands on one
@@ -8825,6 +8788,49 @@ gemma4-fp8block-h200-vllm-eagle3-mooncake30:
     agentic-coding:
     - search-space:
       - { tp: 1, dp-attn: false, kv-offloading: none, spec-decoding: "eagle3", conc-list: [8, 16, 32] }
+
+# UNQUANTISED-KV twin of gemma4-fp8block-h200-vllm-eagle3-mooncake30. Same
+# checkpoint, same EAGLE3 draft, same tp1 x dp2 topology, same 128k window,
+# same gemma4_prod_cache30_910.jsonl trace, same c8/c16/c32 ladder. The only
+# change is that the recipe drops --kv-cache-dtype fp8_e4m3, so KV falls back
+# to the model's bfloat16.
+#
+# WHY. fp8 KV pins gemma4 to the Triton attention kernel on H200 and nothing
+# can lift that: FlashAttention v3 accepts fp8 but not head_size 512 on SM90,
+# v4 accepts head_size 512 but requires SM100 (Blackwell) for fp8, and
+# FlashInfer is excluded for gemma4 by supports_mm_prefix() -> False. An
+# explicit --attention-config.flash_attn_version=3 was tried on
+# h200-greennode_03 on 2026-08-27 and crashed the engine at KV-cache init
+# ("FP8 is only supported on SM100 ... for FA4 CuTe"), because vLLM v0.25.0
+# picks the backend with a head_size-less version probe and then executes with
+# a head_size-aware one. Dropping fp8 is the only lever left on this hardware.
+#
+# WHAT THIS COSTS, AND WHY c32 IS STILL IN THE LADDER. bf16 KV roughly halves
+# the pool (the fp8 sibling logged ~1,259,381 tok/rank; c32 peaked at kv_usage
+# 58.6%, i.e. ~738k tokens live, which will not fit ~630k). c32 is therefore
+# expected to preempt. It is kept because a measured preemption rate and the
+# prefix-cache hit rate it drags down are exactly the numbers needed to decide
+# whether gemma4 agentic can afford bf16 KV; c8/c16 give the uncontended
+# FLASH_ATTN-vs-TRITON_ATTN latency delta.
+#
+# RUNNER: same constraint as the fp8 sibling -- pin the host at dispatch with
+#   --runner-node-filter h200-greennode_03
+# because _03's only registered cluster label is the three-box
+# cluster:h200-greennode. Without it this lands on whichever of _01/_03/_04 is
+# free, and the recipe's GPU pin (6,7) is only correct on _03.
+gemma4-fp8block-h200-vllm-eagle3-mooncake30-autokv:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4mc30auto
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, dp-attn: false, kv-offloading: none, spec-decoding: "eagle3", conc-list: [8, 16, 32] }
+
 
 # GLM-5.2 FP8 full-context AgentX refresh on H200. This preserves the 2P2D
 # PCP8/TP8-DP8 topology and c8/c12/c16 curve from Actions run 30133535261 while
