@@ -8599,6 +8599,119 @@ gemma4v28-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 8, 32, 64] }
 
+# STAGE 2 of the Gemma-4 optimization roadmap: EAGLE3 speculative decoding.
+# Identical to the Stage-1 key gemma4v28-fp8block-h200-vllm except for the
+# model-prefix and spec-decoding; the recipe
+# gemma4v28e3_fp8block_h200_specdec.sh is likewise a verbatim copy of
+# gemma4v28_fp8block_h200.sh plus a draft prefetch and one
+# --speculative-config. EAGLE3 is therefore the only variable versus Stage 1.
+#
+# spec-decoding MUST be "draft_model", not "eagle3". EAGLE3 is an
+# external-draft method, and this branch's schema
+# (utils/matrix_logic/validation.py) accepts only mtp/draft_model/none --
+# "eagle3" was widened in on vng-benchmark-gemma4-sgl but importing that here
+# would drag in CI drift the whole point of this branch is to avoid.
+# runners/launch_h200-greennode.sh maps draft_model -> the _specdec suffix,
+# which is how this earns its own recipe filename.
+#
+# The drafter, RedHatAI/gemma-4-31B-it-speculator.eagle3 at
+# num_speculative_tokens=3, is not a guess: byte-identical
+# --speculative-config JSON ran green in Actions run 33041047279.
+#
+# GATE: adopt only on >=15% production-weighted output-throughput gain with
+# p99 TTFT and p99 ITL no worse than +5%.
+gemma4v28e3-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4v28e3
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
+
+# STAGE 3 of the Gemma-4 optimization roadmap: native Gemma-4 MTP, swept over
+# speculative depth 2 / 4 / 8. Three keys rather than one because
+# num_speculative_tokens is not a matrix field on this branch, and
+# runners/launch_h200-greennode.sh derives the recipe filename from
+# model-prefix -- so one prefix per depth. The three recipes are thin wrappers
+# that set the integer and source the shared gemma4v28mtp_body.sh, so nothing
+# but the depth can differ between the arms.
+#
+# spec-decoding: mtp is correct AND load-bearing. google/gemma-4-31B-it-assistant
+# is model_type gemma4_assistant with backbone_hidden_size 5376 -- it consumes
+# the target's hidden states, so vLLM maps it to Gemma4MTPModel, not to a
+# generic draft model. vLLM's own docs warn that a release which resolves it as
+# method='draft_model' "may fail during initialization for multimodal Gemma 4
+# targets", and gemma4 is multimodal here. v0.28.0 (tag cut 2026-08-24) does
+# ship vllm/model_executor/models/gemma4_mtp.py and the registry entry
+# "Gemma4MTPModel": ("gemma4_mtp", "Gemma4MTP"), which is exactly why Stage 1's
+# image upgrade had to come first.
+#
+# Upstream vllm-project/vllm#53884 (merged 2026-08-26, after the v0.28.0 tag)
+# fixes a CUDA-graph-capture crash at engine init for MTP drafts -- but only
+# those whose generation_config carries a non-empty suppress_tokens. The PR
+# names google/gemma-4-12B-it-assistant as the only affected checkpoint; the
+# 31B assistant's generation_config.json has no such key. Checked, not assumed.
+#
+# COST: 12 jobs (3 depths x conc 1/8/32/64), all serialised on one node. The
+# full ladder per depth is deliberate -- deeper speculation wins at low batch
+# and can lose at conc 64 where the verify step is already compute-bound, so a
+# single concurrency point would not identify the winner.
+# Speculative depth 2.
+gemma4v28mtp2-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4v28m2
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# Speculative depth 4.
+gemma4v28mtp4-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4v28m4
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# Speculative depth 8.
+gemma4v28mtp8-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4v28m8
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+
 
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
