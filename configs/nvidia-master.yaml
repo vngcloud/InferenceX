@@ -8341,6 +8341,28 @@ glm5.2dplm-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
       search-space:
       - { tp: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
 
+# Low-latency (TP-only) counterpart of the glm5.2dplm DP-attention arms.
+# Repo convention: low-latency = TP-only, ep 1, no dp-attn (see the dsv4-fp4-b200
+# comment above); DP-attention carries the throughput end. GLM-5.2 is DSA, so its
+# KV pool is replicated across TP ranks rather than sharded -- distinct capacity is
+# one rank's pool, not eight -- which is why the conc ladder stops at 16 where the
+# DP arms run to 48. Ladder mirrors glm5.2-fp4-b300-sglang-agentic-mtp [1, 4, 8,
+# 12, 16]: 1 and 4 for the interactive end, 8 and 16 overlapping the DP sweep for
+# a direct A/B across dp-attention.
+glm5.2ll5-fp4-h200-greennode-sglang-lowlatency-hicache-r2-spec5-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2ll5
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [1, 4, 8, 16] }
+
 glm5.2dspark-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: thangquang0909/sglang:v0.5.16-dspark-v2-g4
   model: zai-org/GLM-5.2-FP8
