@@ -8257,6 +8257,24 @@ glm5.2v0514-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
       search-space:
       - { tp: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [16, 24], router: { name: sglang-router, version: "0.3.2" } }
 
+# glm5.2deep retuned: DeepEP communication on 96 SMs instead of the 20-SM
+# default, plus a log-only expert-balancedness report. Ladder [16, 24, 40] --
+# 16 and 24 overlap the original DeepEP A/B where TTFT regressed +37% and +21%,
+# 40 is where DeepEP broke the SLO-avg TTFT gate that the ep1 baseline passed.
+glm5.2dsm96-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-deepep-sm96-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2dsm96
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [16, 24, 40], router: { name: sglang-router, version: "0.3.2" } }
+
 glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: lmsysorg/sglang:v0.5.18-cu130
   model: zai-org/GLM-5.2-FP8
