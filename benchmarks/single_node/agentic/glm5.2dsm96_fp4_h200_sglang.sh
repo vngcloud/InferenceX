@@ -116,15 +116,22 @@ SGLANG_CMD=(
   --moe-a2a-backend deepep
   # The 20-SM default fires "Only use 20 SMs for DeepEP communication. This may
   # result in highly suboptimal performance" on all 8 ranks -- confirmed still
-  # firing at conc 40 in run 33192556911. 96 of 132 SMs is what test/kv_canary
-  # (consts.py:19) already uses. Only the normal_* (extend) path is retuned:
-  # deepep_mode auto routes prefill through NORMAL dispatch/combine, and TTFT is
-  # what regresses, while decode runs LOW_LATENCY and its ITL is already at par.
+  # firing at conc 40 in run 33192556911. 96 of 132 SMs is the value
+  # dsv4_fp4_b200_sglang_mtp.sh:106 already passes. Only the normal_* (extend)
+  # path is retuned: deepep_mode auto routes prefill through NORMAL
+  # dispatch/combine, and TTFT is what regresses, while decode runs LOW_LATENCY
+  # and its ITL is already at par with the ep1 baseline.
   --deepep-config '{"normal_dispatch":{"num_sms":96},"normal_combine":{"num_sms":96}}'
-  # Log-only, no behaviour change: answers whether the 256 experts spread evenly
-  # over 8 ranks (32 each) in the same slot, so --enable-eplb can be decided
-  # without spending a separate 4h run to measure imbalance first.
-  --expert-balancedness-report-mode server_log
+  # NO --expert-balancedness-report-mode here. It was tried in run 33251393573
+  # and killed every rank at scheduler init: setting it flips
+  # expert_distribution_recorder_mode to "stat", and eplb/expert_distribution.py
+  # :347-357 only builds a gatherer for deepep_mode "normal" or "low_latency" --
+  # "auto", which this arm runs, falls through to raise NotImplementedError.
+  # Measuring balancedness therefore requires pinning deepep_mode, which would
+  # change the very configuration this arm exists to measure, so the balance
+  # question is split out rather than folded in. --expert-distribution-recorder
+  # -mode per_token does dodge the check (it is matched first, at line 331) but
+  # is a per-token recorder and would distort the latency being measured.
   --host 0.0.0.0
   --port "$SGLANG_BACKEND_PORT"
   "${PARALLEL_ARGS[@]}"
