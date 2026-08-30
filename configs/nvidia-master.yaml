@@ -8381,6 +8381,22 @@ glm5.2ll7-fp4-h200-greennode-sglang-lowlatency-hicache-r2-spec7-agentic:
       search-space:
       - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [4, 8, 12] }
 
+# glm5.2ll7 plus --speculative-adaptive and nothing else. Ladder is ll7's own
+# [4, 8, 12] so all three points are paired against a static-depth twin.
+glm5.2lla-fp4-h200-greennode-sglang-lowlatency-hicache-r2-adaptive-spec-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2lla
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [4, 8, 12] }
+
 glm5.2dspark-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: thangquang0909/sglang:v0.5.16-dspark-v2-g4
   model: zai-org/GLM-5.2-FP8

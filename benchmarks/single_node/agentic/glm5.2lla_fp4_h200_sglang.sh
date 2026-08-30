@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set -x
+
+# Low-latency (TP-only) recipe for GLM-5.2 on H200: byte-identical to
+# glm5.2ll7_fp4_h200_sglang.sh except for one added flag,
+# --speculative-adaptive, which lets sglang pick speculative_num_steps per
+# decode batch instead of pinning it. Kept as its own file to get its own
+# MODEL_PREFIX, since the conc ladder is exactly glm5.2ll7's [4, 8, 12] and
+# agg_bmk.json tells arms apart by prefix. Driven with dp-attn false, so the
+# DP branch below is dead code here: no router, chunked-prefill 8192,
+# --tp-size only, --cuda-graph-max-bs min(2*CONC, 64).
+#
+# dp-attn false is also what makes the flag legal at all. On the stock
+# v0.5.18 in this image, adaptive_spec_params.py:adaptive_unsupported_reason
+# rejects enable_dp_attention, so every other GLM-5.2 h200 arm (dplm, deep,
+# dsm96) cannot run adaptive; this profile is the only one that can. The
+# rejection is a logger.warning plus a silent fallback to static params, NOT
+# an error, so "speculative_adaptive=True" in the server_args dump and the
+# "AdaptiveSpeculativeParams initialized" line are the only proof the feature
+# actually ran -- check both before reading the numbers.
+source "$(dirname "$0")/../../benchmark_lib.sh"
+
+check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION DP_ATTENTION SPEC_DECODING
+
+CACHE_ARGS=()
+if [ "$KV_OFFLOADING" = "dram" ]; then
+  require_agentic_kv_offload_backend hicache
+  CACHE_ARGS=(--enable-hierarchical-cache)
+  if [ -n "${HICACHE_RATIO:-}" ]; then
+    CACHE_ARGS+=(--hicache-ratio "$HICACHE_RATIO")
+  else
+    CACHE_ARGS+=(--hicache-size 128)
+  fi
+else
+  require_agentic_kv_offload_none
+fi
+
+SPEC_ARGS=()
+if [ "$SPEC_DECODING" = "mtp" ]; then
+  SPEC_ARGS=(
+    --speculative-algorithm EAGLE
+    # 7 is not a free choice: no --speculative-adaptive-config is passed, so
+    # DEFAULT_ADAPTIVE_CONFIG applies and speculative_hook.py hard-raises
+    # unless boot num-steps is in its candidate union {0, 1, 3, 7}. 5 would
+    # abort the server. 7 is additionally the safe end of that set: the
+    # process-shared logits buffer is sized once from the boot bag
+    # (model_runner.py:793 max_decode_logits_rows -> num_draft_tokens=None)
+    # and never grows for the tiers adaptive builds afterwards, so booting at
+    # the widest candidate makes max_rows the ceiling by construction rather
+    # than by arithmetic. Verified on the box: capture_bs tops out at 24, so
+    # max_rows = 24*8 = 192 while the widest tier asks 7*8 = 56 and tier 3
+    # asks 24*4 = 96.
+    --speculative-num-steps 7
+    --speculative-eagle-topk 1
+    --speculative-num-draft-tokens 8
+    # topk 1 above is also a hard precondition of the flag, not a style
+    # choice -- adaptive_unsupported_reason rejects topk > 1.
+    --speculative-adaptive
+  )
+fi
+
+export MODEL_PATH=/models/PhalaCloud/GLM-5.2-W4AFP8
+export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126_256k
+export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
+
+USE_SGLANG_ROUTER=false
+SGLANG_BACKEND_PORT="$PORT"
+ROUTER_LOG="$RESULT_DIR/router.log"
+if [ "$DP_ATTENTION" = "true" ]; then
+  USE_SGLANG_ROUTER=true
+  SGLANG_BACKEND_PORT=$((PORT + 1))
+  SGLANG_ROUTER_METRICS_PORT=$((PORT + 10000))
+fi
+export AIPERF_SERVER_METRICS_URLS="http://localhost:$SGLANG_BACKEND_PORT/metrics"
+
+resolve_trace_source
+install_agentic_deps
+nvidia-smi
+
+mkdir -p "$RESULT_DIR"
+SERVER_LOG="$RESULT_DIR/server.log"
+MAX_RUNNING_REQUESTS=$((2 * CONC))
+CHUNKED_PREFILL_SIZE=8192
+PARALLEL_ARGS=(--tp-size "$TP")
+GRAPH_ARGS=()
+if [ "$DP_ATTENTION" = "true" ]; then
+  [ "$MAX_RUNNING_REQUESTS" -lt "$TP" ] && MAX_RUNNING_REQUESTS=$TP
+  CHUNKED_PREFILL_SIZE=32768
+  PARALLEL_ARGS=(
+    --tp "$TP"
+    --dp "$TP"
+    --enable-dp-attention
+    # dp == tp here, so attn_tp_size is 1: local-control-broadcast drops the
+    # all-ranks gloo control sync per scheduler iteration, and dp-lm-head
+    # drops the cross-DP logits all-gather (logits_processor.py gates its own
+    # all-gather on attn_tp_size > 1, so a group of 1 skips both).
+    --enable-dp-attention-local-control-broadcast
+    --enable-dp-lm-head
+    --tokenizer-worker-num "$TP"
+    --dist-init-addr "127.0.0.1:$((PORT + 2000))"
+  )
+else
+  CUDA_GRAPH_MAX_BS=$MAX_RUNNING_REQUESTS
+  [ "$CUDA_GRAPH_MAX_BS" -gt 64 ] && CUDA_GRAPH_MAX_BS=64
+  GRAPH_ARGS=(--cuda-graph-max-bs "$CUDA_GRAPH_MAX_BS")
+fi
+
+SGLANG_CMD=(
+  python3 -m sglang.launch_server
+  --model-path "$MODEL_PATH"
+  --quantization w4afp8
+  --disable-shared-experts-fusion
+  --host 0.0.0.0
+  --port "$SGLANG_BACKEND_PORT"
+  "${PARALLEL_ARGS[@]}"
+  --chunked-prefill-size "$CHUNKED_PREFILL_SIZE"
+  --tool-call-parser glm47
+  --reasoning-parser glm45
+  --mem-fraction-static 0.85
+  --max-running-requests "$MAX_RUNNING_REQUESTS"
+  "${GRAPH_ARGS[@]}"
+  --context-length 500000
+  --kv-cache-dtype fp8_e4m3
+  # Prod's prefill kernel. Without this, overrides.py auto-detects
+  # flashmla_kv for fp8_e4m3 on Hopper (trtllm only from SM100), so the
+  # native FP8 SM90 sparse-prefill path never runs in the sibling recipes.
+  # Prefill-only on purpose: dsa_backend.py rejects it as a decode backend
+  # and auto-detect leaves decode on flashmla_kv, which is what prod does.
+  --dsa-prefill-backend flashmla_sparse_q8
+  --allow-auto-truncate
+  --enable-metrics
+  --enable-cache-report
+  "${CACHE_ARGS[@]}"
+  "${SPEC_ARGS[@]}"
+  --schedule-policy lpm
+  --served-model-name "$MODEL"
+)
+
+printf '%q ' "${SGLANG_CMD[@]}" | tee "$RESULT_DIR/sglang_command.txt"
+printf '\n' | tee -a "$RESULT_DIR/sglang_command.txt"
+
+"${SGLANG_CMD[@]}" > "$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
+wait_for_server_ready --port "$SGLANG_BACKEND_PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+
+if [ "$USE_SGLANG_ROUTER" = "true" ]; then
+  python3 -m sglang_router.launch_router \
+    --worker-urls "http://localhost:$SGLANG_BACKEND_PORT" \
+    --policy cache_aware \
+    --request-id-headers x-correlation-id \
+    --dp-aware \
+    --host 0.0.0.0 \
+    --port "$PORT" \
+    --prometheus-host 127.0.0.1 \
+    --prometheus-port "$SGLANG_ROUTER_METRICS_PORT" \
+    --connect-timeout-secs 900 \
+    --request-timeout-secs 14400 \
+    --disable-health-check \
+    --disable-retries > "$ROUTER_LOG" 2>&1 &
+  ROUTER_PID=$!
+  wait_for_server_ready --port "$PORT" --server-log "$ROUTER_LOG" --server-pid "$ROUTER_PID"
+fi
+
+build_replay_cmd "$RESULT_DIR"
+run_agentic_replay_and_write_outputs "$RESULT_DIR"
