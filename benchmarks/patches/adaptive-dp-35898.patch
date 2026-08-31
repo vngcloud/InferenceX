@@ -1,0 +1,258 @@
+diff --git a/python/sglang/srt/managers/schedule_batch.py b/python/sglang/srt/managers/schedule_batch.py
+index 96241c378140..5b8be405041b 100755
+--- a/python/sglang/srt/managers/schedule_batch.py
++++ b/python/sglang/srt/managers/schedule_batch.py
+@@ -2134,6 +2134,9 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
+     is_extend_in_batch: bool = False
+     can_run_dp_cuda_graph: bool = False
+     can_run_dp_breakable_cuda_graph: bool = False
++    # DP-consensus adaptive speculative num_steps (min across ranks); None when
++    # adaptive spec is off or no rank expressed a tier this round.
++    adaptive_consensus_steps: Optional[int] = None
+     tbo_split_seq_index: Optional[int] = None
+     # Rank-consistent forward mode for the recv skipper, derived from the MLP
+     # sync all-gather (the TBO-only `global_forward_mode` is None without TBO).
+diff --git a/python/sglang/srt/managers/scheduler_components/dp_attn.py b/python/sglang/srt/managers/scheduler_components/dp_attn.py
+index 56274517e0fe..b7225ca76c30 100644
+--- a/python/sglang/srt/managers/scheduler_components/dp_attn.py
++++ b/python/sglang/srt/managers/scheduler_components/dp_attn.py
+@@ -76,6 +76,11 @@ def _resolve_elastic_world_dp_size(
+     return live_dp_size
+ 
+ 
++# Sentinel emitted by ranks that are idle or not running adaptive spec, so a
++# `.min()` reduce never lets them force everyone to a lower speculative tier.
++ADAPTIVE_STEPS_SENTINEL = 2**31 - 1
++
++
+ @dataclass
+ class MLPSyncBatchInfo:
+     dp_size: int
+@@ -89,9 +94,15 @@ class MLPSyncBatchInfo:
+     is_extend_in_batch: bool
+     local_can_run_tbo: bool
+     local_forward_mode: int
++    # Locally-desired adaptive speculative num_steps for this rank's batch.
++    # Gathered and min-reduced so every DP rank runs the same tier (equal
++    # draft-token shapes → no NCCL buffer mismatch). Sentinel = no preference.
++    local_adaptive_steps: int = ADAPTIVE_STEPS_SENTINEL
+ 
+     # some gathered elements
+     tp0_info_cpu: torch.Tensor = None
++    # min-reduced consensus tier across DP ranks; sentinel if none expressed.
++    consensus_adaptive_steps: int = ADAPTIVE_STEPS_SENTINEL
+     global_num_tokens: list[int] = None
+     global_num_tokens_for_logprob: list[int] = None
+     tbo_split_seq_index: torch.Tensor = None
+@@ -108,6 +119,7 @@ def _get_local_tensor(self, device, dtype=torch.int64) -> torch.Tensor:
+                 int(self.local_can_run_tbo),
+                 self.local_forward_mode,
+                 int(self.can_run_prefill_cuda_graph),
++                self.local_adaptive_steps,
+             ],
+             device=device,
+             dtype=dtype,
+@@ -123,6 +135,7 @@ def _get_fallback_tensor(self, device, dtype=torch.int64) -> torch.Tensor:
+                 1,  # local_can_run_tbo
+                 ForwardMode.IDLE.value,  # local_forward_mode
+                 0,  # can_run_prefill_cuda_graph
++                ADAPTIVE_STEPS_SENTINEL,  # local_adaptive_steps (idle: no vote)
+             ],
+             device=device,
+             dtype=dtype,
+@@ -194,6 +207,9 @@ def all_gather(
+         self.can_run_decode_cuda_graph = bool(tp0_info_cpu[:, 2].min())
+         self.is_extend_in_batch = bool(tp0_info_cpu[:, 3].max())
+         self.can_run_prefill_cuda_graph = bool(tp0_info_cpu[:, 6].min())
++        # Smaller tier is always a valid shape for every rank; larger is not.
++        # Idle/non-adaptive ranks emit the sentinel and never win the min.
++        self.consensus_adaptive_steps = int(tp0_info_cpu[:, 7].min())
+         if _ENABLE_METRICS_DP_ATTENTION:
+             self.dp_cooperation_info = DPCooperationInfo.create(
+                 tp0_info_cpu[:, 5].tolist()
+@@ -321,6 +337,19 @@ def prepare_mlp_sync_batch_raw(
+         group = tp_group.cpu_group
+         device = "cpu"
+ 
++    # Each rank votes its locally-desired adaptive tier; min-reduced below so
++    # all ranks run identical draft-token shapes (no NCCL buffer mismatch).
++    local_adaptive_steps = ADAPTIVE_STEPS_SENTINEL
++    adaptive_params = getattr(model_runner, "adaptive_spec_params", None)
++    if (
++        adaptive_params is not None
++        and local_batch is not None
++        and local_batch.forward_mode.is_decode()
++    ):
++        local_adaptive_steps = adaptive_params.get_steps_for_batch(
++            local_batch.batch_size()
++        )
++
+     local_can_run_tbo, local_forward_mode = tbo_preparer.prepare_all_gather(local_batch)
+     if use_world_group:
+         dp_size = _resolve_elastic_world_dp_size(
+@@ -341,6 +370,7 @@ def prepare_mlp_sync_batch_raw(
+         is_extend_in_batch=is_extend_in_batch,
+         local_can_run_tbo=local_can_run_tbo,
+         local_forward_mode=local_forward_mode,
++        local_adaptive_steps=local_adaptive_steps,
+     )
+ 
+     if not skip_all_gather:
+@@ -376,8 +406,9 @@ def prepare_mlp_sync_batch_raw(
+             batch_to_gather, mlp_sync_info, require_mlp_tp_gather, skip_all_gather
+         )
+ 
+-    # Set on `local_batch`, not `batch_to_gather`: for PREBUILT batches the
+-    # scheduler's `last_batch` is the prebuilt batch, not its inner idle batch.
++    # recv_skipper is read by the scheduler from `last_batch`, which for a
++    # PREBUILT batch is the prebuilt batch itself (not its inner idle batch) —
++    # so this field must live on `local_batch`.
+     if local_batch is not None and not skip_all_gather:
+         local_batch.recv_skipper_forward_mode = (
+             SchedulerRecvSkipper.derive_forward_mode(
+@@ -385,6 +416,18 @@ def prepare_mlp_sync_batch_raw(
+             )
+         )
+ 
++    # DP-consensus adaptive tier for this round; None when no rank expressed one
++    # (all sentinel) → worker falls back to local batch-size routing. This is
++    # read by the worker from the batch it actually forwards, so it must live on
++    # `batch_to_gather` — for a PREBUILT batch that is the inner idle batch, not
++    # `local_batch`. Writing it to `local_batch` would leave the forwarded idle
++    # batch at None and let ranks diverge on num_draft_tokens (NCCL hang).
++    if batch_to_gather is not None and not skip_all_gather:
++        consensus = mlp_sync_info.consensus_adaptive_steps
++        batch_to_gather.adaptive_consensus_steps = (
++            consensus if consensus < ADAPTIVE_STEPS_SENTINEL else None
++        )
++
+     if _ENABLE_METRICS_DP_ATTENTION and local_batch is not None:
+         local_batch.dp_cooperation_info = mlp_sync_info.dp_cooperation_info
+ 
+diff --git a/python/sglang/srt/speculative/adaptive_runtime_state.py b/python/sglang/srt/speculative/adaptive_runtime_state.py
+index fa9211dd39c7..1ac5a6a3ddca 100644
+--- a/python/sglang/srt/speculative/adaptive_runtime_state.py
++++ b/python/sglang/srt/speculative/adaptive_runtime_state.py
+@@ -71,13 +71,22 @@ class AdaptiveController:
+       2. Call on_verify_complete(num_correct_drafts_per_req) after each decode verify.
+     """
+ 
+-    def __init__(self, worker: AdaptiveSpecWorker, config_path: str | None = None):
++    def __init__(
++        self,
++        worker: AdaptiveSpecWorker,
++        config_path: str | None = None,
++        sync_across_dp: bool = False,
++    ):
+         self.worker = worker
+         self.params = AdaptiveSpeculativeParams(
+             initial_steps=worker.speculative_num_steps,
+             cfg_path=config_path,
+         )
+         self._states: dict[int, SpecRuntimeState] = {}
++        # Under DP attention the tier swap is driven by a cross-rank consensus
++        # (dp_attn min-reduce) so all ranks keep equal draft-token shapes. The
++        # local EMA path must then only *update* params, never swap directly.
++        self.sync_across_dp = sync_across_dp
+ 
+     @property
+     def candidate_steps(self) -> list[int]:
+@@ -115,14 +124,25 @@ def activate_step_by_batch(self, batch_size: int) -> None:
+         if target != self.worker.speculative_num_steps:
+             self._activate(target)
+ 
++    def activate_step(self, speculative_num_steps: int) -> None:
++        """Activate an externally-decided tier (e.g. the DP-consensus step)."""
++        if speculative_num_steps != self.worker.speculative_num_steps:
++            self._activate(speculative_num_steps)
++
+     def on_verify_complete(
+         self, num_correct_drafts_per_req: list[int], batch_size: int
+     ) -> None:
+-        """Feed verify results; switch runtime state if EMA warrants it."""
++        """Feed verify results; switch runtime state if EMA warrants it.
++
++        Under DP attention only the EMA is updated here — the actual tier swap
++        is deferred to the next round's cross-rank consensus, so a rank never
++        swaps out of lockstep with its peers (which would mismatch draft-token
++        shapes and hang the DP collective).
++        """
+         new_step = self.params.on_verify_complete(
+             num_correct_drafts_per_req, batch_size
+         )
+-        if new_step is not None:
++        if new_step is not None and not self.sync_across_dp:
+             self._activate(new_step)
+ 
+     def _activate(self, speculative_num_steps: int) -> None:
+diff --git a/python/sglang/srt/speculative/adaptive_spec_params.py b/python/sglang/srt/speculative/adaptive_spec_params.py
+index d8b24dce0100..35dbdaf840f1 100644
+--- a/python/sglang/srt/speculative/adaptive_spec_params.py
++++ b/python/sglang/srt/speculative/adaptive_spec_params.py
+@@ -64,11 +64,10 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
+             f"speculative_eagle_topk={server_args.speculative_eagle_topk} "
+             "(only topk=1 is supported)"
+         )
+-    if resolved_view(server_args).enable_dp_attention:
+-        return (
+-            "enable_dp_attention=True is not supported "
+-            "(adaptive tier decisions are not synchronized across DP ranks)"
+-        )
++    # enable_dp_attention IS supported: tier decisions are synchronized across
++    # DP ranks via a min-reduce in the scheduler's MLP-sync all_gather
++    # (dp_attn.MLPSyncBatchInfo.local_adaptive_steps), so all ranks run equal
++    # draft-token shapes. See AdaptiveController(sync_across_dp=...).
+     if resolved_view(server_args).enable_multi_layer_eagle:
+         return (
+             "enable_multi_layer_eagle=True is not supported "
+diff --git a/python/sglang/srt/speculative/eagle_worker_v2.py b/python/sglang/srt/speculative/eagle_worker_v2.py
+index ad6ceb23ed48..e05345419cd8 100644
+--- a/python/sglang/srt/speculative/eagle_worker_v2.py
++++ b/python/sglang/srt/speculative/eagle_worker_v2.py
+@@ -1047,6 +1047,7 @@ def __init__(
+             self.adaptive_controller = AdaptiveController(
+                 self,
+                 config_path=server_args.speculative_adaptive_config,
++                sync_across_dp=server_args.enable_dp_attention,
+             )
+ 
+         # Some dummy tensors
+@@ -1104,6 +1105,12 @@ def init_cuda_graphs(self):
+                         else get_exec().graph.cuda_graph_bs_decode
+                     ),
+                 )
++            # Expose the (live, EMA-updated) router on the target model_runner so
++            # the scheduler's DP MLP-sync can gather each rank's desired tier and
++            # min-reduce it into a cross-rank consensus (see dp_attn.py).
++            self._target_worker.model_runner.adaptive_spec_params = (
++                self.adaptive_controller.params
++            )
+ 
+     def forward_batch_generation(
+         self, batch: ScheduleBatch, on_publish=None, grammar_barrier=None
+@@ -1145,7 +1152,13 @@ def forward_batch_generation(
+                 )
+                 return batch_output
+         else:
+-            self.activate_step_by_batch(batch.seq_lens.shape[0])
++            # Under DP attention the tier was agreed across ranks during the
++            # scheduler's MLP-sync all_gather; honor that consensus so every
++            # rank runs identical draft-token shapes. Otherwise route locally.
++            if batch.adaptive_consensus_steps is not None:
++                self.activate_step(batch.adaptive_consensus_steps)
++            else:
++                self.activate_step_by_batch(batch.seq_lens.shape[0])
+ 
+             if batch.spec_info is None:
+                 capture_mode = (
+@@ -1299,6 +1312,10 @@ def activate_step_by_batch(self, batch_size: int) -> None:
+         if self.adaptive_controller is not None:
+             self.adaptive_controller.activate_step_by_batch(batch_size)
+ 
++    def activate_step(self, speculative_num_steps: int) -> None:
++        if self.adaptive_controller is not None:
++            self.adaptive_controller.activate_step(speculative_num_steps)
++
+     # -- Adaptive speculative decoding protocol --
+ 
+     def build_adaptive_runtime_state(

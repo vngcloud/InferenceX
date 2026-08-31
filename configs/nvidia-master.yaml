@@ -8285,6 +8285,27 @@ glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic-ccu48:
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [32, 40, 48], router: { name: sglang-router, version: "0.3.2" } }
 
+# glm5.2deep plus PR #35898 (adaptive under dp-attention) applied in-container
+# by the recipe, and --speculative-adaptive at boot depth 7/8. Ladder is deep's
+# own [8, 16, 24] so all three points pair against a static-depth (EAGLE 3/1/4)
+# deep twin. ENABLEMENT run for the upstream PR, not a prod-win claim: adaptive
+# ties fixed at high acceptance and only wins when acceptance degrades or batch
+# grows; cc-traces (hash-encoded tokens) understates acceptance, so treat any
+# adaptive-over-fixed edge as a best case that does not transfer to prod.
+glm5.2dpa-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-adaptive-spec-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2dpa
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
+
 glm5.2-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic-ccu48:
   image: lmsysorg/sglang:v0.5.18-cu130
   model: zai-org/GLM-5.2-FP8
