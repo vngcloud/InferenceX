@@ -49,6 +49,10 @@ if [ ! -f "$ADAPTIVE_DP_PATCH" ]; then
   echo "FATAL: adaptive-dp patch not found at $ADAPTIVE_DP_PATCH" >&2
   exit 1
 fi
+# Resolve to an absolute path BEFORE the pushd below: the container runs with
+# -w /workspace and the path above is relative to it, so it would not resolve
+# once the cwd changes into the sglang tree.
+ADAPTIVE_DP_PATCH="$(readlink -f "$ADAPTIVE_DP_PATCH")"
 pushd /sgl-workspace/sglang >/dev/null
 if git apply --check -p1 "$ADAPTIVE_DP_PATCH" 2>/dev/null; then
   git apply -p1 --verbose "$ADAPTIVE_DP_PATCH"
