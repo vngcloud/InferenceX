@@ -8271,6 +8271,26 @@ glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
 
+# GLM-5.3 on the glm5.2deep recipe: same flags, only the checkpoint swapped
+# (/mnt/models/GLM-5.3-W4AFP8, read-only at /models on h200-greennode_03), so
+# the pair reads model-vs-model. Ladder is deep's own [8, 16, 24] so every point
+# has a 5.2 twin. served-model-name zai-org/GLM-5.3-FP8 is a local alias -- no
+# such repo exists on the Hub -- so the recipe pins AIPERF_TOKENIZER to the
+# checkpoint directory instead of letting aiperf resolve the name.
+glm5.3deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.3-FP8
+  model-prefix: glm5.3deep
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
+
 glm5.2nosync-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: lmsysorg/sglang:v0.5.18-cu130
   model: zai-org/GLM-5.2-FP8
