@@ -2249,6 +2249,12 @@ build_replay_cmd() {
     # Hub. Unset for every native recipe, where model and tokenizer coincide.
     if [ -n "${AIPERF_TOKENIZER:-}" ]; then
         REPLAY_CMD+=" --tokenizer $AIPERF_TOKENIZER"
+        # The flag is now baked into $REPLAY_CMD; drop the env var so it does
+        # not leak into the aiperf child. aiperf's _Environment(BaseSettings)
+        # claims the AIPERF_ prefix and parses AIPERF_TOKENIZER as a complex
+        # field, dying with "error parsing value for field TOKENIZER from
+        # source EnvSettingsSource". --tokenizer is the only supported path.
+        unset AIPERF_TOKENIZER
     fi
     # aiperf's dataset manager (separate from the inference parser) loads
     # the model's tokenizer for trace-prompt tokenization regardless of
