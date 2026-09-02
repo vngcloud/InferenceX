@@ -40,12 +40,16 @@ if [ "$SPEC_DECODING" = "mtp" ]; then
 fi
 
 export MODEL_PATH=/models/GLM-5.3-W4AFP8
-# $MODEL is zai-org/GLM-5.3-FP8, which does not exist on the Hub (only
+# $MODEL is zai-org/GLM-5.3-FP8, which does not exist on the Hub (401; only
 # zai-org/GLM-5.3 and zai-org/GLM-5.3-BF16 do), and aiperf's dataset manager
-# loads a tokenizer by --model unless --tokenizer overrides it. Point it at the
-# checkpoint's own tokenizer instead of a name that 404s -- it is also the
-# exactly-correct tokenizer, not a same-family stand-in.
-export AIPERF_TOKENIZER=$MODEL_PATH
+# loads a tokenizer by --model unless --tokenizer overrides it -- so the name
+# alone 401s at startup. aiperf runs from a host venv, NOT the sglang
+# container, so a container mount path like $MODEL_PATH (/models/...) does not
+# exist for it either. Point --tokenizer at the real Hub repo zai-org/GLM-5.3:
+# public, ships tokenizer.json/tokenizer_config.json, and W4AFP8 quantization
+# leaves the tokenizer untouched, so it is the exact tokenizer. This mirrors
+# glm5.2deep exactly -- aiperf pulls the tokenizer from the Hub by name.
+export AIPERF_TOKENIZER=zai-org/GLM-5.3
 export WEKA_LOADER_OVERRIDE=semianalysis_cc_traces_weka_062126_256k
 export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
 # Run 32585352758 OOMed at c16/c24 on a 2.38-2.53 GiB DeepEP dispatch buffer with

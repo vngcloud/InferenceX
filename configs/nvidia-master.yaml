@@ -8275,8 +8275,9 @@ glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
 # (/mnt/models/GLM-5.3-W4AFP8, read-only at /models on h200-greennode_03), so
 # the pair reads model-vs-model. Ladder is deep's own [8, 16, 24] so every point
 # has a 5.2 twin. served-model-name zai-org/GLM-5.3-FP8 is a local alias -- no
-# such repo exists on the Hub -- so the recipe pins AIPERF_TOKENIZER to the
-# checkpoint directory instead of letting aiperf resolve the name.
+# such repo exists on the Hub (401) -- so the recipe pins AIPERF_TOKENIZER to
+# zai-org/GLM-5.3 (the real, public Hub repo; W4AFP8 leaves the tokenizer
+# untouched) so aiperf pulls the exact tokenizer from the Hub, just like 5.2.
 glm5.3deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: lmsysorg/sglang:v0.5.18-cu130
   model: zai-org/GLM-5.3-FP8
