@@ -46,6 +46,17 @@ fi
 # scripts read for subset/smoke runs.
 export LIMIT="${EVAL_LIMIT:-${LIMIT:-}}"
 
+# Map NUM_CONCURRENT to per-benchmark concurrency env vars.
+# Each benchmark script reads its own var; NUM_CONCURRENT is the unified knob.
+if [[ -n "${NUM_CONCURRENT:-}" ]]; then
+    export NUM_CONCURRENT="$NUM_CONCURRENT"       # gpqa, mmlu_pro, hle (lm-eval)
+    export MULTIPROCESS="$NUM_CONCURRENT"           # livecodebench
+    export NUM_THREADS="$NUM_CONCURRENT"            # bfcl
+    export MAX_CONNECTIONS="$NUM_CONCURRENT"        # scicode
+    export WORKERS="$NUM_CONCURRENT"                # swebench_pro
+    export CCU="$NUM_CONCURRENT"                    # deepswe
+fi
+
 # Set RUN_ID from the experiment name if not already set.
 export RUN_ID="${RUN_ID:-${EXP_NAME:-quality-eval}}"
 

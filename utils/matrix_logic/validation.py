@@ -100,6 +100,8 @@ class Fields(Enum):
     QUALITY_ENDPOINT = 'quality-endpoint'
     QUALITY_MODEL_NAME = 'quality-model-name'
     SMOKE = 'smoke'
+    NUM_CONCURRENT = 'num-concurrent'
+    EVAL_LIMIT = 'eval-limit'
 
 
 """
@@ -405,6 +407,8 @@ class QualityEvalMatrixEntry(BaseModel):
     exp_name: str = Field(alias=Fields.EXP_NAME.value)
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
     smoke: bool = Field(default=False, alias=Fields.SMOKE.value)
+    num_concurrent: Optional[int] = Field(default=None, alias=Fields.NUM_CONCURRENT.value)
+    eval_limit: Optional[int] = Field(default=None, alias=Fields.EVAL_LIMIT.value)
     run_eval: Optional[bool] = Field(default=None, alias=Fields.RUN_EVAL.value)
     eval_only: Optional[bool] = Field(default=None, alias=Fields.EVAL_ONLY.value)
 
@@ -734,6 +738,15 @@ class QualityEvalSearchSpaceEntry(BaseModel):
                     "scicode, swebench_pro, deepswe",
     )
     smoke: bool = Field(default=False, alias=Fields.SMOKE.value)
+    num_concurrent: Optional[int] = Field(
+        default=None, alias=Fields.NUM_CONCURRENT.value,
+        description="API request concurrency (num_concurrent / CCU / multiprocess). "
+                    "Passed to benchmark scripts as NUM_CONCURRENT env var.",
+    )
+    eval_limit: Optional[int] = Field(
+        default=None, alias=Fields.EVAL_LIMIT.value,
+        description="Number of questions/tasks for smoke runs. Overrides the workflow-level eval-limit.",
+    )
 
     @field_validator('benchmark_name')
     @classmethod

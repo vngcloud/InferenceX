@@ -976,7 +976,8 @@ jobs:
             quality-endpoint: ${{ matrix.config.quality-endpoint }}
             quality-model-name: ${{ matrix.config.quality-model-name }}
             smoke: ${{ matrix.config.smoke || false }}
-            eval-limit: ${{ contains(github.event.pull_request.labels.*.name, 'sweep-enabled') && '10' || '' }}
+            num-concurrent: ${{ matrix.config.num-concurrent || '' }}
+            eval-limit: ${{ matrix.config.eval-limit || (contains(github.event.pull_request.labels.*.name, 'sweep-enabled') && '10' || '') }}
 
     collect-results:
         needs:
