@@ -13,7 +13,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 RAW_MODEL="${QUALITY_MODEL_NAME#openai/}"
 
-N_TASKS="${N_TASKS:-6}"
+N_TASKS="${N_TASKS:-${LIMIT:-6}}"
 CCU="${CCU:-$N_TASKS}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 JOBS_DIR="${JOBS_DIR:-$WORKSPACE_DIR/jobs/$RUN_ID/deepswe}"

@@ -72,7 +72,6 @@ echo
   --log-dir "$LOG_DIR" \
   --max-retries "$RETRY_ON_ERROR" \
   --no-fail-on-error \
-  --continue-on-fail \
   --metadata "run_id=${RUN_ID}" \
   "${LIMIT_ARG[@]}" \
   "${SHUFFLE_ARG[@]}" \

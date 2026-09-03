@@ -78,7 +78,7 @@ setup_lmeval() {
     local VENV="$QUALITY_CACHE_DIR/.venv-lmeval"
     if [[ ! -x "$VENV/bin/lm-eval" ]] || ! "$VENV/bin/python" -c "import tenacity, PIL" 2>/dev/null; then
         echo "=== Setting up lm-eval venv ==="
-        uv venv --seed "$VENV"
+        uv venv --clear --seed "$VENV"
         uv pip install --python "$VENV/bin/python" \
             "lm-eval[api]>=0.4.5" "openai>=1.59.0" "Pillow>=10.0.0"
     fi
@@ -94,7 +94,7 @@ setup_livecodebench() {
     fi
     if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "from anthropic import HUMAN_PROMPT" 2>/dev/null; then
         echo "=== Setting up LiveCodeBench venv (first time) ==="
-        uv venv --seed "$VENV"
+        uv venv --clear --seed "$VENV"
         uv pip install --python "$VENV/bin/python" -e "$LCB_DIR" "anthropic<0.40"
     fi
     export QUALITY_LCB_VENV="$VENV"
@@ -110,7 +110,7 @@ setup_bfcl() {
     fi
     if [[ ! -x "$VENV/bin/bfcl" ]] || ! "$VENV/bin/python" -c "import soundfile" 2>/dev/null; then
         echo "=== Setting up BFCL venv (first time) ==="
-        uv venv --seed "$VENV"
+        uv venv --clear --seed "$VENV"
         uv pip install --python "$VENV/bin/python" -e "$BFCL_DIR" "soundfile>=0.12.0"
     fi
     export QUALITY_BFCL_VENV="$VENV"
@@ -126,7 +126,7 @@ setup_scicode() {
     fi
     if [[ ! -x "$VENV/bin/inspect" ]]; then
         echo "=== Setting up SciCode venv (first time) ==="
-        uv venv --seed "$VENV"
+        uv venv --clear --seed "$VENV"
         uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR"
     fi
     export QUALITY_SCICODE_VENV="$VENV"
@@ -142,7 +142,7 @@ setup_swebench_pro() {
     fi
     if [[ ! -x "$VENV/bin/python" ]]; then
         echo "=== Setting up SWE-bench Pro venv (first time) ==="
-        uv venv --seed "$VENV"
+        uv venv --clear --seed "$VENV"
         uv pip install --python "$VENV/bin/python" \
             -r "$SWEBENCH_DIR/requirements.txt" \
             "mini-swe-agent" "litellm" "rich" "pyyaml"
