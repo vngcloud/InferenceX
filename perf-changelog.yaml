@@ -5953,3 +5953,11 @@
     - "Use native EAGLE MTP (3 steps, top-k 1, 4 draft tokens) and golden synthetic acceptance length 2.49 for throughput; eval retains real verification."
     - "Follow the official SGLang DeepSeek-V4 Blackwell recipe, require nonempty SGLang server metrics, keep pooled AgentX connections alive, let AIPerf own HiCache warmup, and reserve transient MoE workspace at DEP8 c512."
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/2577
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-gpqa
+  description:
+    - "Smoke run GPQA-Diamond with 10 samples against GreenNode endpoint for GLM-5.2 quality validation."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
