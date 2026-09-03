@@ -76,11 +76,11 @@ fi
 
 setup_lmeval() {
     local VENV="$QUALITY_CACHE_DIR/.venv-lmeval"
-    if [[ ! -x "$VENV/bin/lm-eval" ]] || ! "$VENV/bin/python" -c "import tenacity" 2>/dev/null; then
+    if [[ ! -x "$VENV/bin/lm-eval" ]] || ! "$VENV/bin/python" -c "import tenacity, PIL" 2>/dev/null; then
         echo "=== Setting up lm-eval venv ==="
         uv venv --seed "$VENV"
         uv pip install --python "$VENV/bin/python" \
-            "lm-eval[api]>=0.4.5" "openai>=1.59.0"
+            "lm-eval[api]>=0.4.5" "openai>=1.59.0" "Pillow>=10.0.0"
     fi
     export QUALITY_VENV="$VENV"
 }
@@ -92,10 +92,10 @@ setup_livecodebench() {
         echo "=== Cloning LiveCodeBench (first time) ==="
         git clone --depth 1 https://github.com/LiveCodeBench/LiveCodeBench.git "$LCB_DIR"
     fi
-    if [[ ! -x "$VENV/bin/python" ]]; then
+    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "from anthropic import HUMAN_PROMPT" 2>/dev/null; then
         echo "=== Setting up LiveCodeBench venv (first time) ==="
         uv venv --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR"
+        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR" "anthropic<0.40"
     fi
     export QUALITY_LCB_VENV="$VENV"
     export QUALITY_LCB_DIR="$LCB_DIR"
@@ -108,10 +108,10 @@ setup_bfcl() {
         echo "=== Cloning BFCL (first time) ==="
         git clone --depth 1 https://github.com/ShishirPatil/gorilla.git "$QUALITY_CACHE_DIR/BFCL"
     fi
-    if [[ ! -x "$VENV/bin/bfcl" ]]; then
+    if [[ ! -x "$VENV/bin/bfcl" ]] || ! "$VENV/bin/python" -c "import soundfile" 2>/dev/null; then
         echo "=== Setting up BFCL venv (first time) ==="
         uv venv --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$BFCL_DIR"
+        uv pip install --python "$VENV/bin/python" -e "$BFCL_DIR" "soundfile>=0.12.0"
     fi
     export QUALITY_BFCL_VENV="$VENV"
     export QUALITY_BFCL_DIR="$BFCL_DIR"
@@ -145,7 +145,7 @@ setup_swebench_pro() {
         uv venv --seed "$VENV"
         uv pip install --python "$VENV/bin/python" \
             -r "$SWEBENCH_DIR/requirements.txt" \
-            "minisweagent" "litellm" "rich" "pyyaml"
+            "mini-swe-agent" "litellm" "rich" "pyyaml"
     fi
     export QUALITY_SWEBENCHPRO_VENV="$VENV"
     export QUALITY_SWEBENCH_DIR="$SWEBENCH_DIR"
@@ -155,7 +155,7 @@ setup_deepswe() {
     local DEEPSWE_DIR="$QUALITY_CACHE_DIR/deep-swe"
     if [[ ! -d "$DEEPSWE_DIR" ]]; then
         echo "=== Cloning DeepSWE (first time) ==="
-        git clone --depth 1 https://github.com/datacurve/deep-swe.git "$DEEPSWE_DIR"
+        git clone --depth 1 https://github.com/datacurve-ai/deep-swe.git "$DEEPSWE_DIR"
     fi
     export QUALITY_DEEPSWE_DIR="$DEEPSWE_DIR"
 }

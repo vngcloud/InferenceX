@@ -70,7 +70,7 @@ echo
   --max-connections "$MAX_CONNECTIONS" \
   --max-tokens "$MAX_TOKENS" \
   --log-dir "$LOG_DIR" \
-  --retry-on-error "$RETRY_ON_ERROR" \
+  --max-retries "$RETRY_ON_ERROR" \
   --no-fail-on-error \
   --continue-on-fail \
   --metadata "run_id=${RUN_ID}" \
