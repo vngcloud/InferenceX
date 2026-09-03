@@ -65,11 +65,11 @@ fi
 
 setup_lmeval() {
     local VENV="$QUALITY_CACHE_DIR/.venv-lmeval"
-    if [[ ! -x "$VENV/bin/lm-eval" ]]; then
-        echo "=== Setting up lm-eval venv (first time) ==="
+    if [[ ! -x "$VENV/bin/lm-eval" ]] || ! "$VENV/bin/python" -c "import tenacity" 2>/dev/null; then
+        echo "=== Setting up lm-eval venv ==="
         uv venv --seed "$VENV"
         uv pip install --python "$VENV/bin/python" \
-            "lm-eval>=0.4.5" "openai>=1.59.0"
+            "lm-eval[api]>=0.4.5" "openai>=1.59.0"
     fi
     export QUALITY_VENV="$VENV"
 }
