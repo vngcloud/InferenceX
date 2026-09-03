@@ -8271,6 +8271,25 @@ glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
 
+# Speculative depth on the glm5.2deep recipe: EAGLE 5/1/6 instead of 3/1/4,
+# every other flag byte-identical, so the pair against glm5.2deep (run
+# 32627106733) reads spec depth alone. Same ladder [8, 16, 24] so every point
+# has a twin. topk stays 1 -- DSA forces page_size 64 and sglang rejects
+# topk > 1 on the dsa backend, so tree spec is not reachable here.
+glm5.2deep516-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2deep516
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [8, 16, 24], router: { name: sglang-router, version: "0.3.2" } }
+
 # GLM-5.3 on the glm5.2deep recipe: same flags, only the checkpoint swapped
 # (/mnt/models/GLM-5.3-W4AFP8, read-only at /models on h200-greennode_03), so
 # the pair reads model-vs-model. Ladder is deep's own [8, 16, 24] so every point
