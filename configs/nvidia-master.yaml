@@ -8511,3 +8511,62 @@ glm5.1-fp8-b200-tilert:
           dp-attn: false
           additional-settings:
           - "DECODE_NODES=1"
+
+# =============================================================================
+# Quality-eval configs: 8 benchmarks (GPQA, MMLU-Pro, HLE, LiveCodeBench,
+# BFCL, SciCode, SWE-bench Pro, DeepSWE) run against an external OpenAI-
+# compatible endpoint. No GPU server is launched — the runner only drives
+# the benchmark script against the endpoint. Each scenario type maps to
+# one benchmark; a single master config entry can include multiple scenario
+# types to run several benchmarks in one sweep.
+# =============================================================================
+
+glm5.2-quality-eval:
+  image: quality-eval:latest
+  model: GLM-5.2
+  model-prefix: glm5.2
+  runner: cluster:quality-eval
+  precision: fp4
+  framework: quality
+  multinode: false
+  scenarios:
+    quality-gpqa:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: gpqa }
+    quality-mmlu-pro:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: mmlu_pro }
+    quality-hle:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: hle }
+    quality-livecodebench:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: livecodebench }
+    quality-bfcl:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: bfcl }
+    quality-scicode:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: scicode }
+    quality-swebench-pro:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: swebench_pro }
+    quality-deepswe:
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: deepswe }

@@ -11,10 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validation import (
     validate_matrix_entry,
     validate_agentic_matrix_entry,
+    validate_quality_matrix_entry,
     load_config_files,
     load_runner_file,
     Fields,
     DEFAULT_AGENTIC_DURATION_SECONDS,
+    QUALITY_SCENARIO_TYPES,
 )
 
 seq_len_stoi = {
@@ -904,6 +906,49 @@ def generate_full_sweep(args, all_config_data, runner_data):
                             validate_agentic_matrix_entry(entry)
                             matrix_values.append(entry)
 
+        # ---- Quality-eval scenarios ----
+        for scenario_type in QUALITY_SCENARIO_TYPES:
+            scenario_key = scenario_type
+            if scenario_filter is not None and scenario_type not in scenario_filter:
+                continue
+            quality_configs = scenarios.get(scenario_key, [])
+            if not quality_configs:
+                continue
+            if is_multinode and not args.multi_node:
+                continue
+            if not is_multinode and not args.single_node:
+                continue
+
+            for quality_config in quality_configs:
+                quality_endpoint = quality_config[Fields.QUALITY_ENDPOINT.value]
+                quality_model_name = quality_config[Fields.QUALITY_MODEL_NAME.value]
+                bmk_space = quality_config[Fields.SEARCH_SPACE.value]
+
+                for bmk in bmk_space:
+                    benchmark_name = bmk[Fields.BENCHMARK_NAME.value]
+                    smoke = bmk.get(Fields.SMOKE.value, False)
+
+                    runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
+
+                    for runner_value in runners_for_entry:
+                        entry = {
+                            Fields.IMAGE.value: image,
+                            Fields.MODEL.value: model,
+                            Fields.MODEL_PREFIX.value: model_code,
+                            Fields.PRECISION.value: precision,
+                            Fields.FRAMEWORK.value: framework,
+                            Fields.RUNNER.value: runner_value,
+                            Fields.BENCHMARK_NAME.value: benchmark_name,
+                            Fields.QUALITY_ENDPOINT.value: quality_endpoint,
+                            Fields.QUALITY_MODEL_NAME.value: quality_model_name,
+                            Fields.EXP_NAME.value: f"{model_code}_quality_{benchmark_name}",
+                            Fields.SCENARIO_TYPE.value: scenario_type,
+                            Fields.SMOKE.value: smoke,
+                            Fields.RUN_EVAL.value: False,
+                        }
+                        validate_quality_matrix_entry(entry)
+                        matrix_values.append(entry)
+
     return matrix_values
 
 
@@ -1197,6 +1242,38 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                             entry.update(component_metadata(bmk, val))
                             matrix_values.append(validate_agentic_matrix_entry(entry))
 
+        # ---- Quality-eval scenarios ----
+        for scenario_type in QUALITY_SCENARIO_TYPES:
+            if scenario_filter is not None and scenario_type not in scenario_filter:
+                continue
+            quality_configs = val[Fields.SCENARIOS.value].get(scenario_type, [])
+            for quality_config in quality_configs:
+                quality_endpoint = quality_config[Fields.QUALITY_ENDPOINT.value]
+                quality_model_name = quality_config[Fields.QUALITY_MODEL_NAME.value]
+                bmk_space = quality_config[Fields.SEARCH_SPACE.value]
+
+                for bmk in bmk_space:
+                    benchmark_name = bmk[Fields.BENCHMARK_NAME.value]
+                    smoke = bmk.get(Fields.SMOKE.value, False)
+
+                    for runner_value in runners_for_entry:
+                        entry = {
+                            Fields.IMAGE.value: image,
+                            Fields.MODEL.value: model,
+                            Fields.MODEL_PREFIX.value: model_code,
+                            Fields.PRECISION.value: precision,
+                            Fields.FRAMEWORK.value: framework,
+                            Fields.RUNNER.value: runner_value,
+                            Fields.BENCHMARK_NAME.value: benchmark_name,
+                            Fields.QUALITY_ENDPOINT.value: quality_endpoint,
+                            Fields.QUALITY_MODEL_NAME.value: quality_model_name,
+                            Fields.EXP_NAME.value: f"{model_code}_quality_{benchmark_name}",
+                            Fields.SCENARIO_TYPE.value: scenario_type,
+                            Fields.SMOKE.value: smoke,
+                            Fields.RUN_EVAL.value: False,
+                        }
+                        matrix_values.append(validate_quality_matrix_entry(entry))
+
     return matrix_values
 
 
@@ -1281,7 +1358,7 @@ def main():
     parent_parser.add_argument(
         '--scenario-type',
         nargs='+',
-        choices=['fixed-seq-len', 'agentic-coding'],
+        choices=['fixed-seq-len', 'agentic-coding'] + QUALITY_SCENARIO_TYPES,
         required=False,
         help='Scenario type(s) to include. If not specified, all scenario types are generated.'
     )

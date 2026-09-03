@@ -209,6 +209,11 @@ def main() -> int:
         default=None,
         help="Space-separated concurrencies requested by the workflow",
     )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Smoke-test mode: verify result artifacts exist without checking thresholds",
+    )
     args = parser.parse_args()
 
     expected_concs = None
@@ -285,7 +290,12 @@ def main() -> int:
                 if not isinstance(val, (int, float)):
                     continue
                 checked += 1
-                if val < min_score:
+                if args.smoke:
+                    print(
+                        f"PASS (smoke): {conc_label}{task} {name} = {val:.4f} "
+                        f"(threshold check skipped)"
+                    )
+                elif val < min_score:
                     print(
                         f"FAIL: {conc_label}{task} {name} = {val:.4f} (< {min_score} from {source})",
                         file=sys.stderr,
@@ -297,6 +307,9 @@ def main() -> int:
                     )
 
     if checked == 0:
+        if args.smoke:
+            print("PASS (smoke): no metrics matched prefix '{}' but artifacts exist".format(args.metric_prefix))
+            return 0
         print("WARN: no metrics matched prefix '{}'".format(args.metric_prefix), file=sys.stderr)
 
     return 1 if (failed or checked == 0) else 0

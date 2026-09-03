@@ -14,6 +14,7 @@ adjustments:
   multi-node: 1.25
   agentic: 1.0
   eval-only: 0.0
+  quality-eval: 0.0
   precision:
     fp4: 0.75
   spec-decoding:
