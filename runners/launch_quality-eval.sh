@@ -92,10 +92,10 @@ setup_livecodebench() {
         echo "=== Cloning LiveCodeBench (first time) ==="
         git clone --depth 1 https://github.com/LiveCodeBench/LiveCodeBench.git "$LCB_DIR"
     fi
-    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "from anthropic import HUMAN_PROMPT" 2>/dev/null; then
+    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import livecodebench" 2>/dev/null; then
         echo "=== Setting up LiveCodeBench venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR" "anthropic<0.40"
+        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR"
     fi
     export QUALITY_LCB_VENV="$VENV"
     export QUALITY_LCB_DIR="$LCB_DIR"
@@ -107,6 +107,48 @@ setup_bfcl() {
     if [[ ! -d "$QUALITY_CACHE_DIR/BFCL" ]]; then
         echo "=== Cloning BFCL (first time) ==="
         git clone --depth 1 https://github.com/ShishirPatil/gorilla.git "$QUALITY_CACHE_DIR/BFCL"
+    fi
+    # Inject z-ai/glm-5.2 model config if not already present
+    local MC_FILE="$BFCL_DIR/bfcl_eval/constants/model_config.py"
+    if ! grep -q "z-ai/glm-5.2-FC" "$MC_FILE" 2>/dev/null; then
+        echo "=== Patching BFCL model_config.py with z-ai/glm-5.2 ==="
+        python3 - "$MC_FILE" <<'PY'
+import pathlib, re, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+block = '''    "z-ai/glm-5.2-FC": ModelConfig(
+        model_name="z-ai/glm-5.2",
+        display_name="GLM-5.2 (FC, OpenAI-compatible)",
+        url="https://tokenplan.api.greennode.ai",
+        org="z-ai",
+        license="Proprietary",
+        model_handler=OpenAICompletionsHandler,
+        input_price=None,
+        output_price=None,
+        is_fc_model=True,
+        underscore_to_dot=False,
+    ),
+    "z-ai/glm-5.2-PROMPT": ModelConfig(
+        model_name="z-ai/glm-5.2",
+        display_name="GLM-5.2 (Prompt, OpenAI-compatible)",
+        url="https://tokenplan.api.greennode.ai",
+        org="z-ai",
+        license="Proprietary",
+        model_handler=OpenAICompletionsHandler,
+        input_price=None,
+        output_price=None,
+        is_fc_model=False,
+        underscore_to_dot=False,
+    ),
+'''
+marker = 'api_inference_model_map = {'
+idx = src.find(marker)
+if idx == -1:
+    print("ERROR: could not find api_inference_model_map marker", file=sys.stderr)
+    sys.exit(1)
+insert_at = src.find('{', idx) + 1
+p.write_text(src[:insert_at] + '\n' + block + src[insert_at:])
+PY
     fi
     if [[ ! -x "$VENV/bin/bfcl" ]] || ! "$VENV/bin/python" -c "import soundfile" 2>/dev/null; then
         echo "=== Setting up BFCL venv (first time) ==="
@@ -140,7 +182,7 @@ setup_swebench_pro() {
         echo "=== Cloning SWE-bench Pro (first time) ==="
         git clone --depth 1 https://github.com/scaleapi/SWE-bench_Pro-os.git "$SWEBENCH_DIR"
     fi
-    if [[ ! -x "$VENV/bin/python" ]]; then
+    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import yaml" 2>/dev/null; then
         echo "=== Setting up SWE-bench Pro venv (first time) ==="
         uv venv --clear --seed "$VENV"
         uv pip install --python "$VENV/bin/python" \
@@ -192,6 +234,13 @@ EOF
         cp -f "$f" "$DEST/"
         COPIED=$((COPIED + 1))
     done < <(find "$OUT_BASE" -type f -name 'results*.json' -print0 2>/dev/null || true)
+
+    # result.json (singular) — DeepSWE / pier output; copy as results.json
+    # so benchmark-tmpl.yml's `ls results*.json` check passes.
+    while IFS= read -r -d '' f; do
+        cp -f "$f" "$DEST/results.json"
+        COPIED=$((COPIED + 1))
+    done < <(find "$OUT_BASE" -maxdepth 2 -type f -name 'result.json' ! -path '*/ipython-session-bundle-*' -print0 2>/dev/null || true)
 
     # sample*.jsonl — lm-eval logged samples
     while IFS= read -r -d '' f; do
