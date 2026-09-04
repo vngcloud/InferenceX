@@ -114,6 +114,22 @@ if old in src and "HUMAN_PROMPT = None" not in src:
 PY
         fi
     done
+    # Patch code_generation.py: load_dataset needs config name = release_version,
+    # otherwise datasets looks for 'default' config which doesn't exist in cache.
+    local CG_FILE="$LCB_DIR/lcb_runner/benchmarks/code_generation.py"
+    if ! grep -q 'release_version, split=' "$CG_FILE" 2>/dev/null; then
+        echo "=== Patching code_generation.py load_dataset config name ==="
+        python3 - "$CG_FILE" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = 'load_dataset("livecodebench/code_generation_lite", split="test", version_tag=release_version, trust_remote_code=True)'
+new = 'load_dataset("livecodebench/code_generation_lite", release_version, split="test", version_tag=release_version, trust_remote_code=True)'
+if old in src:
+    src = src.replace(old, new, 1)
+    p.write_text(src)
+PY
+    fi
     # Patch lm_styles.py to add z-ai/glm-5.2 as an OpenAIChat model
     # (LCB has a hardcoded LanguageModelStore dict; our model isn't in it)
     local LM_STYLES="$LCB_DIR/lcb_runner/lm_styles.py"
@@ -219,12 +235,11 @@ setup_scicode() {
         echo "=== Setting up SciCode venv (first time) ==="
         uv venv --clear --seed "$VENV"
         # SciCode pyproject pins unpinned "datasets" → resolver picks 2.14.4,
-        # but inspect-ai requires datasets>=2.16.  Install datasets>=2.16 first,
-        # then scicode with --no-deps so it doesn't downgrade.
-        # Also need openai>=3.1 (inspect-ai requirement) and anthropic + config
-        # (scicode runtime deps not declared in pyproject).
+        # but inspect-ai requires datasets>=2.16.  datasets 2.16.1 has a bug
+        # with SciCode1/SciCode dataset (TypeError in generate_from_dict).
+        # Pin datasets==5.0.1 + pyarrow==25.0.1 (known good, same as LCB/swebench).
         uv pip install --python "$VENV/bin/python" \
-            "datasets>=2.16" "openai>=3.1" "anthropic" "config" \
+            "datasets==5.0.1" "pyarrow==25.0.1" "openai>=3.1" "anthropic" "config" \
             "litellm" "inspect-ai" "rich" "pytest" "pytest-cov" \
             "matplotlib" "scipy" "sympy" "h5py" "jsonlines" \
             "google-generativeai"
@@ -327,8 +342,12 @@ EOF
     done < <(find "$OUT_BASE" -type f -name 'sample*.jsonl' -print0 2>/dev/null || true)
 
     # eval_results*.json — SWE-bench Pro, SciCode
+    # Also copy as results.json so benchmark-tmpl.yml's `ls results*.json` check passes.
     while IFS= read -r -d '' f; do
         cp -f "$f" "$DEST/"
+        if [[ ! -f "$DEST/results.json" ]]; then
+            cp -f "$f" "$DEST/results.json"
+        fi
         COPIED=$((COPIED + 1))
     done < <(find "$OUT_BASE" -type f -name 'eval_results*.json' -print0 2>/dev/null || true)
 
@@ -357,10 +376,24 @@ EOF
     done < <(find "$OUT_BASE" -type f -name '*.csv' -print0 2>/dev/null || true)
 
     # LiveCodeBench result JSONs/JSONLs
+    # LCB writes to output/<model>/<scenario>_<n>_<temp>.json and _eval.json
+    # Copy first .json as results.json so benchmark-tmpl.yml's glob matches.
+    local LCB_FIRST_JSON=""
     while IFS= read -r -d '' f; do
         cp -f "$f" "$DEST/"
         COPIED=$((COPIED + 1))
     done < <(find "$OUT_BASE" -type f \( -name '*.jsonl' -o -name 'lcb_results*.json' \) -print0 2>/dev/null || true)
+    # Also pick up LCB's output/*.json files
+    while IFS= read -r -d '' f; do
+        cp -f "$f" "$DEST/"
+        if [[ -z "$LCB_FIRST_JSON" ]]; then
+            LCB_FIRST_JSON="$f"
+        fi
+        COPIED=$((COPIED + 1))
+    done < <(find "$OUT_BASE" -type f -name '*.json' ! -name 'results*.json' ! -name 'eval_results*.json' -print0 2>/dev/null || true)
+    if [[ -n "$LCB_FIRST_JSON" && ! -f "$DEST/results.json" ]]; then
+        cp -f "$LCB_FIRST_JSON" "$DEST/results.json"
+    fi
 
     echo "  Copied $COPIED result file(s) to $DEST"
     if [[ "$COPIED" -eq 0 ]]; then
