@@ -8540,21 +8540,21 @@ glm5.2-quality-eval:
     #   quality-model-name: "openai/z-ai/glm-5.2"
     #   search-space:
     #   - { benchmark-name: mmlu_pro, smoke: true, num-concurrent: 4, eval-limit: 20 }
-    quality-hle:
-    - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
-      quality-model-name: "openai/z-ai/glm-5.2"
-      search-space:
-      - { benchmark-name: hle, smoke: true, num-concurrent: 4, eval-limit: 8 }
+    # quality-hle:  # smoke passed (CI run 33850821470)
+    # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
+    #   quality-model-name: "openai/z-ai/glm-5.2"
+    #   search-space:
+    #   - { benchmark-name: hle, smoke: true, num-concurrent: 4, eval-limit: 8 }
     quality-livecodebench:
     - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
       quality-model-name: "openai/z-ai/glm-5.2"
       search-space:
       - { benchmark-name: livecodebench, smoke: true, num-concurrent: 4, eval-limit: 4 }
-    quality-bfcl:
-    - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
-      quality-model-name: "openai/z-ai/glm-5.2"
-      search-space:
-      - { benchmark-name: bfcl, smoke: true, num-concurrent: 1, eval-limit: 4 }
+    # quality-bfcl:  # smoke passed (CI run 33850821470)
+    # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
+    #   quality-model-name: "openai/z-ai/glm-5.2"
+    #   search-space:
+    #   - { benchmark-name: bfcl, smoke: true, num-concurrent: 1, eval-limit: 4 }
     quality-scicode:
     - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
       quality-model-name: "openai/z-ai/glm-5.2"
