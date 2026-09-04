@@ -8565,8 +8565,8 @@ glm5.2-quality-eval:
       quality-model-name: "openai/z-ai/glm-5.2"
       search-space:
       - { benchmark-name: swebench_pro, smoke: true, num-concurrent: 1, eval-limit: 1 }
-    quality-deepswe:
-    - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
-      quality-model-name: "openai/z-ai/glm-5.2"
-      search-space:
-      - { benchmark-name: deepswe, smoke: true, num-concurrent: 1, eval-limit: 1 }
+    # quality-deepswe:  # smoke passed (CI run 33832017880)
+    # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
+    #   quality-model-name: "openai/z-ai/glm-5.2"
+    #   search-space:
+    #   - { benchmark-name: deepswe, smoke: true, num-concurrent: 1, eval-limit: 1 }

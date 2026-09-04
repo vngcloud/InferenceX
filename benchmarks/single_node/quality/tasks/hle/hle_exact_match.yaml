@@ -24,7 +24,7 @@ metric_list:
 generation_kwargs:
   until:
     - "Question:"
-  max_gen_toks: 32768
+  max_gen_toks: 4096
   do_sample: false
   temperature: 0.0
 metadata:

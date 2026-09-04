@@ -166,10 +166,10 @@ setup_scicode() {
         echo "=== Cloning SciCode (first time) ==="
         git clone --depth 1 https://github.com/scicode-bench/SciCode.git "$SCICODE_DIR"
     fi
-    if [[ ! -x "$VENV/bin/inspect" ]]; then
+    if [[ ! -x "$VENV/bin/inspect" ]] || ! "$VENV/bin/python" -c "import scicode" 2>/dev/null; then
         echo "=== Setting up SciCode venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR"
+        uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR" "pyarrow<15"
     fi
     export QUALITY_SCICODE_VENV="$VENV"
     export QUALITY_SCICODE_DIR="$SCICODE_DIR"

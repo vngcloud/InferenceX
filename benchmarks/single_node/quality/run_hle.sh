@@ -21,7 +21,7 @@ export HF_TOKEN="${HF_TOKEN:-}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 
 MAX_LENGTH="${MAX_LENGTH:-32768}"
-MAX_GEN_TOKS="${MAX_GEN_TOKS:-32768}"
+MAX_GEN_TOKS="${MAX_GEN_TOKS:-4096}"
 TASK="${TASK:-hle}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-0}"
 BATCH_SIZE="${BATCH_SIZE:-1}"

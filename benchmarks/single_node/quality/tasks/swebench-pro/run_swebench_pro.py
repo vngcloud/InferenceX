@@ -29,8 +29,8 @@ from pathlib import Path
 import yaml
 from rich.live import Live
 
-from minisweagent.run.extra.swebench import filter_instances, process_instance
-from minisweagent.run.extra.utils.batch_progress import RunBatchProgressManager
+from minisweagent.run.benchmarks.swebench import filter_instances, process_instance
+from minisweagent.run.benchmarks.utils.batch_progress import RunBatchProgressManager
 from minisweagent.utils.log import add_file_handler, logger
 
 
