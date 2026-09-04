@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Required env: QUALITY_ENDPOINT, QUALITY_API_KEY, QUALITY_MODEL_NAME
 # Optional env: RUN_ID, BFCL_MODE, TEST_CATEGORY, NUM_THREADS, TEMPERATURE,
-#               OPENAI_TIMEOUT, FULL_EVAL, OVERWRITE, TEST_CASE_IDS
+#               OPENAI_TIMEOUT, FULL_EVAL, OVERWRITE, TEST_CASE_IDS, LIMIT
 
 WORKSPACE_DIR="${QUALITY_WORKSPACE:-$(pwd)}"
 
@@ -52,6 +52,40 @@ if [[ -n "${TEST_CASE_IDS:-}" ]]; then
   else
     printf '%s\n' "$TEST_CASE_IDS" > "$IDS_FILE"
   fi
+  RUN_IDS_ARG=(--run-ids)
+elif [[ -n "${LIMIT:-}" ]]; then
+  IDS_FILE="$OUT_DIR/test_case_ids_to_generate.json"
+  echo "=== LIMIT=$LIMIT set, generating subset ID file ==="
+  "$PYTHON" - "$BFCL_DIR" "$IDS_FILE" "$TEST_CATEGORY" "$LIMIT" <<'PY'
+import json, pathlib, sys
+bfcl_dir, out_file, categories_str, limit = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+from bfcl_eval.constants.category_mapping import (
+    NON_LIVE_CATEGORY, LIVE_CATEGORY, MULTI_TURN_CATEGORY,
+)
+all_cats = NON_LIVE_CATEGORY + LIVE_CATEGORY + MULTI_TURN_CATEGORY
+requested = [c.strip() for c in categories_str.split(",")]
+# Map requested category names to data file names
+cat_to_file = {}
+for cat in all_cats:
+    cat_to_file[cat] = f"BFCL_v4_{cat}.json"
+ids_map = {}
+for cat in requested:
+    fname = cat_to_file.get(cat, f"BFCL_v4_{cat}.json")
+    fpath = pathlib.Path(bfcl_dir) / "bfcl_eval" / "data" / fname
+    if not fpath.exists():
+        print(f"  WARN: data file not found: {fpath}", file=sys.stderr)
+        ids_map[cat] = []
+        continue
+    entries = [json.loads(line) for line in fpath.read_text().strip().split("\n")]
+    ids_map[cat] = [e["id"] for e in entries[:limit]]
+    print(f"  {cat}: {len(ids_map[cat])} IDs (of {len(entries)} total)")
+# Fill remaining categories with empty lists (BFCL expects all keys)
+for cat in all_cats:
+    if cat not in ids_map:
+        ids_map[cat] = []
+pathlib.Path(out_file).write_text(json.dumps(ids_map, indent=2))
+print(f"  Written: {out_file}")
+PY
   RUN_IDS_ARG=(--run-ids)
 fi
 
