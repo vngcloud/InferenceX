@@ -70,6 +70,7 @@ echo
   --max-connections "$MAX_CONNECTIONS" \
   --max-tokens "$MAX_TOKENS" \
   --log-dir "$LOG_DIR" \
+  --log-format json \
   --max-retries "$RETRY_ON_ERROR" \
   --no-fail-on-error \
   "${LIMIT_ARG[@]}" \
