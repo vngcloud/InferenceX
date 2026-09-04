@@ -182,6 +182,34 @@ on:
         required: false
         type: string
         default: ""
+      # Quality-eval inputs. Only consumed by quality-eval scenario types
+      # (runner: cluster:quality-eval); every other recipe leaves these
+      # empty and is unaffected.
+      benchmark-name:
+        description: "Quality benchmark to run (gpqa, mmlu_pro, hle, livecodebench, bfcl, scicode, swebench_pro, deepswe)"
+        required: false
+        type: string
+        default: ""
+      quality-endpoint:
+        description: "OpenAI-compatible endpoint URL for quality evals"
+        required: false
+        type: string
+        default: ""
+      quality-model-name:
+        description: "Model name for quality evals (e.g. openai/z-ai/glm-5.2)"
+        required: false
+        type: string
+        default: ""
+      smoke:
+        description: "Smoke-test mode: skip threshold validation, only verify artifact exists"
+        required: false
+        type: boolean
+        default: false
+      num-concurrent:
+        description: "API request concurrency for quality evals (passed as NUM_CONCURRENT env var)"
+        required: false
+        type: string
+        default: ""
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -208,7 +236,7 @@ env:
   EVAL_ONLY: ${{ inputs.eval-only }}
   # Agentic-coding env. Fixed-seq-len jobs leave these empty.
   SCENARIO_TYPE: ${{ inputs.scenario-type }}
-  SCENARIO_SUBDIR: ${{ inputs.scenario-type == 'agentic-coding' && 'agentic/' || 'fixed_seq_len/' }}
+  SCENARIO_SUBDIR: ${{ (inputs.scenario-type == 'agentic-coding' && 'agentic/') || (startsWith(inputs.scenario-type, 'quality-') && 'quality/') || 'fixed_seq_len/' }}
   IS_AGENTIC: ${{ inputs.scenario-type == 'agentic-coding' && '1' || '0' }}
   KV_OFFLOADING: ${{ inputs.kv-offloading }}
   KV_OFFLOAD_BACKEND: ${{ inputs.kv-offload-backend }}
@@ -228,6 +256,13 @@ env:
   REMOTE_RESET_URL: ${{ inputs.remote-reset-url }}
   REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
   REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
+  # Quality-eval env. Only consumed by quality-eval scenario types.
+  QUALITY_BENCHMARK_NAME: ${{ inputs.benchmark-name }}
+  QUALITY_ENDPOINT: ${{ inputs.quality-endpoint }}
+  QUALITY_API_KEY: ${{ secrets.GN_TOKEN_PLAN }}
+  QUALITY_MODEL_NAME: ${{ inputs.quality-model-name }}
+  SMOKE: ${{ inputs.smoke }}
+  NUM_CONCURRENT: ${{ inputs.num-concurrent }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
@@ -268,6 +303,7 @@ jobs:
     timeout-minutes: 500
     name: >-
       p${{ inputs.priority }} | ${{ inputs.model-prefix }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework == 'sglang' && 'sgl' || inputs.framework == 'dynamo-sglang' && 'dyn-sgl' || inputs.framework == 'sglang-disagg' && 'sgl-disagg' || inputs.framework }}
+      ${{ inputs.benchmark-name != '' && inputs.benchmark-name || '' }}
       TP${{ inputs.tp }}${{ inputs.pp != '' && inputs.pp != '1' && format('/PP{0}', inputs.pp) || '' }}${{ inputs.dcp-size != '' && inputs.dcp-size != '1' && format('/DCP{0}', inputs.dcp-size) || '' }}${{ inputs.pcp-size != '' && inputs.pcp-size != '1' && format('/PCP{0}', inputs.pcp-size) || '' }}${{ inputs.ep != '' && inputs.ep != '1' && format('/EP{0}', inputs.ep) || '' }}${{ inputs.dp-attn && '/DPA' || '' }}
       ${{ inputs.spec-decoding != 'none' && inputs.spec-decoding || '' }}
       ${{ inputs.kv-offloading != '' && inputs.kv-offloading != 'none' && format('{0} KV offload', inputs.kv-offloading) || '' }}
@@ -321,7 +357,13 @@ jobs:
           # Export RESULT_FILENAME early so it's available for artifact uploads even if cancelled
           echo "RESULT_FILENAME=${RESULT_FILENAME}" >> $GITHUB_ENV
 
-          bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          # Quality-eval scenarios run on any runner with the quality-eval label;
+          # dispatch directly to launch_quality-eval.sh regardless of runner name.
+          if [ "${SCENARIO_SUBDIR}" = "quality/" ]; then
+            bash ./runners/launch_quality-eval.sh
+          else
+            bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          fi
 
           if [ "${{ inputs.eval-only }}" = "true" ]; then
             echo "Eval-only mode: skipping benchmark result file check"
@@ -436,12 +478,21 @@ jobs:
             agent_preds.json
             predictions.jsonl
             swebench_report_*.json
+            eval_results*.json
             *.traj*
+            *.csv
+            lcb_results*.json
+            *.jsonl
           if-no-files-found: ${{ inputs.eval-only && 'error' || 'ignore' }}
 
       - name: Verify eval scores
         if: ${{ (success() || failure()) && inputs.eval-only }}
-        run: python3 utils/evals/validate_scores.py
+        run: |
+          SMOKE_FLAG=""
+          if [ "${{ inputs.smoke }}" = "true" ]; then
+            SMOKE_FLAG="--smoke"
+          fi
+          python3 utils/evals/validate_scores.py $SMOKE_FLAG
 
       - name: Cleanup eval outputs (post-upload)
         if: ${{ always() && (env.RUN_EVAL == 'true' || inputs.eval-only) }}
@@ -450,7 +501,8 @@ jobs:
           # Remove any eval results JSONs that were moved into workspace
           rm -f results*.json || true
           rm -f sample*.jsonl || true
-          rm -f agent_preds.json predictions.jsonl swebench_report_*.json *.traj* || true
+          rm -f agent_preds.json predictions.jsonl swebench_report_*.json eval_results*.json *.traj* || true
+          rm -f *.csv lcb_results*.json || true
           
       - name: Resource cleanup (post-run)
         if: always()

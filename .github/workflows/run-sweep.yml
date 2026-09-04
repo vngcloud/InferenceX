@@ -925,6 +925,60 @@ jobs:
             eval-conc: ${{ matrix.config['eval-conc'] }}
             scenario-type: agentic-coding
 
+    # Quality-eval rows carry the quality-eval input shape (benchmark-name,
+    # quality-endpoint, quality-model-name, smoke), so they are dispatched
+    # with their own job rather than sweep-evals' fixed-seq-len inputs.
+    sweep-quality-evals:
+        needs: [setup, canary-select, canary-sweep]
+        if: >-
+            ${{
+              !cancelled() &&
+              needs.setup.result == 'success' &&
+              needs.setup.outputs.reuse-enabled != 'true' &&
+              (needs.canary-sweep.result == 'success' || needs.canary-sweep.result == 'skipped') &&
+              toJson(fromJson(needs.setup.outputs.search-space-config).quality_evals) != '[]' &&
+              toJson(fromJson(needs.setup.outputs.search-space-config).quality_evals) != 'null'
+            }}
+        uses: ./.github/workflows/benchmark-tmpl.yml
+        name: quality eval /
+        strategy:
+            fail-fast: ${{ contains(github.event.pull_request.labels.*.name, 'full-sweep-fail-fast') || contains(github.event.pull_request.labels.*.name, 'full-sweep-fail-fast-no-canary') }}
+            matrix:
+                config: ${{ fromJson(needs.setup.outputs.search-space-config).quality_evals }}
+        secrets: inherit
+        with:
+            exp-name: ${{ matrix.config.exp-name }}
+            runner: ${{ matrix.config.runner }}
+            priority: ${{ matrix.config.priority }}
+            queue-token: ${{ matrix.config['queue-token'] }}
+            skip-queue-pr: ${{ matrix.config['skip-queue-pr'] || '' }}
+            image: ${{ matrix.config.image }}
+            model: ${{ matrix.config.model }}
+            model-prefix: ${{ matrix.config.model-prefix }}
+            framework: ${{ matrix.config.framework }}
+            precision: ${{ matrix.config.precision }}
+            tp: '1'
+            pp: '1'
+            dcp-size: '1'
+            pcp-size: '1'
+            ep: '1'
+            dp-attn: false
+            conc: '1'
+            spec-decoding: 'none'
+            disagg: 'false'
+            isl: '0'
+            osl: '0'
+            max-model-len: '0'
+            run-eval: true
+            eval-only: true
+            scenario-type: ${{ matrix.config.scenario-type }}
+            benchmark-name: ${{ matrix.config.benchmark-name }}
+            quality-endpoint: ${{ matrix.config.quality-endpoint }}
+            quality-model-name: ${{ matrix.config.quality-model-name }}
+            smoke: ${{ matrix.config.smoke || false }}
+            num-concurrent: ${{ matrix.config.num-concurrent || '' }}
+            eval-limit: ${{ matrix.config.eval-limit || (contains(github.event.pull_request.labels.*.name, 'sweep-enabled') && '10' || '') }}
+
     collect-results:
         needs:
             [
@@ -955,8 +1009,8 @@ jobs:
             result-prefix: "bmk"
 
     collect-evals:
-        needs: [sweep-evals, sweep-agentic-evals, sweep-multi-node-evals, sweep-multi-node-agentic-evals, setup]
-        if: ${{ always() && needs.setup.result != 'skipped' && (needs.sweep-evals.result != 'skipped' || needs.sweep-agentic-evals.result != 'skipped' || needs.sweep-multi-node-evals.result != 'skipped' || needs.sweep-multi-node-agentic-evals.result != 'skipped') }}
+        needs: [sweep-evals, sweep-agentic-evals, sweep-multi-node-evals, sweep-multi-node-agentic-evals, sweep-quality-evals, setup]
+        if: ${{ always() && needs.setup.result != 'skipped' && (needs.sweep-evals.result != 'skipped' || needs.sweep-agentic-evals.result != 'skipped' || needs.sweep-multi-node-evals.result != 'skipped' || needs.sweep-multi-node-agentic-evals.result != 'skipped' || needs.sweep-quality-evals.result != 'skipped') }}
         uses: ./.github/workflows/collect-evals.yml
         secrets: inherit
 

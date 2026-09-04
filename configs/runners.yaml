@@ -314,6 +314,8 @@ labels:
     - mi355x-amds_08
   cluster:remote-bench:
     - bench-client_01
+  cluster:quality-eval:
+    - bench-client_00
 hardware:
   cluster:h100-dgxc:
     available-cpu-dram-mib: 2_063_837

@@ -37,6 +37,14 @@ class Fields(Enum):
     # Scenario type keys
     FIXED_SEQ_LEN = 'fixed-seq-len'
     AGENTIC_CODING = 'agentic-coding'
+    QUALITY_GPQA = 'quality-gpqa'
+    QUALITY_MMLU_PRO = 'quality-mmlu-pro'
+    QUALITY_HLE = 'quality-hle'
+    QUALITY_LIVECODEBENCH = 'quality-livecodebench'
+    QUALITY_BFCL = 'quality-bfcl'
+    QUALITY_SCICODE = 'quality-scicode'
+    QUALITY_SWEBENCH_PRO = 'quality-swebench-pro'
+    QUALITY_DEEPSWE = 'quality-deepswe'
 
     # Seq-len-config fields
     ISL = 'isl'
@@ -86,6 +94,14 @@ class Fields(Enum):
     EVAL_ONLY = 'eval-only'
     EVAL_CONC = 'eval-conc'
     EVAL_ALL_CONCS = 'eval-all-concs'
+
+    # Quality-eval fields
+    BENCHMARK_NAME = 'benchmark-name'
+    QUALITY_ENDPOINT = 'quality-endpoint'
+    QUALITY_MODEL_NAME = 'quality-model-name'
+    SMOKE = 'smoke'
+    NUM_CONCURRENT = 'num-concurrent'
+    EVAL_LIMIT = 'eval-limit'
 
 
 """
@@ -361,6 +377,59 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
 
 
 AgenticMatrixEntry = Union[SingleNodeAgenticMatrixEntry, MultiNodeAgenticMatrixEntry]
+
+
+QUALITY_SCENARIO_TYPES = [
+    Fields.QUALITY_GPQA.value,
+    Fields.QUALITY_MMLU_PRO.value,
+    Fields.QUALITY_HLE.value,
+    Fields.QUALITY_LIVECODEBENCH.value,
+    Fields.QUALITY_BFCL.value,
+    Fields.QUALITY_SCICODE.value,
+    Fields.QUALITY_SWEBENCH_PRO.value,
+    Fields.QUALITY_DEEPSWE.value,
+]
+
+
+class QualityEvalMatrixEntry(BaseModel):
+    """Pydantic model for validating quality-eval matrix entries."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    image: str
+    model: str
+    model_prefix: str = Field(alias=Fields.MODEL_PREFIX.value)
+    precision: str
+    framework: str
+    runner: str
+    benchmark_name: str = Field(alias=Fields.BENCHMARK_NAME.value)
+    quality_endpoint: str = Field(alias=Fields.QUALITY_ENDPOINT.value)
+    quality_model_name: str = Field(alias=Fields.QUALITY_MODEL_NAME.value)
+    exp_name: str = Field(alias=Fields.EXP_NAME.value)
+    scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
+    smoke: bool = Field(default=False, alias=Fields.SMOKE.value)
+    num_concurrent: Optional[int] = Field(default=None, alias=Fields.NUM_CONCURRENT.value)
+    eval_limit: Optional[int] = Field(default=None, alias=Fields.EVAL_LIMIT.value)
+    run_eval: Optional[bool] = Field(default=None, alias=Fields.RUN_EVAL.value)
+    eval_only: Optional[bool] = Field(default=None, alias=Fields.EVAL_ONLY.value)
+
+    @field_validator('scenario_type')
+    @classmethod
+    def validate_quality_scenario_type(cls, v: str) -> str:
+        if v not in QUALITY_SCENARIO_TYPES:
+            raise ValueError(
+                f"scenario-type must be one of {QUALITY_SCENARIO_TYPES}, got '{v}'"
+            )
+        return v
+
+
+def validate_quality_matrix_entry(entry: dict) -> dict:
+    """Validate that a quality-eval matrix entry matches the expected structure."""
+    try:
+        QualityEvalMatrixEntry(**entry)
+    except ValidationError as e:
+        raise ValueError(
+            f"The following parsed quality-eval matrix entry failed validation:\n{pprint.pformat(entry)}\n{e}")
+    return entry
 
 
 def validate_agentic_matrix_entry(entry: dict) -> dict:
@@ -659,6 +728,50 @@ class AgenticCodingConfig(BaseModel):
         return self
 
 
+class QualityEvalSearchSpaceEntry(BaseModel):
+    """Quality-eval search space entry: which benchmarks to run."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    benchmark_name: str = Field(
+        alias=Fields.BENCHMARK_NAME.value,
+        description="One of: gpqa, mmlu_pro, hle, livecodebench, bfcl, "
+                    "scicode, swebench_pro, deepswe",
+    )
+    smoke: bool = Field(default=False, alias=Fields.SMOKE.value)
+    num_concurrent: Optional[int] = Field(
+        default=None, alias=Fields.NUM_CONCURRENT.value,
+        description="API request concurrency (num_concurrent / CCU / multiprocess). "
+                    "Passed to benchmark scripts as NUM_CONCURRENT env var.",
+    )
+    eval_limit: Optional[int] = Field(
+        default=None, alias=Fields.EVAL_LIMIT.value,
+        description="Number of questions/tasks for smoke runs. Overrides the workflow-level eval-limit.",
+    )
+
+    @field_validator('benchmark_name')
+    @classmethod
+    def validate_benchmark_name(cls, v: str) -> str:
+        valid = {
+            'gpqa', 'mmlu_pro', 'hle', 'livecodebench',
+            'bfcl', 'scicode', 'swebench_pro', 'deepswe',
+        }
+        if v not in valid:
+            raise ValueError(
+                f"benchmark-name must be one of {sorted(valid)}, got '{v}'"
+            )
+        return v
+
+
+class QualityEvalConfig(BaseModel):
+    """Quality-eval scenario configuration."""
+    model_config = ConfigDict(extra='forbid', populate_by_name=True)
+
+    search_space: List[QualityEvalSearchSpaceEntry] = Field(
+        alias=Fields.SEARCH_SPACE.value)
+    quality_endpoint: str = Field(alias=Fields.QUALITY_ENDPOINT.value)
+    quality_model_name: str = Field(alias=Fields.QUALITY_MODEL_NAME.value)
+
+
 class SingleNodeScenarios(BaseModel):
     """Scenarios wrapper for single-node configs."""
     model_config = ConfigDict(extra='forbid', populate_by_name=True)
@@ -667,10 +780,33 @@ class SingleNodeScenarios(BaseModel):
         default=None, alias=Fields.FIXED_SEQ_LEN.value)
     agentic_coding: Optional[List[AgenticCodingConfig]] = Field(
         default=None, alias=Fields.AGENTIC_CODING.value)
+    quality_gpqa: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_GPQA.value)
+    quality_mmlu_pro: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_MMLU_PRO.value)
+    quality_hle: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_HLE.value)
+    quality_livecodebench: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_LIVECODEBENCH.value)
+    quality_bfcl: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_BFCL.value)
+    quality_scicode: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_SCICODE.value)
+    quality_swebench_pro: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_SWEBENCH_PRO.value)
+    quality_deepswe: Optional[List[QualityEvalConfig]] = Field(
+        default=None, alias=Fields.QUALITY_DEEPSWE.value)
 
     @model_validator(mode='after')
     def at_least_one_scenario(self):
-        if not self.fixed_seq_len and not self.agentic_coding:
+        has_any = any([
+            self.fixed_seq_len, self.agentic_coding,
+            self.quality_gpqa, self.quality_mmlu_pro, self.quality_hle,
+            self.quality_livecodebench, self.quality_bfcl,
+            self.quality_scicode, self.quality_swebench_pro,
+            self.quality_deepswe,
+        ])
+        if not has_any:
             raise ValueError("At least one scenario type must be specified")
         return self
 
@@ -882,9 +1018,14 @@ class ChangelogEntry(BaseModel):
             "threshold are dropped after eval selection."
         ),
     )
-    scenario_type: Optional[List[Literal["fixed-seq-len", "agentic-coding"]]] = Field(
+    scenario_type: Optional[List[Literal[
+        "fixed-seq-len", "agentic-coding",
+        "quality-gpqa", "quality-mmlu-pro", "quality-hle",
+        "quality-livecodebench", "quality-bfcl", "quality-scicode",
+        "quality-swebench-pro", "quality-deepswe",
+    ]]] = Field(
         alias="scenario-type", default=None, min_length=1,
-        description="Restrict to specific scenario types (e.g., ['fixed-seq-len', 'agentic-coding'])"
+        description="Restrict to specific scenario types"
     )
 
 
@@ -922,6 +1063,12 @@ class ChangelogMatrixEntry(BaseModel):
     # agentic input shape (scenario-type, kv-offloading, ...) rather than
     # the fixed-seq-len shape (isl/osl/max-model-len) multinode_evals rows do.
     multinode_agentic_evals: list[MultiNodeAgenticMatrixEntry] = Field(
+        default_factory=list)
+    # Quality-eval rows live in their own bucket, dispatched by a dedicated
+    # run-sweep.yml job that passes quality-eval inputs (benchmark-name,
+    # quality-endpoint, quality-model-name, smoke) rather than fixed-seq-len
+    # or agentic inputs.
+    quality_evals: list[QualityEvalMatrixEntry] = Field(
         default_factory=list)
     changelog_metadata: ChangelogMetadata
 

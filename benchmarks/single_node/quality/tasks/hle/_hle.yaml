@@ -1,0 +1,10 @@
+group: hle
+task:
+  - hle_exact_match
+  - hle_multiple_choice
+aggregate_metric_list:
+  - aggregation: mean
+    metric: exact_match
+    weight_by_size: true
+metadata:
+  version: 1.0
