@@ -35,6 +35,9 @@ mkdir -p "$OUT_DIR"
 
 export LCB_OUTPUT_DIR="$OUT_DIR/"
 
+# LCB CLI has no --limit flag; pass LIMIT via LCB_LIMIT env var (patched main.py reads it)
+export LCB_LIMIT="${LIMIT:-0}"
+
 echo "=== LiveCodeBench run ==="
 echo "  RUN_ID          : $RUN_ID"
 echo "  Model           : $RAW_MODEL"

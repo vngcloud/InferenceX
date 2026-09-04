@@ -130,6 +130,25 @@ if old in src:
     p.write_text(src)
 PY
     fi
+    # Patch main.py: add LCB_LIMIT env var support to slice benchmark
+    local MAIN_FILE="$LCB_DIR/lcb_runner/runner/main.py"
+    if ! grep -q "LCB_LIMIT" "$MAIN_FILE" 2>/dev/null; then
+        echo "=== Patching main.py with LCB_LIMIT support ==="
+        python3 - "$MAIN_FILE" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = '    if args.debug:'
+new = '''    _lcb_limit = int(os.environ.get("LCB_LIMIT", "0"))
+    if _lcb_limit > 0:
+        print(f"LCB_LIMIT={_lcb_limit}: slicing benchmark from {len(benchmark)} to {_lcb_limit} instances")
+        benchmark = benchmark[:_lcb_limit]
+    if args.debug:'''
+if old in src and "LCB_LIMIT" not in src:
+    src = src.replace(old, new, 1)
+    p.write_text(src)
+PY
+    fi
     # Patch lm_styles.py to add z-ai/glm-5.2 as an OpenAIChat model
     # (LCB has a hardcoded LanguageModelStore dict; our model isn't in it)
     local LM_STYLES="$LCB_DIR/lcb_runner/lm_styles.py"
@@ -350,6 +369,16 @@ EOF
         fi
         COPIED=$((COPIED + 1))
     done < <(find "$OUT_BASE" -type f -name 'eval_results*.json' -print0 2>/dev/null || true)
+
+    # inspect-ai log files (SciCode) — .eval or .json in logs/ subdir
+    # Copy .json logs as results.json so benchmark-tmpl.yml's glob matches.
+    while IFS= read -r -d '' f; do
+        cp -f "$f" "$DEST/"
+        if [[ ! -f "$DEST/results.json" ]]; then
+            cp -f "$f" "$DEST/results.json"
+        fi
+        COPIED=$((COPIED + 1))
+    done < <(find "$OUT_BASE" -type f -path '*/logs/*' \( -name '*.json' -o -name '*.eval' \) -print0 2>/dev/null || true)
 
     # predictions.jsonl, agent_preds.json — SWE-bench, agentic
     while IFS= read -r -d '' f; do
