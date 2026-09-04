@@ -150,3 +150,20 @@ echo "  Results : $OUT_DIR/result/$(echo "$BFCL_MODEL_KEY" | tr '/' '_')/"
 echo "  Scores  : $OUT_DIR/score/$(echo "$BFCL_MODEL_KEY" | tr '/' '_')/"
 echo "  Overall : $OUT_DIR/score/data_overall.csv"
 echo "  Non-live: $OUT_DIR/score/data_non_live.csv"
+
+# Write a results.json wrapper so benchmark-tmpl.yml's `ls results*.json` check passes
+if [[ -f "$SCORE_FILE" ]]; then
+  "$PYTHON" - "$SCORE_FILE" "$OUT_DIR/results.json" <<'PY'
+import csv, json, pathlib, sys
+score_path, out_path = sys.argv[1], sys.argv[2]
+with pathlib.Path(score_path).open(newline="") as f:
+    rows = list(csv.DictReader(f))
+result = {
+    "benchmark": "bfcl",
+    "scores": rows,
+    "score_file": str(score_path),
+}
+pathlib.Path(out_path).write_text(json.dumps(result, indent=2))
+print(f"Wrote results wrapper: {out_path}")
+PY
+fi

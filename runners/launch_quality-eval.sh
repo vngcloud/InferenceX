@@ -92,10 +92,12 @@ setup_livecodebench() {
         echo "=== Cloning LiveCodeBench (first time) ==="
         git clone --depth 1 https://github.com/LiveCodeBench/LiveCodeBench.git "$LCB_DIR"
     fi
-    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import livecodebench" 2>/dev/null; then
+    # Cache-bust: check both livecodebench import AND anthropic.HUMAN_PROMPT
+    # (anthropic>=0.42 removed HUMAN_PROMPT, but LiveCodeBench still imports it)
+    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "from anthropic import HUMAN_PROMPT" 2>/dev/null; then
         echo "=== Setting up LiveCodeBench venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR"
+        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR" "anthropic<0.40"
     fi
     export QUALITY_LCB_VENV="$VENV"
     export QUALITY_LCB_DIR="$LCB_DIR"
@@ -166,10 +168,14 @@ setup_scicode() {
         echo "=== Cloning SciCode (first time) ==="
         git clone --depth 1 https://github.com/scicode-bench/SciCode.git "$SCICODE_DIR"
     fi
-    if [[ ! -x "$VENV/bin/inspect" ]] || ! "$VENV/bin/python" -c "import scicode" 2>/dev/null; then
+    # Cache-bust: check scicode import AND pyarrow<15 (datasets pulls pyarrow>=15
+    # which removes PyExtensionType, breaking datasets==2.x)
+    if [[ ! -x "$VENV/bin/inspect" ]] || ! "$VENV/bin/python" -c "import scicode; import pyarrow; assert hasattr(pyarrow, 'PyExtensionType')" 2>/dev/null; then
         echo "=== Setting up SciCode venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR" "pyarrow<15"
+        # Install pyarrow<15 FIRST so datasets doesn't pull a newer version
+        uv pip install --python "$VENV/bin/python" "pyarrow<15" "datasets==2.14.4"
+        uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR"
     fi
     export QUALITY_SCICODE_VENV="$VENV"
     export QUALITY_SCICODE_DIR="$SCICODE_DIR"
@@ -179,8 +185,27 @@ setup_swebench_pro() {
     local SWEBENCH_DIR="$QUALITY_CACHE_DIR/SWE-bench_Pro-os"
     local VENV="$QUALITY_CACHE_DIR/.venv-swebenchpro"
     if [[ ! -d "$SWEBENCH_DIR" ]]; then
-        echo "=== Cloning SWE-bench Pro (first time) ==="
-        git clone --depth 1 https://github.com/scaleapi/SWE-bench_Pro-os.git "$SWEBENCH_DIR"
+        echo "=== Cloning SWE-bench Pro (first time, with submodules) ==="
+        git clone --recurse-submodules --depth 1 https://github.com/scaleapi/SWE-bench_Pro-os.git "$SWEBENCH_DIR"
+    fi
+    # Ensure SWE-agent submodule is present (cache may have shallow clone without it)
+    if [[ ! -d "$SWEBENCH_DIR/SWE-agent/.git" ]]; then
+        echo "=== Initializing SWE-agent submodule ==="
+        git -C "$SWEBENCH_DIR" submodule update --init --recursive
+    fi
+    # Generate instances.yaml if missing (required by run_swebench_pro.py)
+    local INSTANCES_YAML="$SWEBENCH_DIR/SWE-agent/data/instances.yaml"
+    if [[ ! -f "$INSTANCES_YAML" ]]; then
+        echo "=== Generating instances.yaml from HuggingFace dataset ==="
+        if [[ ! -x "$VENV/bin/python" ]]; then
+            uv venv --clear --seed "$VENV"
+            uv pip install --python "$VENV/bin/python" \
+                -r "$SWEBENCH_DIR/requirements.txt" \
+                "mini-swe-agent" "litellm" "rich" "pyyaml" "datasets" "tqdm"
+        fi
+        "$VENV/bin/python" "$SWEBENCH_DIR/helper_code/generate_sweagent_instances.py" \
+            --dockerhub_username "${DOCKERHUB_USERNAME:-jefzda}" \
+            --output_path "$INSTANCES_YAML"
     fi
     if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import yaml" 2>/dev/null; then
         echo "=== Setting up SWE-bench Pro venv (first time) ==="
