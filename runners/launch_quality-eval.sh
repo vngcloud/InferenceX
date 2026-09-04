@@ -114,6 +114,31 @@ if old in src and "HUMAN_PROMPT = None" not in src:
 PY
         fi
     done
+    # Patch lm_styles.py to add z-ai/glm-5.2 as an OpenAIChat model
+    # (LCB has a hardcoded LanguageModelStore dict; our model isn't in it)
+    local LM_STYLES="$LCB_DIR/lcb_runner/lm_styles.py"
+    if ! grep -q '"z-ai/glm-5.2"' "$LM_STYLES" 2>/dev/null; then
+        echo "=== Patching lm_styles.py with z-ai/glm-5.2 model ==="
+        python3 - "$LM_STYLES" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+entry = '''    LanguageModel(
+        "z-ai/glm-5.2",
+        "GLM-5.2",
+        LMStyle.OpenAIChat,
+        datetime(2024, 12, 1),
+        "https://huggingface.co/z-ai",
+    ),
+'''
+marker = "\n]\n\nLanguageModelStore"
+idx = src.find(marker)
+if idx == -1:
+    raise SystemExit("marker not found")
+src = src[:idx] + "\n" + entry + src[idx:]
+p.write_text(src)
+PY
+    fi
     # Cache-bust: check livecodebench import works
     if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import lcb_runner" 2>/dev/null; then
         echo "=== Setting up LiveCodeBench venv (first time) ==="
