@@ -24,7 +24,7 @@ RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 
 SWEBENCH_DIR="${QUALITY_SWEBENCH_DIR:-$WORKSPACE_DIR/SWE-bench_Pro-os}"
 INSTANCES_YAML="$SWEBENCH_DIR/SWE-agent/data/instances.yaml"
-RAW_SAMPLE="$SWEBENCH_DIR/data/swebench_pro_raw_sample.jsonl"
+RAW_SAMPLE="${QUALITY_SWEBENCH_RAW_SAMPLE:-$SWEBENCH_DIR/helper_code/sweap_eval_full_v2.jsonl}"
 CONFIG="${QUALITY_SWEBENCH_CONFIG:-$WORKSPACE_DIR/benchmarks/single_node/quality/tasks/swebench-pro/swebench_pro.yaml}"
 RUN_SWEBENCH_PRO="${QUALITY_SWEBENCH_RUN_SCRIPT:-$WORKSPACE_DIR/benchmarks/single_node/quality/tasks/swebench-pro/run_swebench_pro.py}"
 

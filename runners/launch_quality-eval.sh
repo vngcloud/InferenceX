@@ -92,12 +92,33 @@ setup_livecodebench() {
         echo "=== Cloning LiveCodeBench (first time) ==="
         git clone --depth 1 https://github.com/LiveCodeBench/LiveCodeBench.git "$LCB_DIR"
     fi
-    # Cache-bust: check both livecodebench import AND anthropic.HUMAN_PROMPT
-    # (anthropic>=0.42 removed HUMAN_PROMPT, but LiveCodeBench still imports it)
-    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "from anthropic import HUMAN_PROMPT" 2>/dev/null; then
+    # Patch lcb_runner files that import HUMAN_PROMPT/AI_PROMPT without
+    # try/except fallback (anthropic>=0.42 removed them).  code_generation.py
+    # already has a fallback; self_repair.py and test_output_prediction.py do not.
+    for f in lcb_runner/prompts/self_repair.py lcb_runner/prompts/test_output_prediction.py; do
+        if [[ -f "$LCB_DIR/$f" ]] && ! grep -q "HUMAN_PROMPT = None" "$LCB_DIR/$f" 2>/dev/null; then
+            echo "=== Patching $f for anthropic>=0.42 compatibility ==="
+            python3 - "$LCB_DIR/$f" <<'PY'
+import pathlib, sys, re
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = "from anthropic import HUMAN_PROMPT, AI_PROMPT"
+new = """try:
+    from anthropic import HUMAN_PROMPT, AI_PROMPT
+except ImportError:
+    HUMAN_PROMPT = None
+    AI_PROMPT = None"""
+if old in src and "HUMAN_PROMPT = None" not in src:
+    src = src.replace(old, new, 1)
+    p.write_text(src)
+PY
+        fi
+    done
+    # Cache-bust: check livecodebench import works
+    if [[ ! -x "$VENV/bin/python" ]] || ! "$VENV/bin/python" -c "import lcb_runner" 2>/dev/null; then
         echo "=== Setting up LiveCodeBench venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR" "anthropic<0.40"
+        uv pip install --python "$VENV/bin/python" -e "$LCB_DIR"
     fi
     export QUALITY_LCB_VENV="$VENV"
     export QUALITY_LCB_DIR="$LCB_DIR"
@@ -173,8 +194,10 @@ setup_scicode() {
     if [[ ! -x "$VENV/bin/inspect" ]] || ! "$VENV/bin/python" -c "import scicode; import pyarrow; assert hasattr(pyarrow, 'PyExtensionType')" 2>/dev/null; then
         echo "=== Setting up SciCode venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        # Install pyarrow<15 FIRST so datasets doesn't pull a newer version
-        uv pip install --python "$VENV/bin/python" "pyarrow<15" "datasets==2.14.4"
+        # Install pyarrow<15 + numpy<2 + datasets==2.14.4 FIRST so scicode
+        # doesn't pull pyarrow>=15 (removes PyExtensionType) or numpy>=2
+        # (pyarrow 14 is compiled against numpy 1.x)
+        uv pip install --python "$VENV/bin/python" "pyarrow<15" "numpy<2" "datasets==2.14.4"
         uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR"
     fi
     export QUALITY_SCICODE_VENV="$VENV"
