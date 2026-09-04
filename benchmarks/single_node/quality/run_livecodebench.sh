@@ -5,7 +5,7 @@ set -euo pipefail
 # Env vars are set by runners/launch_quality-eval.sh, not sourced from .env.
 #
 # Required env: QUALITY_ENDPOINT, QUALITY_API_KEY, QUALITY_MODEL_NAME
-# Optional env: RUN_ID, LIMIT, SCENARIO, RELEASE_VERSION, N, TEMPERATURE,
+# Optional env: RUN_ID, SCENARIO, RELEASE_VERSION, N, TEMPERATURE,
 #               MAX_TOKENS, MULTIPROCESS, TIMEOUT, NUM_PROCESS_EVALUATE, OPENAI_TIMEOUT
 
 WORKSPACE_DIR="${QUALITY_WORKSPACE:-$(pwd)}"
@@ -28,18 +28,12 @@ MULTIPROCESS="${MULTIPROCESS:-4}"
 TIMEOUT="${TIMEOUT:-6}"
 NUM_PROCESS_EVALUATE="${NUM_PROCESS_EVALUATE:-12}"
 OPENAI_TIMEOUT="${OPENAI_TIMEOUT:-90}"
-LIMIT="${LIMIT:-}"
 
 OUT_DIR="$WORKSPACE_DIR/jobs/$RUN_ID/livecodebench"
 
 mkdir -p "$OUT_DIR"
 
 export LCB_OUTPUT_DIR="$OUT_DIR/"
-
-LIMIT_ARG=()
-if [[ -n "$LIMIT" ]]; then
-  LIMIT_ARG=(--limit "$LIMIT")
-fi
 
 echo "=== LiveCodeBench run ==="
 echo "  RUN_ID          : $RUN_ID"
@@ -52,9 +46,6 @@ echo "  Max tokens      : $MAX_TOKENS"
 echo "  Multiprocess    : $MULTIPROCESS"
 echo "  Eval timeout    : ${TIMEOUT}s"
 echo "  Output dir      : $OUT_DIR"
-if [[ -n "$LIMIT" ]]; then
-  echo "  Limit           : $LIMIT"
-fi
 echo
 
 cd "$LCB_DIR"
@@ -72,5 +63,4 @@ exec "$PYTHON" -m lcb_runner.runner.main \
   --openai_timeout "$OPENAI_TIMEOUT" \
   --evaluate \
   --use_cache \
-  --continue_existing \
-  "${LIMIT_ARG[@]}"
+  --continue_existing

@@ -28,7 +28,7 @@ RAW_SAMPLE="${QUALITY_SWEBENCH_RAW_SAMPLE:-$SWEBENCH_DIR/helper_code/sweap_eval_
 CONFIG="${QUALITY_SWEBENCH_CONFIG:-$WORKSPACE_DIR/benchmarks/single_node/quality/tasks/swebench-pro/swebench_pro.yaml}"
 RUN_SWEBENCH_PRO="${QUALITY_SWEBENCH_RUN_SCRIPT:-$WORKSPACE_DIR/benchmarks/single_node/quality/tasks/swebench-pro/run_swebench_pro.py}"
 
-OUT_DIR="$WORKSPACE_DIR/jobs/$RUN_ID/swebench-pro"
+OUT_DIR="$WORKSPACE_DIR/jobs/$RUN_ID/swebench_pro"
 PRED_DIR="$OUT_DIR/preds"
 PATCHES_JSON="$OUT_DIR/patches.json"
 EVAL_DIR="$OUT_DIR/eval"

@@ -189,16 +189,21 @@ setup_scicode() {
         echo "=== Cloning SciCode (first time) ==="
         git clone --depth 1 https://github.com/scicode-bench/SciCode.git "$SCICODE_DIR"
     fi
-    # Cache-bust: check scicode import AND pyarrow<15 (datasets pulls pyarrow>=15
-    # which removes PyExtensionType, breaking datasets==2.x)
-    if [[ ! -x "$VENV/bin/inspect" ]] || ! "$VENV/bin/python" -c "import scicode; import pyarrow; assert hasattr(pyarrow, 'PyExtensionType')" 2>/dev/null; then
+    # Cache-bust: check scicode + inspect_ai import works
+    if [[ ! -x "$VENV/bin/inspect" ]] || ! "$VENV/bin/python" -c "import scicode; import inspect_ai" 2>/dev/null; then
         echo "=== Setting up SciCode venv (first time) ==="
         uv venv --clear --seed "$VENV"
-        # Install pyarrow<15 + numpy<2 + datasets==2.14.4 FIRST so scicode
-        # doesn't pull pyarrow>=15 (removes PyExtensionType) or numpy>=2
-        # (pyarrow 14 is compiled against numpy 1.x)
-        uv pip install --python "$VENV/bin/python" "pyarrow<15" "numpy<2" "datasets==2.14.4"
-        uv pip install --python "$VENV/bin/python" -e "$SCICODE_DIR"
+        # SciCode pyproject pins unpinned "datasets" → resolver picks 2.14.4,
+        # but inspect-ai requires datasets>=2.16.  Install datasets>=2.16 first,
+        # then scicode with --no-deps so it doesn't downgrade.
+        # Also need openai>=3.1 (inspect-ai requirement) and anthropic + config
+        # (scicode runtime deps not declared in pyproject).
+        uv pip install --python "$VENV/bin/python" \
+            "datasets>=2.16" "openai>=3.1" "anthropic" "config" \
+            "litellm" "inspect-ai" "rich" "pytest" "pytest-cov" \
+            "matplotlib" "scipy" "sympy" "h5py" "jsonlines" \
+            "google-generativeai"
+        uv pip install --python "$VENV/bin/python" --no-deps -e "$SCICODE_DIR"
     fi
     export QUALITY_SCICODE_VENV="$VENV"
     export QUALITY_SCICODE_DIR="$SCICODE_DIR"
