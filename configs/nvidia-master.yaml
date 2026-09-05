@@ -8397,6 +8397,25 @@ glm5.2lla-fp4-h200-greennode-sglang-lowlatency-hicache-r2-adaptive-spec-agentic:
       search-space:
       - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [4, 8, 12] }
 
+# glm5.2ll7 plus prefill context parallelism and nothing else. Ladder is
+# ll7's own [4, 8, 12] so all three points are paired against a non-CP twin.
+# NOTE: the DSA CP override in sglang v0.5.18 forces attn_cp_size = tp/dp
+# (=8 here), so attention is fully replicated, not TP-sharded; boot-verified
+# on-box 2026-09-05 (no crash, EAGLE accept_len 5.05, KV pool 967,424/rank).
+glm5.2ll7cp-fp4-h200-greennode-sglang-lowlatency-hicache-r2-prefillcp-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2ll7cp
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [4, 8, 12] }
+
 glm5.2dspark-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: thangquang0909/sglang:v0.5.16-dspark-v2-g4
   model: zai-org/GLM-5.2-FP8
