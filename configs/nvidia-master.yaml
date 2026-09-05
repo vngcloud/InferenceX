@@ -8416,6 +8416,27 @@ glm5.2ll7cp-fp4-h200-greennode-sglang-lowlatency-hicache-r2-prefillcp-agentic:
       search-space:
       - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [4, 8, 12] }
 
+# glm5.2ll7cp plus --enable-cp-decode-attn-tp: prices the mitigation for the
+# replicated-decode cost that run 33961987006 measured (mean ITL +19.4% at
+# conc 4 and +11.7% at conc 8 against ll7 run 33249899782). Ladder is [4, 8],
+# not ll7cp's [4, 8, 12]: conc 12 regressed on KV pressure (pool 967,424 vs
+# 1,173,696 tokens/rank, prefix hit .914 vs .942) and this flag does not
+# shrink resident weights, so that point is already answered. Add 12 back
+# only if the triple pairing is wanted for its own sake.
+glm5.2ll7cpdt-fp4-h200-greennode-sglang-lowlatency-hicache-r2-prefillcp-decodeattntp-agentic:
+  image: lmsysorg/sglang:v0.5.18-cu130
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2ll7cpdt
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 8, ep: 1, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, hicache-ratio: 2.0, conc-list: [4, 8] }
+
 glm5.2dspark-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic:
   image: thangquang0909/sglang:v0.5.16-dspark-v2-g4
   model: zai-org/GLM-5.2-FP8
