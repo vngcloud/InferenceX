@@ -648,7 +648,10 @@ new = '''            # generate completion (streaming to avoid proxy timeouts on
             from openai.types.chat import ChatCompletion, ChatCompletionMessage, ChatCompletionMessageToolCall
             from openai.types.chat.chat_completion import Choice
 
-            msg = ChatCompletionMessage(content=content if content else None)
+            msg = ChatCompletionMessage(
+                role="assistant",
+                content=content if content else None,
+            )
             if tool_calls_map:
                 msg.tool_calls = [
                     ChatCompletionMessageToolCall(id=tc["id"], type=tc["type"], function=tc["function"])
@@ -688,6 +691,45 @@ new = '''            # generate completion (streaming to avoid proxy timeouts on
 if old in src and "stream" not in src:
     src = src.replace(old, new, 1)
     p.write_text(src)
+PY
+    fi
+    # Repair environments cached with the original streaming patch. OpenAI SDK
+    # 2.x requires ChatCompletionMessage.role; without it response assembly
+    # raises after the full stream has already completed.
+    if [[ -f "$OAI_PROVIDER" ]] && grep -q 'ChatCompletionMessage(content=content if content else None)' "$OAI_PROVIDER" 2>/dev/null; then
+        echo "=== Repairing inspect_ai streaming response role ==="
+        python3 - "$OAI_PROVIDER" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = 'msg = ChatCompletionMessage(content=content if content else None)'
+new = 'msg = ChatCompletionMessage(role="assistant", content=content if content else None)'
+if old not in src:
+    raise SystemExit(f"expected streaming response constructor not found in {p}")
+p.write_text(src.replace(old, new, 1))
+PY
+    fi
+
+    # SciCode otherwise hides all generation exceptions and silently writes a
+    # dummy response, which can make a zero-score smoke run appear healthy.
+    local SCICODE_TASK="$SCICODE_DIR/eval/inspect_ai/scicode.py"
+    if [[ -f "$SCICODE_TASK" ]] && grep -q '^                except:$' "$SCICODE_TASK" 2>/dev/null; then
+        echo "=== Patching SciCode to report generation exceptions ==="
+        python3 - "$SCICODE_TASK" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = '''                except:
+                    print(f"Failed to generate response for problem {prob_id} step {idx+1}.")'''
+new = '''                except Exception as exc:
+                    print(
+                        f"Failed to generate response for problem {prob_id} step {idx+1}: "
+                        f"{type(exc).__name__}: {exc}",
+                        flush=True,
+                    )'''
+if old not in src:
+    raise SystemExit(f"expected SciCode exception handler not found in {p}")
+p.write_text(src.replace(old, new, 1))
 PY
     fi
     export QUALITY_SCICODE_VENV="$VENV"
