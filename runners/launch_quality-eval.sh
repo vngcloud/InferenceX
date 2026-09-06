@@ -978,6 +978,44 @@ PY
         cp -f "$LCB_FIRST_JSON" "$DEST/results.json"
     fi
 
+    # Convert LCB _eval.json (list format) to validate_scores.py-compatible dict format:
+    #   LCB output: [{"pass@1": 1.0, "detail": {...}}, ...]
+    #   validate_scores.py expects: {"results": {"livecodebench": {"pass@1": 1.0}}}
+    if [[ "$BENCH" == "livecodebench" ]]; then
+        local LCB_EVAL_JSON=""
+        while IFS= read -r -d '' f; do
+            LCB_EVAL_JSON="$f"
+            break
+        done < <(find "$OUT_BASE" -type f -name '*_eval.json' -print0 2>/dev/null || true)
+        if [[ -n "$LCB_EVAL_JSON" ]]; then
+            python3 - "$LCB_EVAL_JSON" "$DEST/results.json" <<'PY' || true
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+results = {}
+# LCB _eval.json is a list; first element has pass@k scores
+if isinstance(data, list) and data and isinstance(data[0], dict):
+    scores = data[0]
+    task_key = "livecodebench"
+    results[task_key] = {}
+    for k, v in scores.items():
+        if isinstance(v, (int, float)):
+            results[task_key][k] = v
+elif isinstance(data, dict):
+    # Already dict format — check for results key
+    if "results" in data:
+        results = data["results"]
+    else:
+        results["livecodebench"] = {k: v for k, v in data.items() if isinstance(v, (int, float))}
+if results:
+    out = {"results": results}
+    with open(sys.argv[2], "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"  Converted LCB eval to results.json with {len(results)} tasks")
+PY
+        fi
+    fi
+
     echo "  Copied $COPIED result file(s) to $DEST"
     if [[ "$COPIED" -eq 0 ]]; then
         echo "  WARNING: no result files found in $OUT_BASE" >&2
