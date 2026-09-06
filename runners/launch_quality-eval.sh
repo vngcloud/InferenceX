@@ -361,6 +361,25 @@ src = src[:idx] + "\n" + entry + src[idx:]
 p.write_text(src)
 PY
     fi
+    # Patch path_utils.py: use LCB_OUTPUT_DIR env var as base for output path
+    # so results land in $OUT_BASE (where collect_results looks), not $LCB_DIR/output/
+    local PATH_UTILS="$LCB_DIR/lcb_runner/utils/path_utils.py"
+    if ! grep -q 'LCB_OUTPUT_DIR' "$PATH_UTILS" 2>/dev/null; then
+        echo "=== Patching path_utils.py with LCB_OUTPUT_DIR support ==="
+        python3 - "$PATH_UTILS" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = '    path = f"output/{model_repr}/{scenario}_{n}_{temperature}{cot_suffix}.json"'
+new = '''    _base = os.environ.get("LCB_OUTPUT_DIR", "")
+    path = f"{_base}output/{model_repr}/{scenario}_{n}_{temperature}{cot_suffix}.json" if _base else f"output/{model_repr}/{scenario}_{n}_{temperature}{cot_suffix}.json"'''
+if old in src and "LCB_OUTPUT_DIR" not in src:
+    src = src.replace(old, new, 1)
+    if "import os" not in src:
+        src = "import os\n" + src
+    p.write_text(src)
+PY
+    fi
     # Patch oai_runner.py to use streaming (avoid proxy timeouts on long generations)
     local OAI_RUNNER="$LCB_DIR/lcb_runner/runner/oai_runner.py"
     if ! grep -q 'stream=True' "$OAI_RUNNER" 2>/dev/null; then
@@ -871,13 +890,48 @@ EOF
     done < <(find "$OUT_BASE" -type f -name 'eval_results*.json' -print0 2>/dev/null || true)
 
     # inspect-ai log files (SciCode) — .json in logs/ subdir (with --log-format json)
-    # Copy first .json log as results.json so benchmark-tmpl.yml's glob matches.
+    # Convert inspect-ai eval log to validate_scores.py format:
+    #   {"results": {"scicode": {"sub_problem_correctness": 0.0, "Problem Correctness/mean": 0.0}}}
+    # so validate_scores.py can check thresholds.
     while IFS= read -r -d '' f; do
         cp -f "$f" "$DEST/"
-        if [[ ! -f "$DEST/results.json" ]]; then
-            cp -f "$f" "$DEST/results.json"
-        fi
         COPIED=$((COPIED + 1))
+        # Convert inspect-ai log to results.json with validate_scores.py-compatible format
+        if [[ "$BENCH" == "scicode" ]]; then
+            python3 - "$f" "$DEST/results.json" <<'PY' || true
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+results = {}
+# Extract scores from reductions (inspect-ai summary)
+for red in data.get("reductions", []):
+    scorer_name = red.get("scorer", "unknown")
+    for sample in red.get("samples", []):
+        pass  # individual sample scores
+# Extract from results.scores (aggregate metrics)
+for score_entry in data.get("results", {}).get("scores", []):
+    scorer = score_entry.get("scorer", score_entry.get("name", "unknown"))
+    metrics = score_entry.get("metrics", {})
+    task_key = f"scicode/{scorer}"
+    results[task_key] = {}
+    for metric_name, metric_val in metrics.items():
+        val = metric_val.get("value") if isinstance(metric_val, dict) else metric_val
+        if isinstance(val, (int, float)):
+            results[task_key][metric_name] = val
+# Also extract per-sample Problem Correctness from samples
+for sample in data.get("samples", []):
+    sid = sample.get("id", "unknown")
+    for scorer_name, score_obj in sample.get("scores", {}).items():
+        val = score_obj.get("value", {})
+        if isinstance(val, dict) and "Problem Correctness" in val:
+            results[f"scicode/problem_{sid}"] = {"Problem Correctness": val["Problem Correctness"]}
+if results:
+    out = {"results": results}
+    with open(sys.argv[2], "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"  Converted inspect-ai log to results.json with {len(results)} tasks")
+PY
+        fi
     done < <(find "$OUT_BASE" -type f -path '*/logs/*' -name '*.json' -print0 2>/dev/null || true)
 
     # predictions.jsonl, agent_preds.json — SWE-bench, agentic

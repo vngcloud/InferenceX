@@ -283,6 +283,8 @@ def main() -> int:
         with open(f) as fh:
             data = json.load(fh)
         for task, metrics in data.get("results", {}).items():
+            if not isinstance(metrics, dict):
+                continue
             min_score, source = resolve_threshold(config, prefix, task, args.min_score)
             for name, val in metrics.items():
                 if not name.startswith(args.metric_prefix) or "stderr" in name:
