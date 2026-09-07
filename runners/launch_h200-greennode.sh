@@ -43,6 +43,7 @@ RUN_ENV=(
   HICACHE_RATIO
   RESULT_DIR RESULT_FILENAME RUN_EVAL EVAL_ONLY
   GITHUB_WORKSPACE RUNNER_NAME RUNNER_TYPE AIPERF_UV_CACHE_DIR
+  USE_PROD_ROUTER ROUTER_IMAGE
 )
 ENV_ARGS=()
 for name in "${RUN_ENV[@]}"; do
@@ -56,12 +57,27 @@ docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
   nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04
 trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 
+VOL_ARGS=(
+  -v "$GITHUB_WORKSPACE:/workspace"
+  -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE"
+  -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro"
+  -v "$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR"
+)
+# Prod-exact 2-container mode: recipe needs docker CLI + socket to launch the
+# Rust smg router image (sglang-router-patched) as a host-network sidecar.
+# Auto-detected from the recipe name (*proddp8*) so legacy recipes are
+# unaffected and no workflow-input plumbing is needed; also honored when
+# USE_PROD_ROUTER=true is set explicitly by the environment.
+if [ "${USE_PROD_ROUTER:-false}" = "true" ] || [[ "$BENCH_SCRIPT" == *proddp8* ]]; then
+  export USE_PROD_ROUTER=true
+  export ROUTER_IMAGE="${ROUTER_IMAGE:-vcr.vngcloud.vn/60108-backend-worker/portal-external/dev/sglang-router-patched:v0.5.16-slim}"
+  VOL_ARGS+=(-v /var/run/docker.sock:/var/run/docker.sock)
+  VOL_ARGS+=(-v "$(command -v docker)":/usr/bin/docker:ro)
+fi
+
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
   --label inferencex-bench=1 \
-  -v "$GITHUB_WORKSPACE:/workspace" \
-  -v "$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
-  -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" \
-  -v "$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR" \
+  "${VOL_ARGS[@]}" \
   -w /workspace \
   "${ENV_ARGS[@]}" \
   --entrypoint bash \
