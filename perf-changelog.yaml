@@ -6001,3 +6001,11 @@
   description:
     - "Smoke run DeepSWE with 1 task against GreenNode endpoint."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-swebench-pro
+  description:
+    - "Re-run SWE-bench Pro smoke after aligning the mini-swe-agent text-based action parser and validating non-empty patches."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
