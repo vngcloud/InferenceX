@@ -6043,3 +6043,12 @@
   description:
     - "Raise HLE's lm-eval HTTP total timeout to 1800 seconds for long streamed reasoning and re-run HLE smoke only."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-livecodebench
+    - quality-scicode
+  description:
+    - "Run the balanced coding recipe: 50 LiveCodeBench samples and 8 SciCode samples, both at ccu4."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
