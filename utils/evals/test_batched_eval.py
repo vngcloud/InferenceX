@@ -251,6 +251,84 @@ def test_validate_scores_checks_threshold_for_every_concurrency(
     assert "FAIL: [conc=4] gsm8k exact_match,strict-match" in captured.err
 
 
+def test_validate_scores_accepts_livecodebench_pass_at_1(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": "livecodebench",
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "results": {"livecodebench": {"pass@1": 0.62}},
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 0
+    assert "PASS: livecodebench pass@1 = 0.6200" in capsys.readouterr().out
+
+
+def test_validate_scores_checks_scicode_aggregate_against_benchmark_threshold(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": "scicode",
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "results": {
+            "scicode/scicode_scorer": {"mean": 0.0},
+            "scicode/problem_11": {"Problem Correctness": 0},
+        },
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 1
+    captured = capsys.readouterr()
+    assert "FAIL: scicode/scicode_scorer mean = 0.0000" in captured.err
+    assert "< 0.25 from models.glm5.2" in captured.err
+
+
+def test_validate_scores_reads_bfcl_native_result(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": "bfcl",
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "benchmark": "bfcl",
+        "scores": [{"Model": "glm-5.2", "Overall Acc": "70%"}],
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 0
+    assert "PASS: bfcl overall_accuracy = 0.7000" in capsys.readouterr().out
+
+
+def test_validate_scores_reads_deepswe_pier_result(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": "deepswe",
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "stats": {
+            "evals": {
+                "agent__model__tasks": {"metrics": [{"reward": 0.2}]},
+            },
+        },
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 0
+    assert "PASS: deepswe reward = 0.2000" in capsys.readouterr().out
+
+
 def test_amd_multinode_container_forwards_eval_concurrency_list() -> None:
     job_slurm = (
         Path(__file__).resolve().parents[2]

@@ -12,6 +12,15 @@ from pathlib import Path
 
 CONC_SUFFIX_RE = re.compile(r"_conc(\d+)(?:_\d+)?\.json$")
 
+# Quality harnesses do not share lm-eval's ``exact_match,*`` metric naming.
+# Keep the primary metric explicit so auxiliary/per-sample values are not
+# accidentally treated as release gates.
+QUALITY_PRIMARY_METRICS = {
+    "livecodebench": {"pass@1"},
+    "scicode": {"mean", "sub_problem_correctness", "Problem Correctness/mean"},
+    "swebench_pro": {"exact_match,resolved"},
+}
+
 
 def load_config(path: str) -> dict:
     """Load YAML or JSON thresholds, including legacy flat configs."""
@@ -56,6 +65,58 @@ def detect_model_prefix(meta_env_path: str, override: str | None) -> str | None:
     if env_prefix and env_prefix != "unknown":
         return env_prefix
     return None
+
+
+def detect_benchmark(meta_env_path: str) -> str | None:
+    """Return the quality benchmark recorded by the launcher, if present."""
+    try:
+        with open(meta_env_path) as f:
+            benchmark = json.load(f).get("benchmark")
+        return benchmark if isinstance(benchmark, str) and benchmark else None
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return None
+
+
+def _numeric_score(value) -> float | None:
+    """Parse numeric and percentage values emitted by external harnesses."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    try:
+        if text.endswith("%"):
+            return float(text[:-1]) / 100.0
+        return float(text)
+    except ValueError:
+        return None
+
+
+def native_quality_scores(data: dict, benchmark: str | None):
+    """Yield primary scores from harness-native result structures."""
+    if benchmark == "bfcl":
+        for row in data.get("scores", []):
+            if not isinstance(row, dict):
+                continue
+            value = _numeric_score(row.get("Overall Acc"))
+            if value is not None:
+                yield "bfcl", "overall_accuracy", value
+                return
+    elif benchmark == "deepswe":
+        evals = data.get("stats", {}).get("evals", {})
+        if not isinstance(evals, dict):
+            return
+        for eval_data in evals.values():
+            if not isinstance(eval_data, dict):
+                continue
+            for metrics in eval_data.get("metrics", []):
+                if not isinstance(metrics, dict):
+                    continue
+                value = _numeric_score(metrics.get("reward"))
+                if value is not None:
+                    yield "deepswe", "reward", value
 
 
 def resolve_threshold(config: dict, prefix: str | None, task: str, fallback: float):
@@ -289,6 +350,7 @@ def main() -> int:
 
     # Identify the model so per-model thresholds can apply
     prefix = detect_model_prefix(args.meta_env, args.model_prefix)
+    benchmark = detect_benchmark(args.meta_env)
     if prefix and prefix in config.get("models", {}):
         print(f"Model prefix: {prefix} (per-model thresholds apply)")
     elif prefix:
@@ -335,10 +397,22 @@ def main() -> int:
                 continue
             min_score, source = resolve_threshold(config, prefix, task, args.min_score)
             for name, val in metrics.items():
-                if not name.startswith(args.metric_prefix) or "stderr" in name:
+                primary_metrics = QUALITY_PRIMARY_METRICS.get(benchmark)
+                if primary_metrics is not None:
+                    if name not in primary_metrics:
+                        continue
+                    # SciCode also exports per-problem ``mean`` values. Only
+                    # its aggregate scorer is suitable for a release gate.
+                    if benchmark == "scicode" and task != "scicode/scicode_scorer":
+                        continue
+                elif not name.startswith(args.metric_prefix) or "stderr" in name:
                     continue
                 if not isinstance(val, (int, float)):
                     continue
+                if primary_metrics is not None:
+                    min_score, source = resolve_threshold(
+                        config, prefix, benchmark, args.min_score
+                    )
                 checked += 1
                 if args.smoke:
                     print(
@@ -355,6 +429,29 @@ def main() -> int:
                     print(
                         f"PASS: {conc_label}{task} {name} = {val:.4f} (>= {min_score} from {source})"
                     )
+
+        for task, name, val in native_quality_scores(data, benchmark):
+            min_score, source = resolve_threshold(
+                config, prefix, benchmark, args.min_score
+            )
+            checked += 1
+            if args.smoke:
+                print(
+                    f"PASS (smoke): {conc_label}{task} {name} = {val:.4f} "
+                    f"(threshold check skipped)"
+                )
+            elif val < min_score:
+                print(
+                    f"FAIL: {conc_label}{task} {name} = {val:.4f} "
+                    f"(< {min_score} from {source})",
+                    file=sys.stderr,
+                )
+                failed = True
+            else:
+                print(
+                    f"PASS: {conc_label}{task} {name} = {val:.4f} "
+                    f"(>= {min_score} from {source})"
+                )
 
     if checked == 0:
         if args.smoke:
