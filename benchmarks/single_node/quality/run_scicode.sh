@@ -18,6 +18,7 @@ export OPENAI_API_KEY="$QUALITY_API_KEY"
 export OPENAI_BASE_URL="$QUALITY_ENDPOINT"
 
 SCICODE_DIR="${QUALITY_SCICODE_DIR:-$WORKSPACE_DIR/SciCode}"
+SCICODE_DATA_FILE="${QUALITY_SCICODE_DATA_FILE:-$SCICODE_DIR/eval/data/test_data.h5}"
 INSPECT="${QUALITY_SCICODE_VENV:-$WORKSPACE_DIR/.venv-scicode}/bin/inspect"
 
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
@@ -35,6 +36,33 @@ OUT_DIR="$WORKSPACE_DIR/jobs/$RUN_ID/scicode"
 LOG_DIR="$OUT_DIR/logs"
 
 mkdir -p "$OUT_DIR" "$LOG_DIR"
+
+# Do not spend tokens when the external numeric reference data was not
+# provisioned. The launcher validates this more thoroughly during setup; this
+# guard also protects direct invocations of this script.
+if [[ ! -s "$SCICODE_DATA_FILE" ]]; then
+  echo "ERROR: SciCode numeric test data is missing or empty: $SCICODE_DATA_FILE" >&2
+  echo "Run through runners/launch_quality-eval.sh to download and cache it." >&2
+  exit 1
+fi
+if ! "${QUALITY_SCICODE_VENV:-$WORKSPACE_DIR/.venv-scicode}/bin/python" \
+    - "$SCICODE_DATA_FILE" <<'PY'
+import sys
+
+import h5py
+
+try:
+    with h5py.File(sys.argv[1], "r") as data:
+        if len(data) == 0:
+            raise ValueError("empty HDF5 file")
+except (OSError, ValueError) as exc:
+    print(f"ERROR: Invalid SciCode numeric test data: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+then
+  echo "Run through runners/launch_quality-eval.sh to repair the cached download." >&2
+  exit 1
+fi
 
 LIMIT_ARG=()
 if [[ -n "$LIMIT" ]]; then
@@ -54,6 +82,7 @@ echo "  Model         : $RAW_MODEL"
 echo "  Split         : $SPLIT"
 echo "  Output dir    : $OUT_DIR"
 echo "  Log dir       : $LOG_DIR"
+echo "  Test data     : $SCICODE_DATA_FILE"
 echo "  Max tokens    : $MAX_TOKENS"
 echo "  Retry on error: $RETRY_ON_ERROR"
 if [[ -n "$LIMIT" ]]; then
@@ -78,5 +107,5 @@ echo
   -T split="$SPLIT" \
   -T output_dir="$OUT_DIR" \
   -T with_background="$WITH_BACKGROUND" \
-  -T h5py_file="../data/test_data.h5" \
+  -T h5py_file="$SCICODE_DATA_FILE" \
   -T mode=normal

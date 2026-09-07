@@ -582,9 +582,75 @@ setup_scicode() {
             "datasets==5.0.1" "pyarrow==25.0.1" "openai>=3.1" "anthropic" "config" \
             "litellm" "inspect-ai" "rich" "pytest" "pytest-cov" \
             "matplotlib" "scipy" "sympy" "h5py" "jsonlines" \
-            "google-generativeai"
+            "google-generativeai" "gdown>=5.2,<6"
         uv pip install --python "$VENV/bin/python" --no-deps -e "$SCICODE_DIR"
     fi
+
+    # SciCode keeps its numeric reference outputs outside the git repository.
+    # Cache them beside the persistent checkout so later CI runs can reuse the
+    # 1 GiB file instead of downloading it again. Validate before reuse and
+    # before atomically installing a new download; otherwise a missing or
+    # interrupted download is silently converted by SciCode into zero scores.
+    if ! "$VENV/bin/python" -c "import gdown" 2>/dev/null; then
+        echo "=== Installing SciCode data downloader ==="
+        uv pip install --python "$VENV/bin/python" "gdown>=5.2,<6"
+    fi
+    local SCICODE_DATA_DIR="$SCICODE_DIR/eval/data"
+    local SCICODE_DATA_FILE="$SCICODE_DATA_DIR/test_data.h5"
+    local SCICODE_DATA_URL="${SCICODE_DATA_URL:-https://drive.google.com/uc?id=17G_k65N_6yFFZ2O-jQH00Lh6iaw3z-AW}"
+    local SCICODE_DATA_SHA256="${SCICODE_DATA_SHA256:-48b0272a88b17dbd29777c217e1b4fb2b019b92e11cc2add847409db9541b890}"
+    mkdir -p "$SCICODE_DATA_DIR"
+
+    validate_scicode_data() {
+        "$VENV/bin/python" - "$1" "$SCICODE_DATA_SHA256" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+import h5py
+
+path = pathlib.Path(sys.argv[1])
+expected_sha256 = sys.argv[2]
+if not path.is_file() or path.stat().st_size == 0:
+    raise SystemExit(1)
+try:
+    with h5py.File(path, "r") as data:
+        if len(data) == 0:
+            raise ValueError("HDF5 file contains no reference-data groups")
+except (OSError, ValueError):
+    raise SystemExit(1)
+digest = hashlib.sha256()
+with path.open("rb") as stream:
+    for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+        digest.update(chunk)
+if digest.hexdigest() != expected_sha256:
+    raise SystemExit(1)
+PY
+    }
+
+    if validate_scicode_data "$SCICODE_DATA_FILE"; then
+        echo "=== Reusing cached SciCode numeric test data ==="
+        echo "  Data file: $SCICODE_DATA_FILE"
+    else
+        echo "=== Downloading SciCode numeric test data (first time) ==="
+        local SCICODE_DATA_TMP
+        SCICODE_DATA_TMP="$(mktemp "$SCICODE_DATA_DIR/.test_data.h5.part.XXXXXX")"
+        if ! "$VENV/bin/python" -m gdown --no-cookies \
+            "$SCICODE_DATA_URL" -O "$SCICODE_DATA_TMP"; then
+            rm -f "$SCICODE_DATA_TMP"
+            echo "ERROR: Failed to download SciCode numeric test data" >&2
+            exit 1
+        fi
+        if ! validate_scicode_data "$SCICODE_DATA_TMP"; then
+            rm -f "$SCICODE_DATA_TMP"
+            echo "ERROR: Downloaded SciCode numeric test data is not a valid, non-empty HDF5 file" >&2
+            exit 1
+        fi
+        mv -f "$SCICODE_DATA_TMP" "$SCICODE_DATA_FILE"
+        echo "  Cached data file: $SCICODE_DATA_FILE"
+    fi
+    export QUALITY_SCICODE_DATA_FILE="$SCICODE_DATA_FILE"
+
     # Patch inspect_ai OpenAI provider for streaming (avoid proxy timeouts)
     local OAI_PROVIDER="$VENV/lib/python3.12/site-packages/inspect_ai/model/_providers/openai.py"
     if [[ -f "$OAI_PROVIDER" ]] && ! grep -q 'stream.*True' "$OAI_PROVIDER" 2>/dev/null; then
