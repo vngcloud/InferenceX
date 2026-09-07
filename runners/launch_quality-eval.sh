@@ -82,6 +82,13 @@ setup_lmeval() {
         uv pip install --python "$VENV/bin/python" \
             "lm-eval[api]>=0.4.5" "openai>=1.59.0" "Pillow>=10.0.0"
     fi
+    # Install the repository-owned runtime hooks into the persistent venv on
+    # every run. This repairs already-cached environments and keeps reasoning
+    # delta assembly independent of the installed lm-eval source layout.
+    local SITE_PACKAGES
+    SITE_PACKAGES="$("$VENV/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
+    cp "$QUALITY_WORKSPACE/utils/evals/patches/lm_eval_sitecustomize.py" \
+        "$SITE_PACKAGES/sitecustomize.py"
     # Patch openai_completions.py + api_models.py for streaming
     local OAI_COMP="$VENV/lib/python3.12/site-packages/lm_eval/models/openai_completions.py"
     if [[ -f "$OAI_COMP" ]] && ! grep -q '"stream": True' "$OAI_COMP" 2>/dev/null; then

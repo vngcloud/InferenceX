@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 import json
 import runpy
 import subprocess
@@ -138,6 +139,10 @@ def test_lm_eval_sitecustomize_hooks(monkeypatch):
     class LocalChatCompletion:
         pass
 
+    class OpenAIChatCompletion:
+        def _create_payload(self, *args, **kwargs):
+            return {"model": "test"}
+
     class JsonChatStr(str):
         pass
 
@@ -146,6 +151,7 @@ def test_lm_eval_sitecustomize_hooks(monkeypatch):
         tokenized_requests = False
 
     completions.LocalChatCompletion = LocalChatCompletion
+    completions.OpenAIChatCompletion = OpenAIChatCompletion
     api_models.JsonChatStr = JsonChatStr
     api_models.TemplateAPI = TemplateAPI
     models.api_models = api_models
@@ -169,6 +175,47 @@ def test_lm_eval_sitecustomize_hooks(monkeypatch):
         ]
     )
     assert parsed == ["reason"]
+    assert OpenAIChatCompletion()._create_payload()["stream"] is True
     rendered = TemplateAPI().apply_chat_template([{"role": "user", "content": "hi"}])
     assert isinstance(rendered, JsonChatStr)
     assert json.loads(rendered) == [{"role": "user", "content": "hi"}]
+
+    class SyncResponse:
+        def iter_lines(self, decode_unicode=False):
+            assert decode_unicode
+            yield 'data: {"model":"glm","choices":[{"delta":{"reasoning_content":"think "}}]}'
+            yield 'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}'
+            yield "data: [DONE]"
+
+    streamed = api_models._parse_sse_stream(SyncResponse())
+    message = streamed["choices"][0]["message"]
+    assert message == {
+        "role": "assistant",
+        "content": "answer",
+        "reasoning_content": "think ",
+    }
+
+    class AsyncContent:
+        def __aiter__(self):
+            chunks = iter(
+                [
+                    b'data: {"choices":[{"delta":{"reasoning_content":"rea',
+                    b'son"}}]}\n\ndata: {"choices":[{"delta":{"content":"final"},',
+                    b'"finish_reason":"length"}]}\n\ndata: [DONE]\n\n',
+                ]
+            )
+
+            async def next_chunk():
+                try:
+                    return next(chunks)
+                except StopIteration as exc:
+                    raise StopAsyncIteration from exc
+
+            return type("Iterator", (), {"__aiter__": lambda self: self, "__anext__": lambda self: next_chunk()})()
+
+    async_streamed = asyncio.run(
+        api_models._parse_sse_stream_async(type("Response", (), {"content": AsyncContent()})())
+    )
+    assert async_streamed["choices"][0]["message"]["reasoning_content"] == "reason"
+    assert async_streamed["choices"][0]["message"]["content"] == "final"
+    assert async_streamed["choices"][0]["finish_reason"] == "length"
