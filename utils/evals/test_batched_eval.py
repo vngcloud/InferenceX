@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from validate_scores import main as validate_scores_main
 from validate_scores import validate_batch_manifest, validate_smoke_artifacts
 
@@ -251,6 +253,46 @@ def test_validate_scores_checks_threshold_for_every_concurrency(
     assert "FAIL: [conc=4] gsm8k exact_match,strict-match" in captured.err
 
 
+@pytest.mark.parametrize(
+    ("benchmark", "task", "metric", "score"),
+    [
+        ("gpqa", "gpqa_diamond_cot_n_shot", "exact_match,strict-match", 0.40),
+        ("mmlu_pro", "mmlu_pro", "exact_match,custom-extract", 0.60),
+        ("hle", "hle", "exact_match,custom-extract", 0.20),
+    ],
+)
+def test_validate_scores_accepts_lm_eval_quality_benchmarks(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    benchmark: str,
+    task: str,
+    metric: str,
+    score: float,
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": benchmark,
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "results": {
+            task: {
+                metric: score,
+                # Auxiliary filters are useful in reports but are not release
+                # gates. A low auxiliary score must not create a false failure.
+                "exact_match,auxiliary-filter": 0.0,
+            },
+            # Group benchmarks also publish per-category/per-format rows.
+            f"{task}_subtask": {metric: 0.0},
+        },
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 0
+    assert f"PASS: {task} {metric}" in capsys.readouterr().out
+
+
 def test_validate_scores_accepts_livecodebench_pass_at_1(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -288,6 +330,29 @@ def test_validate_scores_checks_scicode_aggregate_against_benchmark_threshold(
     captured = capsys.readouterr()
     assert "FAIL: scicode/scicode_scorer mean = 0.0000" in captured.err
     assert "< 0.25 from models.glm5.2" in captured.err
+
+
+def test_validate_scores_reads_swebench_pro_native_result(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": "swebench_pro",
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "instance-1": True,
+        "instance-2": False,
+        "instance-3": True,
+        "instance-4": False,
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 0
+    assert (
+        "PASS: swebench_pro exact_match,resolved = 0.5000"
+        in capsys.readouterr().out
+    )
 
 
 def test_validate_scores_reads_bfcl_native_result(

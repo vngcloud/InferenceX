@@ -16,9 +16,27 @@ CONC_SUFFIX_RE = re.compile(r"_conc(\d+)(?:_\d+)?\.json$")
 # Keep the primary metric explicit so auxiliary/per-sample values are not
 # accidentally treated as release gates.
 QUALITY_PRIMARY_METRICS = {
+    "gpqa": {"exact_match,strict-match"},
+    "mmlu_pro": {"exact_match,custom-extract"},
+    "hle": {"exact_match,custom-extract"},
     "livecodebench": {"pass@1"},
     "scicode": {"mean", "sub_problem_correctness", "Problem Correctness/mean"},
     "swebench_pro": {"exact_match,resolved"},
+}
+
+QUALITY_PRIMARY_TASKS = {
+    "gpqa": "gpqa_diamond_cot_n_shot",
+    "mmlu_pro": "mmlu_pro",
+    "hle": "hle",
+    "livecodebench": "livecodebench",
+    "scicode": "scicode/scicode_scorer",
+    "swebench_pro": "swebench_pro",
+}
+
+QUALITY_THRESHOLD_KEYS = {
+    # The workflow uses the short launcher name while thresholds retain the
+    # canonical lm-eval task name.
+    "gpqa": "gpqa_diamond_cot_n_shot",
 }
 
 
@@ -117,6 +135,17 @@ def native_quality_scores(data: dict, benchmark: str | None):
                 value = _numeric_score(metrics.get("reward"))
                 if value is not None:
                     yield "deepswe", "reward", value
+    elif benchmark == "swebench_pro":
+        # The upstream SWE-bench Pro evaluator writes eval_results.json as a
+        # bare {instance_id: resolved_bool} mapping. Accept that native format
+        # as well as the normalized lm-eval-shaped wrapper produced by our
+        # runner, so old/resumed artifacts validate correctly too.
+        if data and all(isinstance(value, bool) for value in data.values()):
+            yield (
+                "swebench_pro",
+                "exact_match,resolved",
+                sum(data.values()) / len(data),
+            )
 
 
 def resolve_threshold(config: dict, prefix: str | None, task: str, fallback: float):
@@ -399,11 +428,9 @@ def main() -> int:
             for name, val in metrics.items():
                 primary_metrics = QUALITY_PRIMARY_METRICS.get(benchmark)
                 if primary_metrics is not None:
-                    if name not in primary_metrics:
+                    if task != QUALITY_PRIMARY_TASKS[benchmark]:
                         continue
-                    # SciCode also exports per-problem ``mean`` values. Only
-                    # its aggregate scorer is suitable for a release gate.
-                    if benchmark == "scicode" and task != "scicode/scicode_scorer":
+                    if name not in primary_metrics:
                         continue
                 elif not name.startswith(args.metric_prefix) or "stderr" in name:
                     continue
@@ -411,7 +438,10 @@ def main() -> int:
                     continue
                 if primary_metrics is not None:
                     min_score, source = resolve_threshold(
-                        config, prefix, benchmark, args.min_score
+                        config,
+                        prefix,
+                        QUALITY_THRESHOLD_KEYS.get(benchmark, benchmark),
+                        args.min_score,
                     )
                 checked += 1
                 if args.smoke:
@@ -432,7 +462,10 @@ def main() -> int:
 
         for task, name, val in native_quality_scores(data, benchmark):
             min_score, source = resolve_threshold(
-                config, prefix, benchmark, args.min_score
+                config,
+                prefix,
+                QUALITY_THRESHOLD_KEYS.get(benchmark, benchmark),
+                args.min_score,
             )
             checked += 1
             if args.smoke:

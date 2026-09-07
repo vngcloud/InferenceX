@@ -148,10 +148,41 @@ echo "  Predictions : $PRED_DIR/preds.json"
 echo "  Patches     : $PATCHES_JSON"
 echo "  Eval results: $EVAL_DIR/eval_results.json"
 echo
-"$PYTHON" - <<PY
+"$PYTHON" - "$EVAL_DIR/eval_results.json" "$OUT_DIR/results.json" "${LIMIT:-0}" <<'PY'
 import json
-r = json.load(open("$EVAL_DIR/eval_results.json"))
+import pathlib
+import sys
+
+eval_path = pathlib.Path(sys.argv[1])
+result_path = pathlib.Path(sys.argv[2])
+expected = int(sys.argv[3])
+
+if not eval_path.is_file():
+    raise SystemExit(f"SWE-bench Pro evaluation failed: missing {eval_path}")
+r = json.loads(eval_path.read_text())
+if not isinstance(r, dict) or not r:
+    raise SystemExit("SWE-bench Pro evaluation failed: no evaluated instances")
+if not all(isinstance(value, bool) for value in r.values()):
+    raise SystemExit("SWE-bench Pro evaluation failed: invalid result values")
+if expected and len(r) != expected:
+    raise SystemExit(
+        f"SWE-bench Pro evaluation failed: expected {expected} results, got {len(r)}"
+    )
 n = len(r)
 p = sum(1 for v in r.values() if v)
-print(f"Pass@1: {p}/{n} ({100*p/n:.1f}%)" if n else "No results")
+score = p / n
+result_path.write_text(json.dumps({
+    "results": {
+        "swebench_pro": {
+            "exact_match,resolved": score,
+        },
+    },
+    "n-samples": {
+        "swebench_pro": {
+            "effective": n,
+        },
+    },
+}, indent=2))
+print(f"Pass@1: {p}/{n} ({100 * score:.1f}%)")
+print(f"Wrote normalized result: {result_path}")
 PY
