@@ -148,7 +148,13 @@ if [ "$USE_PROD_ROUTER" = "true" ]; then
     --health-check-interval-secs=15 --health-check-timeout-secs=10 --health-failure-threshold=5 \
     --request-timeout-secs=900 --retry-max-retries=2)
   trap 'docker rm -f "$ROUTER_CID" 2>/dev/null || true' EXIT
-  wait_for_server_ready --port "$PORT" --server-log "$ROUTER_LOG" --server-pid "$ROUTER_CID"
+  # Router runs detached, so it never writes $ROUTER_LOG itself and $ROUTER_CID
+  # is a container id, not a pid (kill -0 on a 64-hex id always reads as dead).
+  # Stream the container logs into $ROUTER_LOG and hand wait_for_server_ready the
+  # numeric pid of the `docker logs -f` follower, which exits iff the container dies.
+  docker logs -f "$ROUTER_CID" > "$ROUTER_LOG" 2>&1 &
+  ROUTER_LOG_PID=$!
+  wait_for_server_ready --port "$PORT" --server-log "$ROUTER_LOG" --server-pid "$ROUTER_LOG_PID"
 fi
 
 build_replay_cmd "$RESULT_DIR"
