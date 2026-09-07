@@ -6017,3 +6017,11 @@
   description:
     - "Re-run HLE smoke after enabling streaming on lm-eval's OpenAI chat adapter and preserving GLM reasoning deltas."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-hle
+  description:
+    - "Dispatch HLE smoke only; disable the already-passed SWE-bench Pro smoke scenario."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
