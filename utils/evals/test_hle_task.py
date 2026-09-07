@@ -7,6 +7,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TASK_DIR = REPO_ROOT / "benchmarks/single_node/quality/tasks/hle"
+RUN_SCRIPT = REPO_ROOT / "benchmarks/single_node/quality/run_hle.sh"
 
 
 def _load_hle_utils():
@@ -53,3 +54,10 @@ def test_hle_prompts_require_unambiguous_final_lines():
     assert 'exactly one final line in the form "#### <answer>"' in exact_prompt
     assert 'exactly one final line in the form "The answer is (X)"' in choice_prompt
     assert "A through J" in choice_prompt
+
+
+def test_hle_uses_long_request_timeout_for_streamed_reasoning():
+    script = RUN_SCRIPT.read_text()
+
+    assert 'REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-1800}"' in script
+    assert "timeout=${REQUEST_TIMEOUT}" in script

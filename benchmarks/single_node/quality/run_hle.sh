@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Required env: QUALITY_ENDPOINT, QUALITY_API_KEY, QUALITY_MODEL_NAME
 # Optional env: RUN_ID, LIMIT, NUM_CONCURRENT, MAX_LENGTH, MAX_GEN_TOKS,
-#               TASK, NUM_FEWSHOT, BATCH_SIZE
+#               TASK, NUM_FEWSHOT, BATCH_SIZE, REQUEST_TIMEOUT
 
 WORKSPACE_DIR="${QUALITY_WORKSPACE:-$(pwd)}"
 export PATH="$HOME/.local/bin:$PATH"
@@ -28,6 +28,9 @@ TASK="${TASK:-hle}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-0}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
 NUM_CONCURRENT="${NUM_CONCURRENT:-4}"
+# lm-eval's default is a 300-second *total* aiohttp timeout. Streaming does not
+# reset it when chunks arrive, and long HLE reasoning can legitimately exceed it.
+REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-1800}"
 
 LIMIT="${LIMIT:-}"
 
@@ -48,6 +51,7 @@ echo "  Model         : $RAW_MODEL"
 echo "  Task          : $TASK"
 echo "  Output dir    : $OUT_DIR"
 echo "  Cache (resume): $CACHE_DB"
+echo "  HTTP timeout  : ${REQUEST_TIMEOUT}s"
 if [[ -n "$LIMIT" ]]; then
   echo "  Subset        : first ${LIMIT} per subtask"
 fi
@@ -55,7 +59,7 @@ echo
 
 "$LM_EVAL" run \
   --model openai-chat-completions \
-  --model_args "model=${RAW_MODEL},base_url=${ENDPOINT},tokenizer_backend=None,tokenized_requests=False,num_concurrent=${NUM_CONCURRENT},max_length=${MAX_LENGTH}" \
+  --model_args "model=${RAW_MODEL},base_url=${ENDPOINT},tokenizer_backend=None,tokenized_requests=False,num_concurrent=${NUM_CONCURRENT},max_length=${MAX_LENGTH},timeout=${REQUEST_TIMEOUT}" \
   --tasks "$TASK" \
   --num_fewshot "$NUM_FEWSHOT" \
   --apply_chat_template \

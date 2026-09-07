@@ -6035,3 +6035,11 @@
   description:
     - "Fix HLE A-J final-answer extraction, raise HLE and MMLU-Pro generation budgets for reasoning models, and dispatch a focused two-sample lm-eval smoke."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-hle
+  description:
+    - "Raise HLE's lm-eval HTTP total timeout to 1800 seconds for long streamed reasoning and re-run HLE smoke only."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
