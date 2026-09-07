@@ -8530,26 +8530,26 @@ glm5.2-quality-eval:
   framework: quality
   multinode: false
   scenarios:
-    # quality-gpqa:  # smoke passed (CI run 33785845762)
-    # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
-    #   quality-model-name: "openai/z-ai/glm-5.2"
-    #   search-space:
-    #   - { benchmark-name: gpqa, smoke: true }
-    # quality-mmlu-pro:  # smoke passed (CI run 33785845762)
-    # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
-    #   quality-model-name: "openai/z-ai/glm-5.2"
-    #   search-space:
-    #   - { benchmark-name: mmlu_pro, smoke: true, num-concurrent: 4, eval-limit: 20 }
+    quality-gpqa:
+    - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: gpqa, smoke: true, num-concurrent: 4, eval-limit: 2 }
+    quality-mmlu-pro:
+    - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: mmlu_pro, smoke: true, num-concurrent: 4, eval-limit: 2 }
     quality-hle:
     - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
       quality-model-name: "openai/z-ai/glm-5.2"
       search-space:
-      - { benchmark-name: hle, smoke: true, num-concurrent: 4, eval-limit: 8 }
-    quality-livecodebench:
-    - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
-      quality-model-name: "openai/z-ai/glm-5.2"
-      search-space:
-      - { benchmark-name: livecodebench, smoke: true, num-concurrent: 4, eval-limit: 4 }
+      - { benchmark-name: hle, smoke: true, num-concurrent: 4, eval-limit: 2 }
+    # quality-livecodebench:  # excluded from the focused lm-eval smoke
+    # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
+    #   quality-model-name: "openai/z-ai/glm-5.2"
+    #   search-space:
+    #   - { benchmark-name: livecodebench, smoke: true, num-concurrent: 4, eval-limit: 4 }
     # quality-bfcl:  # smoke passed (CI run 33850821470)
     # - quality-endpoint: "https://tokenplan.api.greennode.ai/v1"
     #   quality-model-name: "openai/z-ai/glm-5.2"

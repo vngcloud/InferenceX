@@ -6025,3 +6025,13 @@
   description:
     - "Dispatch HLE smoke only; disable the already-passed SWE-bench Pro smoke scenario."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-gpqa
+    - quality-mmlu-pro
+    - quality-hle
+  description:
+    - "Fix HLE A-J final-answer extraction, raise HLE and MMLU-Pro generation budgets for reasoning models, and dispatch a focused two-sample lm-eval smoke."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36

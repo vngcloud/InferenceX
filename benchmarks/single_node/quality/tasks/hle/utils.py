@@ -32,11 +32,13 @@ def doc_to_text(doc):
     if doc["answer_type"] == "exactMatch":
         return (
             f"{question}\n\n"
-            f"Please solve this problem and put your final answer after \"#### \"."
+            f"Please solve this problem, then conclude with exactly one final line "
+            f"in the form \"#### <answer>\"."
         )
     else:
         return (
             f"{question}\n\n"
             f"The answer is the letter of the correct choice. "
-            f"Let's think step by step, then state \"The answer is (X)\"."
+            f"Conclude with exactly one final line in the form \"The answer is (X)\", "
+            f"where X is a letter from A through J."
         )

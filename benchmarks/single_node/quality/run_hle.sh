@@ -21,9 +21,9 @@ export HF_TOKEN="${HF_TOKEN:-}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 
 MAX_LENGTH="${MAX_LENGTH:-32768}"
-# GLM reasoning tokens count against this budget. 4k can be exhausted before
-# the model emits its final answer, leaving lm-eval with an empty completion.
-MAX_GEN_TOKS="${MAX_GEN_TOKS:-8192}"
+# GLM reasoning tokens count against this budget. The 8k smoke still exhausted
+# the budget on exact-match questions before the model emitted its final line.
+MAX_GEN_TOKS="${MAX_GEN_TOKS:-16384}"
 TASK="${TASK:-hle}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-0}"
 BATCH_SIZE="${BATCH_SIZE:-1}"

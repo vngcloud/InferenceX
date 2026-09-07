@@ -9,13 +9,13 @@ filter_list:
   - name: "custom-extract"
     filter:
       - function: "regex"
-        regex_pattern: 'answer is \(?([A-E])\)?'
+        regex_pattern: '(?i)answer is\s*\(?([A-J])\)?'
         group_select: -1
       - function: "take_first"
   - name: "flexible-extract"
     filter:
       - function: "regex"
-        regex_pattern: "\\b([A-E])\\b"
+        regex_pattern: "\\(([A-J])\\)"
         group_select: -1
       - function: "take_first"
 metric_list:
