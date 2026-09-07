@@ -824,7 +824,22 @@ def _accumulate_litellm_stream(stream):
             SimpleNamespace(id=tc["id"], type=tc["type"], function=SimpleNamespace(name=tc["function"]["name"], arguments=tc["function"]["arguments"]))
             for tc in tool_calls_map.values()
         ]
-    msg.model_dump = lambda mode=None: {"content": msg.content, "tool_calls": None}
+    def _message_dump(mode=None):
+        serialized_tool_calls = None
+        if msg.tool_calls:
+            serialized_tool_calls = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        return {"role": "assistant", "content": msg.content, "tool_calls": serialized_tool_calls}
+    msg.model_dump = _message_dump
     choice = SimpleNamespace(index=0, message=msg, finish_reason=finish_reason or "stop")
     resp = SimpleNamespace(choices=[choice], usage=usage, model=model or "")
     resp.model_dump = lambda mode=None: {"choices": [{"message": msg.model_dump(), "finish_reason": choice.finish_reason}], "usage": None, "model": resp.model}
@@ -840,6 +855,29 @@ new3 = '                response = self._query(self._prepare_messages_for_api(me
 if old3 in src and "_accumulate_litellm_stream(response)" not in src:
     src = src.replace(old3, new3, 1)
 p.write_text(src)
+PY
+    fi
+    # Repair cached environments created by the original accumulator, which
+    # discarded tool calls when serializing the reconstructed response.
+    if [[ -f "$LITELLM_MODEL" ]] && grep -q 'lambda mode=None: {"content": msg.content, "tool_calls": None}' "$LITELLM_MODEL" 2>/dev/null; then
+        echo "=== Repairing mini-swe-agent streaming tool-call serialization ==="
+        python3 - "$LITELLM_MODEL" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = '    msg.model_dump = lambda mode=None: {"content": msg.content, "tool_calls": None}'
+new = '''    def _message_dump(mode=None):
+        serialized_tool_calls = None
+        if msg.tool_calls:
+            serialized_tool_calls = [
+                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ]
+        return {"role": "assistant", "content": msg.content, "tool_calls": serialized_tool_calls}
+    msg.model_dump = _message_dump'''
+if old not in src:
+    raise SystemExit(f"expected broken tool-call serializer not found in {p}")
+p.write_text(src.replace(old, new, 1))
 PY
     fi
     # Also patch litellm_textbased_model.py

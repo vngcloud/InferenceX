@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from validate_scores import main as validate_scores_main
-from validate_scores import validate_batch_manifest
+from validate_scores import validate_batch_manifest, validate_smoke_artifacts
 
 
 def _run_batched_eval(
@@ -165,6 +165,30 @@ def test_validate_scores_fails_when_expected_batch_metadata_is_unreadable(
     assert validate_scores_main() == 1
     captured = capsys.readouterr()
     assert "unavailable or invalid" in captured.err
+
+
+def test_hle_smoke_rejects_empty_completions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "meta_env.json").write_text(
+        json.dumps({"benchmark": "hle", "infmax_model_prefix": "glm5.2"})
+    )
+    (tmp_path / "samples_hle.jsonl").write_text(
+        json.dumps({"resps": [[""]]}) + "\n" + json.dumps({"resps": [["answer"]]}) + "\n"
+    )
+
+    assert validate_smoke_artifacts("meta_env.json") == [
+        "HLE produced 1/2 empty completions"
+    ]
+
+
+def test_hle_smoke_accepts_nonempty_nested_completions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "meta_env.json").write_text(json.dumps({"benchmark": "hle"}))
+    (tmp_path / "samples_hle.jsonl").write_text(
+        json.dumps({"resps": [["  final answer  "]]}) + "\n"
+    )
+
+    assert validate_smoke_artifacts("meta_env.json") == []
 
 
 def test_workflow_concurrencies_are_independent_of_eval_metadata(

@@ -201,6 +201,10 @@ environment:
 
 model:
   model_name: "openai/z-ai/glm-5.2"
+  # This agent prompt requests fenced bash commands, so use mini-swe-agent's
+  # text action parser rather than its native tool-call model.
+  model_class: "litellm_textbased"
+  action_regex: '```bash\s*\n(.*?)\n```'
   model_kwargs:
     drop_params: true
     temperature: 0.0

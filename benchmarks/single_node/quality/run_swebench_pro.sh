@@ -90,6 +90,33 @@ echo "--- Phase 1: agent patch generation ---"
   "${SLICE_ARG[@]}" \
   "${REDO_ARG[@]}"
 
+echo "--- Validating agent patches ---"
+"$PYTHON" - "$PRED_DIR/preds.json" "${LIMIT:-0}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit(f"SWE-bench Pro generation failed: missing {path}")
+predictions = json.loads(path.read_text())
+expected = int(sys.argv[2])
+if expected and len(predictions) != expected:
+    raise SystemExit(
+        f"SWE-bench Pro generation failed: expected {expected} predictions, got {len(predictions)}"
+    )
+empty = [
+    key for key, value in predictions.items()
+    if not isinstance(value, dict) or not str(value.get("model_patch") or "").strip()
+]
+if empty:
+    raise SystemExit(
+        f"SWE-bench Pro generation failed: {len(empty)}/{len(predictions)} predictions "
+        f"have empty patches ({', '.join(empty[:10])})"
+    )
+print(f"SWE-bench Pro agent sanity check passed: {len(predictions)} non-empty patches")
+PY
+
 echo "--- Gathering patches ---"
 "$PYTHON" - "$PRED_DIR/preds.json" "$PATCHES_JSON" <<'PY'
 import json, sys

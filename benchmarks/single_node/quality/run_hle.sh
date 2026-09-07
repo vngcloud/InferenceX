@@ -21,7 +21,9 @@ export HF_TOKEN="${HF_TOKEN:-}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 
 MAX_LENGTH="${MAX_LENGTH:-32768}"
-MAX_GEN_TOKS="${MAX_GEN_TOKS:-4096}"
+# GLM reasoning tokens count against this budget. 4k can be exhausted before
+# the model emits its final answer, leaving lm-eval with an empty completion.
+MAX_GEN_TOKS="${MAX_GEN_TOKS:-8192}"
 TASK="${TASK:-hle}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-0}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
@@ -64,3 +66,47 @@ echo
   --use_cache "$CACHE_DB" \
   --output_path "$OUT_DIR" \
   "${SUBSET_ARGS[@]}"
+
+# lm-eval accepts an empty API completion and scores it as incorrect. That is
+# not a valid smoke test: it usually means the reasoning budget was exhausted
+# or the endpoint response shape was incompatible. Fail loudly and preserve
+# the sample logs so the reason is visible in the artifact.
+"${QUALITY_VENV:-$WORKSPACE_DIR/.venv-lmeval}/bin/python" - "$OUT_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sample_files = sorted(Path(sys.argv[1]).rglob("sample*.jsonl"))
+if not sample_files:
+    raise SystemExit("HLE validation failed: lm-eval produced no sample log")
+
+empty = []
+total = 0
+for path in sample_files:
+    for line_number, line in enumerate(path.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        total += 1
+        sample = json.loads(line)
+        responses = sample.get("resps", [])
+        strings = []
+        stack = [responses]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, str):
+                strings.append(value)
+            elif isinstance(value, (list, tuple)):
+                stack.extend(value)
+        if not any(value.strip() for value in strings):
+            empty.append(f"{path.name}:{line_number}")
+
+if total == 0:
+    raise SystemExit("HLE validation failed: sample logs contain no records")
+if empty:
+    preview = ", ".join(empty[:10])
+    raise SystemExit(
+        f"HLE validation failed: {len(empty)}/{total} completions are empty "
+        f"({preview}). The model may have exhausted max_gen_toks before emitting content."
+    )
+print(f"HLE response sanity check passed: {total}/{total} completions are non-empty")
+PY

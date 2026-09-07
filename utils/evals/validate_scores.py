@@ -171,6 +171,49 @@ def validate_batch_manifest(
     return errors
 
 
+def _nested_nonempty_strings(value) -> list[str]:
+    """Return non-empty strings from nested lm-eval response containers."""
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [item for child in value for item in _nested_nonempty_strings(child)]
+    return []
+
+
+def validate_smoke_artifacts(meta_env_path: str) -> list[str]:
+    """Reject operationally invalid outputs that a score-only smoke test hides."""
+    try:
+        with open(meta_env_path) as f:
+            benchmark = json.load(f).get("benchmark")
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return []
+
+    errors = []
+    if benchmark == "hle":
+        sample_files = sorted(glob.glob("sample*.jsonl"))
+        if not sample_files:
+            return ["HLE smoke test produced no sample logs"]
+        total = 0
+        empty = 0
+        for path in sample_files:
+            try:
+                with open(path) as fh:
+                    for line in fh:
+                        if not line.strip():
+                            continue
+                        total += 1
+                        sample = json.loads(line)
+                        if not _nested_nonempty_strings(sample.get("resps", [])):
+                            empty += 1
+            except (json.JSONDecodeError, OSError) as exc:
+                errors.append(f"could not inspect HLE sample log {path}: {exc}")
+        if total == 0:
+            errors.append("HLE sample logs contain no records")
+        elif empty:
+            errors.append(f"HLE produced {empty}/{total} empty completions")
+    return errors
+
+
 def main() -> int:
     # Keep merged CI logs ordered.
     for _stream in (sys.stdout, sys.stderr):
@@ -257,6 +300,11 @@ def main() -> int:
     checked = 0
     result_files = sorted(glob.glob(args.results_glob))
 
+    if args.smoke:
+        for error in validate_smoke_artifacts(args.meta_env):
+            print(f"FAIL: {error}", file=sys.stderr)
+            failed = True
+
     manifest_errors = validate_batch_manifest(
         args.meta_env,
         result_files,
@@ -310,8 +358,11 @@ def main() -> int:
 
     if checked == 0:
         if args.smoke:
-            print("PASS (smoke): no metrics matched prefix '{}' but artifacts exist".format(args.metric_prefix))
-            return 0
+            if not result_files:
+                print("FAIL: smoke test produced no result artifacts", file=sys.stderr)
+                return 1
+            print("PASS (smoke): no metrics matched prefix '{}' but result artifacts are parseable".format(args.metric_prefix))
+            return 1 if failed else 0
         print("WARN: no metrics matched prefix '{}'".format(args.metric_prefix), file=sys.stderr)
 
     return 1 if (failed or checked == 0) else 0
