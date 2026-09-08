@@ -6,7 +6,8 @@ set -euo pipefail
 #
 # Required env: QUALITY_ENDPOINT, QUALITY_API_KEY, QUALITY_MODEL_NAME
 # Optional env: RUN_ID, BFCL_MODE, TEST_CATEGORY, NUM_THREADS, TEMPERATURE,
-#               OPENAI_TIMEOUT, FULL_EVAL, OVERWRITE, TEST_CASE_IDS, LIMIT
+#               OPENAI_TIMEOUT, MAX_GEN_TOKENS, FULL_EVAL, OVERWRITE,
+#               TEST_CASE_IDS, LIMIT
 
 WORKSPACE_DIR="${QUALITY_WORKSPACE:-$(pwd)}"
 
@@ -37,6 +38,7 @@ esac
 TEST_CATEGORY="${TEST_CATEGORY:-simple_python,multiple,parallel,parallel_multiple,irrelevance}"
 NUM_THREADS="${NUM_THREADS:-4}"
 TEMPERATURE="${TEMPERATURE:-0.0}"
+export MAX_GEN_TOKENS="${MAX_GEN_TOKENS:-8192}"
 export OPENAI_TIMEOUT="${OPENAI_TIMEOUT:-90}"
 
 PARTIAL_EVAL_FLAG="--partial-eval"
@@ -103,6 +105,7 @@ echo "  Endpoint          : $QUALITY_ENDPOINT"
 echo "  Test categories   : $TEST_CATEGORY"
 echo "  Threads           : $NUM_THREADS"
 echo "  Temperature       : $TEMPERATURE"
+echo "  Max gen tokens    : $MAX_GEN_TOKENS"
 echo "  BFCL_PROJECT_ROOT : $OUT_DIR"
 echo "  Bin               : $BFCL"
 echo

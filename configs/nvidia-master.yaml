@@ -8545,18 +8545,28 @@ glm5.2-quality-eval:
     #   quality-model-name: "openai/z-ai/glm-5.2"
     #   search-space:
     #   - { benchmark-name: hle, smoke: true, num-concurrent: 4, eval-limit: 2 }
-    quality-livecodebench:  # coding smoke tier
+    quality-livecodebench:  # coding balanced tier
     - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
       quality-model-name: "openai/z-ai/glm-5.2"
       search-space:
-      - { benchmark-name: livecodebench, smoke: true, num-concurrent: 2, eval-limit: 2 }
-    quality-bfcl:  # agentic coding smoke tier
+      - { benchmark-name: livecodebench, smoke: false, num-concurrent: 4, eval-limit: 50 }
+    quality-bfcl:  # agentic coding balanced tier
     - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
       quality-model-name: "openai/z-ai/glm-5.2"
       search-space:
-      - { benchmark-name: bfcl, smoke: true, num-concurrent: 2, eval-limit: 4 }
-    quality-scicode:  # coding smoke tier
+      - { benchmark-name: bfcl, smoke: false, num-concurrent: 4, eval-limit: 100 }
+    quality-scicode:  # coding balanced tier
     - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
       quality-model-name: "openai/z-ai/glm-5.2"
       search-space:
-      - { benchmark-name: scicode, smoke: true, num-concurrent: 2, eval-limit: 2 }
+      - { benchmark-name: scicode, smoke: false, num-concurrent: 4, eval-limit: 8 }
+    quality-swebench-pro:  # agentic coding balanced tier
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: swebench_pro, smoke: false, num-concurrent: 4, eval-limit: 10 }
+    quality-deepswe:  # agentic coding balanced tier
+    - quality-endpoint: "https://maas-llm-aiplatform-hcm.api.vngcloud.vn/v1"
+      quality-model-name: "openai/z-ai/glm-5.2"
+      search-space:
+      - { benchmark-name: deepswe, smoke: false, num-concurrent: 4, eval-limit: 10 }

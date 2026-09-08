@@ -101,6 +101,7 @@ class Fields(Enum):
     QUALITY_MODEL_NAME = 'quality-model-name'
     SMOKE = 'smoke'
     NUM_CONCURRENT = 'num-concurrent'
+    MAX_GEN_TOKENS = 'max-gen-tokens'
     EVAL_LIMIT = 'eval-limit'
 
 
@@ -408,6 +409,7 @@ class QualityEvalMatrixEntry(BaseModel):
     scenario_type: str = Field(alias=Fields.SCENARIO_TYPE.value)
     smoke: bool = Field(default=False, alias=Fields.SMOKE.value)
     num_concurrent: Optional[int] = Field(default=None, alias=Fields.NUM_CONCURRENT.value)
+    max_gen_tokens: Optional[int] = Field(default=None, alias=Fields.MAX_GEN_TOKENS.value)
     eval_limit: Optional[int] = Field(default=None, alias=Fields.EVAL_LIMIT.value)
     run_eval: Optional[bool] = Field(default=None, alias=Fields.RUN_EVAL.value)
     eval_only: Optional[bool] = Field(default=None, alias=Fields.EVAL_ONLY.value)
@@ -742,6 +744,10 @@ class QualityEvalSearchSpaceEntry(BaseModel):
         default=None, alias=Fields.NUM_CONCURRENT.value,
         description="API request concurrency (num_concurrent / CCU / multiprocess). "
                     "Passed to benchmark scripts as NUM_CONCURRENT env var.",
+    )
+    max_gen_tokens: Optional[int] = Field(
+        default=None, alias=Fields.MAX_GEN_TOKENS.value,
+        description="Per-request output-token ceiling. Uses a benchmark-specific default when omitted.",
     )
     eval_limit: Optional[int] = Field(
         default=None, alias=Fields.EVAL_LIMIT.value,

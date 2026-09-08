@@ -7,7 +7,7 @@ set -euo pipefail
 #
 # Required env: QUALITY_ENDPOINT, QUALITY_API_KEY, QUALITY_MODEL_NAME
 # Optional env: RUN_ID, LIMIT, WORKERS, EVAL_WORKERS, REDO_EXISTING, REDO_EVAL,
-#               DOCKERHUB_USERNAME, COST_LIMIT, STEP_LIMIT
+#               DOCKERHUB_USERNAME, COST_LIMIT, STEP_LIMIT, MAX_GEN_TOKENS
 
 WORKSPACE_DIR="${QUALITY_WORKSPACE:-$(pwd)}"
 
@@ -43,6 +43,7 @@ REDO_EVAL="${REDO_EVAL:-0}"
 DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-jefzda}"
 COST_LIMIT="${COST_LIMIT:-3.0}"
 STEP_LIMIT="${STEP_LIMIT:-250}"
+MAX_GEN_TOKENS="${MAX_GEN_TOKENS:-32768}"
 
 SLICE_ARG=()
 if [[ -n "$LIMIT" ]]; then
@@ -70,6 +71,7 @@ echo "  Output dir        : $OUT_DIR"
 echo "  Workers (agent)   : $WORKERS"
 echo "  Workers (eval)    : $EVAL_WORKERS"
 echo "  Cost/step limit   : \$${COST_LIMIT} / ${STEP_LIMIT} steps per instance"
+echo "  Max gen tokens    : $MAX_GEN_TOKENS per agent turn"
 if [[ -n "$LIMIT" ]]; then
   echo "  Limit             : first $LIMIT instances"
 fi
@@ -78,6 +80,7 @@ echo
 RUN_CONFIG="$OUT_DIR/run_config.yaml"
 sed -e "s/step_limit: [0-9]*/step_limit: ${STEP_LIMIT}/" \
     -e "s/cost_limit: [0-9.]*$/cost_limit: ${COST_LIMIT}/" \
+    -e "s/max_tokens: [0-9]*/max_tokens: ${MAX_GEN_TOKENS}/" \
     "$CONFIG" > "$RUN_CONFIG"
 
 echo "--- Phase 1: agent patch generation ---"

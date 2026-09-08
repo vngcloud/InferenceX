@@ -23,7 +23,7 @@ RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 MAX_LENGTH="${MAX_LENGTH:-32768}"
 # GLM reasoning tokens count against this budget. The 8k smoke still exhausted
 # the budget on exact-match questions before the model emitted its final line.
-MAX_GEN_TOKS="${MAX_GEN_TOKS:-16384}"
+MAX_GEN_TOKS="${MAX_GEN_TOKS:-${MAX_GEN_TOKENS:-16384}}"
 TASK="${TASK:-hle}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-0}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
@@ -51,6 +51,7 @@ echo "  Model         : $RAW_MODEL"
 echo "  Task          : $TASK"
 echo "  Output dir    : $OUT_DIR"
 echo "  Cache (resume): $CACHE_DB"
+echo "  Max gen tokens: $MAX_GEN_TOKS"
 echo "  HTTP timeout  : ${REQUEST_TIMEOUT}s"
 if [[ -n "$LIMIT" ]]; then
   echo "  Subset        : first ${LIMIT} per subtask"

@@ -928,6 +928,7 @@ def generate_full_sweep(args, all_config_data, runner_data):
                     benchmark_name = bmk[Fields.BENCHMARK_NAME.value]
                     smoke = bmk.get(Fields.SMOKE.value, False)
                     num_concurrent = bmk.get(Fields.NUM_CONCURRENT.value, None)
+                    max_gen_tokens = bmk.get(Fields.MAX_GEN_TOKENS.value, None)
                     eval_limit = bmk.get(Fields.EVAL_LIMIT.value, None)
 
                     runners_for_entry = runner_nodes_to_use if runner_nodes_to_use else [runner]
@@ -950,6 +951,8 @@ def generate_full_sweep(args, all_config_data, runner_data):
                         }
                         if num_concurrent is not None:
                             entry[Fields.NUM_CONCURRENT.value] = num_concurrent
+                        if max_gen_tokens is not None:
+                            entry[Fields.MAX_GEN_TOKENS.value] = max_gen_tokens
                         if eval_limit is not None:
                             entry[Fields.EVAL_LIMIT.value] = eval_limit
                         validate_quality_matrix_entry(entry)
@@ -1262,6 +1265,7 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                     benchmark_name = bmk[Fields.BENCHMARK_NAME.value]
                     smoke = bmk.get(Fields.SMOKE.value, False)
                     num_concurrent = bmk.get(Fields.NUM_CONCURRENT.value, None)
+                    max_gen_tokens = bmk.get(Fields.MAX_GEN_TOKENS.value, None)
                     eval_limit = bmk.get(Fields.EVAL_LIMIT.value, None)
 
                     for runner_value in runners_for_entry:
@@ -1282,6 +1286,8 @@ def generate_test_config_sweep(args, all_config_data, runner_data=None):
                         }
                         if num_concurrent is not None:
                             entry[Fields.NUM_CONCURRENT.value] = num_concurrent
+                        if max_gen_tokens is not None:
+                            entry[Fields.MAX_GEN_TOKENS.value] = max_gen_tokens
                         if eval_limit is not None:
                             entry[Fields.EVAL_LIMIT.value] = eval_limit
                         matrix_values.append(validate_quality_matrix_entry(entry))

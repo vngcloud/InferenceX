@@ -46,6 +46,18 @@ fi
 # scripts read for subset/smoke runs.
 export LIMIT="${EVAL_LIMIT:-${LIMIT:-}}"
 
+# Benchmark-specific output ceilings. MAX_GEN_TOKENS is the unified CI/direct
+# override; MAX_TOKENS is the spelling used by LiveCodeBench and SciCode.
+if [[ -z "${MAX_GEN_TOKENS:-}" ]]; then
+    case "$QUALITY_BENCHMARK_NAME" in
+        gpqa|mmlu_pro|bfcl) MAX_GEN_TOKENS=8192 ;;
+        hle|livecodebench|scicode) MAX_GEN_TOKENS=16384 ;;
+        swebench_pro|deepswe) MAX_GEN_TOKENS=32768 ;;
+    esac
+fi
+export MAX_GEN_TOKENS
+export MAX_TOKENS="${MAX_TOKENS:-$MAX_GEN_TOKENS}"
+
 # Map NUM_CONCURRENT to per-benchmark concurrency env vars.
 # Each benchmark script reads its own var; NUM_CONCURRENT is the unified knob.
 if [[ -n "${NUM_CONCURRENT:-}" ]]; then
@@ -618,6 +630,24 @@ usage_replacement = '''            "input_token": getattr(api_response.usage, "p
 if usage_anchor not in src:
     raise SystemExit(f"expected BFCL usage parser not found in {p}")
 p.write_text(src.replace(usage_anchor, usage_replacement, 1))
+PY
+    fi
+    # BFCL has no CLI output-token option. Apply the repository-owned default
+    # at its final OpenAI request boundary while keeping it env-overridable.
+    if [[ -f "$OAI_COMP" ]] && ! grep -q 'BFCL_MAX_GEN_TOKENS' "$OAI_COMP" 2>/dev/null; then
+        echo "=== Patching BFCL output-token ceiling ==="
+        python3 - "$OAI_COMP" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+anchor = '        kwargs["stream"] = True\n'
+replacement = '''        # BFCL_MAX_GEN_TOKENS: bounded, benchmark-specific generation budget.
+        kwargs.setdefault("max_tokens", int(__import__("os").environ.get("MAX_GEN_TOKENS", "8192")))
+        kwargs["stream"] = True
+'''
+if anchor not in src:
+    raise SystemExit(f"expected BFCL streaming request not found in {p}")
+p.write_text(src.replace(anchor, replacement, 1))
 PY
     fi
     if [[ ! -x "$VENV/bin/bfcl" ]] || ! "$VENV/bin/python" -c "import soundfile" 2>/dev/null; then

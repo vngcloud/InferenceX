@@ -22,7 +22,7 @@ export HF_TOKEN="${HF_TOKEN:-}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 
 MAX_LENGTH="${MAX_LENGTH:-10240}"
-MAX_GEN_TOKS="${MAX_GEN_TOKS:-10240}"
+MAX_GEN_TOKS="${MAX_GEN_TOKS:-${MAX_GEN_TOKENS:-8192}}"
 TASK="${TASK:-gpqa_diamond_cot_n_shot}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-5}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
@@ -59,6 +59,7 @@ echo "  Model         : $RAW_MODEL"
 echo "  Task          : $TASK"
 echo "  Output dir    : $OUT_DIR"
 echo "  Cache (resume): $CACHE_DB"
+echo "  Max gen tokens: $MAX_GEN_TOKS"
 echo
 
 "$LM_EVAL" run \

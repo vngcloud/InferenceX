@@ -210,6 +210,11 @@ on:
         required: false
         type: string
         default: ""
+      max-gen-tokens:
+        description: "Per-request output-token ceiling; empty uses the benchmark-specific default"
+        required: false
+        type: string
+        default: ""
 env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
@@ -263,6 +268,7 @@ env:
   QUALITY_MODEL_NAME: ${{ inputs.quality-model-name }}
   SMOKE: ${{ inputs.smoke }}
   NUM_CONCURRENT: ${{ inputs.num-concurrent }}
+  MAX_GEN_TOKENS: ${{ inputs.max-gen-tokens }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'

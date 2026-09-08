@@ -23,7 +23,7 @@ RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 MAX_LENGTH="${MAX_LENGTH:-8192}"
 # Reasoning-capable models can spend the old 2k budget before emitting a final
 # choice. Keep this aligned with the context cap used by this task.
-MAX_GEN_TOKS="${MAX_GEN_TOKS:-8192}"
+MAX_GEN_TOKS="${MAX_GEN_TOKS:-${MAX_GEN_TOKENS:-8192}}"
 TASK="${TASK:-mmlu_pro}"
 NUM_FEWSHOT="${NUM_FEWSHOT:-5}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
@@ -47,6 +47,7 @@ echo "  Model         : $RAW_MODEL"
 echo "  Task          : $TASK"
 echo "  Output dir    : $OUT_DIR"
 echo "  Cache (resume): $CACHE_DB"
+echo "  Max gen tokens: $MAX_GEN_TOKS"
 if [[ -n "$LIMIT" ]]; then
   echo "  Subset        : first ${LIMIT} per subtask"
 fi

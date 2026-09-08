@@ -6,7 +6,7 @@ set -euo pipefail
 # Requires Docker on the runner.
 #
 # Required env: QUALITY_ENDPOINT, QUALITY_API_KEY, QUALITY_MODEL_NAME
-# Optional env: RUN_ID, N_TASKS, CCU, JOBS_DIR, JOB_NAME
+# Optional env: RUN_ID, N_TASKS, CCU, JOBS_DIR, JOB_NAME, MAX_GEN_TOKENS
 
 WORKSPACE_DIR="${QUALITY_WORKSPACE:-$(pwd)}"
 export PATH="$HOME/.local/bin:$PATH"
@@ -18,6 +18,7 @@ CCU="${CCU:-$N_TASKS}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 JOBS_DIR="${JOBS_DIR:-$WORKSPACE_DIR/jobs/$RUN_ID/deepswe}"
 JOB_NAME="${JOB_NAME:-${N_TASKS}tasks-ccu${CCU}}"
+MAX_GEN_TOKENS="${MAX_GEN_TOKENS:-32768}"
 
 DEEPSWE_DIR="${QUALITY_DEEPSWE_DIR:-$WORKSPACE_DIR/deep-swe}"
 
@@ -26,6 +27,7 @@ echo "  RUN_ID     : $RUN_ID"
 echo "  Model      : $RAW_MODEL"
 echo "  N tasks    : $N_TASKS"
 echo "  Concurrent : $CCU"
+echo "  Max tokens : $MAX_GEN_TOKENS per agent turn"
 echo "  Jobs dir   : $JOBS_DIR"
 echo
 
@@ -36,6 +38,7 @@ uv tool run --from datacurve-pier pier run \
   --agent mini-swe-agent \
   --model "openai/${RAW_MODEL}" \
   --agent-kwarg model_class=litellm \
+  --agent-kwarg "model_kwargs={\"max_tokens\":${MAX_GEN_TOKENS},\"drop_params\":true}" \
   --agent-env "MSWEA_API_KEY=$QUALITY_API_KEY" \
   --agent-env "OPENAI_API_KEY=$QUALITY_API_KEY" \
   --agent-env "OPENAI_BASE_URL=$QUALITY_ENDPOINT" \
