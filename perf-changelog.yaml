@@ -6071,8 +6071,6 @@
     - quality-livecodebench
     - quality-scicode
     - quality-bfcl
-    - quality-swebench-pro
-    - quality-deepswe
   description:
-    - "Smoke test GLM-5.2 coding and agentic coding recipes against the VNG Cloud MaaS HCM endpoint: LiveCodeBench 2, SciCode 2, BFCL 4, SWE-bench Pro 1, and DeepSWE 1."
+    - "Validate the repaired GLM-5.2 harnesses against the VNG Cloud MaaS HCM endpoint: LiveCodeBench 2, SciCode 2, and BFCL 4 only."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36

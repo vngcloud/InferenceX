@@ -196,6 +196,85 @@ def extract_lm_metrics(json_path: Path) -> List[Dict[str, Any]]:
     return extracted
 
 
+def _number(value: Any) -> Optional[float]:
+    """Parse numeric values, including percentage strings from BFCL CSV."""
+    if isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, str) and value.strip().endswith('%'):
+            return float(value.strip()[:-1]) / 100.0
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_custom_quality_metrics(
+    directory: Path, meta: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Normalize repository-owned wrappers from non-lm-eval benchmarks."""
+    path = directory / 'results.json'
+    data = load_json(path)
+    benchmark = str(meta.get('benchmark') or '')
+    if not isinstance(data, dict) or not benchmark:
+        return []
+
+    score: Optional[float] = None
+    n_eff: Optional[int] = None
+    model = data.get('model') or meta.get('model')
+    results = data.get('results')
+    n_samples = data.get('n-samples', {})
+
+    if benchmark == 'livecodebench' and isinstance(results, dict):
+        task_result = results.get('livecodebench', {})
+        if isinstance(task_result, dict):
+            score = _number(task_result.get('pass@1'))
+    elif benchmark == 'scicode' and isinstance(results, dict):
+        aggregate = results.get('scicode/scicode_scorer', {})
+        if isinstance(aggregate, dict):
+            score = _number(
+                aggregate.get('sub_problem_correctness', aggregate.get('mean'))
+            )
+        n_eff = sum(key.startswith('scicode/problem_') for key in results)
+    elif benchmark == 'swebench_pro' and isinstance(results, dict):
+        task_result = results.get('swebench_pro', {})
+        if isinstance(task_result, dict):
+            score = _number(task_result.get('exact_match,resolved'))
+    elif benchmark == 'bfcl':
+        scores = data.get('scores')
+        if isinstance(scores, list) and scores and isinstance(scores[0], dict):
+            score = _number(scores[0].get('Overall Acc'))
+            model = scores[0].get('Model') or model
+        audit = load_json(directory / 'bfcl_inference_audit.json')
+        if isinstance(audit, dict):
+            n_eff = as_int(audit.get('checked_responses'), 0)
+    elif benchmark == 'deepswe':
+        # Pier versions have used both a top-level reward and a nested result.
+        score = _number(data.get('reward'))
+        if score is None and isinstance(data.get('result'), dict):
+            score = _number(data['result'].get('reward'))
+        n_eff = as_int(data.get('completed_tasks', data.get('n_tasks')), 0) or None
+
+    if isinstance(n_samples, dict):
+        task_count = n_samples.get(benchmark, {})
+        if isinstance(task_count, dict):
+            n_eff = as_int(task_count.get('effective'), n_eff or 0) or n_eff
+
+    if score is None:
+        return []
+    return [{
+        'task': benchmark,
+        'strict': None,
+        'strict_se': None,
+        'flex': None,
+        'flex_se': None,
+        'accuracy': score,
+        'accuracy_se': None,
+        'n_eff': n_eff,
+        'model': model,
+        'source': str(path),
+    }]
+
+
 def pct(x: Any) -> str:
     """Format value as percentage."""
     try:
@@ -314,7 +393,8 @@ def collect_eval_rows(root: Path) -> List[Dict[str, Any]]:
             if isinstance(completed_concs, list):
                 allowed_concs = {as_int(conc, -1) for conc in completed_concs}
 
-        for lm_path in detect_lm_eval_jsons(d, batched=batched):
+        lm_paths = detect_lm_eval_jsons(d, batched=batched)
+        for lm_path in lm_paths:
             row_meta = meta
             if batched:
                 conc = result_concurrency(lm_path)
@@ -327,6 +407,9 @@ def collect_eval_rows(root: Path) -> List[Dict[str, Any]]:
             metrics_list = extract_lm_metrics(lm_path)
             for metrics in metrics_list:
                 rows.append(build_row(row_meta, metrics))
+        if not lm_paths:
+            for metrics in extract_custom_quality_metrics(d, meta):
+                rows.append(build_row(meta, metrics))
     return rows
 
 

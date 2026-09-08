@@ -117,6 +117,35 @@ cd "$BFCL_DIR"
   "${RUN_IDS_ARG[@]}" \
   "${OVERWRITE_ARG[@]}"
 
+# BFCL catches inference exceptions internally and writes them as model output,
+# which otherwise lets CI succeed with a fabricated low score. Record an audit
+# and reject any such result by default after evaluation/artifact generation.
+BFCL_RESULT_DIR="$OUT_DIR/result/$(echo "$BFCL_MODEL_KEY" | tr '/' '_')"
+BFCL_AUDIT_FILE="$OUT_DIR/bfcl_inference_audit.json"
+"$PYTHON" - "$BFCL_RESULT_DIR" "$BFCL_AUDIT_FILE" <<'PY'
+import json, pathlib, sys
+
+result_dir = pathlib.Path(sys.argv[1])
+audit_path = pathlib.Path(sys.argv[2])
+checked = errors = 0
+error_ids = []
+for path in result_dir.rglob("*.json") if result_dir.exists() else []:
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or "id" not in row:
+            continue
+        checked += 1
+        if str(row.get("result", "")).startswith("Error during inference:") or row.get("traceback"):
+            errors += 1
+            error_ids.append(str(row.get("id")))
+audit = {"checked_responses": checked, "inference_errors": errors, "error_ids": error_ids}
+audit_path.write_text(json.dumps(audit, indent=2))
+print(f"BFCL inference audit: {checked} response(s), {errors} inference error(s)")
+PY
+
 "$BFCL" evaluate \
   --model "$BFCL_MODEL_KEY" \
   --test-category "$TEST_CATEGORY" \
@@ -166,4 +195,17 @@ result = {
 pathlib.Path(out_path).write_text(json.dumps(result, indent=2))
 print(f"Wrote results wrapper: {out_path}")
 PY
+fi
+
+read -r BFCL_CHECKED_RESPONSES BFCL_INFERENCE_ERRORS < <(
+  "$PYTHON" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["checked_responses"], d["inference_errors"])' "$BFCL_AUDIT_FILE"
+)
+BFCL_MAX_INFERENCE_ERRORS="${BFCL_MAX_INFERENCE_ERRORS:-0}"
+if (( BFCL_CHECKED_RESPONSES == 0 )); then
+  echo "ERROR: BFCL produced no auditable inference responses; score is invalid." >&2
+  exit 1
+fi
+if (( BFCL_INFERENCE_ERRORS > BFCL_MAX_INFERENCE_ERRORS )); then
+  echo "ERROR: BFCL recorded $BFCL_INFERENCE_ERRORS inference error(s); score is invalid." >&2
+  exit 1
 fi

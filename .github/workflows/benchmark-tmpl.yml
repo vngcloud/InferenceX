@@ -483,6 +483,9 @@ jobs:
             *.csv
             lcb_results*.json
             *.jsonl
+            bfcl_inference_audit.json
+            bfcl_result_*.json
+            scicode_debug.tar.gz
           if-no-files-found: ${{ inputs.eval-only && 'error' || 'ignore' }}
 
       - name: Verify eval scores
@@ -503,6 +506,7 @@ jobs:
           rm -f sample*.jsonl || true
           rm -f agent_preds.json predictions.jsonl swebench_report_*.json eval_results*.json *.traj* || true
           rm -f *.csv lcb_results*.json || true
+          rm -f bfcl_inference_audit.json bfcl_result_*.json scicode_debug.tar.gz || true
           
       - name: Resource cleanup (post-run)
         if: always()

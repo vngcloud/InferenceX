@@ -368,9 +368,34 @@ src = src[:idx] + "\n" + entry + src[idx:]
 p.write_text(src)
 PY
     fi
+    # Cache generations per endpoint. LiveCodeBench's upstream cache key only
+    # contains model/scenario/sampling settings, so using the same model name
+    # against a different API endpoint can otherwise reuse unrelated answers.
+    # Keeping the endpoint namespace still allows interrupted runs to resume.
+    local PATH_UTILS="$LCB_DIR/lcb_runner/utils/path_utils.py"
+    if [[ -f "$PATH_UTILS" ]] && ! grep -q 'LCB_CACHE_NAMESPACE' "$PATH_UTILS" 2>/dev/null; then
+        echo "=== Patching path_utils.py with endpoint-scoped generation cache ==="
+        python3 - "$PATH_UTILS" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = '    path = f"cache/{model_repr}/{scenario}_{n}_{temperature}.json"'
+new = '''    cache_namespace = os.environ.get("LCB_CACHE_NAMESPACE", "")
+    if cache_namespace:
+        import hashlib
+        namespace_hash = hashlib.sha256(cache_namespace.encode("utf-8")).hexdigest()[:16]
+        path = f"cache/endpoints/{namespace_hash}/{model_repr}/{scenario}_{n}_{temperature}.json"
+    else:
+        path = f"cache/{model_repr}/{scenario}_{n}_{temperature}.json"'''
+if old not in src:
+    raise SystemExit(f"expected LiveCodeBench cache path not found in {p}")
+if "import os" not in src:
+    src = "import os\n" + src
+p.write_text(src.replace(old, new, 1))
+PY
+    fi
     # Patch path_utils.py: use LCB_OUTPUT_DIR env var as base for output path
     # so results land in $OUT_BASE (where collect_results looks), not $LCB_DIR/output/
-    local PATH_UTILS="$LCB_DIR/lcb_runner/utils/path_utils.py"
     if ! grep -q 'LCB_OUTPUT_DIR' "$PATH_UTILS" 2>/dev/null; then
         echo "=== Patching path_utils.py with LCB_OUTPUT_DIR support ==="
         python3 - "$PATH_UTILS" <<'PY'
@@ -482,6 +507,19 @@ insert_at = src.find('{', idx) + 1
 p.write_text(src[:insert_at] + '\n' + block + src[insert_at:])
 PY
     fi
+    # BFCL writes CSV rows without quoting fields. Commas in a display name
+    # shift every subsequent column and corrupt the score metadata.
+    if grep -q 'GLM-5.2 (FC, OpenAI-compatible)' "$MC_FILE" 2>/dev/null; then
+        echo "=== Repairing BFCL CSV-safe model display names ==="
+        python3 - "$MC_FILE" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+src = src.replace("GLM-5.2 (FC, OpenAI-compatible)", "GLM-5.2 (FC; OpenAI-compatible)")
+src = src.replace("GLM-5.2 (Prompt, OpenAI-compatible)", "GLM-5.2 (Prompt; OpenAI-compatible)")
+p.write_text(src)
+PY
+    fi
     # Patch openai_completion.py to use streaming (avoid proxy timeouts)
     local OAI_COMP="$BFCL_DIR/bfcl_eval/model_handler/api_inference/openai_completion.py"
     if ! grep -q 'stream.*True' "$OAI_COMP" 2>/dev/null; then
@@ -552,6 +590,34 @@ new = '''    @retry_with_backoff(error_type=RateLimitError)
 if old in src and "stream" not in src:
     src = src.replace(old, new, 1)
     p.write_text(src)
+PY
+    fi
+    # A streamed Chat Completions response has no usage object unless usage is
+    # requested, and some compatible endpoints omit it even when requested.
+    # Token accounting must never invalidate an otherwise valid tool call.
+    if [[ -f "$OAI_COMP" ]] && ! grep -q 'BFCL_OPTIONAL_STREAM_USAGE' "$OAI_COMP" 2>/dev/null; then
+        echo "=== Patching BFCL optional streamed usage handling ==="
+        python3 - "$OAI_COMP" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+create_anchor = '''        kwargs["stream"] = True
+        api_response = self.client.chat.completions.create(**kwargs)'''
+create_replacement = '''        kwargs["stream"] = True
+        # BFCL_OPTIONAL_STREAM_USAGE: OpenAI emits usage on the final empty
+        # stream chunk only when include_usage is requested.
+        kwargs.setdefault("stream_options", {"include_usage": True})
+        api_response = self.client.chat.completions.create(**kwargs)'''
+if create_anchor not in src:
+    raise SystemExit(f"expected BFCL streaming request not found in {p}")
+src = src.replace(create_anchor, create_replacement, 1)
+usage_anchor = '''            "input_token": api_response.usage.prompt_tokens,
+            "output_token": api_response.usage.completion_tokens,'''
+usage_replacement = '''            "input_token": getattr(api_response.usage, "prompt_tokens", 0),
+            "output_token": getattr(api_response.usage, "completion_tokens", 0),'''
+if usage_anchor not in src:
+    raise SystemExit(f"expected BFCL usage parser not found in {p}")
+p.write_text(src.replace(usage_anchor, usage_replacement, 1))
 PY
     fi
     if [[ ! -x "$VENV/bin/bfcl" ]] || ! "$VENV/bin/python" -c "import soundfile" 2>/dev/null; then
@@ -803,6 +869,128 @@ new = '''                except Exception as exc:
 if old not in src:
     raise SystemExit(f"expected SciCode exception handler not found in {p}")
 p.write_text(src.replace(old, new, 1))
+PY
+    fi
+    # SciCode's upstream extractor assumes a lowercase Python fence. Some
+    # models return valid Python without a fence or surround it with reasoning;
+    # upstream then writes that prose into the .py file and poisons later steps.
+    local SCICODE_MODELS="$SCICODE_DIR/src/scicode/gen/models.py"
+    if [[ -f "$SCICODE_MODELS" ]] && ! grep -q 'SCICODE_ROBUST_CODE_EXTRACTION' "$SCICODE_MODELS" 2>/dev/null; then
+        echo "=== Patching SciCode robust Python response extraction ==="
+        python3 - "$SCICODE_MODELS" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old = '''def extract_python_script(response: str):
+    # We will extract the python script from the response
+    if '```' in response:
+        python_script = response.split("```python")[1].split("```")[0] if '```python' in response else response.split('```')[1].split('```')[0]
+    else:
+        print("Fail to extract python code from specific format.")
+        python_script = response
+    python_script = re.sub(r'^\\s*(import .*|from .*\\s+import\\s+.*)', '', python_script, flags=re.MULTILINE)
+    return python_script'''
+new = '''def extract_python_script(response: str):
+    # SCICODE_ROBUST_CODE_EXTRACTION
+    if not isinstance(response, str) or not response.strip():
+        print("SciCode extraction error: model returned no text.", flush=True)
+        return ""
+
+    # Accept normal fence variations and prefer a block containing a definition.
+    blocks = re.findall(
+        r"```[ \\t]*(?:python|py)?[ \\t]*\\r?\\n?(.*?)```",
+        response,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    python_script = ""
+    if blocks:
+        python_script = next(
+            (block for block in blocks if re.search(r"(?m)^\\s*(?:async\\s+def|def|class)\\s+", block)),
+            blocks[0],
+        )
+    else:
+        # Reasoning should arrive separately, but compatible endpoints can embed
+        # it in content. Remove only explicit reasoning wrappers.
+        cleaned = re.sub(r"<think>.*?</think>", "", response, flags=re.IGNORECASE | re.DOTALL).strip()
+        candidates = [cleaned]
+        code_start = re.search(
+            r"(?m)^(?=\\s*(?:#\\s*Background:|@|async\\s+def|def|class)\\b)",
+            cleaned,
+        )
+        if code_start and code_start.start() > 0:
+            candidates.insert(0, cleaned[code_start.start():])
+
+        # Accept valid unfenced Python. If prose follows the program, trim only
+        # trailing lines until a syntactically valid program remains.
+        python_script = candidates[0]
+        recovered = False
+        for candidate in candidates:
+            lines = candidate.splitlines()
+            for end in range(len(lines), 0, -1):
+                possible = "\\n".join(lines[:end]).strip()
+                try:
+                    compile(possible, "<scicode-response>", "exec")
+                except (SyntaxError, ValueError, TypeError):
+                    continue
+                python_script = possible
+                recovered = True
+                break
+            if recovered:
+                break
+        if recovered:
+            print("SciCode: recovered valid Python from an unfenced response.", flush=True)
+        else:
+            print("SciCode extraction error: response contains no valid Python block.", flush=True)
+
+    python_script = re.sub(r'^\\s*(import .*|from .*\\s+import\\s+.*)', '', python_script, flags=re.MULTILINE)
+    return python_script'''
+if old not in src:
+    raise SystemExit(f"expected SciCode extractor not found in {p}")
+p.write_text(src.replace(old, new, 1))
+PY
+    fi
+
+    # Avoid parsing each response twice (and emitting duplicate diagnostics).
+    if [[ -f "$SCICODE_TASK" ]] && ! grep -q 'SCICODE_SINGLE_EXTRACTION' "$SCICODE_TASK" 2>/dev/null; then
+        echo "=== Patching SciCode to extract each response once ==="
+        python3 - "$SCICODE_TASK" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+src = p.read_text()
+old_register = '''        self.previous_llm_code[num_steps - 1] = extract_python_script(response)
+        self.save_response_with_steps(
+            prob_data,
+            response,
+            previous_code,
+            num_steps,
+        )'''
+new_register = '''        # SCICODE_SINGLE_EXTRACTION
+        python_code = extract_python_script(response)
+        self.previous_llm_code[num_steps - 1] = python_code
+        self.save_response_with_steps(
+            prob_data,
+            response,
+            previous_code,
+            num_steps,
+            python_code=python_code,
+        )'''
+old_signature = '        previous_code: str,' + ' \n' + '''        num_steps: int
+    ) -> None:'''
+new_signature = '''        previous_code: str,
+        num_steps: int,
+        python_code: str | None = None,
+    ) -> None:'''
+old_extract = '        python_code = extract_python_script(response)\n        output_file_path.write_text'
+new_extract = '        python_code = python_code if python_code is not None else extract_python_script(response)\n        output_file_path.write_text'
+for old_text, new_text, label in (
+    (old_register, new_register, "register_previous_response"),
+    (old_signature, new_signature, "save_response_with_steps signature"),
+    (old_extract, new_extract, "save_response_with_steps extraction"),
+):
+    if old_text not in src:
+        raise SystemExit(f"expected SciCode {label} not found in {p}")
+    src = src.replace(old_text, new_text, 1)
+p.write_text(src)
 PY
     fi
     export QUALITY_SCICODE_VENV="$VENV"
@@ -1111,6 +1299,28 @@ PY
         COPIED=$((COPIED + 1))
     done < <(find "$OUT_BASE" -type f -name '*.csv' -print0 2>/dev/null || true)
 
+    # BFCL native generation records and inference audit. These are needed to
+    # distinguish wrong tool calls from adapter/endpoint failures.
+    if [[ "$BENCH" == "bfcl" ]]; then
+        local BFCL_RAW_INDEX=0
+        while IFS= read -r -d '' f; do
+            cp -f "$f" "$DEST/bfcl_result_${BFCL_RAW_INDEX}_$(basename "$f")"
+            BFCL_RAW_INDEX=$((BFCL_RAW_INDEX + 1))
+            COPIED=$((COPIED + 1))
+        done < <(find "$OUT_BASE/result" -type f -name '*.json' -print0 2>/dev/null || true)
+        if [[ -f "$OUT_BASE/bfcl_inference_audit.json" ]]; then
+            cp -f "$OUT_BASE/bfcl_inference_audit.json" "$DEST/"
+            COPIED=$((COPIED + 1))
+        fi
+    fi
+
+    # Preserve Inspect logs, prompts, and generated programs as one artifact so
+    # SciCode parser/scorer failures can be audited after the runner cleans up.
+    if [[ "$BENCH" == "scicode" && -d "$OUT_BASE" ]]; then
+        tar -czf "$DEST/scicode_debug.tar.gz" -C "$OUT_BASE" .
+        COPIED=$((COPIED + 1))
+    fi
+
     # LiveCodeBench result JSONs/JSONLs
     # LCB writes to output/<model>/<scenario>_<n>_<temp>.json and _eval.json
     # Copy first .json as results.json so benchmark-tmpl.yml's glob matches.
@@ -1142,7 +1352,7 @@ PY
         done < <(find "$OUT_BASE" -type f -name '*_eval.json' -print0 2>/dev/null || true)
         if [[ -n "$LCB_EVAL_JSON" ]]; then
             python3 - "$LCB_EVAL_JSON" "$DEST/results.json" <<'PY' || true
-import json, sys
+import json, os, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
 results = {}
@@ -1162,6 +1372,9 @@ elif isinstance(data, dict):
         results["livecodebench"] = {k: v for k, v in data.items() if isinstance(v, (int, float))}
 if results:
     out = {"results": results}
+    effective = int(os.environ.get("LIMIT") or 0)
+    if effective:
+        out["n-samples"] = {"livecodebench": {"effective": effective}}
     with open(sys.argv[2], "w") as f:
         json.dump(out, f, indent=2)
     print(f"  Converted LCB eval to results.json with {len(results)} tasks")
@@ -1212,7 +1425,11 @@ case "${QUALITY_BENCHMARK_NAME}" in
 esac
 
 echo "=== Dispatching to $BENCH_SCRIPT ==="
+set +e
 bash "$BENCH_SCRIPT"
+BENCH_STATUS=$?
+set -e
 
 echo "=== Collecting results for artifact upload ==="
 collect_results "${QUALITY_BENCHMARK_NAME}"
+exit "$BENCH_STATUS"

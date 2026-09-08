@@ -34,6 +34,9 @@ OUT_DIR="$WORKSPACE_DIR/jobs/$RUN_ID/livecodebench"
 mkdir -p "$OUT_DIR"
 
 export LCB_OUTPUT_DIR="$OUT_DIR/"
+# Namespace the persistent generation cache by endpoint while preserving resume
+# behavior for repeated runs against the same endpoint and model.
+export LCB_CACHE_NAMESPACE="${LCB_CACHE_NAMESPACE:-$QUALITY_ENDPOINT}"
 
 # LCB CLI has no --limit flag; pass LIMIT via LCB_LIMIT env var (patched main.py reads it)
 export LCB_LIMIT="${LIMIT:-0}"
@@ -49,6 +52,7 @@ echo "  Max tokens      : $MAX_TOKENS"
 echo "  Multiprocess    : $MULTIPROCESS"
 echo "  Eval timeout    : ${TIMEOUT}s"
 echo "  Output dir      : $OUT_DIR"
+echo "  Cache scope     : endpoint + model"
 echo
 
 cd "$LCB_DIR"

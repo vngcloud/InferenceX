@@ -107,3 +107,54 @@ def test_collect_eval_rows_ignores_failed_batch_points(
     rows = collect_eval_rows(tmp_path)
 
     assert [row["conc"] for row in rows] == [4]
+
+
+def test_collect_eval_rows_normalizes_custom_quality_wrappers(
+    tmp_path: Path,
+) -> None:
+    fixtures = {
+        "livecodebench": ({
+            "results": {"livecodebench": {"pass@1": 0.75}},
+            "n-samples": {"livecodebench": {"effective": 4}},
+        }, 0.75, 4),
+        "scicode": ({
+            "results": {
+                "scicode/scicode_scorer": {"mean": 0.5},
+                "scicode/problem_11": {"Problem Correctness": 0},
+                "scicode/problem_77": {"Problem Correctness": 1},
+            },
+        }, 0.5, 2),
+        "swebench_pro": ({
+            "results": {"swebench_pro": {"exact_match,resolved": 1.0}},
+            "n-samples": {"swebench_pro": {"effective": 1}},
+        }, 1.0, 1),
+        "bfcl": ({
+            "benchmark": "bfcl",
+            "scores": [{"Overall Acc": "62.50%", "Model": "GLM-5.2"}],
+        }, 0.625, 8),
+        "deepswe": ({
+            "result": {"reward": 0.9},
+            "completed_tasks": 5,
+        }, 0.9, 5),
+    }
+
+    for benchmark, (result, _score, _n_eff) in fixtures.items():
+        artifact = tmp_path / f"eval_{benchmark}"
+        artifact.mkdir()
+        (artifact / "meta_env.json").write_text(json.dumps({
+            "benchmark": benchmark,
+            "infmax_model_prefix": "glm5.2",
+        }))
+        (artifact / "results.json").write_text(json.dumps(result))
+        if benchmark == "bfcl":
+            (artifact / "bfcl_inference_audit.json").write_text(json.dumps({
+                "checked_responses": 8,
+                "inference_errors": 0,
+            }))
+
+    rows = {row["task"]: row for row in collect_eval_rows(tmp_path)}
+
+    assert set(rows) == set(fixtures)
+    for benchmark, (_result, score, n_eff) in fixtures.items():
+        assert rows[benchmark]["score"] == score
+        assert rows[benchmark]["n_eff"] == n_eff
