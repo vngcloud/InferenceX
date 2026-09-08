@@ -259,7 +259,7 @@ env:
   # Quality-eval env. Only consumed by quality-eval scenario types.
   QUALITY_BENCHMARK_NAME: ${{ inputs.benchmark-name }}
   QUALITY_ENDPOINT: ${{ inputs.quality-endpoint }}
-  QUALITY_API_KEY: ${{ secrets.GN_TOKEN_PLAN }}
+  QUALITY_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
   QUALITY_MODEL_NAME: ${{ inputs.quality-model-name }}
   SMOKE: ${{ inputs.smoke }}
   NUM_CONCURRENT: ${{ inputs.num-concurrent }}

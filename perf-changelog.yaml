@@ -6064,3 +6064,15 @@
   description:
     - "Run the combined balanced coding and agentic coding recipes at ccu4: LiveCodeBench 50, SciCode 8, BFCL 100, SWE-bench Pro 10, and DeepSWE 10."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-livecodebench
+    - quality-scicode
+    - quality-bfcl
+    - quality-swebench-pro
+    - quality-deepswe
+  description:
+    - "Smoke test GLM-5.2 coding and agentic coding recipes against the VNG Cloud MaaS HCM endpoint: LiveCodeBench 2, SciCode 2, BFCL 4, SWE-bench Pro 1, and DeepSWE 1."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
