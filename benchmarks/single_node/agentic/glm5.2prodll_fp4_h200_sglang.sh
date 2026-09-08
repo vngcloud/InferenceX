@@ -7,7 +7,7 @@ set -x
 # single container, NO router. Deviations from proddp8:
 #   - no --dp / --enable-dp-attention / --ep (TP-only), so no sglang router
 #   - EAGLE spec 5/1/6 (vs 3/1/4)
-#   - --mem-fraction-static 0.8 (vs 0.75), --max-running-requests capped at 32
+#   - --max-running-requests capped at 32 (matches prod --mem-fraction-static 0.75)
 #   - no --enable-prefill-delayer
 #   - server image community lmsysorg/sglang:v0.5.18 (config image key)
 # Everything else mirrors prod 1:1: w4afp8, HiCache 128GB/rank direct write_back,
@@ -49,6 +49,9 @@ export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics
 export SGLANG_DP_USE_GATHERV=1
 export NCCL_P2P_LEVEL=NVL
 export SGLANG_ENABLE_METRICS_DP_ATTENTION=1
+# DSA indexer's fp8_mqa_logits needs a large transient buffer that scales with
+# context length; at long ctx it OOM'd on reserved-but-unallocated fragmentation.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 export AIPERF_SERVER_METRICS_URLS="http://localhost:$PORT/metrics"
 
@@ -75,7 +78,7 @@ SGLANG_CMD=(
   --chunked-prefill-size 32768
   --tool-call-parser glm47
   --reasoning-parser glm45
-  --mem-fraction-static 0.8
+  --mem-fraction-static 0.75
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   --context-length 300000
   --kv-cache-dtype fp8_e4m3
