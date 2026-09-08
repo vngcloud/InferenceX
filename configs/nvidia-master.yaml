@@ -8563,6 +8563,20 @@ glm5.2prodll-fp4-h200-greennode-sglang-tp8-hicache1024-spec516-agentic:
       search-space:
       - { tp: 8, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 4, 8, 16] }
 
+glm5.2prodllk-fp4-h200-greennode-sglang-tp8-hicache-kernel-spec516-agentic:
+  image: lmsysorg/sglang:v0.5.18
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2prodllk
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 4, 8, 16] }
+
 glm5.2pdeep-fp4-h200-greennode-sglang-dpattn-router-hicache128-agentic:
   image: lmsysorg/sglang:dev
   model: zai-org/GLM-5.2-FP8
