@@ -115,6 +115,12 @@ def _numeric_score(value) -> float | None:
 def native_quality_scores(data: dict, benchmark: str | None):
     """Yield primary scores from harness-native result structures."""
     if benchmark == "bfcl":
+        subset = data.get("subset")
+        if isinstance(subset, dict):
+            value = _numeric_score(subset.get("overall_accuracy"))
+            if value is not None:
+                yield "bfcl", "subset_overall_accuracy", value
+                return
         for row in data.get("scores", []):
             if not isinstance(row, dict):
                 continue

@@ -182,7 +182,7 @@ agent:
 
 environment:
   cwd: "/app"
-  timeout: 120
+  timeout: 600
   env:
     PAGER: cat
     MANPAGER: cat
@@ -208,5 +208,5 @@ model:
   model_kwargs:
     drop_params: true
     temperature: 0.0
-    max_tokens: 32768
+    max_tokens: 65536
   cost_tracking: "ignore_errors"

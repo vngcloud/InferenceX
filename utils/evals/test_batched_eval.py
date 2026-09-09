@@ -373,6 +373,29 @@ def test_validate_scores_reads_bfcl_native_result(
     assert "PASS: bfcl overall_accuracy = 0.7000" in capsys.readouterr().out
 
 
+def test_validate_scores_prefers_bfcl_subset_result(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / "meta_env.json").write_text(json.dumps({
+        "benchmark": "bfcl",
+        "infmax_model_prefix": "glm5.2",
+    }))
+    (tmp_path / "results.json").write_text(json.dumps({
+        "benchmark": "bfcl",
+        "scores": [{"Model": "glm-5.2", "Overall Acc": "7%"}],
+        "subset": {
+            "categories": ["simple_python", "irrelevance"],
+            "evaluated_samples": 200,
+            "overall_accuracy": 0.7,
+        },
+    }))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["validate_scores.py"])
+
+    assert validate_scores_main() == 0
+    assert "PASS: bfcl subset_overall_accuracy = 0.7000" in capsys.readouterr().out
+
+
 def test_validate_scores_reads_deepswe_pier_result(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:

@@ -185,9 +185,13 @@ echo "  Non-live: $OUT_DIR/score/data_non_live.csv"
 
 # Write a results.json wrapper so benchmark-tmpl.yml's `ls results*.json` check passes
 if [[ -f "$SCORE_FILE" ]]; then
-  "$PYTHON" - "$SCORE_FILE" "$OUT_DIR/results.json" <<'PY'
+  "$PYTHON" - "$SCORE_FILE" "$OUT_DIR/score/data_non_live.csv" \
+    "$OUT_DIR/results.json" "$TEST_CATEGORY" "$BFCL_RESULT_DIR" "$PARTIAL_EVAL_FLAG" <<'PY'
 import csv, json, pathlib, sys
-score_path, out_path = sys.argv[1], sys.argv[2]
+score_path, non_live_path, out_path = map(pathlib.Path, sys.argv[1:4])
+categories = [value.strip() for value in sys.argv[4].split(",") if value.strip()]
+result_dir = pathlib.Path(sys.argv[5])
+partial_eval = bool(sys.argv[6])
 with pathlib.Path(score_path).open(newline="") as f:
     rows = list(csv.DictReader(f))
 result = {
@@ -195,6 +199,49 @@ result = {
     "scores": rows,
     "score_file": str(score_path),
 }
+if partial_eval:
+    column_by_category = {
+        "simple_python": "Python Simple AST",
+        "simple_java": "Java Simple AST",
+        "simple_javascript": "JavaScript Simple AST",
+        "multiple": "Multiple AST",
+        "parallel": "Parallel AST",
+        "parallel_multiple": "Parallel Multiple AST",
+        "irrelevance": "Irrelevance Detection",
+    }
+    with non_live_path.open(newline="") as f:
+        non_live_rows = list(csv.DictReader(f))
+    score_row = non_live_rows[0] if non_live_rows else {}
+    counts = {}
+    for category in categories:
+        result_path = result_dir / f"BFCL_v4_{category}_result.json"
+        if result_path.is_file():
+            counts[category] = sum(
+                1 for line in result_path.read_text().splitlines() if line.strip()
+            )
+    weighted_score = 0.0
+    selected_count = 0
+    selected_scores = {}
+    for category in categories:
+        column = column_by_category.get(category)
+        raw_value = score_row.get(column, "") if column else ""
+        count = counts.get(category, 0)
+        if not raw_value.endswith("%") or count <= 0:
+            continue
+        score = float(raw_value.removesuffix("%")) / 100.0
+        selected_scores[category] = score
+        weighted_score += score * count
+        selected_count += count
+    if selected_count == 0:
+        raise SystemExit(
+            "BFCL partial evaluation produced no scorable requested categories"
+        )
+    result["subset"] = {
+        "categories": categories,
+        "category_scores": selected_scores,
+        "evaluated_samples": selected_count,
+        "overall_accuracy": weighted_score / selected_count,
+    }
 pathlib.Path(out_path).write_text(json.dumps(result, indent=2))
 print(f"Wrote results wrapper: {out_path}")
 PY

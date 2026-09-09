@@ -18,7 +18,7 @@ CCU="${CCU:-$N_TASKS}"
 RUN_ID="${RUN_ID:-$(echo "$RAW_MODEL" | tr -c '[:alnum:]._-' '_')}"
 JOBS_DIR="${JOBS_DIR:-$WORKSPACE_DIR/jobs/$RUN_ID/deepswe}"
 JOB_NAME="${JOB_NAME:-${N_TASKS}tasks-ccu${CCU}}"
-MAX_GEN_TOKENS="${MAX_GEN_TOKENS:-32768}"
+MAX_GEN_TOKENS="${MAX_GEN_TOKENS:-65536}"
 
 DEEPSWE_DIR="${QUALITY_DEEPSWE_DIR:-$WORKSPACE_DIR/deep-swe}"
 

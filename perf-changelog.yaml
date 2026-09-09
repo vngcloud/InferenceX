@@ -6087,3 +6087,14 @@
     - "[Quality] Balanced Coding + Agentic Coding | GLM-5.2 | VNG Cloud MaaS HCM | CCU4"
     - "Run LiveCodeBench 50, SciCode 8, BFCL 100, SWE-bench Pro 10, and DeepSWE 10 with four concurrent requests per benchmark."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-scicode
+    - quality-bfcl
+    - quality-swebench-pro
+    - quality-deepswe
+  description:
+    - "Raise SciCode, SWE-bench Pro, and DeepSWE generation budgets to 65,536 tokens, make partial BFCL validation subset-aware, and allow 600 seconds for SWE-bench Pro Docker startup."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
