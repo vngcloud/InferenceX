@@ -214,8 +214,10 @@ if partial_eval:
     score_row = non_live_rows[0] if non_live_rows else {}
     counts = {}
     for category in categories:
-        result_path = result_dir / f"BFCL_v4_{category}_result.json"
-        if result_path.is_file():
+        result_path = next(
+            result_dir.rglob(f"BFCL_v4_{category}_result.json"), None
+        )
+        if result_path is not None:
             counts[category] = sum(
                 1 for line in result_path.read_text().splitlines() if line.strip()
             )

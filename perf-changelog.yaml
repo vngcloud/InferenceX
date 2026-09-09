@@ -6097,3 +6097,11 @@
   description:
     - "Raise SciCode, SWE-bench Pro, and DeepSWE generation budgets to 65,536 tokens, make partial BFCL validation subset-aware, and allow 600 seconds for SWE-bench Pro Docker startup."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-bfcl
+  description:
+    - "Read BFCL partial-run category counts from their nested non_live directory and prevent native JSONL generation records from being promoted to results.json."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36

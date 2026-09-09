@@ -1367,7 +1367,7 @@ PY
         fi
         COPIED=$((COPIED + 1))
     done < <(find "$OUT_BASE" -type f -name '*.json' ! -name 'results*.json' ! -name 'eval_results*.json' -print0 2>/dev/null || true)
-    if [[ -n "$LCB_FIRST_JSON" && ! -f "$DEST/results.json" ]]; then
+    if [[ "$BENCH" == "livecodebench" && -n "$LCB_FIRST_JSON" && ! -f "$DEST/results.json" ]]; then
         cp -f "$LCB_FIRST_JSON" "$DEST/results.json"
     fi
 

@@ -396,6 +396,31 @@ def test_validate_scores_prefers_bfcl_subset_result(
     assert "PASS: bfcl subset_overall_accuracy = 0.7000" in capsys.readouterr().out
 
 
+def test_bfcl_subset_builder_finds_nested_category_results() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "benchmarks"
+        / "single_node"
+        / "quality"
+        / "run_bfcl.sh"
+    ).read_text()
+
+    assert 'result_dir.rglob(f"BFCL_v4_{category}_result.json")' in script
+
+
+def test_bfcl_raw_output_is_not_used_as_results_wrapper() -> None:
+    launcher = (
+        Path(__file__).resolve().parents[2]
+        / "runners"
+        / "launch_quality-eval.sh"
+    ).read_text()
+
+    assert (
+        '[[ "$BENCH" == "livecodebench" && -n "$LCB_FIRST_JSON" '
+        '&& ! -f "$DEST/results.json" ]]'
+    ) in launcher
+
+
 def test_validate_scores_reads_deepswe_pier_result(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
