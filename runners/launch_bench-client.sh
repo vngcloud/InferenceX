@@ -15,6 +15,14 @@ set -x
 export INFMAX_CONTAINER_WORKSPACE="${GITHUB_WORKSPACE:-$(pwd)}"
 export RESULT_DIR="${INFMAX_CONTAINER_WORKSPACE}/results"
 
+# Quality-eval scenario types are dispatched to launch_quality-eval.sh,
+# which sets up venvs and calls the appropriate benchmark script.
+# Everything else is a remote-bench recipe.
+if [[ "${SCENARIO_SUBDIR:-}" == "quality/" ]]; then
+    bash ./runners/launch_quality-eval.sh
+    exit $?
+fi
+
 BENCH_SCRIPT="benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_${FRAMEWORK}-remote-bench.sh"
 
 bash "$BENCH_SCRIPT"

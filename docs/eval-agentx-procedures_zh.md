@@ -58,6 +58,8 @@ uv run --no-project --with pydantic --with pyyaml --python 3.12 \
 4. 如果 task 的主结果与 collector 的 strict/extract/accuracy 规则不兼容，请扩展 [`extract_lm_metrics()`](../utils/collect_eval_results.py#L114-L181)。不要发布 `score` 为 null 的行。
 5. 先运行一个显式的小切片并检查样本，再运行完整 split。`EVAL_LIMIT` 是 smoke test 控制项，不是可发布分数的运行设置。
 
+质量编码启动器为 SciCode、SWE-bench Pro 和 DeepSWE 的每次模型或 agent 轮次提供最多 65,536 个生成 token。BFCL 部分运行会校验仅针对所请求类别的按样本数加权聚合分数；完整运行仍校验 BFCL 的标准总体分数。SWE-bench Pro 允许本地 Docker 环境使用 600 秒启动。
+
 对已经健康的 OpenAI-compatible 服务执行：
 
 ```bash

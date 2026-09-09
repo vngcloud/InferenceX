@@ -5953,3 +5953,163 @@
     - "Use native EAGLE MTP (3 steps, top-k 1, 4 draft tokens) and golden synthetic acceptance length 2.49 for throughput; eval retains real verification."
     - "Follow the official SGLang DeepSeek-V4 Blackwell recipe, require nonempty SGLang server metrics, keep pooled AgentX connections alive, let AIPerf own HiCache warmup, and reserve transient MoE workspace at DEP8 c512."
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/2577
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-gpqa
+  description:
+    - "Smoke run GPQA-Diamond with 10 samples against GreenNode endpoint for GLM-5.2 quality validation."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-mmlu-pro
+  description:
+    - "Smoke run MMLU-Pro with 20 questions, ccu4, against GreenNode endpoint."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-hle
+  description:
+    - "Smoke run HLE with 8 questions, ccu4, against GreenNode endpoint."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-bfcl
+  description:
+    - "Smoke run BFCL v4 with 4 questions, ccu1, against GreenNode endpoint."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-scicode
+  description:
+    - "Smoke run SciCode with 2 questions, ccu2, against GreenNode endpoint."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-deepswe
+  description:
+    - "Smoke run DeepSWE with 1 task against GreenNode endpoint."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-swebench-pro
+  description:
+    - "Re-run SWE-bench Pro smoke after aligning the mini-swe-agent text-based action parser and validating non-empty patches."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-hle
+  description:
+    - "Re-run HLE smoke after enabling streaming on lm-eval's OpenAI chat adapter and preserving GLM reasoning deltas."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-hle
+  description:
+    - "Dispatch HLE smoke only; disable the already-passed SWE-bench Pro smoke scenario."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-gpqa
+    - quality-mmlu-pro
+    - quality-hle
+  description:
+    - "Fix HLE A-J final-answer extraction, raise HLE and MMLU-Pro generation budgets for reasoning models, and dispatch a focused two-sample lm-eval smoke."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-hle
+  description:
+    - "Raise HLE's lm-eval HTTP total timeout to 1800 seconds for long streamed reasoning and re-run HLE smoke only."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-livecodebench
+    - quality-scicode
+  description:
+    - "Run the balanced coding recipe: 50 LiveCodeBench samples and 8 SciCode samples, both at ccu4."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-livecodebench
+    - quality-scicode
+    - quality-bfcl
+    - quality-swebench-pro
+    - quality-deepswe
+  description:
+    - "Run the combined balanced coding and agentic coding recipes at ccu4: LiveCodeBench 50, SciCode 8, BFCL 100, SWE-bench Pro 10, and DeepSWE 10."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-livecodebench
+    - quality-scicode
+    - quality-bfcl
+  description:
+    - "Validate the repaired GLM-5.2 harnesses against the VNG Cloud MaaS HCM endpoint: LiveCodeBench 2, SciCode 2, and BFCL 4 only."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-livecodebench
+    - quality-scicode
+    - quality-bfcl
+    - quality-swebench-pro
+    - quality-deepswe
+  description:
+    - "[Quality] Balanced Coding + Agentic Coding | GLM-5.2 | VNG Cloud MaaS HCM | CCU4"
+    - "Run LiveCodeBench 50, SciCode 8, BFCL 100, SWE-bench Pro 10, and DeepSWE 10 with four concurrent requests per benchmark."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-scicode
+    - quality-bfcl
+    - quality-swebench-pro
+  description:
+    - "Raise SciCode, SWE-bench Pro, and DeepSWE generation budgets to 65,536 tokens, make partial BFCL validation subset-aware, and allow 600 seconds for SWE-bench Pro Docker startup."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-bfcl
+  description:
+    - "Read BFCL partial-run category counts from their nested non_live directory and prevent native JSONL generation records from being promoted to results.json."
+  pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-swebench-pro
+  description:
+    - "Set mini-swe-agent's Docker pull/start timeout to 600 seconds; environment.timeout only controls commands after startup."
+  pr-link: https://github.com/vngcloud/InferenceX/commits/feat/quality-benchmark

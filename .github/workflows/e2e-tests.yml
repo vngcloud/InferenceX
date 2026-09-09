@@ -178,6 +178,7 @@ jobs:
             agentic-eval-config: ${{ steps.get-jobs.outputs.agentic-eval-config }}
             multi-node-agentic-config: ${{ steps.get-jobs.outputs.multi-node-agentic-config }}
             multi-node-agentic-eval-config: ${{ steps.get-jobs.outputs.multi-node-agentic-eval-config }}
+            quality-eval-config: ${{ steps.get-jobs.outputs.quality-eval-config }}
         steps:
             - name: Checkout code (ref)
               if: ${{ inputs.ref && inputs.ref != '' }}
@@ -259,19 +260,66 @@ jobs:
                   AGENTIC_EVAL=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' not in x and x.get('run-eval', False)]))" | score_matrix agentic-eval)
                   MULTI_AGENTIC=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' in x and not x.get('run-eval', False)]))" | score_matrix multi-agentic)
                   MULTI_AGENTIC_EVAL=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' in x and x.get('run-eval', False)]))" | score_matrix multi-agentic-eval)
-                  SINGLE=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') != 'agentic-coding' and not x.get('eval-only', False)]))" | score_matrix single)
-                  MULTI=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('scenario-type') != 'agentic-coding' and not x.get('eval-only', False)]))" | score_matrix multi)
+                  QUALITY=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type', '').startswith('quality-')]))" | score_matrix quality-eval)
+                  SINGLE=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') != 'agentic-coding' and not x.get('scenario-type', '').startswith('quality-') and not x.get('eval-only', False)]))" | score_matrix single)
+                  MULTI=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('scenario-type') != 'agentic-coding' and not x.get('scenario-type', '').startswith('quality-') and not x.get('eval-only', False)]))" | score_matrix multi)
                   MULTI_EVAL=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('scenario-type') != 'agentic-coding' and x.get('run-eval', False)]))" | score_matrix multi-eval)
                   {
                     echo "agentic-config=$AGENTIC"
                     echo "agentic-eval-config=$AGENTIC_EVAL"
                     echo "multi-node-agentic-config=$MULTI_AGENTIC"
                     echo "multi-node-agentic-eval-config=$MULTI_AGENTIC_EVAL"
+                    echo "quality-eval-config=$QUALITY"
                     echo "single-node-config=$SINGLE"
                     echo "multi-node-config=$MULTI"
                     echo "eval-config=$EVALS"
                     echo "multi-node-eval-config=$MULTI_EVAL"
                   } >> "$GITHUB_OUTPUT"
+
+    test-sweep-quality-evals:
+        needs: get-jobs
+        if: ${{ needs.get-jobs.outputs.quality-eval-config != '[]' }}
+        uses: ./.github/workflows/benchmark-tmpl.yml
+        name: quality eval /
+        strategy:
+            fail-fast: ${{ inputs.fail-fast }}
+            matrix:
+                config: ${{ fromJson(needs.get-jobs.outputs.quality-eval-config) }}
+        secrets: inherit
+        with:
+            exp-name: ${{ matrix.config.exp-name }}
+            runner: ${{ matrix.config.runner }}
+            priority: ${{ matrix.config.priority }}
+            queue-token: ${{ matrix.config['queue-token'] }}
+            skip-queue-pr: ${{ matrix.config['skip-queue-pr'] || '' }}
+            image: ${{ matrix.config.image }}
+            model: ${{ matrix.config.model }}
+            model-prefix: ${{ matrix.config.model-prefix }}
+            framework: ${{ matrix.config.framework }}
+            precision: ${{ matrix.config.precision }}
+            tp: '1'
+            pp: '1'
+            dcp-size: '1'
+            pcp-size: '1'
+            ep: '1'
+            dp-attn: false
+            conc: '1'
+            spec-decoding: 'none'
+            disagg: 'false'
+            isl: '0'
+            osl: '0'
+            max-model-len: '0'
+            run-eval: true
+            eval-only: true
+            scenario-type: ${{ matrix.config.scenario-type }}
+            benchmark-name: ${{ matrix.config.benchmark-name }}
+            quality-endpoint: ${{ matrix.config.quality-endpoint }}
+            quality-model-name: ${{ matrix.config.quality-model-name }}
+            smoke: ${{ matrix.config.smoke || false }}
+            num-concurrent: ${{ matrix.config.num-concurrent || '' }}
+            max-gen-tokens: ${{ matrix.config.max-gen-tokens || '' }}
+            eval-limit: ${{ matrix.config.eval-limit || inputs.eval-limit }}
+            ref: ${{ inputs.ref }}
 
     test-sweep-multi-node:
         needs: get-jobs
@@ -665,8 +713,8 @@ jobs:
             result-prefix: "bmk"
 
     collect-evals:
-        needs: [test-sweep-evals, test-sweep-multi-node-evals, test-sweep-agentic-evals, test-sweep-multi-node-agentic-evals]
-        if: ${{ always() && (needs.test-sweep-evals.result != 'skipped' || needs.test-sweep-multi-node-evals.result != 'skipped' || needs.test-sweep-agentic-evals.result != 'skipped' || needs.test-sweep-multi-node-agentic-evals.result != 'skipped') }}
+        needs: [test-sweep-evals, test-sweep-multi-node-evals, test-sweep-agentic-evals, test-sweep-multi-node-agentic-evals, test-sweep-quality-evals]
+        if: ${{ always() && (needs.test-sweep-evals.result != 'skipped' || needs.test-sweep-multi-node-evals.result != 'skipped' || needs.test-sweep-agentic-evals.result != 'skipped' || needs.test-sweep-multi-node-agentic-evals.result != 'skipped' || needs.test-sweep-quality-evals.result != 'skipped') }}
         uses: ./.github/workflows/collect-evals.yml
         secrets: inherit
 

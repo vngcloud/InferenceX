@@ -8,6 +8,20 @@ from types import SimpleNamespace
 import process_changelog
 
 
+DEFAULT_EVAL_SCENARIOS = [
+    "fixed-seq-len",
+    "agentic-coding",
+    "quality-gpqa",
+    "quality-mmlu-pro",
+    "quality-hle",
+    "quality-livecodebench",
+    "quality-bfcl",
+    "quality-scicode",
+    "quality-swebench-pro",
+    "quality-deepswe",
+]
+
+
 def _scenario_values(command):
     if "--scenario-type" not in command:
         return []
@@ -102,7 +116,7 @@ def test_all_evals_skips_benchmarks_and_uses_all_evals_generator_flag(
     assert "--all-evals" in commands[0]
     assert "--evals-only" in commands[0]
     assert "--no-evals" not in commands[0]
-    assert _scenario_values(commands[0]) == ["fixed-seq-len", "agentic-coding"]
+    assert _scenario_values(commands[0]) == DEFAULT_EVAL_SCENARIOS
 
     output = json.loads(capsys.readouterr().out)
     assert output["changelog_metadata"]["entries"][0]["all-evals"] is True
@@ -150,7 +164,7 @@ def test_regular_changelog_entry_keeps_benchmark_and_subset_eval_commands(
     assert "--no-evals" in commands[0]
     assert "--evals-only" in commands[1]
     assert "--all-evals" not in commands[1]
-    assert _scenario_values(commands[1]) == ["fixed-seq-len", "agentic-coding"]
+    assert _scenario_values(commands[1]) == DEFAULT_EVAL_SCENARIOS
     json.loads(capsys.readouterr().out)
 
 
@@ -198,7 +212,7 @@ def test_cli_all_evals_expands_evals_and_preserves_benchmarks(
     assert "--all-evals" not in commands[0]
     assert "--all-evals" in commands[1]
     assert "--evals-only" in commands[1]
-    assert _scenario_values(commands[1]) == ["fixed-seq-len", "agentic-coding"]
+    assert _scenario_values(commands[1]) == DEFAULT_EVAL_SCENARIOS
     json.loads(capsys.readouterr().out)
 
 
@@ -292,7 +306,7 @@ def test_cli_evals_only_suppresses_benchmarks_and_keeps_default_subset(
     assert "--evals-only" in commands[0]
     assert "--all-evals" not in commands[0]
     assert "--no-evals" not in commands[0]
-    assert _scenario_values(commands[0]) == ["fixed-seq-len", "agentic-coding"]
+    assert _scenario_values(commands[0]) == DEFAULT_EVAL_SCENARIOS
     json.loads(capsys.readouterr().out)
 
 

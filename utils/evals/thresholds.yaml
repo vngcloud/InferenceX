@@ -3,6 +3,14 @@ default:
   gsm8k: 0.90
   gpqa_diamond_cot_n_shot: 0.30
   swebench_lite: 0.50
+  # Quality-eval benchmarks
+  mmlu_pro: 0.50
+  hle: 0.10
+  livecodebench: 0.30
+  bfcl: 0.60
+  scicode: 0.20
+  swebench_pro: 0.15
+  deepswe: 0.10
 models:
   dsr1:
     gsm8k: 0.91
@@ -12,6 +20,16 @@ models:
     gsm8k: 0.94
   glm5.1:
     gsm8k: 0.93
+  glm5.2:
+    gsm8k: 0.93
+    gpqa_diamond_cot_n_shot: 0.35
+    mmlu_pro: 0.55
+    hle: 0.15
+    livecodebench: 0.35
+    bfcl: 0.65
+    scicode: 0.25
+    swebench_pro: 0.20
+    deepswe: 0.15
   gptoss:
     gsm8k: 0.91
   kimik2.5:

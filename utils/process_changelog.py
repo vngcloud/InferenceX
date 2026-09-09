@@ -10,10 +10,11 @@ from matrix_logic.generate_sweep_configs import seq_len_to_str
 from matrix_logic.validation import (
     ChangelogEntry,
     ChangelogMatrixEntry,
+    QUALITY_SCENARIO_TYPES,
     load_config_files,
 )
 
-SCENARIO_TYPES = ("fixed-seq-len", "agentic-coding")
+SCENARIO_TYPES = ("fixed-seq-len", "agentic-coding") + tuple(QUALITY_SCENARIO_TYPES)
 
 
 def _freeze_config_value(value):
@@ -178,6 +179,7 @@ def main():
         "agentic_evals": [],
         "multinode_evals": [],
         "multinode_agentic_evals": [],
+        "quality_evals": [],
         "changelog_metadata": {
             "base_ref": args.base_ref,
             "head_ref": args.head_ref,
@@ -303,7 +305,9 @@ def main():
         all_benchmark_results = trim_conc(all_benchmark_results)
 
     for result in all_benchmark_results:
-        if result.get("scenario-type") == "agentic-coding":
+        if result.get("scenario-type") in QUALITY_SCENARIO_TYPES:
+            final_results["quality_evals"].append(result)
+        elif result.get("scenario-type") == "agentic-coding":
             if result.get("prefill") is not None:
                 final_results["multi_node"]["agentic"].append(result)
             else:
@@ -320,11 +324,19 @@ def main():
     # the fixed-seq-len inputs (isl/osl/max-model-len) they don't have. Same
     # split applies on the multi-node side (multinode_evals vs
     # multinode_agentic_evals).
+    # Quality-eval rows go to their own bucket for the same reason: they carry
+    # quality-eval inputs (benchmark-name, quality-endpoint, ...) rather than
+    # fixed-seq-len or agentic inputs.
     single_node_evals = [e for e in all_eval_results if e.get("prefill") is None]
     multi_node_evals = [e for e in all_eval_results if e.get("prefill") is not None]
+    final_results["quality_evals"].extend(
+        e for e in all_eval_results
+        if e.get("scenario-type") in QUALITY_SCENARIO_TYPES
+    )
     final_results["evals"] = [
         e for e in single_node_evals
         if e.get("scenario-type") != "agentic-coding"
+        and e.get("scenario-type") not in QUALITY_SCENARIO_TYPES
     ]
     final_results["agentic_evals"] = [
         e for e in single_node_evals
@@ -333,6 +345,7 @@ def main():
     final_results["multinode_evals"] = [
         e for e in multi_node_evals
         if e.get("scenario-type") != "agentic-coding"
+        and e.get("scenario-type") not in QUALITY_SCENARIO_TYPES
     ]
     final_results["multinode_agentic_evals"] = [
         e for e in multi_node_evals
