@@ -182,6 +182,9 @@ agent:
 
 environment:
   cwd: "/app"
+  # DockerEnvironment uses pull_timeout for the entire `docker run` startup,
+  # including an implicit image pull. This is separate from command timeout.
+  pull_timeout: 600
   timeout: 600
   env:
     PAGER: cat

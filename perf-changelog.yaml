@@ -6105,3 +6105,11 @@
   description:
     - "Read BFCL partial-run category counts from their nested non_live directory and prevent native JSONL generation records from being promoted to results.json."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
+
+- config-keys:
+    - glm5.2-quality-eval
+  scenario-type:
+    - quality-swebench-pro
+  description:
+    - "Set mini-swe-agent's Docker pull/start timeout to 600 seconds; environment.timeout only controls commands after startup."
+  pr-link: https://github.com/vngcloud/InferenceX/commits/feat/quality-benchmark

@@ -355,6 +355,21 @@ def test_validate_scores_reads_swebench_pro_native_result(
     )
 
 
+def test_swebench_pro_allows_slow_docker_startup() -> None:
+    config_path = (
+        Path(__file__).resolve().parents[2]
+        / "benchmarks"
+        / "single_node"
+        / "quality"
+        / "tasks"
+        / "swebench-pro"
+        / "swebench_pro.yaml"
+    )
+    config = __import__("yaml").safe_load(config_path.read_text())
+
+    assert config["environment"]["pull_timeout"] == 600
+
+
 def test_validate_scores_reads_bfcl_native_result(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
