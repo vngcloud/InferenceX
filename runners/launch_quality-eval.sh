@@ -51,8 +51,8 @@ export LIMIT="${EVAL_LIMIT:-${LIMIT:-}}"
 if [[ -z "${MAX_GEN_TOKENS:-}" ]]; then
     case "$QUALITY_BENCHMARK_NAME" in
         gpqa|mmlu_pro|bfcl) MAX_GEN_TOKENS=8192 ;;
-        hle|livecodebench|scicode) MAX_GEN_TOKENS=16384 ;;
-        swebench_pro|deepswe) MAX_GEN_TOKENS=32768 ;;
+        hle|livecodebench) MAX_GEN_TOKENS=16384 ;;
+        scicode|swebench_pro|deepswe) MAX_GEN_TOKENS=65536 ;;
     esac
 fi
 export MAX_GEN_TOKENS
