@@ -6060,7 +6060,6 @@
     - quality-scicode
     - quality-bfcl
     - quality-swebench-pro
-    - quality-deepswe
   description:
     - "Run the combined balanced coding and agentic coding recipes at ccu4: LiveCodeBench 50, SciCode 8, BFCL 100, SWE-bench Pro 10, and DeepSWE 10."
   pr-link: https://github.com/vngcloud/InferenceX/pull/36
