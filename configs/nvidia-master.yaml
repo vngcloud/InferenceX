@@ -8537,7 +8537,7 @@ glm5.2proddp8deep-fp4-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
 
 glm5.3proddp8deep-fp4-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.18
-  model: zai-org/GLM-5.3-FP8
+  model: PhalaCloud/GLM-5.3-W4AFP8
   model-prefix: glm5.3proddp8deep
   runner: cluster:h200-greennode
   precision: fp4
