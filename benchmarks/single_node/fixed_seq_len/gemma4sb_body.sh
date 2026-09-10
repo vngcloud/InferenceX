@@ -77,9 +77,12 @@
 # total_input_tokens in the result JSON is the authoritative number.
 #
 # ENGINE CONFIG is copied verbatim from gemma4v28_fp8block_h200.sh (Stage 1)
-# apart from --no-enable-prefix-caching and the per-arm --speculative-config.
-# BENCH_GPU 6, the dead VLLM_ATTENTION_BACKEND=FLASHINFER, and the absence of
-# --kv-cache-dtype are all inherited deliberately: fp8 KV pins gemma4 to Triton
+# apart from --no-enable-prefix-caching, the per-arm --speculative-config, and
+# BENCH_GPU: 4 here instead of Stage 1's 6 (operator request, re-pinned after
+# the first dispatch was canceled with no benchmark job completed; same node,
+# same H200 SKU, so nothing measured changes). The dead
+# VLLM_ATTENTION_BACKEND=FLASHINFER and the absence of --kv-cache-dtype are
+# inherited deliberately: fp8 KV pins gemma4 to Triton
 # on SM90 and costs +72% TTFT / +25% TPOT / -20% req/s. Power telemetry is not
 # comparable on this branch. Pin the host with
 # --runner-node-filter h200-greennode_07.
@@ -106,7 +109,7 @@ check_env_vars \
 : "${SB_CATEGORY:?set by the wrapper that sources this file}"
 SB_IGNORE_EOS="${SB_IGNORE_EOS:-1}"
 
-BENCH_GPU=6
+BENCH_GPU=4
 SB_CONFIG="${SB_CONFIG:-throughput_8k}"
 SPEEDBENCH_DIR="${SPEEDBENCH_DIR:-/workspace/speed_bench_data}"
 
