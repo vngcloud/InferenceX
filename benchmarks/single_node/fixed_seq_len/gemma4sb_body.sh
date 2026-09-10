@@ -182,9 +182,10 @@ if [[ -n "$DRAFT_MODEL" && "$DRAFT_MODEL" != /* ]]; then hf download "$DRAFT_MOD
 # of being fetched per job. The runner's route to raw.githubusercontent.com and
 # gutenberg.org crawls at ~12 kB/s: run 34492930930 died on BAMBOO
 # meetingpred_16k.jsonl (5.43 MB) at aiohttp's 5-minute cap, and the map itself
-# ran 6.84 s/example = ~3 h per cell. The committed file is byte-identical to
-# NeMo's prepare.py --config throughput_8k with the hle branch disabled:
-# cais/hle is GATED on the Hub and the runner token
+# ran 6.84 s/example = ~3 h per cell. The committed file is NeMo prepare.py's
+# throughput_8k output with the hle branch disabled, plus one same-length
+# redaction (an expired OSSAccessKeyId inside a repobench prompt) to clear
+# GitHub push protection; prompt token counts are unchanged. cais/hle is GATED on the Hub and the runner token
 # (INFERENCEX_OFFICIAL_RO_HF_TOKEN) has not accepted its terms, so the unpatched
 # prep dies mid-map on the first hle row (run 34468639874: all sixteen cells
 # failed at 513/1536). hle feeds ONLY the mixed category (268/512 rows);
