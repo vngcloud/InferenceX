@@ -178,22 +178,33 @@ if [[ -n "$DRAFT_MODEL" && "$DRAFT_MODEL" != /* ]]; then hf download "$DRAFT_MOD
 # Not auto-downloaded by vllm bench serve. --dataset-path is the DIRECTORY the
 # prepare script writes {config}.jsonl into, not the file itself.
 #
+# The prepared throughput_8k.jsonl is COMMITTED alongside this script instead
+# of being fetched per job. The runner's route to raw.githubusercontent.com and
+# gutenberg.org crawls at ~12 kB/s: run 34492930930 died on BAMBOO
+# meetingpred_16k.jsonl (5.43 MB) at aiohttp's 5-minute cap, and the map itself
+# ran 6.84 s/example = ~3 h per cell. The committed file is byte-identical to
+# NeMo's prepare.py --config throughput_8k with the hle branch disabled:
 # cais/hle is GATED on the Hub and the runner token
-# (INFERENCEX_OFFICIAL_RO_HF_TOKEN) has not accepted its terms, so an unpatched
-# prepare.py dies mid-map on the first hle-sourced row (run 34468639874: all
-# sixteen cells failed at 513/1536). hle feeds ONLY the mixed category (268/512
-# rows); low_entropy (repobench / AdaLEval textsort / lca-code-completion, all
-# public, verified 2026-09-10) and high_entropy (BAMBOO / gutenberg) never touch
-# it. The sed below disables the hle branch so mixed rows keep their placeholder
-# turns: fine for the hi/lo cells this stage benches, and it makes the mx
-# wrappers INVALID until someone accepts the gate on the token's account. If
-# upstream renames the branch, the sed stops matching and prepare.py fails
-# loudly on the gated fetch again -- no silent bad data.
-echo "=== Downloading SPEED-Bench dataset ($SB_CONFIG) ==="
-pip install -q datasets tiktoken pandas
-curl -LsSf https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py \
-  | sed 's|^    elif BenchmarkDataset\.HLE\.value in example\["source"\]:$|    elif False:  # stage-5 hle skip|' \
-  | python3 - --config "$SB_CONFIG" --output_dir "$SPEEDBENCH_DIR"
+# (INFERENCEX_OFFICIAL_RO_HF_TOKEN) has not accepted its terms, so the unpatched
+# prep dies mid-map on the first hle row (run 34468639874: all sixteen cells
+# failed at 513/1536). hle feeds ONLY the mixed category (268/512 rows);
+# low_entropy (repobench / AdaLEval textsort / lca-code-completion) and
+# high_entropy (BAMBOO / gutenberg) rows are fully resolved from public
+# sources. That keeps the mx wrappers INVALID until someone accepts the gate
+# on the token's account; the hi/lo cells this stage benches are unaffected.
+# The network path stays as a fallback for other SB_CONFIG values and fails
+# loudly on its own -- no silent bad data.
+if [[ -f "$(dirname "$0")/speed_bench_${SB_CONFIG}.jsonl" ]]; then
+    echo "=== Using committed SPEED-Bench dataset ($SB_CONFIG) ==="
+    mkdir -p "$SPEEDBENCH_DIR"
+    cp "$(dirname "$0")/speed_bench_${SB_CONFIG}.jsonl" "$SPEEDBENCH_DIR/$SB_CONFIG.jsonl"
+else
+    echo "=== Downloading SPEED-Bench dataset ($SB_CONFIG) ==="
+    pip install -q datasets tiktoken pandas
+    curl -LsSf https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py \
+      | sed 's|^    elif BenchmarkDataset\.HLE\.value in example\["source"\]:$|    elif False:  # stage-5 hle skip|' \
+      | python3 - --config "$SB_CONFIG" --output_dir "$SPEEDBENCH_DIR"
+fi
 
 if [[ ! -f "$SPEEDBENCH_DIR/$SB_CONFIG.jsonl" ]]; then
     echo "CRITICAL: SPEED-Bench download failed -- $SPEEDBENCH_DIR/$SB_CONFIG.jsonl not found" >&2
