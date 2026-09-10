@@ -8549,6 +8549,20 @@ glm5.3proddp8deep-fp4-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 16, 24, 32], router: { name: sglang-router, version: "0.3.2" } }
 
+glm5.3proddp8deepdraftunquant-fp4-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.18
+  model: PhalaCloud/GLM-5.3-W4AFP8
+  model-prefix: glm5.3proddp8deepdraftunquant
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [24], router: { name: sglang-router, version: "0.3.2" } }
+
 glm5.2proddp8deep-fp8-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.18
   model: zai-org/GLM-5.2-FP8
