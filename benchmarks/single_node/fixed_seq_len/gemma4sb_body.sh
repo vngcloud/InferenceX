@@ -195,13 +195,21 @@ if [[ -n "$DRAFT_MODEL" && "$DRAFT_MODEL" != /* ]]; then hf download "$DRAFT_MOD
 # on the token's account; the hi/lo cells this stage benches are unaffected.
 # The network path stays as a fallback for other SB_CONFIG values and fails
 # loudly on its own -- no silent bad data.
+#
+# pandas is installed on every path, not just the fallback: vllm bench serve's
+# SpeedBench loader reads the jsonl with pd.read_json and the vllm-openai image
+# ships without it (run 34500552905: the first cell died at that import after a
+# clean server boot). Only pandas is needed on the serve path -- the repo's
+# production speedbench recipes run green with datasets/tiktoken/pandas
+# installed and none of the plotting extras of vllm[bench].
+pip install -q pandas
 if [[ -f "$(dirname "$0")/speed_bench_${SB_CONFIG}.jsonl" ]]; then
     echo "=== Using committed SPEED-Bench dataset ($SB_CONFIG) ==="
     mkdir -p "$SPEEDBENCH_DIR"
     cp "$(dirname "$0")/speed_bench_${SB_CONFIG}.jsonl" "$SPEEDBENCH_DIR/$SB_CONFIG.jsonl"
 else
     echo "=== Downloading SPEED-Bench dataset ($SB_CONFIG) ==="
-    pip install -q datasets tiktoken pandas
+    pip install -q datasets tiktoken
     curl -LsSf https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py \
       | sed 's|^    elif BenchmarkDataset\.HLE\.value in example\["source"\]:$|    elif False:  # stage-5 hle skip|' \
       | python3 - --config "$SB_CONFIG" --output_dir "$SPEEDBENCH_DIR"
