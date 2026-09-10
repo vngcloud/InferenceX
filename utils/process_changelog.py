@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from collections import defaultdict
 
 import yaml
@@ -231,7 +232,7 @@ def main():
 
             for scenarios, benchmark_configs in benchmark_groups.items():
                 base_cmd = [
-                    "python3",
+                    sys.executable,
                     GENERATE_SWEEPS_PY_SCRIPT,
                     "test-config",
                     "--config-keys",
@@ -272,7 +273,7 @@ def main():
             if expand_all_evals:
                 eval_flags.append("--all-evals")
             base_cmd = [
-                "python3",
+                sys.executable,
                 GENERATE_SWEEPS_PY_SCRIPT,
                 "test-config",
                 "--config-keys",
