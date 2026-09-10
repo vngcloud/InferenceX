@@ -8711,6 +8711,510 @@ gemma4v28mtp8-fp8block-h200-vllm:
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
 
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 1/16:
+# no speculator (Stage-5 gate denominator)
+# measured on SPEED-Bench throughput_8k, low-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. This key IS the denominator.
+#
+# spec-decoding "none" is the Stage-5 gate denominator: the >=15% comparison must be
+# against a no-spec arm on THIS dataset, at the same concurrency and category.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbbaselo-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbbaselo
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 2/16:
+# no speculator (Stage-5 gate denominator)
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. This key IS the denominator.
+#
+# spec-decoding "none" is the Stage-5 gate denominator: the >=15% comparison must be
+# against a no-spec arm on THIS dataset, at the same concurrency and category.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbbasemx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbbasemx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 3/16:
+# no speculator (Stage-5 gate denominator)
+# measured on SPEED-Bench throughput_8k, high-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. This key IS the denominator.
+#
+# spec-decoding "none" is the Stage-5 gate denominator: the >=15% comparison must be
+# against a no-spec arm on THIS dataset, at the same concurrency and category.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbbasehi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbbasehi
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 4/16:
+# no speculator (Stage-5 gate denominator)
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos OFF -- artifact control.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. This key IS the denominator.
+#
+# spec-decoding "none" is the Stage-5 gate denominator: the >=15% comparison must be
+# against a no-spec arm on THIS dataset, at the same concurrency and category.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbbasenx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbbasenx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [32] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 5/16:
+# EAGLE3, RedHatAI/gemma-4-31B-it-speculator.eagle3
+# measured on SPEED-Bench throughput_8k, low-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbe3lo-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbe3lo
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 6/16:
+# EAGLE3, RedHatAI/gemma-4-31B-it-speculator.eagle3
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbe3mx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbe3mx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 7/16:
+# EAGLE3, RedHatAI/gemma-4-31B-it-speculator.eagle3
+# measured on SPEED-Bench throughput_8k, high-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbe3hi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbe3hi
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 8/16:
+# EAGLE3, RedHatAI/gemma-4-31B-it-speculator.eagle3
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos OFF -- artifact control.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbe3nx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbe3nx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 9/16:
+# DFlash, RedHatAI/gemma-4-31B-it-speculator.dflash
+# measured on SPEED-Bench throughput_8k, low-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. PREFLIGHT THIS ARM FIRST: the model card still
+# says vllm nightly / PR #42095 and "Validated on Nvidia H100, other hardware
+# validation pending". method "dflash" parses at v0.28.0; that is not proof the
+# checkpoint loads against a multimodal target.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbdflo-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdflo
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 10/16:
+# DFlash, RedHatAI/gemma-4-31B-it-speculator.dflash
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. PREFLIGHT THIS ARM FIRST: the model card still
+# says vllm nightly / PR #42095 and "Validated on Nvidia H100, other hardware
+# validation pending". method "dflash" parses at v0.28.0; that is not proof the
+# checkpoint loads against a multimodal target.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbdfmx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdfmx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 11/16:
+# DFlash, RedHatAI/gemma-4-31B-it-speculator.dflash
+# measured on SPEED-Bench throughput_8k, high-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. PREFLIGHT THIS ARM FIRST: the model card still
+# says vllm nightly / PR #42095 and "Validated on Nvidia H100, other hardware
+# validation pending". method "dflash" parses at v0.28.0; that is not proof the
+# checkpoint loads against a multimodal target.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbdfhi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdfhi
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 12/16:
+# DFlash, RedHatAI/gemma-4-31B-it-speculator.dflash
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos OFF -- artifact control.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. PREFLIGHT THIS ARM FIRST: the model card still
+# says vllm nightly / PR #42095 and "Validated on Nvidia H100, other hardware
+# validation pending". method "dflash" parses at v0.28.0; that is not proof the
+# checkpoint loads against a multimodal target.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py, which accepts only
+# mtp/draft_model/none. Both EAGLE3 and DFlash are external-draft methods, so
+# draft_model is the correct and only available category; the launcher maps it
+# to the _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbdfnx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdfnx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [32] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 13/16:
+# native Gemma-4 MTP, google/gemma-4-31B-it-assistant
+# measured on SPEED-Bench throughput_8k, low-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. num_speculative_tokens is pinned to the winning
+# depth from Stage 3 (run 33051618426).
+#
+# spec-decoding "mtp" is both correct and required: the Gemma-4 assistant checkpoint
+# consumes the target's hidden states and is not a standalone draft model.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbmtplo-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbmtplo
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 14/16:
+# native Gemma-4 MTP, google/gemma-4-31B-it-assistant
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. num_speculative_tokens is pinned to the winning
+# depth from Stage 3 (run 33051618426).
+#
+# spec-decoding "mtp" is both correct and required: the Gemma-4 assistant checkpoint
+# consumes the target's hidden states and is not a standalone draft model.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbmtpmx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbmtpmx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 15/16:
+# native Gemma-4 MTP, google/gemma-4-31B-it-assistant
+# measured on SPEED-Bench throughput_8k, high-entropy split, ignore-eos on.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. num_speculative_tokens is pinned to the winning
+# depth from Stage 3 (run 33051618426).
+#
+# spec-decoding "mtp" is both correct and required: the Gemma-4 assistant checkpoint
+# consumes the target's hidden states and is not a standalone draft model.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbmtphi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbmtphi
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# STAGE 5 of the Gemma-4 optimization roadmap, cell 16/16:
+# native Gemma-4 MTP, google/gemma-4-31B-it-assistant
+# measured on SPEED-Bench throughput_8k, mixed split, ignore-eos OFF -- artifact control.
+#
+# Stage 5 replaces the synthetic counting-sequence workload of Stages 0-3 with
+# real text stratified by entropy, so its numbers are NOT comparable to those
+# stages. Adopt only on >=15% output-throughput gain against the
+# gemma4sbbase* cell at the same concurrency and category, with p99 TTFT and
+# p99 ITL no worse than +5%. num_speculative_tokens is pinned to the winning
+# depth from Stage 3 (run 33051618426).
+#
+# spec-decoding "mtp" is both correct and required: the Gemma-4 assistant checkpoint
+# consumes the target's hidden states and is not a standalone draft model.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts are
+# approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbmtpnx-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbmtpnx
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32] }
+
 
 
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
