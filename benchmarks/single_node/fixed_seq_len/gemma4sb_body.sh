@@ -177,9 +177,22 @@ if [[ -n "$DRAFT_MODEL" && "$DRAFT_MODEL" != /* ]]; then hf download "$DRAFT_MOD
 # ---- SPEED-Bench dataset ----------------------------------------------------
 # Not auto-downloaded by vllm bench serve. --dataset-path is the DIRECTORY the
 # prepare script writes {config}.jsonl into, not the file itself.
+#
+# cais/hle is GATED on the Hub and the runner token
+# (INFERENCEX_OFFICIAL_RO_HF_TOKEN) has not accepted its terms, so an unpatched
+# prepare.py dies mid-map on the first hle-sourced row (run 34468639874: all
+# sixteen cells failed at 513/1536). hle feeds ONLY the mixed category (268/512
+# rows); low_entropy (repobench / AdaLEval textsort / lca-code-completion, all
+# public, verified 2026-09-10) and high_entropy (BAMBOO / gutenberg) never touch
+# it. The sed below disables the hle branch so mixed rows keep their placeholder
+# turns: fine for the hi/lo cells this stage benches, and it makes the mx
+# wrappers INVALID until someone accepts the gate on the token's account. If
+# upstream renames the branch, the sed stops matching and prepare.py fails
+# loudly on the gated fetch again -- no silent bad data.
 echo "=== Downloading SPEED-Bench dataset ($SB_CONFIG) ==="
 pip install -q datasets tiktoken pandas
 curl -LsSf https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py \
+  | sed 's|^    elif BenchmarkDataset\.HLE\.value in example\["source"\]:$|    elif False:  # stage-5 hle skip|' \
   | python3 - --config "$SB_CONFIG" --output_dir "$SPEEDBENCH_DIR"
 
 if [[ ! -f "$SPEEDBENCH_DIR/$SB_CONFIG.jsonl" ]]; then
