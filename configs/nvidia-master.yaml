@@ -8563,6 +8563,33 @@ glm5.3proddp8deepdraftunquant-fp4-h200-greennode-sglang-dpattn-router-hicache102
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [24], router: { name: sglang-router, version: "0.3.2" } }
 
+# GLM-5.3-Flash (zai-org/GLM-5.3-Flash) FP8 low-latency fixed-seq-len 8k1k
+# CCU ladder on 4 of 8 H200s (TP4/EP4 + deep_gemm MoE runner -- the STANDARD
+# 4xH200 layout per the handoff boot verification: EP4 keeps experts
+# full-size (D=2048) so the DSV4 kernel's D//8 >= E_rank assert passes with
+# 73 experts/rank; EP1 would TP-shard experts to D=512 and crash the assert).
+# Dedicated lmsysorg/sglang:glm-5.3-flash image: glm5_next arch is in no
+# sglang release. Native MTP adaptive EAGLE 5/1/6, HiCache L2 32GB/rank,
+# tilelang DSA, bf16 KV. Running requests are capped at 31 by the mamba/KDA
+# state cache (156 slots / 5 per request for MTP rollback), not by the
+# ~1M-token KV pool: conc 32/48 measure scheduler-queueing above the cap
+# (the knee). Model+image pre-warmed on h200-greennode_06 ONLY -- pin
+# dispatch with --runner-node-filter h200-greennode_06.
+glm5.3flash-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache32:
+  image: lmsysorg/sglang:glm-5.3-flash
+  model: zai-org/GLM-5.3-Flash
+  model-prefix: glm5.3flash
+  runner: cluster:h200-greennode
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 4, ep: 4, spec-decoding: mtp, conc-list: [1, 8, 16, 32, 48] }
+
 glm5.2proddp8deep-fp8-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.18
   model: zai-org/GLM-5.2-FP8
