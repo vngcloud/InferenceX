@@ -8590,6 +8590,27 @@ glm5.3flash-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache32:
       search-space:
       - { tp: 4, ep: 4, spec-decoding: mtp, conc-list: [1, 8, 16, 32, 48] }
 
+# Agentic trace-replay twin of the 8k1k arm above: same STANDARD 4xH200
+# TP4/EP4 + deep_gemm server config, cap-256k SemiAnalysis CC traces instead
+# of fixed 8k1k. CCU 32 = the knee (mamba/KDA state cache caps running at 31;
+# 8k1k run 34584333626 measured c32 as the throughput knee). Model+image
+# pre-warmed on h200-greennode_06 ONLY -- pin --runner-node-filter
+# h200-greennode_06. Recipe: glm5.3flash_fp8_h200_sglang_mtp.sh (agentic).
+glm5.3flash-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache32-agentic:
+  image: lmsysorg/sglang:glm-5.3-flash
+  model: zai-org/GLM-5.3-Flash
+  model-prefix: glm5.3flash
+  runner: cluster:h200-greennode
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 4, ep: 4, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 16, 32] }
+
+
 glm5.2proddp8deep-fp8-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.18
   model: zai-org/GLM-5.2-FP8
