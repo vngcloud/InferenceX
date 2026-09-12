@@ -9120,3 +9120,48 @@ glm5.1-fp8-b200-tilert:
           dp-attn: false
           additional-settings:
           - "DECODE_NODES=1"
+# GLM-5.2 W4AFP8 8k1k fixed-seq-len A/B pair on the glm5.2prodll baseline
+# serving config (run 34197652789): TP8-only, no dp-attention, no router, no
+# EP, HiCache 128GB/rank direct write_back, flashmla_sparse_q8 DSA prefill,
+# dfs-weight, chunked-prefill 32768, context 300000, kv fp8_e4m3, mem-fraction
+# 0.75, min(2*CONC,32) running requests, glm47/glm45. Both arms share image
+# lmsysorg/sglang:v0.5.19 (DSpark twin needs the AlayaNeW draft, boot-verified
+# on v0.5.19 only) so the pair is single-variable (speculative algorithm).
+# Model+draft+image pre-warmed on h200-greennode_07 -- pin dispatch with
+# --runner-node-filter h200-greennode_07. EAGLE baseline arm (mtp): recipe
+# glm5.2ll8k1k_fp4_h200_sglang.sh.
+glm5.2ll8k1k-fp4-h200-greennode-sglang-tp8-hicache1024:
+  image: lmsysorg/sglang:v0.5.19
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2ll8k1k
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 8, spec-decoding: mtp, conc-list: [1, 4, 8, 16, 32] }
+
+# DSpark twin of the glm5.2ll8k1k baseline above: byte-identical except
+# SPEC_ARGS -- EAGLE 5/1/6 swapped for DSPARK on the external
+# AlayaNeW/GLM-5.2-DSpark bf16 draft (unquant, block 8, trust-remote-code;
+# boot-verified 2026-09-12, KV pool 800,896 tokens/rank at mem 0.75).
+# spec-decoding draft_model resolves the _specdec recipe suffix. Recipe:
+# glm5.2dsparkll8k1k_fp4_h200_sglang_specdec.sh.
+glm5.2dsparkll8k1k-fp4-h200-greennode-sglang-tp8-hicache1024-dspark:
+  image: lmsysorg/sglang:v0.5.19
+  model: zai-org/GLM-5.2-FP8
+  model-prefix: glm5.2dsparkll8k1k
+  runner: cluster:h200-greennode
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 8, spec-decoding: draft_model, conc-list: [1, 4, 8, 16, 32] }
