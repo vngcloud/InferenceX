@@ -9,7 +9,10 @@ export MODEL_STORE="${MODEL_STORE:-/models}"
 export PORT="${PORT:-8888}"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 
-docker pull "$IMAGE"
+# Pull-fallback guard: local-only image tags (e.g. sglang-pr38220:v0.5.19-09647177,
+# present only on the h200-greennode boxes) cannot be pulled from any registry.
+# Registry-backed images pull fine and never reach the fallback.
+docker pull "$IMAGE" || docker image inspect "$IMAGE" >/dev/null 2>&1 || { echo "FATAL: image $IMAGE not pullable and not present locally" >&2; exit 1; }
 
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
 # Mirrors the SPEC_SUFFIX convention in launch_h200-cw.sh / launch_h200-nb.sh /
