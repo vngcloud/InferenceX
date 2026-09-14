@@ -9,8 +9,8 @@ set -x
 #   1. DROP --dsa-prefill-backend/--dsa-decode-backend tilelang pins -> auto
 #      (flashmla_sparse prefill + fa3 decode on Hopper; upstream PR #36895
 #      measured +9.0% c32 / +15.6% c128 on 8xH200 TP8/EP8 Flash).
-#   2. --mem-fraction-static 0.75 -> 0.80 (NOT 0.85: 0.85 OOM-crashed a worker
-#      at serving-time KDA JIT, run 34800928433 c8 0/80).
+#   2. --mem-fraction-static stays 0.75 (0.85 OOM, run 34800928433; 0.80 read
+#      -2%/-11% from memory pressure, run 34803244404).
 #   3. --hicache-size 32 -> 64 (host RAM ~1.4TB, 4x64=256GB fits; baseline
 #      host pool hit 100% full at agentic c16+).
 #   4. + --hicache-write-policy write_back (baseline write_through).
@@ -86,7 +86,7 @@ SGLANG_CMD=(
   --chunked-prefill-size 32768
   --tool-call-parser glm47
   --reasoning-parser glm45
-  --mem-fraction-static 0.80
+  --mem-fraction-static 0.75
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   --context-length 300000
   --allow-auto-truncate

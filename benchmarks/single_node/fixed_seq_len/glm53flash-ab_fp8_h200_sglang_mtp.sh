@@ -7,9 +7,10 @@
 #   1. DROP --dsa-prefill-backend/--dsa-decode-backend tilelang pins -> auto
 #      (flashmla_sparse prefill + fa3 decode on Hopper; upstream PR #36895
 #      measured +9.0% c32 / +15.6% c128 on 8xH200 TP8/EP8 Flash).
-#   2. --mem-fraction-static 0.75 -> 0.80 (NOT 0.85: 0.85 left 0.12GB free
-#      at serving-time KDA JIT and OOM-crashed a worker mid-warmup, run
-#      34800928433 c8 0/80; 0.80 keeps ~half the pool gain with safe headroom).
+#   2. --mem-fraction-static stays 0.75 (0.85 OOM-crashed a worker mid-warmup,
+#      run 34800928433 c8 0/80; 0.80 survived but left 0.01GB free and read
+#      -2% c8 / -11% c32 vs baseline, run 34803244404 -> memory pressure, not
+#      kernel speed. Capacity will come from fp8-KV / mamba-ratio instead).
 #   3. --hicache-size 32 -> 64 (host RAM ~1.4TB, 4x64=256GB fits).
 #   4. + --hicache-write-policy write_back (baseline write_through suspected
 #      in the c8 TTFT-p99 16.3s outlier; prod 5.2 runs write_back).
@@ -59,7 +60,7 @@ python3 -m sglang.launch_server \
     --ep-size 4 \
     --moe-runner-backend deep_gemm \
     --numa-node 0 0 0 0 \
-    --mem-fraction-static 0.80 \
+    --mem-fraction-static 0.75 \
     --kv-cache-dtype bfloat16 \
     --speculative-algorithm EAGLE \
     --speculative-num-steps 5 \
