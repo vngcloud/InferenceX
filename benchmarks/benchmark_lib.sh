@@ -2394,6 +2394,14 @@ reap_orphan_agentic_replays() {
         label=""
         { read -r root_pid; read -r label; } < "$state_file" || true
 
+        # Multi-tenant guard: when REAP_EXP_SCOPE is set (workflow passes our
+        # exp-name), only reap replays recorded by our own series. Otherwise a
+        # concurrent tenant's LIVE replay on other GPUs would be killed.
+        if [ -n "${REAP_EXP_SCOPE:-}" ] && [[ "$label" != *"$REAP_EXP_SCOPE"* ]]; then
+            echo "[aiperf] Skipping foreign replay state $state_file ($label)"
+            continue
+        fi
+
         if [[ ! "$root_pid" =~ ^[1-9][0-9]*$ ]]; then
             echo "[aiperf] Discarding malformed replay state file $state_file"
             rm -f "$state_file"

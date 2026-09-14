@@ -34,6 +34,11 @@ if [[ ! -f "$BENCH_SCRIPT" ]]; then
   BENCH_SCRIPT="${BENCH_BASE}.sh"
 fi
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-h200-greennode_01}"
+# Unique bench-container name per (exp, conc): the workflow's resource-cleanup
+# reaps by this exact name, so concurrent tenants' containers on other GPUs
+# (e.g. GPUs 4-7 while we hold 0-3) are never touched. Same-series orphans
+# share the name and are still reaped (pre-rm below + tmpl name filter).
+BENCH_NAME="inferencex-bench-${EXP_NAME}-c${CONC}"
 RUN_ENV=(
   HF_TOKEN HF_HUB_CACHE PORT
   EXP_NAME MODEL MODEL_PREFIX IMAGE FRAMEWORK PRECISION TP EP_SIZE DP_ATTENTION
@@ -51,6 +56,9 @@ for name in "${RUN_ENV[@]}"; do
 done
 
 docker rm -f "$DCGM_NAME" 2>/dev/null || true
+# Same-series stale name only (exact match): lets --name below never collide
+# after a SIGKILLed prior job whose tmpl cleanup never ran.
+docker rm -f "$BENCH_NAME" 2>/dev/null || true
 docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
   --label inferencex-bench=1 \
   --name "$DCGM_NAME" \
@@ -77,6 +85,7 @@ fi
 
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \
   --label inferencex-bench=1 \
+  --name "$BENCH_NAME" \
   "${VOL_ARGS[@]}" \
   -w /workspace \
   "${ENV_ARGS[@]}" \

@@ -311,23 +311,29 @@ jobs:
           # docker loop below can block for a while. The pre-run copy executes
           # before actions/checkout, so it uses the previous checkout's copy of
           # the script and is skipped on a never-checked-out workspace.
-          if [ -f runners/reap_orphan_aiperf.sh ]; then
-            bash runners/reap_orphan_aiperf.sh || true
-          fi
+           if [ -f runners/reap_orphan_aiperf.sh ]; then
+             # Scoped to this job's own series: the reaper only touches state
+             # files whose label mentions our exp-name, so a concurrent
+             # tenant's live replay on other GPUs is never reaped.
+             REAP_EXP_SCOPE="${{ inputs.exp-name }}" bash runners/reap_orphan_aiperf.sh || true
+           fi
 
           # Cleanup Docker resources.
-          # Scoped to InferenceX's own containers via the inferencex-bench label
-          # (set on the DCGM + bench containers in the launch_*.sh runners) so a
-          # shared box's OTHER tenants' containers are never touched. Purpose is
-          # only to reap this framework's orphans from a SIGKILLed prior job; the
-          # normal-path containers self-clean via --rm. No `docker network prune`
-          # here: the runners use --network host and create no networks, so a
-          # prune would only ever remove other tenants' idle networks.
+          # Name-scoped (NOT label-wide): only this job's own bench container
+          # (named inferencex-bench-<exp>-c<conc> by the launchers) is reaped.
+          # A bare `label=inferencex-bench` filter would nuke concurrent
+          # tenants' containers on a shared box (e.g. we hold GPUs 0-3 while
+          # someone else serves from 4-7). Same-series orphans share the exact
+          # name and are still reaped; the normal path self-cleans via --rm.
+          # DCGM is intentionally left alone here (stateless exporter, recreated
+          # by the launcher under its fixed per-runner name). No `docker
+          # network prune`: runners use --network host and create no networks.
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-            echo "[Docker] Cleaning up InferenceX benchmark containers (label=inferencex-bench) ..."
-            docker ps -aq --filter "label=inferencex-bench" | xargs -r docker rm -f
-            while [ -n "$(docker ps -aq --filter "label=inferencex-bench")" ]; do
-              docker ps -a --filter "label=inferencex-bench"
+            BENCH_NAME="inferencex-bench-${{ inputs.exp-name }}-c${{ inputs.conc }}"
+            echo "[Docker] Cleaning up own bench container (name=${BENCH_NAME}) ..."
+            docker ps -aq --filter "name=^${BENCH_NAME}$" | xargs -r docker rm -f
+            while [ -n "$(docker ps -aq --filter "name=^${BENCH_NAME}$")" ]; do
+              docker ps -a --filter "name=^${BENCH_NAME}$"
               sleep 5
             done
           fi
