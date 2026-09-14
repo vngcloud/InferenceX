@@ -8648,6 +8648,44 @@ glm53flash-ab-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache64wb-agentic:
       search-space:
       - { tp: 4, ep: 4, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 16, 32] }
 
+# Arm D (mamba-ratio) 8k1k: AB @mem 0.75 + exactly 1 flag,
+# --mamba-full-memory-ratio 4.3. r* from the mem-0.75 boot log (run 34805726628
+# c32): 5 slots x 93.7MB = 468MB/req vs 9216 x 11.84KB = 109MB/req -> 4.3,
+# balancing both pools at ~47 concurrent reqs (vs 31 today) at identical total
+# memory. Own model-prefix glm53flash-mb. Dispatch trims to --conc 8 32.
+glm53flash-mb-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache64wb:
+  image: lmsysorg/sglang:glm-5.3-flash
+  model: zai-org/GLM-5.3-Flash
+  model-prefix: glm53flash-mb
+  runner: cluster:h200-greennode
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 4, ep: 4, spec-decoding: mtp, conc-list: [1, 8, 16, 32, 48] }
+
+# Arm D agentic twin: same AB-agentic recipe + --mamba-full-memory-ratio 0.4
+# (agentic L~96k from run 34683194686 c8 profile: 95064 in + 903 out avg ->
+# r* = 468MB/1137MB = 0.4; default 0.9 over-provisions mamba ~2x at agentic
+# ctx). Clamp ~22 reqs: fine for the [8,16] knee zone. duration-override=1800.
+glm53flash-mb-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache64wb-agentic:
+  image: lmsysorg/sglang:glm-5.3-flash
+  model: zai-org/GLM-5.3-Flash
+  model-prefix: glm53flash-mb
+  runner: cluster:h200-greennode
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 4, ep: 4, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 16, 32] }
+
 
 glm5.2proddp8deep-fp8-h200-greennode-sglang-dpattn-router-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.18

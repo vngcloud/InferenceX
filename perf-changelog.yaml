@@ -6274,3 +6274,21 @@
     - "Arm AB agentic twin (cap-256k traces, branch bench/glm53flash-8h): same 4 AB server diffs on top of the baseline agentic recipe (ctx 300000 + auto-truncate, chunked-prefill 32768, metrics + cache-report, expandable_segments, MAX_RUNNING_REQUESTS min(2*CONC,32)). Dispatch with duration-override=1800 --conc 8 16 (knee zone only; deltas vs 3600s baseline run 34683194686, win rule: tok/s +5% / hit +10pp / TTFT-p50 -20%). skip-agentic-ingest=true."
     - "Arm AB 的 agentic 孪生 arm（cap-256k traces，分支 bench/glm53flash-8h）：在基线 agentic 配方上叠加同样的 4 处 AB 改动（ctx 300000 + auto-truncate、chunked-prefill 32768、metrics + cache-report、expandable_segments、MAX_RUNNING_REQUESTS min(2*CONC,32)）。以 duration-override=1800 --conc 8 16 派发（仅拐点区；与 3600s 基线 run 34683194686 比 delta，胜负线：tok/s +5% / hit +10pp / TTFT-p50 -20%）。skip-agentic-ingest=true。"
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - glm53flash-mb-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache64wb
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "Arm D (mamba-ratio) 8k1k: AB @mem 0.75 + exactly --mamba-full-memory-ratio 4.3 (branch bench/glm53flash-8h, prefix glm53flash-mb). r* from the mem-0.75 boot log (run 34805726628 c32): 5 slots x 93.7MB = 468MB/req vs 9216 x 11.84KB = 109MB/req -> 4.3, balancing both pools at ~47 concurrent reqs vs 31 at default 0.9, identical total memory (no new pressure). Dispatch --conc 8 32 on h200-greennode_06. Purpose: move the mamba-clamped knee right; win rule vs AB-mem0.75 (c8 1420 / c32 2929 tok/s/GPU): c32 clearly up with TPOT not worse."
+    - "Arm D（mamba-ratio）8k1k：AB @mem 0.75 + 仅加 --mamba-full-memory-ratio 4.3（分支 bench/glm53flash-8h，prefix glm53flash-mb）。r* 来自 mem-0.75 boot log（run 34805726628 c32）：每请求 468MB state vs 109MB KV -> 4.3，双池在约 47 并发处平衡（默认 0.9 仅 31），总内存不变。与 AB-mem0.75（c8 1420 / c32 2929）比：c32 明显涨且 TPOT 不恶化算赢。"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - glm53flash-mb-fp8-h200-greennode-sglang-tp4ep4-deepgemm-mtp-hicache64wb-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Arm D agentic twin: AB-agentic + --mamba-full-memory-ratio 0.4 (agentic L~96k from run 34683194686 c8: 95064 in + 903 out avg -> r* = 468MB/1137MB = 0.4; default 0.9 over-provisions mamba ~2x at agentic ctx, 0.4 frees ~4GB -> +350k KV prefix tokens). Clamp ~22 reqs, fine for [8,16]. duration-override=1800. skip-agentic-ingest=true."
+    - "Arm D 的 agentic 孪生：AB-agentic + --mamba-full-memory-ratio 0.4（agentic L~96k 来自 run 34683194686 c8：平均 95064 in + 903 out -> r* = 0.4；默认 0.9 在 agentic 上下文超配 mamba 约 2 倍）。duration-override=1800。skip-agentic-ingest=true。"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
