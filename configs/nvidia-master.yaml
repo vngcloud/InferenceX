@@ -9091,6 +9091,45 @@ gemma4sbdfnx-fp8block-h200-vllm:
       search-space:
       - { tp: 1, spec-decoding: draft_model, conc-list: [32] }
 
+# EXPLORATORY, not part of the numbered 16-cell Stage 5 sweep: DFlash2,
+# in-house checkpoint (/mnt/models/gemma4-31b-it-dflash2 on runner
+# h200-greennode_06), measured on SPEED-Bench throughput_8k, high-entropy
+# split, ignore-eos on. PREFLIGHT CELL ONLY -- conc 1, to confirm the
+# checkpoint loads against a multimodal Gemma-4 target and produces a sane
+# acceptance length before spending more GPU time on it. See the dflash2 case
+# in benchmarks/single_node/fixed_seq_len/gemma4sb_body.sh for the full
+# mount/method rationale.
+#
+# DISPATCH MUST pin --runner-node-filter h200-greennode_06: the checkpoint is
+# local to that single host, not the Hub, and will not resolve elsewhere in
+# the h200-greennode pool.
+#
+# Adopt only on >=15% output-throughput gain against the gemma4sbbasehi cell
+# at the same concurrency, with p99 TTFT and p99 ITL no worse than +5% --
+# same gate as every other Stage 5 arm.
+#
+# spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py,
+# which accepts only mtp/draft_model/none; DFlash2 is an external-draft
+# method like DFlash/EAGLE3, so draft_model is correct and maps to the
+# _specdec recipe suffix.
+#
+# isl 8192 is a label, not a measurement: SPEED-Bench throughput_8k prompts
+# are approximately 8k. total_input_tokens in the result JSON is authoritative.
+gemma4sbdf2hi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdf2hi
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1] }
+
 # STAGE 5 of the Gemma-4 optimization roadmap, cell 13/16:
 # native Gemma-4 MTP, google/gemma-4-31B-it-assistant
 # measured on SPEED-Bench throughput_8k, low-entropy split, ignore-eos on.

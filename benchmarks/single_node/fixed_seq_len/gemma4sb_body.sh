@@ -10,7 +10,7 @@
 # dispatchable wrappers each set three variables and source this body, so the
 # cell coordinates are provably the only thing that differs across arms.
 #
-#   SB_ARM        base | e3 | dflash | mtp      -- which speculator, if any
+#   SB_ARM        base | e3 | dflash | dflash2 | mtp -- which speculator, if any
 #   SB_CATEGORY   low_entropy | mixed | high_entropy
 #   SB_IGNORE_EOS 1 | 0                          -- default 1
 #
@@ -157,6 +157,39 @@ case "$SB_ARM" in
         NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-8}"
         SPEC_ARGS=(--speculative-config "{\"model\": \"$DRAFT_MODEL\", \"num_speculative_tokens\": $NUM_SPEC_TOKENS, \"method\": \"dflash\"}")
         ;;
+    dflash2)
+        # In-house DFlash2 checkpoint (local convolution + candidate selector,
+        # https://docs.vllm.ai/projects/speculators/en/latest/user_guide/algorithms/dflash2/),
+        # not published to the Hub. There is no separate "dflash2" method: vLLM
+        # still expects method="dflash" and switches to DFlash2Speculator at
+        # runtime purely by inspecting the draft checkpoint's own architectures
+        # field (vllm/v1/worker/gpu/spec_decode/__init__.py:11-22 -- "DFlash2DraftModel"
+        # in draft_model_config.architectures). DFlash2DraftModel is registered
+        # natively in vllm/model_executor/models/registry.py as of PR #52816
+        # (merged 2026-08-21, in-tree at v0.28.0), so no trust_remote_code /
+        # auto_map is needed -- unlike the RedHatAI dflash checkpoint above,
+        # this one's config.json has no speculators_config wrapper at all and
+        # loads straight through AutoConfig.
+        #
+        # The checkpoint lives only on runner h200-greennode_06, not the Hub, so
+        # it cannot be `hf download`-ed. It must be placed at
+        # /mnt/models/gemma4-31b-it-dflash2 on that host -- the existing
+        # -v "$MODEL_STORE_MOUNT:$MODEL_STORE:ro" mount in
+        # runners/launch_h200-greennode.sh (MODEL_STORE_MOUNT default
+        # /mnt/models, MODEL_STORE default /models, neither overridden anywhere
+        # in this repo) exposes it read-only in-container at
+        # /models/gemma4-31b-it-dflash2 with zero launcher changes. $MODEL_STORE
+        # itself is NOT in launch_h200-greennode.sh's RUN_ENV, so it is not set
+        # inside the container -- the path below is hardcoded to match the
+        # launcher's own default rather than read from an env var that won't
+        # exist here. Dispatch MUST pin --runner-node-filter h200-greennode_06;
+        # no other host has this checkpoint.
+        DRAFT_MODEL="/models/gemma4-31b-it-dflash2"
+        # Checkpoint's dflash_config: block_size=8, sample_from_anchor=False (default)
+        # -> block_size - 1 speculative tokens per drafting round.
+        NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-7}"
+        SPEC_ARGS=(--speculative-config "{\"model\": \"$DRAFT_MODEL\", \"num_speculative_tokens\": $NUM_SPEC_TOKENS, \"method\": \"dflash\"}")
+        ;;
     mtp)
         # method MUST be "mtp", not "draft_model": the assistant checkpoint
         # consumes the target's hidden states (backbone_hidden_size 5376) and
@@ -167,7 +200,7 @@ case "$SB_ARM" in
         SPEC_ARGS=(--speculative-config "{\"method\": \"mtp\", \"model\": \"$DRAFT_MODEL\", \"num_speculative_tokens\": $NUM_SPEC_TOKENS}")
         ;;
     *)
-        echo "CRITICAL: unknown SB_ARM='$SB_ARM' (expected base|e3|dflash|mtp)" >&2
+        echo "CRITICAL: unknown SB_ARM='$SB_ARM' (expected base|e3|dflash|dflash2|mtp)" >&2
         exit 1
         ;;
 esac
