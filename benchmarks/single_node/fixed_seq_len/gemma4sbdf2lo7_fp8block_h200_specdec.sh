@@ -2,17 +2,16 @@
 
 # Gemma-4 31B FP8-block -- STAGE 5 cell: DFlash2, in-house checkpoint
 # (/mnt/models/gemma4-31b-it-dflash2 on runner h200-greennode_06) on the
-# SPEED-Bench throughput_8k high-entropy split, ignore-eos on, depth 7.
+# SPEED-Bench throughput_8k low-entropy split, ignore-eos on, depth 7.
 #
 # Depth 7 = block_size(8) - 1, the checkpoint's native draft width. One of a
 # 2 (category: lo/hi) x 3 (depth: 3/5/7) depth-sweep grid, for apples-to-apples
 # comparison against the RedHatAI dflash arm (gemma4sbdfhi/lo, fixed depth 8)
 # and the mtp arm (gemma4sbmtphi/lo, fixed depth 4) at the same conc-list
-# [1, 8, 32, 64]. Preflighted at conc 1 in Actions run 34944216671: server
-# booted clean, resolved architecture DFlash2DraftModel, 0 failed requests,
-# acceptance_length=1.8692 acceptance_rate=0.1242 -- sane, so extending to the
-# full ladder and the sibling depths/category is safe. See the dflash2 case in
-# gemma4sb_body.sh for the full mount/method rationale.
+# [1, 8, 32, 64]. See gemma4sbdf2hi_fp8block_h200_specdec.sh (depth 7, high
+# category) for the preflight result that cleared this checkpoint to run at
+# scale, and the dflash2 case in gemma4sb_body.sh for the full mount/method
+# rationale.
 #
 # DISPATCH REQUIRES --runner-node-filter h200-greennode_06: the checkpoint is
 # local to that host only, mounted in-container via the existing
@@ -29,13 +28,13 @@
 # (benchmarks/single_node/${SCENARIO_SUBDIR}${EXP_NAME%%_*}_${PRECISION}_h200_specdec.sh)
 # and neither the SPEED-Bench category, the eos mode, nor the depth is a matrix
 # field.
-# Matrix key: gemma4sbdf2hi-fp8block-h200-vllm, model-prefix gemma4sbdf2hi.
+# Matrix key: gemma4sbdf2lo7-fp8block-h200-vllm, model-prefix gemma4sbdf2lo7.
 #
 # See gemma4sb_body.sh for the rationale: why this is a separate stage, why it
 # bypasses run_benchmark_serving, why prefix caching is off, and why acceptance
 # is read from Prometheus instead of the server log.
 SB_ARM=dflash2
-SB_CATEGORY=high_entropy
+SB_CATEGORY=low_entropy
 SB_IGNORE_EOS=1
 NUM_SPEC_TOKENS=7
 source "$(dirname "$0")/gemma4sb_body.sh"

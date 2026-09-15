@@ -9093,20 +9093,26 @@ gemma4sbdfnx-fp8block-h200-vllm:
 
 # EXPLORATORY, not part of the numbered 16-cell Stage 5 sweep: DFlash2,
 # in-house checkpoint (/mnt/models/gemma4-31b-it-dflash2 on runner
-# h200-greennode_06), measured on SPEED-Bench throughput_8k, high-entropy
-# split, ignore-eos on. PREFLIGHT CELL ONLY -- conc 1, to confirm the
-# checkpoint loads against a multimodal Gemma-4 target and produces a sane
-# acceptance length before spending more GPU time on it. See the dflash2 case
-# in benchmarks/single_node/fixed_seq_len/gemma4sb_body.sh for the full
-# mount/method rationale.
+# h200-greennode_06), measured on SPEED-Bench throughput_8k. Depth sweep
+# (3/5/7) x category (low_entropy/high_entropy) x conc-list [1, 8, 32, 64],
+# for apples-to-apples comparison against the RedHatAI dflash arm
+# (gemma4sbdfhi/lo, fixed depth 8) and the mtp arm (gemma4sbmtphi/lo, fixed
+# depth 4) at the same conc-list. Preflighted at conc 1 / depth 7 / high_entropy
+# in Actions run 34944216671 (acceptance_length=1.8692, acceptance_rate=0.1242,
+# 0 failed requests) -- cleared to extend to the full grid below. See the
+# dflash2 case in benchmarks/single_node/fixed_seq_len/gemma4sb_body.sh for the
+# full mount/method rationale.
 #
 # DISPATCH MUST pin --runner-node-filter h200-greennode_06: the checkpoint is
 # local to that single host, not the Hub, and will not resolve elsewhere in
-# the h200-greennode pool.
+# the h200-greennode pool. All six cells below are pinned to that one host, so
+# the sweep is fully serialized on a single box -- budget wall-clock
+# accordingly (see bench-8k1k skill, KV-cache-headroom section, for the per-job
+# time precedent on this launcher).
 #
-# Adopt only on >=15% output-throughput gain against the gemma4sbbasehi cell
-# at the same concurrency, with p99 TTFT and p99 ITL no worse than +5% --
-# same gate as every other Stage 5 arm.
+# Adopt only on >=15% output-throughput gain against the gemma4sbbasehi/lo cell
+# at the same concurrency and category, with p99 TTFT and p99 ITL no worse
+# than +5% -- same gate as every other Stage 5 arm.
 #
 # spec-decoding "draft_model" is forced by utils/matrix_logic/validation.py,
 # which accepts only mtp/draft_model/none; DFlash2 is an external-draft
@@ -9128,7 +9134,92 @@ gemma4sbdf2hi-fp8block-h200-vllm:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 1, spec-decoding: draft_model, conc-list: [1] }
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
+
+# DFlash2 depth-sweep grid (see gemma4sbdf2hi-fp8block-h200-vllm above for the
+# full rationale): depth 5, high_entropy.
+gemma4sbdf2hi5-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdf2hi5
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
+
+# DFlash2 depth-sweep grid (see gemma4sbdf2hi-fp8block-h200-vllm above for the
+# full rationale): depth 3, high_entropy.
+gemma4sbdf2hi3-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdf2hi3
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
+
+# DFlash2 depth-sweep grid (see gemma4sbdf2hi-fp8block-h200-vllm above for the
+# full rationale): depth 7, low_entropy.
+gemma4sbdf2lo7-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdf2lo7
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
+
+# DFlash2 depth-sweep grid (see gemma4sbdf2hi-fp8block-h200-vllm above for the
+# full rationale): depth 5, low_entropy.
+gemma4sbdf2lo5-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdf2lo5
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
+
+# DFlash2 depth-sweep grid (see gemma4sbdf2hi-fp8block-h200-vllm above for the
+# full rationale): depth 3, low_entropy.
+gemma4sbdf2lo3-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbdf2lo3
+  runner: cluster:h200-greennode
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: draft_model, conc-list: [1, 8, 32, 64] }
 
 # STAGE 5 of the Gemma-4 optimization roadmap, cell 13/16:
 # native Gemma-4 MTP, google/gemma-4-31B-it-assistant
