@@ -36,7 +36,7 @@ A PR sweep requires exactly one primary label:
 
 Modifiers:
 
-- `all-evals` expands eval selection to every generated fixed-sequence configuration without suppressing throughput. It remains reuse-eligible with an eligible full-sweep label.
+- `all-evals` expands eval selection to every generated fixed-sequence configuration without suppressing throughput. It remains reuse-eligible; artifact reuse does not require a current sweep label.
 - `evals-only` suppresses throughput. Combining it with `all-evals` runs every eval and no throughput. It is not reuse-eligible.
 - `agentx-fast` uses one deterministic warmup request per lane and a 20-minute AgentX profile. It does not affect fixed-sequence or eval jobs and is not reuse-eligible.
 
@@ -86,7 +86,7 @@ Full details live in `utils/evals/EVALS.md`.
 - `--evals-only`: run the default selected eval subset and suppress throughput.
 - `--all-evals`: expand selection to every generated fixed-sequence configuration. It composes with `--evals-only`.
 
-For multi-node configurations, `--all-evals` creates one eval job per engine topology and runs every distinct `conc-list` value sequentially against that engine. Changelog `all-evals: true` suppresses throughput for that entry. The PR `all-evals` label expands selection only, while the `evals-only` label suppresses throughput. `utils/collect_eval_results.py` produces aggregated output.
+For multi-node configurations, `--all-evals` creates one eval job per engine topology and runs every distinct `conc-list` value sequentially against that engine. Changelog `all-evals: true` suppresses throughput for that entry. The PR `all-evals` label expands selection only, while the `evals-only` label suppresses throughput. `infx/results/collect_eval_results.py` produces aggregated output.
 
 ## Power telemetry
 
@@ -94,7 +94,9 @@ Single-node fixed-sequence results may include `power_valid`, `avg_power_w`, `av
 
 Multinode disaggregated results add `prefill_gpu_energy_j`, `decode_gpu_energy_j`, `prefill_avg_power_w`, `decode_avg_power_w`, `prefill_joules_per_input_token`, and `decode_joules_per_output_token`. Role energy covers the full formal benchmark window, not kernel-level phases, and the role watts are that energy divided by the same window and by the role's GPU count.
 
-For srt-slurm recipes, `telemetry: {provider: dcgm-power}` enables official energy collection. `runners/launch_gb200-nv.sh` and `runners/launch_gb300-nv.sh` are the source of truth for `POWER_SRT_SLURM_PIN`. CI derives `POWER_PRODUCER_SHA` from the launcher stamp. `utils/test_gb200_power_official_contract.py` and `utils/test_gb300_power_official_contract.py` enforce the recipe/launcher contract. Only `PRECISION=fp8` dcgm-power lanes are validated.
+Every power result — valid or invalid, single-node or multinode — carries `power_metric_schema_version`. Version 2 defines each unprefixed `joules_per_*` field as whole-deployment GPU-board energy over the named denominator; role-scoped energy uses the explicit `prefill_*` / `decode_*` keys. Rows without the field predate the whole-deployment switch and their unprefixed joules are not comparable across topologies.
+
+For srt-slurm recipes, `telemetry.enabled: true` with `telemetry.dcgm_exporter` enables official energy collection. The Git submodule pointer at `utils/srt-slurm` is the source of truth for the shared srt-slurm commit, used by both power and non-power NVIDIA lanes. TileRT is the single documented fork exception. CI derives `POWER_PRODUCER_SHA` from the launcher stamp. The aggregate-power and AgentX power tests validate telemetry and provenance. These local tests do not prove hardware power collection. Eligible recipe-gated `dynamo-sglang` dcgm-power lanes are validated.
 
 Power audit artifacts are named `power_audit_<result>` and contain `power_validation_<result>.json` for single-node runs or `power_validation_<result>_*.json` for multinode runs. They are uploaded even when validation fails.
 
