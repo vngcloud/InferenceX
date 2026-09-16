@@ -8879,3 +8879,27 @@ gemma4-fp8block-h200-vllm-router:
       osl: 1024
       search-space:
       - { tp: 1, conc-list: [8, 32, 192] }
+
+# Gemma-4-31B customer-service (tau2) AGENTIC arm -- replays the private
+# thangquang09/customer-service-agent-traces corpus (mooncake_trace raw content)
+# against a prod-exact Gemma-4 vLLM stack, so the numbers land in the same
+# artifacts/dashboards as the cc-traces agentic runs and can be read
+# side-by-side. Reuses the agentic-coding scenario (no new first-class scenario);
+# tau2 is distinguished from a coding run purely by the model-prefix gemma4tau2.
+# model is the un-quantized HF id (aiperf tokenizer + wire name); the recipe
+# serves the RedHatAI FP8-block quant behind two TP=1 replicas + vllm-router
+# cache_aware. Recipe: benchmarks/single_node/agentic/gemma4tau2_fp8_h200.sh
+# (greennode launcher drops the _vllm suffix for framework: vllm). First
+# deliverable is a CCU [1,2] smoke; the full ceiling ladder is deferred.
+gemma4tau2-fp8-h200-vllm-agentic:
+  image: vllm/vllm-openai:v0.25.0
+  model: google/gemma-4-31b-it
+  model-prefix: gemma4tau2
+  runner: cluster:h200-greennode
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, kv-offloading: none, conc-list: [1, 2] }

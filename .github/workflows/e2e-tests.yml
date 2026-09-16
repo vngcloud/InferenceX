@@ -112,6 +112,8 @@ on: # zizmor: ignore[concurrency-limits]
             required: true
           INFERENCEX_OFFICIAL_RO_HF_TOKEN:
             required: true
+          HF_TOKEN_TAU2:
+            required: false
           MODAL_TOKEN_ID:
             required: false
           MODAL_TOKEN_SECRET:
@@ -412,6 +414,7 @@ jobs:
         secrets:
             REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
+            HF_TOKEN_TAU2: ${{ secrets.HF_TOKEN_TAU2 }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         with:

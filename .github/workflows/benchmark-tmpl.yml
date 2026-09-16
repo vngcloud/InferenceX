@@ -6,6 +6,11 @@ on:
         required: true
       INFERENCEX_OFFICIAL_RO_HF_TOKEN:
         required: true
+      # Personal token that can read the private tau2 dataset
+      # (thangquang09/customer-service-agent-traces) for the gemma4tau2 agentic
+      # arm. Optional: recipes that pull only public data never reference it.
+      HF_TOKEN_TAU2:
+        required: false
       MODAL_TOKEN_ID:
         required: false
       MODAL_TOKEN_SECRET:
@@ -157,6 +162,9 @@ env:
   IS_MULTINODE: 'false'
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
+  # Scoped to the private tau2 dataset pull inside gemma4tau2_fp8_h200.sh; the
+  # global HF_TOKEN stays the read-only official token for public weights.
+  HF_TOKEN_TAU2: ${{ secrets.HF_TOKEN_TAU2 }}
   HF_HUB_CACHE: '/mnt/hf_hub_cache/'
   EXP_NAME: ${{ fromJSON(inputs.config).exp-name }}
   RECIPE_FINGERPRINT: ${{ fromJSON(inputs.config).recipe-fingerprint || '' }}
