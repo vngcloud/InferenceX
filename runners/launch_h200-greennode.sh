@@ -43,9 +43,19 @@ RUN_ENV=(
   HICACHE_RATIO
   RESULT_DIR RESULT_FILENAME RUN_EVAL EVAL_ONLY
   GITHUB_WORKSPACE RUNNER_NAME RUNNER_TYPE AIPERF_UV_CACHE_DIR
+  # Agentic recipes need these inside the container: benchmark_lib.sh's
+  # install_agentic_deps requires AIPERF_PYTHON_VERSION + INFMAX_CONTAINER_WORKSPACE,
+  # build_replay_cmd requires the AIPERF_*/AGENTIC_* knobs, and
+  # run_agentic_replay_and_write_outputs requires IS_MULTINODE/REQUIRE_POWER.
+  INFMAX_CONTAINER_WORKSPACE IS_MULTINODE REQUIRE_POWER AIPERF_EXPERIMENTAL_FAST
 )
 ENV_ARGS=()
 for name in "${RUN_ENV[@]}"; do
+  ENV_ARGS+=(-e "$name")
+done
+# runtime_settings.sh (sourced by the launch step) publishes the canonical list
+# of agentic runtime env vars to forward; carry each into the container.
+for name in ${INFERENCEX_RUNTIME_ENV_VARS:-}; do
   ENV_ARGS+=(-e "$name")
 done
 
