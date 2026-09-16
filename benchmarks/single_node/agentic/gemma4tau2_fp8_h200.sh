@@ -54,6 +54,13 @@ export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="vllm:"
 # DCGM exporter the greennode launcher starts alongside the job (host network).
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:9400/metrics"
 
+# benchmark_lib.sh reassigns AIPERF_UV_CACHE_DIR to an ephemeral /tmp dir at
+# source time, so every dispatch cold-downloads aiperf's deps from PyPI (~1 GB,
+# painfully slow on this box). Restore the launcher's persistent mount so c2 and
+# reruns hit the uv cache instead of re-downloading.
+if [ -d /mnt/uv-cache ]; then
+    export AIPERF_UV_CACHE_DIR=/mnt/uv-cache
+fi
 install_agentic_deps
 nvidia-smi
 
@@ -62,8 +69,12 @@ nvidia-smi
 "$AIPERF_HF_CLI" download "$WEIGHTS"
 
 # The tau2 corpus is a PRIVATE repo; the ambient HF_TOKEN (the official CI token)
-# must be able to read it.
-TAU2_DIR=$("$AIPERF_HF_CLI" download --repo-type dataset "$TAU2_REPO")
+# must be able to read it. Resolve the snapshot dir via snapshot_download (returns
+# just the path) instead of parsing `hf download` stdout, which newer CLIs decorate
+# with a "✓ Downloaded / path: ..." banner.
+TAU2_DIR=$("$AIPERF_PYTHON" -c \
+    "import sys; from huggingface_hub import snapshot_download; print(snapshot_download(sys.argv[1], repo_type='dataset'))" \
+    "$TAU2_REPO")
 mapfile -t TAU2_FILES < <(find "$TAU2_DIR" -maxdepth 2 -name '*.jsonl' | sort)
 if [ "${#TAU2_FILES[@]}" -ne 1 ]; then
     echo "Error: expected exactly one .jsonl in $TAU2_DIR, found ${#TAU2_FILES[@]}: ${TAU2_FILES[*]}" >&2
