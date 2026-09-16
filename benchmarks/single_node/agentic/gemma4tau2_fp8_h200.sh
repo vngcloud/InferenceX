@@ -26,8 +26,8 @@ set -x
 # and long-prefill-token-threshold 8192 are the prod deploy's values too.
 #
 # Required env (harness-provided): MODEL TP CONC KV_OFFLOADING RESULT_DIR
-# DURATION PORT. Optional: HF_TOKEN_TAU2 (personal token that can read the
-# private dataset; falls back to the ambient HF_TOKEN when unset).
+# DURATION PORT. The ambient HF_TOKEN must be able to read the private tau2
+# dataset and the gated google/gemma-4-31b-it tokenizer.
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -61,11 +61,9 @@ nvidia-smi
 # no-op. Serve by HF id so vLLM resolves from the mounted HF_HUB_CACHE.
 "$AIPERF_HF_CLI" download "$WEIGHTS"
 
-# The tau2 corpus is a PRIVATE repo; pull it with the personal token wired as a
-# GitHub Actions secret (HF_TOKEN_TAU2), scoped to just this call so the global
-# read-only official HF_TOKEN keeps serving the public weights/tokenizer.
-TAU2_DIR=$(HF_TOKEN="${HF_TOKEN_TAU2:-${HF_TOKEN:-}}" \
-    "$AIPERF_HF_CLI" download --repo-type dataset "$TAU2_REPO")
+# The tau2 corpus is a PRIVATE repo; the ambient HF_TOKEN (the official CI token)
+# must be able to read it.
+TAU2_DIR=$("$AIPERF_HF_CLI" download --repo-type dataset "$TAU2_REPO")
 mapfile -t TAU2_FILES < <(find "$TAU2_DIR" -maxdepth 2 -name '*.jsonl' | sort)
 if [ "${#TAU2_FILES[@]}" -ne 1 ]; then
     echo "Error: expected exactly one .jsonl in $TAU2_DIR, found ${#TAU2_FILES[@]}: ${TAU2_FILES[*]}" >&2
