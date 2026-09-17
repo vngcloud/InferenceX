@@ -9,6 +9,13 @@ on:
       agentx-fast:
         type: boolean
         default: false
+      start-from:
+        description: First screening point to run; a_ep8 resumes after a preserved a_ep1 result
+        type: choice
+        options:
+          - a_ep1
+          - a_ep8
+        default: a_ep1
 permissions:
   contents: read
 concurrency:
@@ -16,6 +23,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   a_ep1:
+    if: inputs.start-from == 'a_ep1'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -41,6 +49,7 @@ jobs:
           retention-days: 14
   a_ep8:
     needs: a_ep1
+    if: always() && (needs.a_ep1.result == 'success' || inputs.start-from == 'a_ep8')
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
