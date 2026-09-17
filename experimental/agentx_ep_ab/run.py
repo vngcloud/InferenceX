@@ -15,12 +15,15 @@ def output(*args):
     return subprocess.check_output(args,text=True).strip()
 
 def run():
-    diagnostic=sys.argv[1].startswith('diag_')
-    key=sys.argv[1].removeprefix('diag_')
+    matched=sys.argv[1].startswith('matched_')
+    diagnostic=sys.argv[1].startswith('diag_') or matched
+    key=sys.argv[1].removeprefix('diag_').removeprefix('matched_')
     row = next(r for r in matrix() if r['id']==key).copy()
     if diagnostic:
         assert row['pair']=='B'
         row.update(id=sys.argv[1],diagnostic=True)
+        if matched:
+            row.update(matched=True)
     out = ROOT/'campaign-results'/row['id']
     out.mkdir(parents=True,exist_ok=True)
     started = time.time()

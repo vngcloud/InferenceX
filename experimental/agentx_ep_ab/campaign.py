@@ -40,7 +40,7 @@ def recipe(row):
     for old,new in replacements.items():
         assert source.count(old)==1, old
         source = source.replace(old,new)
-    if row.get('diagnostic'):
+    if row.get('diagnostic') and not row.get('matched'):
         recorder_args = ('  --expert-distribution-recorder-mode stat\n'
                          '  --expert-distribution-recorder-buffer-size 200\n')
         if row['ep'] == 8:
@@ -57,6 +57,15 @@ def recipe(row):
             'wait "$RECORDER_PID"\nRECORD_RC=$?\nset -e\n'
             'python3 /repo/experimental/agentx_ep_ab/summarize_experts.py "$RESULT_DIR"\n'
             'test "$REPLAY_RC" = 0 && test "$RECORD_RC" = 0')
+    if row.get('matched'):
+        recorder_args = ('  --expert-distribution-recorder-mode stat\n'
+                         '  --expert-distribution-recorder-buffer-size 200\n')
+        if row['ep'] == 8:
+            recorder_args += '  --deepep-mode normal\n'
+        source=source.replace('  --enable-metrics\n','  --enable-metrics\n' + recorder_args)
+        source=source.replace('build_replay_cmd "$RESULT_DIR"\nunset AIPERF_TOKENIZER\nrun_agentic_replay_and_write_outputs "$RESULT_DIR"',
+            'python3 /repo/experimental/agentx_ep_ab/matched_route.py\n'
+            'python3 /repo/experimental/agentx_ep_ab/summarize_experts.py "$RESULT_DIR"')
     return source
 
 def main():

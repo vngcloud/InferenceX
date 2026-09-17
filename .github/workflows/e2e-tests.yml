@@ -17,6 +17,7 @@ on:
           - a_ep8
           - b_ep8
           - diag_b_ep8
+          - matched_b_ep8
         default: a_ep1
 permissions:
   contents: read
@@ -375,5 +376,47 @@ jobs:
           path: |
             campaign-results/diag_b_ep1/**
             !campaign-results/diag_b_ep1/hf-cache/**
+          if-no-files-found: error
+          retention-days: 14
+  matched_b_ep8:
+    needs: diag_b_ep1
+    if: always() && inputs.start-from == 'matched_b_ep8'
+    runs-on: [self-hosted, h200-greennode_06]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Deterministic matched-routing microexperiment; not a performance score
+        run: python3 experimental/agentx_ep_ab/run.py matched_b_ep8
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: agentx-ab-matched_b_ep8
+          path: |
+            campaign-results/matched_b_ep8/**
+            !campaign-results/matched_b_ep8/hf-cache/**
+          if-no-files-found: error
+          retention-days: 14
+  matched_b_ep1:
+    needs: matched_b_ep8
+    if: always() && needs.matched_b_ep8.result == 'success'
+    runs-on: [self-hosted, h200-greennode_06]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1d1991bb908d89e4e9dddfe3e0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Deterministic matched-routing microexperiment; not a performance score
+        run: python3 experimental/agentx_ep_ab/run.py matched_b_ep1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: agentx-ab-matched_b_ep1
+          path: |
+            campaign-results/matched_b_ep1/**
+            !campaign-results/matched_b_ep1/hf-cache/**
           if-no-files-found: error
           retention-days: 14
