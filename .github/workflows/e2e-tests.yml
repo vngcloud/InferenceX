@@ -15,6 +15,7 @@ on:
         options:
           - a_ep1
           - a_ep8
+          - b_ep8
         default: a_ep1
 permissions:
   contents: read
@@ -75,6 +76,7 @@ jobs:
           retention-days: 14
   b_ep8:
     needs: a_ep8
+    if: always() && (needs.a_ep8.result == 'success' || inputs.start-from == 'b_ep8')
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -100,6 +102,7 @@ jobs:
           retention-days: 14
   b_ep1:
     needs: b_ep8
+    if: always() && needs.b_ep8.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -125,6 +128,7 @@ jobs:
           retention-days: 14
   e_ep1:
     needs: b_ep1
+    if: always() && needs.b_ep1.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -150,6 +154,7 @@ jobs:
           retention-days: 14
   e_ep8:
     needs: e_ep1
+    if: always() && needs.e_ep1.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -175,6 +180,7 @@ jobs:
           retention-days: 14
   f_ep8:
     needs: e_ep8
+    if: always() && needs.e_ep8.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -200,6 +206,7 @@ jobs:
           retention-days: 14
   f_ep1:
     needs: f_ep8
+    if: always() && needs.f_ep8.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -225,6 +232,7 @@ jobs:
           retention-days: 14
   c_ep1:
     needs: f_ep1
+    if: always() && needs.f_ep1.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -250,6 +258,7 @@ jobs:
           retention-days: 14
   c_ep8:
     needs: c_ep1
+    if: always() && needs.c_ep1.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -275,6 +284,7 @@ jobs:
           retention-days: 14
   d_ep8:
     needs: c_ep8
+    if: always() && needs.c_ep8.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -300,6 +310,7 @@ jobs:
           retention-days: 14
   d_ep1:
     needs: d_ep8
+    if: always() && needs.d_ep8.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -325,6 +336,7 @@ jobs:
           retention-days: 14
   diag_b_ep8:
     needs: d_ep1
+    if: always() && needs.d_ep1.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
@@ -345,6 +357,7 @@ jobs:
           retention-days: 14
   diag_b_ep1:
     needs: diag_b_ep8
+    if: always() && needs.diag_b_ep8.result == 'success'
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
