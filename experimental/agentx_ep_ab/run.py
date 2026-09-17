@@ -38,6 +38,14 @@ def run():
     model = cache/f'models--PhalaCloud--GLM-5.2-W4AFP8/snapshots/{MODEL_REV}'
     index = json.loads((model/'model.safetensors.index.json').read_text())
     assert all((model/f).is_file() for f in set(index['weight_map'].values())), 'Incomplete model snapshot'
+    model_mounts=['-v',f'{model}:/models/PhalaCloud/GLM-5.2-W4AFP8:ro',
+                  '-v',f'{model.parent.parent}/blobs:/models/blobs:ro']
+    subprocess.run(['docker','run','--rm','--network','none',*model_mounts,
+                    '--entrypoint','python3',IMAGE,'-c',
+                    'import json,pathlib; p=pathlib.Path("/models/PhalaCloud/GLM-5.2-W4AFP8"); '
+                    'assert json.loads((p/"config.json").read_text())["model_type"]; '
+                    'i=json.loads((p/"model.safetensors.index.json").read_text()); '
+                    'assert all((p/f).is_file() for f in set(i["weight_map"].values()))'],check=True)
     # Isolated refs prevent cached moving branches from changing corpus/tokenizer.
     isolated = out/'hf-cache'
     for repo,rev in [('datasets--semianalysisai--cc-traces-weka-062126-256k',DATASET_REV),
@@ -74,7 +82,7 @@ def run():
                         'nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04'],check=True)
     cmd=['docker','run','--name',name,'--init','--gpus','all','--ipc=host','--network','host','--shm-size=32g',
          '-v',f'{ROOT}:/repo:ro','-v',f'{out}:/results','-v',f'{cache}:{cache}:ro',
-         '-v',f'{model}:/models/PhalaCloud/GLM-5.2-W4AFP8:ro',
+         *model_mounts,
          '-v','/mnt/uv-cache:/mnt/uv-cache','-w','/results']
     for k,v in env.items(): cmd+=['-e',f'{k}={v}']
     cmd+=['--entrypoint','bash',IMAGE,'/results/recipe.sh']
