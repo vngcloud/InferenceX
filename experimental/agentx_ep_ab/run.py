@@ -75,6 +75,7 @@ def run():
     if diagnostic:
         env.update(DURATION='300',AIPERF_UNSAFE_OVERRIDE='true',
                    SGLANG_EXPERT_DISTRIBUTION_RECORDER_DIR='/results',
+                   AIPERF_WARMUP_REQUESTS_PER_LANE='1',
                    AGENTX_DIAGNOSTIC_DEEPEP_MODE='normal' if row['ep']==8 else 'not-applicable')
     (out/'provenance.json').write_text(json.dumps(dict(config=row,env=env,gpus=gpu,
         model_revision=MODEL_REV,dataset_revision=DATASET_REV,aiperf_revision=AIPERF_REV,
@@ -83,7 +84,7 @@ def run():
         diagnostic_deviation=(
             'EP8 expert-distribution diagnostic forces DeepEP normal because the pinned '
             'SGLang stat recorder does not implement deepep_mode=auto; records router selections '
-            'before dispatch and is excluded from performance comparison'
+            'before dispatch, uses one warm-up request per lane, and is excluded from performance comparison'
             if diagnostic and row['ep']==8 else None)),indent=2))
     # Use an existing exporter, or start one owned only by this job.
     exporter = None
