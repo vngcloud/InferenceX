@@ -75,17 +75,15 @@ def run():
     if diagnostic:
         env.update(DURATION='300',AIPERF_UNSAFE_OVERRIDE='true',
                    SGLANG_EXPERT_DISTRIBUTION_RECORDER_DIR='/results',
-                   AGENTX_DIAGNOSTIC_DEEPEP_MODE='low_latency' if row['ep']==8 else 'not-applicable')
-        if row['ep']==8:
-            env['SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK']='1024'
+                   AGENTX_DIAGNOSTIC_DEEPEP_MODE='normal' if row['ep']==8 else 'not-applicable')
     (out/'provenance.json').write_text(json.dumps(dict(config=row,env=env,gpus=gpu,
         model_revision=MODEL_REV,dataset_revision=DATASET_REV,aiperf_revision=AIPERF_REV,
         commit=output('git','rev-parse','HEAD'),
         historical_difference='max-running-requests fixed at 16; historical recipe used 2*CCU',
         diagnostic_deviation=(
-            'EP8 expert-distribution diagnostic forces DeepEP low_latency because the pinned '
-            'SGLang stat recorder does not implement deepep_mode=auto; low-latency dispatch is '
-            'bounded to 1024 tokens/rank with prefill CUDA graphs disabled; excluded from performance comparison'
+            'EP8 expert-distribution diagnostic forces DeepEP normal because the pinned '
+            'SGLang stat recorder does not implement deepep_mode=auto; records router selections '
+            'before dispatch and is excluded from performance comparison'
             if diagnostic and row['ep']==8 else None)),indent=2))
     # Use an existing exporter, or start one owned only by this job.
     exporter = None

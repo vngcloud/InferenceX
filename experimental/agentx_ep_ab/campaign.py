@@ -46,16 +46,10 @@ def recipe(row):
         if row['ep'] == 8:
             # The pinned SGLang image supports DeepEP auto for serving, but its
             # stat recorder selects one gatherer at startup and only implements
-            # explicit normal/low_latency modes. Record EP8 in low-latency mode
-            # rather than failing in _SinglePassGatherer.init_new().
-            # Low-latency DeepEP is capped at 1024 dispatch tokens/rank in this
-            # image. Keep eager prefill within that bound and avoid graph shapes
-            # up to 2048, which abort inside deep_ep before the server is ready.
-            recorder_args += ('  --deepep-mode low_latency\n'
-                              '  --cuda-graph-backend-prefill disabled\n')
-            assert source.count('  CHUNKED_PREFILL_SIZE=32768\n') == 1
-            source=source.replace('  CHUNKED_PREFILL_SIZE=32768\n',
-                                  '  CHUNKED_PREFILL_SIZE=1024\n')
+            # explicit normal/low_latency modes. Use normal for the diagnostic:
+            # it records select_experts output before dispatch and avoids the
+            # large fixed buffers required by forcing low_latency for prefill.
+            recorder_args += '  --deepep-mode normal\n'
         source=source.replace('  --enable-metrics\n','  --enable-metrics\n' + recorder_args)
         source=source.replace('run_agentic_replay_and_write_outputs "$RESULT_DIR"',
             'python3 /repo/experimental/agentx_ep_ab/record.py &\nRECORDER_PID=$!\n'
