@@ -30,6 +30,11 @@ def recipe(row):
         '  --moe-a2a-backend deepep\n': '  --moe-a2a-backend deepep\n' if row['ep']==8 else '',
         '  --schedule-policy lpm\n':f"  --schedule-policy {row['schedule']}\n",
         'resolve_trace_source\ninstall_agentic_deps': 'python3 /repo/experimental/agentx_ep_ab/prepare_client.py\nexport AIPERF_DIR=/tmp/agentx-aiperf\ninstall_agentic_deps\n"$AIPERF_UV_BIN" pip freeze --python "$AIPERF_PYTHON" > "$RESULT_DIR/client-packages.txt"\nTRACE_SOURCE_FLAG="--public-dataset semianalysis_cc_traces_weka_062126_256k"',
+        # benchmark_lib consumes this variable while constructing the explicit
+        # --tokenizer argument. Remove it afterwards because the pinned AIPerf
+        # revision also interprets AIPERF_TOKENIZER as structured settings.
+        'build_replay_cmd "$RESULT_DIR"\nrun_agentic_replay_and_write_outputs "$RESULT_DIR"':
+            'build_replay_cmd "$RESULT_DIR"\nunset AIPERF_TOKENIZER\nrun_agentic_replay_and_write_outputs "$RESULT_DIR"',
         'source "$(dirname "$0")/../../benchmark_lib.sh"':'source /repo/benchmarks/benchmark_lib.sh',
     }
     for old,new in replacements.items():

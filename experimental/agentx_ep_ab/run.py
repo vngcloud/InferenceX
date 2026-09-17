@@ -93,7 +93,22 @@ def run():
     code=1
     try:
         with (out/'container.log').open('w') as log:
-            code=subprocess.call(cmd,stdout=log,stderr=subprocess.STDOUT)
+            # Preserve the complete container log as an artifact while also
+            # streaming SGLang startup and benchmark progress to Actions.
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            assert process.stdout is not None
+            for line in process.stdout:
+                log.write(line)
+                log.flush()
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            code=process.wait()
     finally:
         # Container has exited: release its owned resources, preserve artifacts.
         subprocess.run(['docker','rm','-f',name],stdout=subprocess.DEVNULL)
