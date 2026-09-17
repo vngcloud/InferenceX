@@ -72,10 +72,18 @@ def run():
         AIPERF_TOKENIZER='/results/hf-cache/models--zai-org--GLM-5.2-FP8/snapshots/ba978f7d347eaf65d22f1a86833408afdb953541',
         AIPERF_WARMUP_REQUESTS_PER_LANE='10',AIPERF_DATASET_WEKA_LIVE_ASSISTANT_RESPONSES='0',
         AIPERF_UV_CACHE_DIR='/mnt/uv-cache',GITHUB_RUN_ID=os.environ['GITHUB_RUN_ID'])
-    if diagnostic: env.update(DURATION='300',AIPERF_UNSAFE_OVERRIDE='true',SGLANG_EXPERT_DISTRIBUTION_RECORDER_DIR='/results')
+    if diagnostic:
+        env.update(DURATION='300',AIPERF_UNSAFE_OVERRIDE='true',
+                   SGLANG_EXPERT_DISTRIBUTION_RECORDER_DIR='/results',
+                   AGENTX_DIAGNOSTIC_DEEPEP_MODE='low_latency' if row['ep']==8 else 'not-applicable')
     (out/'provenance.json').write_text(json.dumps(dict(config=row,env=env,gpus=gpu,
         model_revision=MODEL_REV,dataset_revision=DATASET_REV,aiperf_revision=AIPERF_REV,
-        commit=output('git','rev-parse','HEAD'),historical_difference='max-running-requests fixed at 16; historical recipe used 2*CCU'),indent=2))
+        commit=output('git','rev-parse','HEAD'),
+        historical_difference='max-running-requests fixed at 16; historical recipe used 2*CCU',
+        diagnostic_deviation=(
+            'EP8 expert-distribution diagnostic forces DeepEP low_latency because the pinned '
+            'SGLang stat recorder does not implement deepep_mode=auto; excluded from performance comparison'
+            if diagnostic and row['ep']==8 else None)),indent=2))
     # Use an existing exporter, or start one owned only by this job.
     exporter = None
     if subprocess.call(['curl','--fail','--silent','--max-time','5','http://localhost:9400/metrics'],stdout=subprocess.DEVNULL):

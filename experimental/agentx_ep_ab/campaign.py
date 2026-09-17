@@ -41,7 +41,15 @@ def recipe(row):
         assert source.count(old)==1, old
         source = source.replace(old,new)
     if row.get('diagnostic'):
-        source=source.replace('  --enable-metrics\n','  --enable-metrics\n  --expert-distribution-recorder-mode stat\n  --expert-distribution-recorder-buffer-size 200\n')
+        recorder_args = ('  --expert-distribution-recorder-mode stat\n'
+                         '  --expert-distribution-recorder-buffer-size 200\n')
+        if row['ep'] == 8:
+            # The pinned SGLang image supports DeepEP auto for serving, but its
+            # stat recorder selects one gatherer at startup and only implements
+            # explicit normal/low_latency modes. Record EP8 in low-latency mode
+            # rather than failing in _SinglePassGatherer.init_new().
+            recorder_args += '  --deepep-mode low_latency\n'
+        source=source.replace('  --enable-metrics\n','  --enable-metrics\n' + recorder_args)
         source=source.replace('run_agentic_replay_and_write_outputs "$RESULT_DIR"',
             'python3 /repo/experimental/agentx_ep_ab/record.py &\nRECORDER_PID=$!\n'
             'set +e\nrun_agentic_replay_and_write_outputs "$RESULT_DIR"\nREPLAY_RC=$?\n'

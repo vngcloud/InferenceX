@@ -31,5 +31,6 @@ finally:
     call('dump')
 (out/'recorder.json').write_text(json.dumps(dict(mode='stat',buffer_passes=200,
     elapsed_seconds=time.time()-start,phase='separate diagnostic after normal warmup',
+    deepep_mode=os.environ.get('AGENTX_DIAGNOSTIC_DEEPEP_MODE','not-applicable'),
     timed_screening=False,phase_labels='unavailable in original stat output',
     window='last up to 200 consecutive recorded passes; not first 200'),indent=2))
