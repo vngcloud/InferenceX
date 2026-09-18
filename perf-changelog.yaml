@@ -8084,3 +8084,13 @@
     - "Add Qwopus3.6-27B-v2 (Qwen3.6 fine-tune, BF16) AgentX arm for the Vietinbank customer-support case: replays SemiAnalysis CC traces (semianalysis_cc_traces_weka_062126) against a prod-exact vLLM 0.25.1 stack on cluster:h200-greennode, TP=4, BF16 weights + fp8 KV, FlashInfer, max-model-len 200k, thinking ON, prefix caching ON. CCU sweep [20, 33, 50] targets prod-observed concurrency (running reqs peak ~33) to reproduce E2E latency pain. Recipe: benchmarks/single_node/agentic/qwopus36_bf16_h200.sh. Chat template default (customer's qwen3.6-enhanced.jinja is private); tool-call-parser qwen3_xml per customer config."
     - "新增 Qwopus3.6-27B-v2（Qwen3.6 微调，BF16）AgentX 配方，用于 Vietinbank 客服场景：在 cluster:h200-greennode 上以生产精确 vLLM 0.25.1 栈回放 SemiAnalysis CC 踪迹，TP=4，BF16 权重 + fp8 KV，FlashInfer，max-model-len 200k，thinking ON，prefix caching ON。并发梯度 [20, 33, 50] 对齐生产观测并发（running reqs 峰值 ~33），复现 E2E 延迟痛点。"
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
+
+- config-keys:
+    - qwen38lpc-bf16-h200-vllm-agentic
+    - qwen38dp4-bf16-h200-vllm-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Add two Vietinbank Qwen3.8-27B BF16 AgentX optimization arms, both A/B against the qwen38-bf16-h200-vllm-agentic TP4 baseline on the same customer-exact vLLM 0.25.1 stack, full cc-traces dataset, CCU [20, 33, 50]. qwen38lpc: TP4 + --long-prefill-token-threshold 16384, so an ~85K prefill schedules as ~6 x 16k chunks instead of ~3 x 32k (v1 scheduler caps num_new_tokens at the threshold); tests whether smaller prefill chunks cut the decode ITL tail under concurrency at a slight cold-TTFT cost. qwen38dp4: DP4 = 4 x TP1 replicas (one GPU each) behind vllm-router 0.1.14 cache_aware (prefix-match + load-balance fallback); prefix-aware routing is deliberate because vLLM's native DP balancer is queue-aware only, and multi-turn agentic traffic needs turn-to-turn prefix stickiness. Agentic replay semantics unchanged."
+    - "新增两个 Vietinbank Qwen3.8-27B BF16 AgentX 优化配方，均与 qwen38-bf16-h200-vllm-agentic TP4 基线在相同的客户精确 vLLM 0.25.1 栈、完整 cc-traces 数据集、并发 [20, 33, 50] 下做 A/B。qwen38lpc：TP4 + --long-prefill-token-threshold 16384，~85K 预填充按 ~6 x 16k 分块调度而非 ~3 x 32k（v1 调度器按阈值封顶 num_new_tokens）；验证更小的预填充分块能否在并发下削解码 ITL 尾部，代价是冷启动 TTFT 略升。qwen38dp4：DP4 = 4 x TP1 副本（各占一卡）+ vllm-router 0.1.14 cache_aware（前缀匹配 + 负载均衡回退）；特意选用前缀感知路由，因 vLLM 原生 DP 负载均衡仅队列感知，而多轮 agentic 流量需要轮次间前缀粘性。回放语义不变。"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark

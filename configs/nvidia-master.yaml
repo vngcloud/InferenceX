@@ -8933,3 +8933,41 @@ qwen38-bf16-h200-vllm-agentic:
     agentic-coding:
     - search-space:
       - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
+
+# Vietinbank arm A: identical to qwen38-bf16-h200-vllm-agentic plus
+# --long-prefill-token-threshold 16384 (prefill chunked at 16k instead of
+# riding the 32k batch budget). A/B against the baseline above isolates the
+# chunking variable on the same customer-exact stack.
+# Recipe: benchmarks/single_node/agentic/qwen38lpc_bf16_h200.sh
+qwen38lpc-bf16-h200-vllm-agentic:
+  image: vllm/vllm-openai:v0.25.1
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38lpc
+  runner: cluster:h200-greennode
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
+
+# Vietinbank arm B: DP4 = 4 x TP1 replicas (one GPU each) behind vllm-router
+# 0.1.14 cache_aware. tp:1 here is the per-replica TP (the recipe hardcodes the
+# 4-replica + router topology). Prefix-cache-aware routing is deliberate:
+# vLLM's native DP balancer is queue-aware only, and multi-turn agentic
+# traffic needs turn-to-turn prefix stickiness. A/B against the TP4 baseline
+# at equal CCU.
+# Recipe: benchmarks/single_node/agentic/qwen38dp4_bf16_h200.sh
+qwen38dp4-bf16-h200-vllm-agentic:
+  image: vllm/vllm-openai:v0.25.1
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38dp4
+  runner: cluster:h200-greennode
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, kv-offloading: none, conc-list: [20, 33, 50] }
