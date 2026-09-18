@@ -8920,3 +8920,16 @@ qwopus36-bf16-h200-vllm-agentic:
     agentic-coding:
     - search-space:
       - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
+
+qwen38-bf16-h200-vllm-agentic:
+  image: vllm/vllm-openai:v0.25.1
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38
+  runner: cluster:h200-greennode
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
