@@ -6103,3 +6103,11 @@
   description:
     - "Research branch only: serialize pinned EP1/EP8 AgentX ablations on h200-2; 1200-second screening with unchanged warmup and separate recorder diagnostics."
     - "仅研究分支：在 h200-2 上串行执行固定版本的 EP1/EP8 AgentX 消融实验；保持预热不变，测量 1200 秒，并单独采集专家分布。"
+
+- config-keys:
+    - glm5.2deep-fp4-h200-greennode-sglang-dpattn-router-hicache-r2-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Add separate eager per-pass distribution diagnostics with token accounting gates; excluded from performance scores."
+    - "新增独立 eager 专家分布诊断与 token 守恒校验，不纳入性能评分。"

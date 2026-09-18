@@ -19,6 +19,7 @@ on:
           - diag_b_ep8
           - matched_b_ep8
           - matched_b_ep1
+          - distribution_b_ep1
         default: a_ep1
 permissions:
   contents: read
@@ -419,5 +420,45 @@ jobs:
           path: |
             campaign-results/matched_b_ep1/**
             !campaign-results/matched_b_ep1/hf-cache/**
+          if-no-files-found: error
+          retention-days: 14
+  distribution_b_ep1:
+    if: inputs.start-from == 'distribution_b_ep1'
+    runs-on: [self-hosted, h200-greennode_06]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Calibrate counts then collect bounded routing distributions
+        run: python3 experimental/agentx_ep_ab/run.py distribution_b_ep1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: agentx-ab-distribution_b_ep1
+          path: |
+            campaign-results/distribution_b_ep1/**
+            !campaign-results/distribution_b_ep1/hf-cache/**
+          if-no-files-found: error
+          retention-days: 14
+  distribution_b_ep8:
+    needs: distribution_b_ep1
+    runs-on: [self-hosted, h200-greennode_06]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Calibrate counts then collect bounded routing distributions
+        run: python3 experimental/agentx_ep_ab/run.py distribution_b_ep8
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: agentx-ab-distribution_b_ep8
+          path: |
+            campaign-results/distribution_b_ep8/**
+            !campaign-results/distribution_b_ep8/hf-cache/**
           if-no-files-found: error
           retention-days: 14

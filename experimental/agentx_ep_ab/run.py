@@ -15,10 +15,14 @@ def output(*args):
     return subprocess.check_output(args,text=True).strip()
 
 def run():
+    distribution=sys.argv[1].startswith('distribution_')
     matched=sys.argv[1].startswith('matched_')
     diagnostic=sys.argv[1].startswith('diag_') or matched
-    key=sys.argv[1].removeprefix('diag_').removeprefix('matched_')
+    key=sys.argv[1].removeprefix('diag_').removeprefix('matched_').removeprefix('distribution_')
     row = next(r for r in matrix() if r['id']==key).copy()
+    if distribution:
+        assert row['pair']=='B'
+        row.update(id=sys.argv[1],distribution=True,hicache=False,spec=False)
     if diagnostic:
         assert row['pair']=='B'
         row.update(id=sys.argv[1],diagnostic=True)
@@ -79,6 +83,9 @@ def run():
         env.update(DURATION='300',AIPERF_UNSAFE_OVERRIDE='true',
                    SGLANG_EXPERT_DISTRIBUTION_RECORDER_DIR='/results',
                    AIPERF_WARMUP_REQUESTS_PER_LANE='1',
+                   AGENTX_DIAGNOSTIC_DEEPEP_MODE='normal' if row['ep']==8 else 'not-applicable')
+    if distribution:
+        env.update(SGLANG_EXPERT_DISTRIBUTION_RECORDER_DIR='/results',
                    AGENTX_DIAGNOSTIC_DEEPEP_MODE='normal' if row['ep']==8 else 'not-applicable')
     (out/'provenance.json').write_text(json.dumps(dict(config=row,env=env,gpus=gpu,
         model_revision=MODEL_REV,dataset_revision=DATASET_REV,aiperf_revision=AIPERF_REV,

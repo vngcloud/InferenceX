@@ -40,6 +40,15 @@ def recipe(row):
     for old,new in replacements.items():
         assert source.count(old)==1, old
         source = source.replace(old,new)
+    if row.get('distribution'):
+        flags='  --expert-distribution-recorder-mode per_pass\n  --disable-cuda-graph\n  --disable-radix-cache\n'
+        if row['ep']==8: flags+='  --deepep-mode normal\n'
+        source=source.replace('  --enable-metrics\n','  --enable-metrics\n'+flags)
+        source=source.replace('python3 /repo/experimental/agentx_ep_ab/prepare_client.py',
+            'python3 /repo/experimental/agentx_ep_ab/prepare_distribution.py\npython3 /repo/experimental/agentx_ep_ab/prepare_client.py')
+        source=source.replace('build_replay_cmd "$RESULT_DIR"\nunset AIPERF_TOKENIZER\nrun_agentic_replay_and_write_outputs "$RESULT_DIR"',
+            'timeout 1200 python3 /repo/experimental/agentx_ep_ab/distribution_probe.py')
+        return source
     if row.get('diagnostic') and not row.get('matched'):
         recorder_args = ('  --expert-distribution-recorder-mode stat\n'
                          '  --expert-distribution-recorder-buffer-size 200\n')
