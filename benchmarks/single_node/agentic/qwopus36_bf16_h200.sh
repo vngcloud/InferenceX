@@ -6,7 +6,9 @@ set -x
 # customer-support case. Replays SemiAnalysis CC traces against a prod-exact
 # vLLM 0.25.1 stack with the customer's serving args (context.md §5):
 #   BF16 weights, fp8 KV, TP4, FlashInfer, thinking ON.
-# max-model-len raised to 300k (cho chắc; model native 262k + YaRN to 1M).
+# max-model-len 262144 = model native max_position_embeddings (Qwen3.5 arch).
+# Originally tried 300k but vLLM rejects > 262144 without YaRN scaling config
+# (customer doesn't use YaRN). 262144 still > customer's 200k.
 # Chat template: default (customer's qwen3.6-enhanced.jinja is private — not used).
 # Tool-call parser: qwen3_xml (customer's config; known mismatch with Qwopus3.6
 #   JSON format — ignored per request, does not affect trace replay latency).
@@ -40,7 +42,7 @@ export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="vllm:"
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:9400/metrics"
 
 # Cap replay context length to model's max-model-len.
-export MAX_MODEL_LEN=300000
+export MAX_MODEL_LEN=262144
 
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
@@ -56,7 +58,7 @@ VLLM_CMD=(
     --trust-remote-code
     --kv-cache-dtype fp8
     --tensor-parallel-size "$TP"
-    --max-model-len 300000
+    --max-model-len 262144
     --gpu-memory-utilization 0.90
     --enable-auto-tool-choice
     --enable-prefix-caching
