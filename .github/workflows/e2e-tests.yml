@@ -18,6 +18,7 @@ on:
           - b_ep8
           - diag_b_ep8
           - matched_b_ep8
+          - matched_b_ep1
         default: a_ep1
 permissions:
   contents: read
@@ -30,7 +31,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -56,7 +57,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -82,7 +83,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -108,7 +109,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -134,7 +135,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -160,7 +161,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -186,7 +187,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -212,7 +213,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -238,7 +239,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -264,7 +265,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -290,7 +291,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -316,7 +317,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -342,7 +343,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -363,7 +364,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -384,7 +385,7 @@ jobs:
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           persist-credentials: false
@@ -401,7 +402,7 @@ jobs:
           retention-days: 14
   matched_b_ep1:
     needs: matched_b_ep8
-    if: always() && needs.matched_b_ep8.result == 'success'
+    if: always() && (needs.matched_b_ep8.result == 'success' || inputs.start-from == 'matched_b_ep1')
     runs-on: [self-hosted, h200-greennode_06]
     timeout-minutes: 90
     steps:
