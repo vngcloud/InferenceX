@@ -8983,6 +8983,25 @@ qwen38gdn-bf16-h200-vllm-agentic:
     agentic-coding:
     - search-space:
       - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
+qwen38sglopt-bf16-h200-sglang-agentic:
+  # "Best effort" TP4 BF16 SGLang config: arm D (qwen38sgl) base + the
+  # untested max-prefill-tokens fix for its TTFT gap (context.md §23) + every
+  # optimization already live on our own prod Qwen3.8-27B-FP8 deployment
+  # (1xH200, GLM-5.3-Flash k8s cluster) ported to TP4/BF16 — EAGLE
+  # self-speculative decode via the built-in MTP head, ReplaySSM spec-verify,
+  # bumped mamba state memory, dfs-weight scheduler, hierarchical cache.
+  image: lmsysorg/sglang:v0.5.19
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38sglopt
+  runner: cluster:h200-greennode
+  precision: bf16
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 4, kv-offloading: dram, kv-offload-backend: { name: hicache }, spec-decoding: mtp, conc-list: [20, 33, 50] }
 qwen38sgl-bf16-h200-sglang-agentic:
   # Vietinbank arm D: same BF16 weights + CCU ladder as the qwen38 vLLM
   # baseline (run 35373606847), engine swapped to SGLang (customer-migration
