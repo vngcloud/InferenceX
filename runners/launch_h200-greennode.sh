@@ -60,10 +60,25 @@ for name in ${INFERENCEX_RUNTIME_ENV_VARS:-}; do
   ENV_ARGS+=(-e "$name")
 done
 
+# A recipe opts into a non-default DCGM fieldset by shipping a CSV sidecar
+# next to itself (same path, ".gpu_metrics.csv" instead of ".sh"). Verified
+# live (Vietinbank DCGM pipeline, 5-min smoke, 0 errors): dcgm-exporter reads
+# it via -f, and the recipe passes the same file to aiperf's --gpu-telemetry
+# so the fields it parses always match what the exporter actually serves.
+GPU_METRICS_CSV="${BENCH_SCRIPT%.sh}.gpu_metrics.csv"
+DCGM_MOUNT_ARGS=()
+DCGM_CMD_ARGS=()
+if [[ -f "$GPU_METRICS_CSV" ]]; then
+  DCGM_MOUNT_ARGS=(-v "$GITHUB_WORKSPACE/$GPU_METRICS_CSV:/etc/dcgm-exporter/custom.csv:ro")
+  DCGM_CMD_ARGS=(-f /etc/dcgm-exporter/custom.csv)
+fi
+
 docker rm -f "$DCGM_NAME" 2>/dev/null || true
 docker run -d --rm --gpus all --network host --cap-add SYS_ADMIN \
   --name "$DCGM_NAME" \
-  nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04
+  "${DCGM_MOUNT_ARGS[@]}" \
+  nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04 \
+  "${DCGM_CMD_ARGS[@]}"
 trap 'docker rm -f "$DCGM_NAME" 2>/dev/null || true' EXIT
 
 docker run --rm --init --gpus all --ipc=host --network host --shm-size=32g \

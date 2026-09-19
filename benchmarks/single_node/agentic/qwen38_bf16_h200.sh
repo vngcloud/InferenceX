@@ -37,6 +37,12 @@ install_agentic_deps
 export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics"
 export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="vllm:"
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:9400/metrics"
+# Full DCGM fieldset the customer asked for (GPU/fabric metrics, not just
+# serving-level TTFT/ITL): SM active/occupancy, NVLink TX/RX + error counters,
+# throttle-violation reasons. launch_h200-greennode.sh reconfigures this same
+# runner's dcgm-exporter from the sidecar CSV below (matching basename), so
+# the fields named here always exist on the scrape it points at.
+export AIPERF_GPU_TELEMETRY_METRICS_CSV="benchmarks/single_node/agentic/qwen38_bf16_h200.gpu_metrics.csv"
 
 # Cap replay context length to model's max-model-len.
 export MAX_MODEL_LEN=262144

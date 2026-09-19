@@ -3395,6 +3395,14 @@ build_replay_cmd() {
     # downstream; the Prometheus server-metrics path is unaffected either way.
     if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
         REPLAY_CMD+=" --gpu-telemetry $AIPERF_GPU_TELEMETRY_URL"
+        # Optional custom DCGM fieldset CSV (aiperf classifies list items ending
+        # in .csv as the metrics file, order-independent). Recipe exports this
+        # only when its sidecar CSV also reconfigured the DCGM exporter itself
+        # (see launch_h200-greennode.sh) -- otherwise the fields it names won't
+        # exist on the scrape and aiperf's GpuMetricTimeSeries will KeyError.
+        if [ -n "${AIPERF_GPU_TELEMETRY_METRICS_CSV:-}" ]; then
+            REPLAY_CMD+=" $AIPERF_GPU_TELEMETRY_METRICS_CSV"
+        fi
     else
         REPLAY_CMD+=" --no-gpu-telemetry"
     fi
