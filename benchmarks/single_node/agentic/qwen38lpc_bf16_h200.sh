@@ -45,6 +45,13 @@ export AIPERF_GPU_TELEMETRY_URL="http://localhost:9400/metrics"
 # Cap replay context length to model's max-model-len.
 export MAX_MODEL_LEN=262144
 
+# The 16k chunk cap creates prefill shapes that boot warmup never covers; the
+# first on-load FlashInfer GDN prefill JIT compile for a new shape can exceed
+# the default 300s execute-model RPC deadline, at which point the engine core
+# kills the whole server (fatal "RPC call to sample_tokens timed out", seen in
+# run 35399747564 c33). 1800s lets the one-time compile finish instead.
+export VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800
+
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 
