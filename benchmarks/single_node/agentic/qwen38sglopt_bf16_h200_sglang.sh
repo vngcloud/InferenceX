@@ -54,6 +54,8 @@ mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 
 MAX_RUNNING_REQUESTS=$((2 * CONC))
+CUDA_GRAPH_MAX_BS=$MAX_RUNNING_REQUESTS
+[ "$CUDA_GRAPH_MAX_BS" -gt 64 ] && CUDA_GRAPH_MAX_BS=64
 SGLANG_CMD=(
     python3 -m sglang.launch_server
     --model-path "$MODEL_PATH"
@@ -63,8 +65,9 @@ SGLANG_CMD=(
     --trust-remote-code
     --tp "$TP"
     --context-length 262144
-    --mem-fraction-static 0.90
+    --mem-fraction-static 0.85
     --max-running-requests "$MAX_RUNNING_REQUESTS"
+    --cuda-graph-max-bs "$CUDA_GRAPH_MAX_BS"
     --kv-cache-dtype fp8_e4m3
     --chunked-prefill-size 32768
     --max-prefill-tokens 32768
@@ -75,7 +78,6 @@ SGLANG_CMD=(
     --speculative-eagle-topk 1
     --speculative-num-draft-tokens 4
     --enable-linear-replayssm-spec
-    --mamba-full-memory-ratio 1.5
     --enable-hierarchical-cache
     --hicache-size 24
     --tool-call-parser qwen3_coder
