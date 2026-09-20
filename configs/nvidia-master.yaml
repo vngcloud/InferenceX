@@ -9023,6 +9023,27 @@ qwen38sglopt-bf16-h200-sglang-agentic:
     - dram-utilization: 0.80
       search-space:
       - { tp: 4, kv-offloading: dram, kv-offload-backend: { name: hicache }, spec-decoding: mtp, conc-list: [20, 33, 50] }
+qwen38sglhc-bf16-h200-sglang-agentic:
+  # Vietinbank arm G: closest SGLang equivalent of the customer's vLLM launch
+  # (context.md §5) + hierarchical cache with a 128 GB host pool. Arm D plus
+  # --max-prefill-tokens 32768 (the knob arm D missed, root cause of its TTFT
+  # gap, §23) and explicit enable_thinking; none of arm E's speculative
+  # decoding, which regressed throughput and ITL p99 at CCU 50 (§24). CCU
+  # ladder extends past the 20/33/50 of the other arms to 80/100 so the
+  # hierarchical cache has eviction pressure to work against — at 20-50 the
+  # radix prefix hit rate already sits near 95% with nothing to offload.
+  image: lmsysorg/sglang:v0.5.19
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38sglhc
+  runner: cluster:h200-greennode
+  precision: bf16
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 4, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [20, 33, 50, 80, 100] }
 qwen38sgl-bf16-h200-sglang-agentic:
   # Vietinbank arm D: same BF16 weights + CCU ladder as the qwen38 vLLM
   # baseline (run 35373606847), engine swapped to SGLang (customer-migration
