@@ -53,8 +53,14 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # No --exclusive (see above), so Slurm's DefMemPerCPU default applies and
 # grants only a few GB -- not enough for enroot to build the image squashfs.
 # Size mem/cpu proportionally to the node's 192 CPUs / ~1.4TB RAM over 8 GPUs.
+# Tried --gres-flags=enforce-binding to keep each 4-GPU half NUMA-local
+# (gres.conf maps GPU0-3 to NUMA0 cpu0-95, GPU4-7 to NUMA1 cpu96-191,
+# measured empirically). Reverted: this node registers as 192 sockets x 1
+# core (not 2 sockets x 96 cores), so enforce-binding made Slurm grab all
+# 192 CPUs for one allocation, starving the second concurrent job entirely.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
-    --gres=gpu:"$GPU_COUNT" --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 170))G \
+    --gres=gpu:"$GPU_COUNT" \
+    --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 170))G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
