@@ -190,7 +190,10 @@ jobs:
           # Cleanup Docker resources
           if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
             echo "[Docker] Cleaning up resources ..."
-            docker ps -aq | xargs -r docker rm -f
+            # Two runners sharing a host can race to remove the same stale
+            # container here -- "removal already in progress" fails this step
+            # under `set -e`; tolerate it, the while loop still waits clean.
+            docker ps -aq | xargs -r docker rm -f || true
             docker network prune -f
             while [ -n "$(docker ps -aq)" ]; do
               docker ps -a
