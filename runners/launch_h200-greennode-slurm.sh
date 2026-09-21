@@ -22,8 +22,8 @@ free_tcp_port() {
 }
 export PORT="${PORT:-$(free_tcp_port)}"
 
-# /shared is the NFS mount from the join playbook; shared across runners.
-SQUASH_CACHE_DIR="/shared/containers"
+# Local disk, not /shared (NFS) -- much faster for large image imports.
+SQUASH_CACHE_DIR="/mnt/containers"
 mkdir -p "$SQUASH_CACHE_DIR"
 SQUASH_FILE="${SQUASH_CACHE_DIR}/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
 DOCKER_IMAGE=$(echo "$IMAGE" | sed 's/#/\//g')
