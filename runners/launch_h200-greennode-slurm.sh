@@ -66,6 +66,10 @@ trap 'rc=$?; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 srun --jobid="$JOB_ID" bash -c "
     export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
     mkdir -p \$ENROOT_CACHE_PATH
+    # / only has ~17G free; enroot's layer-fetch buffering (GNU parallel) fills
+    # it fast, especially with two concurrent imports. Use /mnt instead.
+    export TMPDIR=/mnt/tmp
+    mkdir -p \$TMPDIR
     exec 9>\"$LOCK_FILE\"
     flock -w 600 9 || { echo 'Failed to acquire lock for $SQUASH_FILE'; exit 1; }
     if unsquashfs -l \"$SQUASH_FILE\" > /dev/null 2>&1; then
@@ -98,6 +102,8 @@ DCGM_LOCK_FILE="${DCGM_SQUASH}.lock"
 srun --jobid="$JOB_ID" bash -c "
     export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
     mkdir -p \$ENROOT_CACHE_PATH
+    export TMPDIR=/mnt/tmp
+    mkdir -p \$TMPDIR
     exec 9>\"$DCGM_LOCK_FILE\"
     flock -w 600 9 || { echo 'Failed to acquire lock for $DCGM_SQUASH'; exit 1; }
     if unsquashfs -l \"$DCGM_SQUASH\" > /dev/null 2>&1; then
