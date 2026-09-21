@@ -22,11 +22,28 @@ free_tcp_port() {
 }
 export PORT="${PORT:-$(free_tcp_port)}"
 
+# enroot needs `docker://registry#path` for a non-default registry; auto-detect
+# by whether the first path component looks like a host (has a dot/colon, or
+# is localhost), same heuristic as launch_b200-nscale-slurm.sh.
+enroot_uri_for_image() {
+    local image_ref="$1"
+    local first_component="${image_ref%%/*}"
+    if [[ "$image_ref" == */* && (
+        "$first_component" == *.* ||
+        "$first_component" == *:* ||
+        "$first_component" == "localhost"
+    ) ]]; then
+        printf 'docker://%s#%s\n' "$first_component" "${image_ref#*/}"
+    else
+        printf 'docker://%s\n' "$image_ref"
+    fi
+}
+
 # Local disk, not /shared (NFS) -- much faster for large image imports.
 SQUASH_CACHE_DIR="/mnt/containers"
 mkdir -p "$SQUASH_CACHE_DIR"
 SQUASH_FILE="${SQUASH_CACHE_DIR}/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
-DOCKER_IMAGE=$(echo "$IMAGE" | sed 's/#/\//g')
+DOCKER_IMAGE_URI="$(enroot_uri_for_image "$IMAGE")"
 LOCK_FILE="${SQUASH_FILE}.lock"
 
 # GH Actions cancel can SIGKILL us before EXIT traps run, leaking the
@@ -51,7 +68,7 @@ srun --jobid="$JOB_ID" bash -c "
         echo 'Squash file already exists and is valid, skipping import'
     else
         rm -f \"$SQUASH_FILE\"
-        enroot import -o \"$SQUASH_FILE\" docker://$DOCKER_IMAGE
+        enroot import -o \"$SQUASH_FILE\" $DOCKER_IMAGE_URI
     fi
 "
 
@@ -71,6 +88,7 @@ fi
 # uses a second `docker run -d` instead). Own port, same reason as above.
 DCGM_PORT="$(free_tcp_port)"
 DCGM_IMAGE="nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04"
+DCGM_IMAGE_URI="$(enroot_uri_for_image "$DCGM_IMAGE")"
 DCGM_SQUASH="${SQUASH_CACHE_DIR}/$(echo "$DCGM_IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
 DCGM_LOCK_FILE="${DCGM_SQUASH}.lock"
 srun --jobid="$JOB_ID" bash -c "
@@ -82,7 +100,7 @@ srun --jobid="$JOB_ID" bash -c "
         echo 'DCGM squash file already exists and is valid, skipping import'
     else
         rm -f \"$DCGM_SQUASH\"
-        enroot import -o \"$DCGM_SQUASH\" docker://$DCGM_IMAGE
+        enroot import -o \"$DCGM_SQUASH\" $DCGM_IMAGE_URI
     fi
 "
 
