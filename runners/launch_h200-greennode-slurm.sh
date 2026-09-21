@@ -50,8 +50,12 @@ LOCK_FILE="${SQUASH_FILE}.lock"
 # allocation; clear any stale job from this runner name before requesting a new one.
 scancel --name="$RUNNER_NAME" 2>/dev/null || true
 
+# No --exclusive (see above), so Slurm's DefMemPerCPU default applies and
+# grants only a few GB -- not enough for enroot to build the image squashfs.
+# Size mem/cpu proportionally to the node's 192 CPUs / ~1.4TB RAM over 8 GPUs.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
-    --gres=gpu:"$GPU_COUNT" --time=180 --no-shell --job-name="$RUNNER_NAME"
+    --gres=gpu:"$GPU_COUNT" --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 170))G \
+    --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
     echo "ERROR: failed to resolve h200-greennode Slurm allocation" >&2
