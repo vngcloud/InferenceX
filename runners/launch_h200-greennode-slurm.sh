@@ -17,10 +17,16 @@ export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 
 # pyxis shares the host netns by default (no --container-unshare=net) -> two
 # concurrent allocations on this node can't both hardcode PORT=8888.
+# benchmark-tmpl.yml sets PORT=8888 as a job-level default env var, so
+# ${PORT:-...} never falls through to free_tcp_port() -- it's always
+# already non-empty. Override unconditionally instead: this launcher must
+# always pick its own free port, never trust an inherited default. (Root
+# cause of an intermittent "address already in use" port collision between
+# concurrent slurm_1a/1b jobs when their bind attempts happened to overlap.)
 free_tcp_port() {
     python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
 }
-export PORT="${PORT:-$(free_tcp_port)}"
+export PORT="$(free_tcp_port)"
 
 # enroot needs `docker://registry#path` for a non-default registry; auto-detect
 # by whether the first path component looks like a host (has a dot/colon, or
