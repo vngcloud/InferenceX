@@ -143,11 +143,18 @@ if [[ -n "$DCGM_EXTRA_ARGS" ]]; then
     export AIPERF_GPU_TELEMETRY_METRICS_CSV="/etc/dcgm-exporter/custom.csv"
 fi
 
+# --container-writable: enroot's squashfs mount is read-only by default,
+# unlike docker's writable-overlay default. Various tools baked into these
+# images write into their own rootfs at runtime with no override available
+# (triton -> /root/.triton, vllm -> /root/.cache/vllm/*, etc.) -- hit two
+# separate instances of this already (uv, triton). Give the whole rootfs a
+# writable (per-job, ephemeral) layer instead of patching each one.
 srun --jobid="$JOB_ID" \
     --container-image="$SQUASH_FILE" \
     --container-mounts="$GITHUB_WORKSPACE:/workspace,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE,$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR" \
     --no-container-mount-home \
     --container-remap-root \
+    --container-writable \
     --container-workdir=/workspace/ \
     --no-container-entrypoint --export=ALL,PORT="$PORT",AIPERF_GPU_TELEMETRY_URL,AIPERF_GPU_TELEMETRY_METRICS_CSV \
     bash "$BENCH_SCRIPT"
