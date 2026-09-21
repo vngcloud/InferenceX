@@ -29,6 +29,10 @@ SQUASH_FILE="${SQUASH_CACHE_DIR}/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
 DOCKER_IMAGE=$(echo "$IMAGE" | sed 's/#/\//g')
 LOCK_FILE="${SQUASH_FILE}.lock"
 
+# GH Actions cancel can SIGKILL us before EXIT traps run, leaking the
+# allocation; clear any stale job from this runner name before requesting a new one.
+scancel --name="$RUNNER_NAME" 2>/dev/null || true
+
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --gres=gpu:"$GPU_COUNT" --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
@@ -36,7 +40,7 @@ if [[ -z "$JOB_ID" ]]; then
     echo "ERROR: failed to resolve h200-greennode Slurm allocation" >&2
     exit 1
 fi
-trap 'rc=$?; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT
+trap 'rc=$?; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 srun --jobid="$JOB_ID" bash -c "
     export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
@@ -98,7 +102,7 @@ srun --jobid="$JOB_ID" --overlap \
     --no-container-entrypoint \
     dcgm-exporter -a ":$DCGM_PORT" $DCGM_EXTRA_ARGS &
 DCGM_SRUN_PID=$!
-trap 'rc=$?; kill "$DCGM_SRUN_PID" 2>/dev/null || true; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT
+trap 'rc=$?; kill "$DCGM_SRUN_PID" 2>/dev/null || true; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:${DCGM_PORT}/metrics"
 if [[ -n "$DCGM_EXTRA_ARGS" ]]; then
