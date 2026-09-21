@@ -3042,9 +3042,15 @@ install_agentic_deps() {
     # dropped Python 3.10 (SemiAnalysisAI/aiperf#1107) while sglang-rocm/vllm-rocm
     # images still default to 3.10.12, which left the venv without aiperf/hf.
     # uv downloads a standalone build when the system lacks one.
-    UV_CACHE_DIR="$AIPERF_UV_CACHE_DIR" \
+    # UV_PYTHON_INSTALL_DIR: ensure_agentic_uv() prefers an already-installed
+    # `uv` from the image's PATH, which carries its own baked-in default
+    # (often /opt/uv/python) for where to place that downloaded build. Under
+    # enroot the container rootfs is read-only, unlike docker's writable
+    # overlay, so that default fails there; point it at the same writable,
+    # mounted dir as UV_CACHE_DIR instead.
+    UV_CACHE_DIR="$AIPERF_UV_CACHE_DIR" UV_PYTHON_INSTALL_DIR="$AIPERF_UV_CACHE_DIR/python-installs" \
         "$AIPERF_UV_BIN" venv --python "${AIPERF_PYTHON_VERSION}" "$AIPERF_VENV" || return $?
-    UV_CACHE_DIR="$AIPERF_UV_CACHE_DIR" UV_HTTP_TIMEOUT=120 UV_HTTP_RETRIES=3 \
+    UV_CACHE_DIR="$AIPERF_UV_CACHE_DIR" UV_PYTHON_INSTALL_DIR="$AIPERF_UV_CACHE_DIR/python-installs" UV_HTTP_TIMEOUT=120 UV_HTTP_RETRIES=3 \
         "$AIPERF_UV_BIN" pip install --python "$AIPERF_PYTHON" \
         -r "$AGENTIC_DIR/requirements.txt" \
         -e "$AIPERF_DIR" \
