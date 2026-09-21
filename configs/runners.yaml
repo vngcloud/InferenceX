@@ -204,6 +204,7 @@ labels:
     - h200-greennode-slurm_1a
     - h200-greennode-slurm_1b
     - h200-greennode-slurm_1c
+    - h200-greennode-slurm_1d
   cluster:h200-greennode_04:
     - h200-greennode_04
   # Slurm path on h200-greennode_06, runs alongside the docker-path runner
