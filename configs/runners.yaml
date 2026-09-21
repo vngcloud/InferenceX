@@ -199,6 +199,11 @@ labels:
     - h200-greennode_03
     - h200-greennode_04
     - h200-greennode_06
+    # Temp: lets --runner-node-filter reach the slurm runners for the
+    # breakpoint probe parallel run; revert alongside the conc-list probe.
+    - h200-greennode-slurm_1a
+    - h200-greennode-slurm_1b
+    - h200-greennode-slurm_1c
   cluster:h200-greennode_04:
     - h200-greennode_04
   # Slurm path on h200-greennode_06, runs alongside the docker-path runner
