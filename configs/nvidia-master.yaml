@@ -8931,8 +8931,10 @@ qwen38-bf16-h200-vllm-agentic:
   multinode: false
   scenarios:
     agentic-coding:
+    # Break-point probe (c20/33/50 data already exists: run 35373606847).
+    # Use duration-override when dispatching. Revert to [20, 33, 50] after.
     - search-space:
-      - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
+      - { tp: 4, kv-offloading: none, conc-list: [60, 70, 80, 90] }
 
 # Vietinbank arm A: identical to qwen38-bf16-h200-vllm-agentic plus
 # --long-prefill-token-threshold 16384 (prefill chunked at 16k instead of

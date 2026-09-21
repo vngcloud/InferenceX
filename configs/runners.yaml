@@ -201,6 +201,13 @@ labels:
     - h200-greennode_06
   cluster:h200-greennode_04:
     - h200-greennode_04
+  # Slurm path on h200-greennode_06, runs alongside the docker-path runner
+  # above (4+4 GPU split). See runners/launch_h200-greennode-slurm.sh.
+  cluster:h200-greennode-slurm:
+    - h200-greennode-slurm_1a
+    - h200-greennode-slurm_1b
+    - h200-greennode-slurm_1c
+    - h200-greennode-slurm_1d
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01
@@ -357,6 +364,10 @@ hardware:
     gpus-per-node: 8
   cluster:h200-greennode_04:
     available-cpu-dram-mib: 806_148
+    gpus-per-node: 4
+  # Estimate: half of h200-greennode's DRAM/GPU (shared box, 4+4 split).
+  cluster:h200-greennode-slurm:
+    available-cpu-dram-mib: 751_160
     gpus-per-node: 4
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_095_781
