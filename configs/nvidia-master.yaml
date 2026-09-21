@@ -8922,7 +8922,7 @@ qwopus36-bf16-h200-vllm-agentic:
       - { tp: 4, kv-offloading: none, conc-list: [20, 33, 50] }
 
 qwen38-bf16-h200-vllm-agentic:
-  image: vcr.vngcloud.vn/108942-public69/vllm/vllm-openai:v0.25.0
+  image: vcr.vngcloud.vn#108942-public69/vllm/vllm-openai:v0.25.0
   model: Qwen/Qwen3.8-27B
   model-prefix: qwen38
   runner: cluster:h200-greennode
