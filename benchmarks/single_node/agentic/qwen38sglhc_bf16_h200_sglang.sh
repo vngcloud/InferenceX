@@ -59,6 +59,12 @@ resolve_trace_source
 install_agentic_deps
 
 export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics"
+# aiohttp's TCP_USER_TIMEOUT defaults to 30s; at CCU>=70 the server is busy
+# enough that an ACK can lag past that under normal load, tripping
+# ClientOSError(110) and aborting the whole run on a single spurious warmup
+# request failure. Every other high-CCU agentic recipe in this repo already
+# sets this to 900s (e.g. glm5.2/dsv4/kimik3 MTP recipes); this arm didn't.
+export AIPERF_HTTP_TCP_USER_TIMEOUT=900000
 # DCGM exporter the greennode launcher starts alongside the job (host network).
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:9400/metrics"
 # Full DCGM fieldset the customer asked for (GPU/fabric metrics, not just
