@@ -94,7 +94,7 @@ SGLANG_CMD=(
     --max-prefill-tokens 32768
     --attention-backend flashinfer
     --enable-hierarchical-cache
-    --hicache-size 256
+    --hicache-size 128
     --tool-call-parser qwen3_coder
     --reasoning-parser qwen3
     --default-chat-template-kwargs '{"enable_thinking": true}'
