@@ -4,8 +4,14 @@ set -x
 
 # Qwen3.8-27B BF16 AgentX benchmark — arm G variant: same server config as
 # arm G (qwen38sglhc_bf16_h200_sglang.sh), but with hicache-size bumped
-# 128 -> 512 GB to test whether a larger DRAM KV pool softens the c80
+# 128 -> 192 GB to test whether a larger DRAM KV pool softens the c80
 # throughput drop-off. Single CCU point (80), not a full ladder.
+#
+# Started at 512, then 256 (both OOM'd on this node's DRAM budget: the
+# hybrid GDN/Mamba host-cache pool + other overhead already consume most of
+# TOTAL_CPU_DRAM_GB before hicache gets its share -- 256GB was already tried
+# and reverted for exactly this reason, see commit 0877315b). 192 GB is the
+# next step up from the known-good 128 GB baseline.
 #
 # Difference from arm D (qwen38sgl_bf16_h200_sglang.sh, run 35440329321):
 #   - --max-prefill-tokens 32768. The customer's single vLLM knob
@@ -14,8 +20,7 @@ set -x
 #     lost TTFT 1.5-2.7x vs vLLM (context.md §23 root cause).
 #   - --default-chat-template-kwargs '{"enable_thinking": true}' stated
 #     explicitly instead of relying on the Qwen3 template default.
-#   - --enable-hierarchical-cache --hicache-size 512 (arm G used 128; 512 GB
-#     still fits the 1.4 TB free on h200-greennode_06).
+#   - --enable-hierarchical-cache --hicache-size 192 (arm G used 128).
 #
 # Deliberately NOT carried over from arm E / our prod deployment: EAGLE
 # speculative decode (wins at CCU <=33 but regressed throughput -9% and ITL p99
@@ -101,7 +106,7 @@ SGLANG_CMD=(
     --max-prefill-tokens 32768
     --attention-backend flashinfer
     --enable-hierarchical-cache
-    --hicache-size 512
+    --hicache-size 192
     --tool-call-parser qwen3_coder
     --reasoning-parser qwen3
     --default-chat-template-kwargs '{"enable_thinking": true}'
