@@ -102,6 +102,16 @@ VLLM_CMD=(
     --async-scheduling
     --default-chat-template-kwargs '{"enable_thinking": true}'
     --kv-transfer-config "$OFFLOAD_CONFIG"
+    # SimpleCPUOffloadConnector's KV-cache sizing ignores vLLM's
+    # num_gpu_blocks_override used for the minimal profiling KV cache built
+    # to estimate CUDA-graph capture memory (gpu_model_runner.py
+    # _init_minimal_kv_cache_for_profiling), so that reshape crashes with a
+    # block-count mismatch ("shape '[25088, 2, 32, 1, 256]' is invalid for
+    # input of size 8388608") as soon as cudagraph capture is enabled.
+    # Confirmed 2026-09-23 on vllm/vllm-openai:v0.25.0, identical crash at
+    # both c70 and c90 (deterministic, independent of concurrency).
+    # --enforce-eager skips profile_cudagraph_memory entirely.
+    --enforce-eager
 )
 
 write_command "$RESULT_DIR/vllm_command.txt" "${VLLM_CMD[@]}"
