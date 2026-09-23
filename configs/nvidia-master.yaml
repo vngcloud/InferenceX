@@ -8937,6 +8937,30 @@ qwen38-bf16-h200-vllm-agentic:
     - search-space:
       - { tp: 4, kv-offloading: none, conc-list: [60, 70, 80, 90] }
 
+# Same c60-90 breakpoint probe as qwen38-bf16-h200-vllm-agentic above, but
+# with vLLM's native DRAM KV-offload path enabled (SimpleCPUOffloadConnector,
+# KV_OFFLOAD_BACKEND=vllm-simple), fixed at a 128GB host pool -- the recipe
+# overrides TOTAL_CPU_DRAM_GB to 128 regardless of dram-utilization below.
+# Every prior attempt at the plain c60-90 probe on cluster:h200-greennode-slurm
+# (2026-09-21, commits 444b0eb49/f232b177b/e910ba62e) cancelled or failed at
+# scheduling -- this host was never actually joined to the Slurm cluster.
+# Fixed 2026-09-23 (slurm.conf socket/GRES topology + controller sync); this
+# is the first run dispatched to real, working Slurm runners.
+# Recipe: benchmarks/single_node/agentic/qwen38kvoff_bf16_h200.sh
+qwen38kvoff-bf16-h200-vllm-agentic:
+  image: vcr.vngcloud.vn/108942-public69/vllm/vllm-openai:v0.25.0
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38kvoff
+  runner: cluster:h200-greennode-slurm
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.20
+      search-space:
+      - { tp: 4, kv-offloading: dram, kv-offload-backend: { name: vllm-simple }, conc-list: [60, 70, 80, 90] }
+
 # Vietinbank arm A: identical to qwen38-bf16-h200-vllm-agentic plus
 # --long-prefill-token-threshold 16384 (prefill chunked at 16k instead of
 # riding the 32k batch budget). A/B against the baseline above isolates the
