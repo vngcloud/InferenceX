@@ -102,15 +102,27 @@ VLLM_CMD=(
     --async-scheduling
     --default-chat-template-kwargs '{"enable_thinking": true}'
     --kv-transfer-config "$OFFLOAD_CONFIG"
-    # SimpleCPUOffloadConnector's KV-cache sizing ignores vLLM's
-    # num_gpu_blocks_override used for the minimal profiling KV cache built
-    # to estimate CUDA-graph capture memory (gpu_model_runner.py
-    # _init_minimal_kv_cache_for_profiling), so that reshape crashes with a
-    # block-count mismatch ("shape '[25088, 2, 32, 1, 256]' is invalid for
-    # input of size 8388608") as soon as cudagraph capture is enabled.
-    # Confirmed 2026-09-23 on vllm/vllm-openai:v0.25.0, identical crash at
-    # both c70 and c90 (deterministic, independent of concurrency).
-    # --enforce-eager skips profile_cudagraph_memory entirely.
+    # NOTE 2026-09-24: --enforce-eager alone does NOT fix this arm. Kept
+    # (harmless, simpler code path) but the real crash is upstream of
+    # cudagraph profiling: with --enforce-eager still on, the SAME reshape
+    # (gpu_model_runner.py _reshape_kv_cache_tensors ->
+    # attn_utils._reshape_attention_kv_cache) fails on the REAL (non-profiling)
+    # KV cache init too -- "shape '[440902, 2, 32, 1, 256]' is invalid for
+    # input of size 147423232". Root cause: Qwen3.8-27B is a hybrid
+    # Mamba/GDN+attention model, so vLLM pads the attention block size to
+    # 1568 tokens to match the Mamba page size ("Setting attention block
+    # size to 1568 tokens to ensure that attention page size is >= mamba
+    # page size", interface.py:890) instead of the usual 32.
+    # SimpleCPUOffloadConnector's own block-count/shape computation appears
+    # to assume the default 32-token block size regardless (1568/32 = 49,
+    # exactly the ratio of the two crash's mismatched block counts:
+    # 25088/512 and 440902/8996). This is an upstream vLLM v0.25.0
+    # SimpleCPUOffloadConnector incompatibility with hybrid Mamba/attention
+    # models, not fixable via recipe/CLI args -- confirmed on 2 independent
+    # attempts (with and without --enforce-eager), same ~49x mismatch both
+    # times. This arm is BLOCKED until either vLLM patches the connector for
+    # non-default block sizes, or a different offload backend (e.g.
+    # mooncake) is tried instead.
     --enforce-eager
 )
 
