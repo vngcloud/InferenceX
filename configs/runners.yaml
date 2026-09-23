@@ -371,7 +371,21 @@ hardware:
   cluster:h200-greennode_04:
     available-cpu-dram-mib: 806_148
     gpus-per-node: 4
-  # Estimate: half of h200-greennode's DRAM/GPU (shared box, 4+4 split).
+  # Estimate: half of h200-greennode's DRAM/GPU (shared box, 4+4 split) --
+  # NOT enforced by device isolation. gres.conf/slurm.conf on
+  # hoanq3-h200-8x-han-1 grant Slurm all 8 physical GPUs (Gres=gpu:8, no
+  # device subset reserved for the docker path), and
+  # launch_h200-greennode-slurm.sh's salloc reserves --mem=$((GPU_COUNT*170))G
+  # per job (680G for a TP4 job) purely for Slurm's own scheduling/backfill
+  # accounting -- it is not a hard cgroup ceiling shared with docker's memory
+  # use. Confirmed 2026-09-23: dispatching 2 concurrent TP4 Slurm jobs
+  # alongside one concurrent docker-path job on this same physical node
+  # (h200-greennode_06) OOM-killed the docker job (exit 137) once combined
+  # real usage exceeded the node's ~1.48TB RAM -- Slurm's own 2 jobs finished
+  # fine since no GPU/host-RAM reservation excludes docker's concurrent use.
+  # Until this node gets real GPU/RAM isolation between the two paths, do not
+  # dispatch a docker-path (cluster:h200-greennode) job at the same time as
+  # any cluster:h200-greennode-slurm job.
   cluster:h200-greennode-slurm:
     available-cpu-dram-mib: 751_160
     gpus-per-node: 4
