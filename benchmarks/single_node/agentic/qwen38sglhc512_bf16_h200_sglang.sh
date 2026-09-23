@@ -4,14 +4,16 @@ set -x
 
 # Qwen3.8-27B BF16 AgentX benchmark — arm G variant: same server config as
 # arm G (qwen38sglhc_bf16_h200_sglang.sh), but with hicache-size bumped
-# 128 -> 192 GB to test whether a larger DRAM KV pool softens the c80
+# 128 -> 256 GB to test whether a larger DRAM KV pool softens the c80
 # throughput drop-off. Single CCU point (80), not a full ladder.
 #
-# Started at 512, then 256 (both OOM'd on this node's DRAM budget: the
-# hybrid GDN/Mamba host-cache pool + other overhead already consume most of
-# TOTAL_CPU_DRAM_GB before hicache gets its share -- 256GB was already tried
-# and reverted for exactly this reason, see commit 0877315b). 192 GB is the
-# next step up from the known-good 128 GB baseline.
+# First attempts at 512, then 256, then 192 all hit spurious "Not enough
+# host memory available" errors at server init, even with >1TB host free --
+# root cause was SGLang's default NUMA auto-bind restricting each TP rank's
+# visible free memory to its own NUMA node before dividing by rank count
+# (see SGLANG_AUTO_NUMA_BIND below). 256GB was already tried once before
+# under the old (NUMA-unaware) accounting and reverted as unstable at high
+# CCU (commit 0877315b) -- retrying now with the NUMA fix in place.
 #
 # Difference from arm D (qwen38sgl_bf16_h200_sglang.sh, run 35440329321):
 #   - --max-prefill-tokens 32768. The customer's single vLLM knob
@@ -20,7 +22,7 @@ set -x
 #     lost TTFT 1.5-2.7x vs vLLM (context.md §23 root cause).
 #   - --default-chat-template-kwargs '{"enable_thinking": true}' stated
 #     explicitly instead of relying on the Qwen3 template default.
-#   - --enable-hierarchical-cache --hicache-size 192 (arm G used 128).
+#   - --enable-hierarchical-cache --hicache-size 256 (arm G used 128).
 #
 # Deliberately NOT carried over from arm E / our prod deployment: EAGLE
 # speculative decode (wins at CCU <=33 but regressed throughput -9% and ITL p99
@@ -83,6 +85,18 @@ export AIPERF_GPU_TELEMETRY_METRICS_CSV="benchmarks/single_node/agentic/qwen38sg
 # Cap replay context length to model's max context length.
 export MAX_MODEL_LEN=262144
 
+# SGLang's host_memory_budget_bytes() = psutil.virtual_memory().available /
+# ranks_per_host(), and by default (SGLANG_AUTO_NUMA_BIND=true) each TP rank
+# also numactl --membind's itself to its GPU's NUMA node first, so "available"
+# there is single-NUMA-node-local free RAM, not whole-host. On this 2-socket
+# node that alone can leave each of 4 TP ranks with only ~110GB budget even
+# when the host has >1TB free overall, causing spurious hicache OOM at
+# --hicache-size >128 that has nothing to do with actual host memory pressure
+# (confirmed: identical ~112GB figure both times, regardless of host free
+# swinging between 945GB and 1.2TB). Disable the auto NUMA memory pinning so
+# hicache sizing sees the whole host's free RAM instead of one node's.
+export SGLANG_AUTO_NUMA_BIND=false
+
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 
@@ -106,7 +120,7 @@ SGLANG_CMD=(
     --max-prefill-tokens 32768
     --attention-backend flashinfer
     --enable-hierarchical-cache
-    --hicache-size 192
+    --hicache-size 256
     --tool-call-parser qwen3_coder
     --reasoning-parser qwen3
     --default-chat-template-kwargs '{"enable_thinking": true}'
