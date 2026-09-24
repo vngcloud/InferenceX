@@ -2,33 +2,40 @@
 set -eo pipefail
 set -x
 
-# Qwen3.8-27B BF16 AgentX benchmark, vLLM engine — re-run of the c60-90
+# Qwen3.8-27B BF16 AgentX benchmark, vLLM engine — re-run of the c50-90
 # breakpoint probe (qwen38-bf16-h200-vllm-agentic, KV_OFFLOADING=none) but
 # with vLLM's native DRAM KV-offload path enabled: SimpleCPUOffloadConnector
-# (KV_OFFLOAD_BACKEND=vllm-simple), fixed at a 128GB host pool. Same
+# (KV_OFFLOAD_BACKEND=vllm-simple), fixed at a 256GB host pool. Same
 # prod-exact server args otherwise (context.md §5, boot-bf16.sh): BF16
 # weights, fp8 KV, TP4, FlashInfer, thinking ON.
 #
-# Every prior attempt at this c60-90 probe (runs under commits 444b0eb49/
+# Every prior attempt at this c50-90 probe (runs under commits 444b0eb49/
 # f232b177b/e910ba62e, 2026-09-21) was dispatched to the
 # cluster:h200-greennode-slurm runner pool before this host was actually
 # joined to the Slurm cluster -- every one of those jobs cancelled or failed
 # at scheduling, not at the benchmark itself. The Slurm join was fixed
-# 2026-09-23 (slurm.conf socket/GRES topology + controller sync); this is the
-# first real attempt on working Slurm runners.
+# 2026-09-23 (slurm.conf socket/GRES topology + controller sync).
 #
-# TOTAL_CPU_DRAM_GB is fixed at 128 regardless of the dram-utilization set in
-# nvidia-master.yaml (see override below) -- the customer's ask here is a
-# specific 128GB DRAM KV pool size, not a fraction of whatever's free on the
-# node.
+# 2026-09-24: on vLLM v0.25.0/v0.25.1, SimpleCPUOffloadConnector crashed at
+# KV cache init for this model regardless of --enforce-eager -- root cause
+# was Qwen3.8-27B's hybrid Mamba/GDN block-size padding (1568 tokens vs the
+# connector's assumed 32) confusing the connector's block-count math. Manual
+# repro on the real GPU node confirmed vLLM v0.29.0 and v0.30.0 both FIX
+# this (server boots, serves a real request); v0.25.1 does not (see
+# .scratch/vietinbank_qwen38_vllm_kvoffload_v25_crash_log.md and
+# _v251_crash_log.md). Image bumped to v0.29.0 accordingly.
+#
+# TOTAL_CPU_DRAM_GB is fixed at 256 regardless of the dram-utilization set in
+# nvidia-master.yaml (see override below) -- matches the SGLang hicache arm's
+# 256GB DRAM KV pool for a like-for-like comparison.
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
 check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION PORT EVAL_ONLY
 require_agentic_kv_offload_backend vllm-simple
 
-# Fixed 128GB DRAM KV pool, overriding whatever dram-utilization computed.
-export TOTAL_CPU_DRAM_GB=128
+# Fixed 256GB DRAM KV pool, overriding whatever dram-utilization computed.
+export TOTAL_CPU_DRAM_GB=256
 
 if [[ -n "$SLURM_JOB_ID" ]]; then
     echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
@@ -102,27 +109,11 @@ VLLM_CMD=(
     --async-scheduling
     --default-chat-template-kwargs '{"enable_thinking": true}'
     --kv-transfer-config "$OFFLOAD_CONFIG"
-    # NOTE 2026-09-24: --enforce-eager alone does NOT fix this arm. Kept
-    # (harmless, simpler code path) but the real crash is upstream of
-    # cudagraph profiling: with --enforce-eager still on, the SAME reshape
-    # (gpu_model_runner.py _reshape_kv_cache_tensors ->
-    # attn_utils._reshape_attention_kv_cache) fails on the REAL (non-profiling)
-    # KV cache init too -- "shape '[440902, 2, 32, 1, 256]' is invalid for
-    # input of size 147423232". Root cause: Qwen3.8-27B is a hybrid
-    # Mamba/GDN+attention model, so vLLM pads the attention block size to
-    # 1568 tokens to match the Mamba page size ("Setting attention block
-    # size to 1568 tokens to ensure that attention page size is >= mamba
-    # page size", interface.py:890) instead of the usual 32.
-    # SimpleCPUOffloadConnector's own block-count/shape computation appears
-    # to assume the default 32-token block size regardless (1568/32 = 49,
-    # exactly the ratio of the two crash's mismatched block counts:
-    # 25088/512 and 440902/8996). This is an upstream vLLM v0.25.0
-    # SimpleCPUOffloadConnector incompatibility with hybrid Mamba/attention
-    # models, not fixable via recipe/CLI args -- confirmed on 2 independent
-    # attempts (with and without --enforce-eager), same ~49x mismatch both
-    # times. This arm is BLOCKED until either vLLM patches the connector for
-    # non-default block sizes, or a different offload backend (e.g.
-    # mooncake) is tried instead.
+    # Kept from the v0.25.0/v0.25.1 debugging (harmless, simpler code path);
+    # the manual v0.29.0/v0.30.0 repro that confirmed the fix also used
+    # --enforce-eager, so keep it here to match the validated config exactly
+    # rather than introduce an untested variable (cudagraph capture) on the
+    # first real dispatch.
     --enforce-eager
 )
 
