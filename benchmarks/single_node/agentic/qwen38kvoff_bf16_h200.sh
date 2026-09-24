@@ -109,13 +109,16 @@ VLLM_CMD=(
     --async-scheduling
     --default-chat-template-kwargs '{"enable_thinking": true}'
     --kv-transfer-config "$OFFLOAD_CONFIG"
-    # Kept from the v0.25.0/v0.25.1 debugging (harmless, simpler code path);
-    # the manual v0.29.0/v0.30.0 repro that confirmed the fix also used
-    # --enforce-eager, so keep it here to match the validated config exactly
-    # rather than introduce an untested variable (cudagraph capture) on the
-    # first real dispatch.
-    --enforce-eager
 )
+# 2026-09-24: dropped --enforce-eager after the first real dispatch (c70/c80,
+# runs 35953095125/35953102597) came in ~35% below SGLang hicache's
+# throughput at the same CCU (73.6k/75.9k vs 112.8k/116.6k tok/s) -- eager
+# mode disables CUDA graph capture, which was only kept to match the
+# debugging config that confirmed the v0.25.x crash was fixed in v0.29.0/
+# v0.30.0. That root cause (Mamba block-size mismatch) is unrelated to
+# cudagraph capture, so there's no reason to keep paying the eager-mode
+# throughput cost now. c70/c80 numbers above are kept as the eager-mode
+# data point; c50/c60/c90 re-run with cudagraph enabled.
 
 write_command "$RESULT_DIR/vllm_command.txt" "${VLLM_CMD[@]}"
 "${VLLM_CMD[@]}" > "$SERVER_LOG" 2>&1 &
