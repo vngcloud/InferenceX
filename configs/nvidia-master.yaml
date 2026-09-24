@@ -9092,7 +9092,7 @@ qwen38sglhc512-bf16-h200-sglang-agentic:
     agentic-coding:
     - dram-utilization: 0.80
       search-space:
-      - { tp: 4, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [50, 60, 70, 80, 90] }
+      - { tp: 4, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [60, 70, 80, 90] }
 qwen38sgl-bf16-h200-sglang-agentic:
   # Vietinbank arm D: same BF16 weights + CCU ladder as the qwen38 vLLM
   # baseline (run 35373606847), engine swapped to SGLang (customer-migration
