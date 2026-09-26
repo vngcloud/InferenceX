@@ -8064,3 +8064,12 @@
     - "Bump image to lmsysorg/sglang-rocm:v0.5.19-rocm720-mi35x-20260915."
     - "Switch HiCache defaults to --hicache-io-backend kernel and --hicache-mem-layout page_first (from direct / page_first_direct). Ratio 1.5 and write_through are unchanged."
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/3118
+
+- config-keys:
+    - qwen38-bf16-h200-1x-vllm-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "First arm on the revived cluster:h200-greennode-slurm pool: on-node runner daemons on the two 1xH200 nodes replace the dead han-1 1a-1d slices, and launch_h200-greennode-slurm-1x.sh pins salloc to the runner's own node (hostname map). Qwen3.8-27B BF16, vLLM 0.29.0, TP1, KV offload none, cc-traces replay via the standard Weka loader (semianalysis_cc_traces_weka_062126) in benchmarks/single_node/agentic/qwen38_bf16_h200.sh (copied from the qwopus36 arm), conc [4,8,16]. First deliverable is a CCU 8 smoke pinned to h200-greennode-slurm-1x_02."
+    - "复活集群池 cluster:h200-greennode-slurm 后的首个配方：两台 1xH200 节点上的本机 runner 取代随 han-1 宕机的 1a–1d 切片，launch_h200-greennode-slurm-1x.sh 按 hostname 映射把 salloc 钉在 runner 所在节点。Qwen3.8-27B BF16，vLLM 0.29.0，TP1，无 KV 卸载，cc-traces 标准加载器（semianalysis_cc_traces_weka_062126）回放，脚本 benchmarks/single_node/agentic/qwen38_bf16_h200.sh，并发 [4,8,16]。首交付为钉在 h200-greennode-slurm-1x_02 的 CCU 8 冒烟。"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark
