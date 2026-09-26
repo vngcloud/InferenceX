@@ -66,11 +66,6 @@ on: # zizmor: ignore[concurrency-limits]
                 required: false
                 type: string
                 default: ""
-            skip-agentic-ingest:
-                description: "Skip dispatching successful agentic results to the production ingest workflow."
-                required: false
-                type: boolean
-                default: false
             changelog-base-ref:
                 description: "Trusted-dispatch mode: base SHA for infx.matrix.plan"
                 required: false
@@ -175,11 +170,6 @@ on: # zizmor: ignore[concurrency-limits]
                 required: false
                 type: string
                 default: ""
-            skip-agentic-ingest:
-                description: "Skip dispatching successful agentic results to the production ingest workflow."
-                required: false
-                type: boolean
-                default: false
             changelog-base-ref:
                 description: "Trusted-dispatch mode: base SHA for infx.matrix.plan"
                 required: false
@@ -330,7 +320,6 @@ jobs:
                   MULTI=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('scenario-type') != 'agentic-coding' and not x.get('eval-only', False)]))" | score_matrix multi)
                   EVALS=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') != 'agentic-coding' and x.get('run-eval', False)]))" | score_matrix eval)
                   MULTI_EVAL=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' in x and x.get('scenario-type') != 'agentic-coding' and x.get('run-eval', False)]))" | score_matrix multi-eval)
-                  EVALS=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if 'prefill' not in x and x.get('scenario-type') != 'agentic-coding' and x.get('run-eval', False)]))" | score_matrix eval)
                   {
                     echo "agentic-config=$AGENTIC"
                     echo "agentic-eval-config=$AGENTIC_EVAL"
@@ -629,44 +618,3 @@ jobs:
               with:
                   name: "run-stats"
                   path: ${{ env.STATS_FILENAME }}.json
-
-    trigger-agentic-ingest:
-        needs:
-            [
-                test-sweep-agentic,
-                test-sweep-multi-node-agentic,
-                calc-success-rate,
-            ]
-        if: >-
-            always() &&
-            github.event_name == 'workflow_dispatch' &&
-            inputs.skip-agentic-ingest != true &&
-            needs.calc-success-rate.result == 'success' &&
-            (
-              needs.test-sweep-agentic.result == 'success' ||
-              needs.test-sweep-multi-node-agentic.result == 'success'
-            ) &&
-            (
-              needs.test-sweep-agentic.result == 'success' ||
-              needs.test-sweep-agentic.result == 'skipped'
-            ) &&
-            (
-              needs.test-sweep-multi-node-agentic.result == 'success' ||
-              needs.test-sweep-multi-node-agentic.result == 'skipped'
-            )
-        runs-on: ubuntu-latest
-        steps:
-            - name: Trigger agentic database ingest
-              run: |
-                  curl -sSf -X POST \
-                    -H "Authorization: Bearer ${{ secrets.INFX_FRONTEND_PAT }}" \
-                    -H "Accept: application/vnd.github+v3+json" \
-                    https://api.github.com/repos/SemiAnalysisAI/InferenceX-app/dispatches \
-                    -d '{
-                      "event_type": "ingest-agentic-results",
-                      "client_payload": {
-                        "run-id": "${{ github.run_id }}",
-                        "run-attempt": "${{ github.run_attempt }}",
-                        "database-target": "production"
-                      }
-                    }'
