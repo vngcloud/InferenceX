@@ -8896,3 +8896,19 @@ qwen38-bf16-h200-1x-vllm-agentic:
     agentic-coding:
     - search-space:
       - { tp: 1, kv-offloading: none, conc-list: [4, 8, 16] }
+
+# Qwen3.8-27B BF16 AgentX TP4 on the 4-GPU Slurm slice of han-1 (slurm_1a–1d).
+# Same recipe as the 1x key (qwen38_bf16_h200.sh is TP-agnostic via $TP).
+# Smoke: conc 1, duration-override 90.
+qwen38-bf16-h200-tp4-vllm-agentic:
+  image: vllm/vllm-openai:v0.29.0
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38
+  runner: cluster:h200-greennode-slurm
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 4, kv-offloading: none, conc-list: [1, 4, 8] }
