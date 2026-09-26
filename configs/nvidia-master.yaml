@@ -8879,3 +8879,20 @@ gemma4-fp8block-h200-vllm-router:
       osl: 1024
       search-space:
       - { tp: 1, conc-list: [8, 32, 192] }
+
+# Qwen3.8-27B BF16 AgentX on one H200 of the 1xH200 Slurm nodes
+# (hoanq3-h200-1x-han-3-1). GPU_COUNT=1 makes launch_h200-greennode-slurm.sh
+# hand off to launch_h200-greennode-slurm-1x.sh. Recipe copied from
+# feat/qwopus36-bf16-h200-vllm-agentic (qwen38_bf16_h200.sh), run at TP1.
+qwen38-bf16-h200-1x-vllm-agentic:
+  image: vllm/vllm-openai:v0.29.0
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38
+  runner: cluster:h200-greennode-slurm
+  precision: bf16
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, kv-offloading: none, conc-list: [4, 8, 16] }
