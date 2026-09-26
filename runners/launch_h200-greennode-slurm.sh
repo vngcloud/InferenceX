@@ -4,6 +4,11 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../benchmarks/benchmark_lib.sh" --validation-only || exit 1
 check_env_vars GPU_COUNT
 
+# 1-GPU jobs go to the 1xH200 nodes, which need a different container path.
+if [[ "$GPU_COUNT" == 1 ]]; then
+    exec bash "$(dirname "${BASH_SOURCE[0]}")/launch_h200-greennode-slurm-1x.sh"
+fi
+
 set -x
 
 # Slurm path for h200-greennode_06 (partition "test"), sibling of
