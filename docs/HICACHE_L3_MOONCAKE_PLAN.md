@@ -386,4 +386,4 @@ The key-chain divergence claim was not tested in isolation.
 - Upstream plain-TP8 collapse at c16/c32: [29741710665](https://github.com/SemiAnalysisAI/InferenceX/actions/runs/29741710665)
 - Smoke test / segment sizing math: [HICACHE_L3_SMOKE_TEST.md](HICACHE_L3_SMOKE_TEST.md)
 - Executive summary: [HICACHE_L3_FINDINGS.md](HICACHE_L3_FINDINGS.md)
-- Dispatch workflow: `.agents/skills/inferencex-agentic-dispatch/SKILL.md`
+- Dispatch workflow: `.agents/skills/inferencex-dispatch/SKILL.md`
