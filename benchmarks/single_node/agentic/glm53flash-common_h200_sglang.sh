@@ -108,6 +108,15 @@ resolve_trace_source
 install_agentic_deps
 nvidia-smi
 
+# Slurm can hand us GPUs while the previous job's processes still hold VRAM
+# (runs 36322826747/36322829133 died at boot on "memory capacity is
+# unbalanced"). Wait up to 10 min for every visible GPU to drop under 2 GiB.
+for _ in $(seq 60); do
+  nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '$1 > 2048 {busy=1} END {exit busy}' && break
+  sleep 10
+done
+nvidia-smi --query-gpu=index,memory.used --format=csv,noheader
+
 mkdir -p "$RESULT_DIR"
 SERVER_LOG="$RESULT_DIR/server.log"
 
