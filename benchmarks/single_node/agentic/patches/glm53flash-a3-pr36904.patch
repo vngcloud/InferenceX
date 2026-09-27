@@ -1,0 +1,196 @@
+--- a/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
++++ b/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
+@@ -71,6 +71,13 @@
+     return fast_pow2(fast_log2_ceil(amax * fp8_max_inv))
+ 
+ 
++@lru_cache(maxsize=1)
++def _cuda_sm_count() -> int:
++    return torch.cuda.get_device_properties(
++        torch.cuda.current_device()
++    ).multi_processor_count
++
++
+ @lru_cache(maxsize=8)
+ def _pick_inner_iter(seq: int, ni: int, cu: int, block_per_cu: int) -> int:
+     """
+@@ -1371,12 +1378,18 @@
+     topk = indices.shape[-1]
+     assert topk % 64 == 0, "topk must be padded to a multiple of 64"
+ 
+-    if _is_hip:
+-        is_fp8_kv = kv.dtype in (torch.float8_e4m3fn, torch.float8_e4m3fnuz)
++    is_fp8_kv = kv.dtype in (torch.float8_e4m3fn, torch.float8_e4m3fnuz)
++    if _is_hip or is_fp8_kv:
+         if is_fp8_kv:
+             if q.dtype != kv.dtype:
+                 q = q.to(kv.dtype)
+-            if _is_gfx95_supported:
++            if not _is_hip:
++                # Port of sgl-project/sglang#36904: on CUDA the fp8 partial
++                # kernel is generic TileLang (no HIP intrinsics). 32/128 is the
++                # PR shape (validated on GB10 sm_121 and by third parties on
++                # SM90 H20); H200 has ~227 KB smem so 64/256 also fits.
++                block_I, threads, block_per_cu, cu = 32, 128, 1, _cuda_sm_count()
++            elif _is_gfx95_supported:
+                 block_I, threads, block_per_cu, cu = 64, 256, 2, 256
+             else:
+                 block_I, threads, block_per_cu, cu = 64, 256, 1, 304
+--- a/python/sglang/srt/arg_groups/overrides.py
++++ b/python/sglang/srt/arg_groups/overrides.py
+@@ -522,6 +522,7 @@
+     decode_backend: Optional[str],
+     *,
+     hip: bool,
++    dcp_size: int = 1,
+ ) -> None:
+     """Validate DSA backend / platform / kv-cache-dtype constraints."""
+     chosen = {prefill_backend, decode_backend}
+@@ -534,15 +535,43 @@
+             "(flashmla_kv on Hopper, trtllm on Blackwell)."
+         )
+ 
+-    cuda_fp8_unsupported = {"tilelang"} & chosen
+-    if not hip and kv_cache_dtype == "fp8_e4m3" and cuda_fp8_unsupported:
++    # Port of sgl-project/sglang#36904: on CUDA the tilelang fp8 KV path stores
++    # the raw MLA layout (nope + rope cast to fp8, no per-tile scales) and runs
++    # the generic TileLang fp8 partial kernel. It needs fp8 MMA (SM89+) and
++    # BOTH phases on tilelang: every other CUDA fp8 backend expects the scaled
++    # layout (nope_fp8 + per-tile scales + bf16 rope).
++    if hip or kv_cache_dtype != "fp8_e4m3" or "tilelang" not in chosen:
++        return
++    if dcp_size > 1:
+         raise ValueError(
+-            f"The {'/'.join(sorted(cuda_fp8_unsupported))} DSA prefill/decode kernels "
+-            "only support an fp8_e4m3 KV cache on ROCm/HIP; on CUDA they require "
+-            "a bfloat16 KV cache. Use --kv-cache-dtype bfloat16, or keep "
+-            "--kv-cache-dtype fp8_e4m3 and pick an fp8-capable DSA backend "
++            "The tilelang DSA fp8_e4m3 KV path on CUDA stores the raw MLA "
++            "layout and its fused-quant writer does not apply the DCP rank "
++            "filter, so it is incompatible with --dcp-size > 1. Use "
++            "--kv-cache-dtype bfloat16 with DCP, or dcp_size 1 with fp8."
++        )
++    if prefill_backend != decode_backend:
++        raise ValueError(
++            "On CUDA, an fp8_e4m3 KV cache with a tilelang DSA backend requires "
++            "BOTH --dsa-prefill-backend and --dsa-decode-backend to be tilelang: "
++            "tilelang consumes the raw fp8 MLA KV layout, while the other CUDA "
++            "backends expect the scaled (nope_fp8 + scales + bf16 rope) layout "
++            f"(got prefill={prefill_backend}, decode={decode_backend})."
++        )
++    import torch
++
++    major, minor = torch.cuda.get_device_capability()
++    if major * 10 + minor < 89:
++        raise ValueError(
++            "The tilelang DSA fp8_e4m3 KV path on CUDA requires fp8 tensor-core "
++            f"MMA (SM89+); got sm_{major}{minor}. Use --kv-cache-dtype bfloat16 "
++            "with the tilelang backend, or pick an fp8-capable DSA backend "
+             "(flashmla_kv on Hopper, trtllm on Blackwell)."
+         )
++    logger.warning(
++        "Enabling the tilelang DSA fp8_e4m3 KV cache on CUDA: KV is stored as "
++        "raw fp8 (no per-tile scales), matching the ROCm tilelang path. Expect "
++        "a small accuracy delta vs a bfloat16 KV cache."
++    )
+ 
+ 
+ def _check_tilelang_dsa_fp8_kv(
+@@ -551,10 +580,11 @@
+     decode_backend: Optional[str],
+     *,
+     hip: bool,
++    dcp_size: int = 1,
+ ) -> None:
+     """Backward-compatible entry point for the TileLang DSA validation."""
+     _check_dsa_backend_constraints(
+-        kv_cache_dtype, prefill_backend, decode_backend, hip=hip
++        kv_cache_dtype, prefill_backend, decode_backend, hip=hip, dcp_size=dcp_size
+     )
+ 
+ 
+@@ -654,7 +684,11 @@
+         # dtype-aware, so an explicitly requested backend still has to clear the
+         # shared backend/kv-cache-dtype rules before this arm returns early.
+         _check_dsa_backend_constraints(
+-            kv_cache_dtype, prefill, decode, hip=get_platform().is_hip
++            kv_cache_dtype,
++            prefill,
++            decode,
++            hip=get_platform().is_hip,
++            dcp_size=getattr(view, "dcp_size", 1) or 1,
+         )
+         logger.warning(
+             f"HiSparse enabled ({kv_cache_dtype}): using DSA backends "
+@@ -684,7 +718,11 @@
+     prefill = declared.get("dsa_prefill_backend", view.dsa_prefill_backend)
+     decode = declared.get("dsa_decode_backend", view.dsa_decode_backend)
+     _check_dsa_backend_constraints(
+-        kv_cache_dtype, prefill, decode, hip=get_platform().is_hip
++        kv_cache_dtype,
++        prefill,
++        decode,
++        hip=get_platform().is_hip,
++        dcp_size=getattr(view, "dcp_size", 1) or 1,
+     )
+     logger.warning(
+         f"Set DSA backends for {kv_cache_dtype} KV Cache: "
+--- a/python/sglang/srt/layers/attention/dsa_backend.py
++++ b/python/sglang/srt/layers/attention/dsa_backend.py
+@@ -364,6 +364,16 @@
+         self.supports_mha_one_shot: bool = True
+         self.dsa_prefill_impl: _DSA_IMPL_T = get_exec().kernel.dsa_prefill_backend
+         self.dsa_decode_impl: _DSA_IMPL_T = get_exec().kernel.dsa_decode_backend
++        if (
++            not _is_hip
++            and self.token_to_kv_pool.dtype == torch.float8_e4m3fn
++            and not self.dsa_kv_cache_store_fp8
++            and "tilelang" in (self.dsa_prefill_impl, self.dsa_decode_impl)
++        ):
++            # Port of sgl-project/sglang#36904: the CUDA TileLang fp8 path stores
++            # the raw (unscaled) MLA KV layout; the MHA_ONE_SHOT fp8 dequant
++            # helpers assume the scaled layout, so keep the one-shot MHA off.
++            self.supports_mha_one_shot = False
+         self.dsa_topk_backend: DSATopKBackend = DSATopKBackend.resolve(model_runner)
+         if self.num_q_heads <= 64:
+             self.flashmla_kv_num_q_heads = 64
+--- a/python/sglang/srt/mem_cache/kv_cache_configurator.py
++++ b/python/sglang/srt/mem_cache/kv_cache_configurator.py
+@@ -2596,6 +2596,16 @@
+     ):
+         return kv_cache_dim
+ 
++    # Port of sgl-project/sglang#36904: on CUDA the TileLang DSA kernels also
++    # consume the raw MLA KV layout when the KV cache is fp8. Arg validation
++    # (_check_dsa_backend_constraints) guarantees prefill == decode == tilelang
++    # whenever tilelang is combined with an fp8_e4m3 KV cache on CUDA.
++    if not _is_hip and (
++        get_exec().kernel.dsa_prefill_backend == "tilelang"
++        and get_exec().kernel.dsa_decode_backend == "tilelang"
++    ):
++        return kv_cache_dim
++
+     quant_block_size = DSATokenToKVPool.quant_block_size
+     rope_storage_dtype = DSATokenToKVPool.rope_storage_dtype
+     # Calculate override_kv_cache_dim for FP8 storage in backends that use scaled KV layout
+--- a/python/sglang/srt/mem_cache/memory_pool.py
++++ b/python/sglang/srt/mem_cache/memory_pool.py
+@@ -4602,10 +4602,14 @@
+             self.write_loc_is_dcp_resolved
+             and (self.use_dsa or self.dsa_kv_cache_store_fp8)
+         ), "the DSA write paths have no resolved-loc variant"
+-        if _is_hip and self.use_dsa and self.dtype == fp8_dtype:
+-            # HIP TileLang FP8 consumes the model's raw MLA layout
+-            # (NoPE + optional RoPE) without per-block scales.
+-            # Fuse BF16/FP16 -> FP8 cast with paged KV write.
++        if self.use_dsa and self.dtype == fp8_dtype and not self.dsa_kv_cache_store_fp8:
++            # Raw MLA KV layout (NoPE + optional RoPE cast to fp8) without
++            # per-block scales: HIP DSA kernels and the CUDA TileLang fp8 path
++            # (port of sgl-project/sglang#36904). Fuse BF16/FP16 -> FP8 cast
++            # with paged KV write. No DCP owner filter here; the arg gate
++            # rejects dcp_size > 1 for this layout on CUDA.
++            if cache_k_rope is None:
++                cache_k_rope = cache_k_nope.new_empty((*cache_k_nope.shape[:-1], 0))
+             set_mla_kv_buffer_triton_fp8_quant(
+                 dst_buffer,
+                 loc,
