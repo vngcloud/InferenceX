@@ -18,6 +18,9 @@
 #          (3 slots/req, mamba cap ~75 vs 31)
 #   a2     + --enable-linear-replayssm-spec (#40517)
 #   a4     + --schedule-policy hrrn (#32911)
+#   a3     a2 + KV fp8_e4m3. No image supports fp8 KV on SM90 DSA yet, so
+#          patches/glm53flash-a3-pr36904.patch (port of #36904 onto
+#          1f6ce4b0) is applied to the in-container sglang checkout before boot.
 #   dpa    a2 + DP-attention dp4 + sglang_router cache_aware. DPA disables
 #          adaptive spec (adaptive_spec_params.py), so MTP is static 5/1/6.
 #          --dp-size is required (#36840 silently resets DPA without it),
@@ -60,6 +63,7 @@ PARALLEL_ARGS=(--tp-size "$TP" --ep-size 1)
 MAX_RUNNING_REQUESTS=$((2 * CONC))
 [ "$MAX_RUNNING_REQUESTS" -gt 32 ] && MAX_RUNNING_REQUESTS=32
 USE_ROUTER=false
+KV_DTYPE=bfloat16
 
 MAMBA_ARGS=(--mamba-radix-cache-strategy extra_buffer_lazy --mamba-ssm-dtype bfloat16)
 case "$ARM" in
@@ -67,6 +71,12 @@ case "$ARM" in
   a1b) LEVER_ARGS=("${MAMBA_ARGS[@]}") ;;
   a2)  LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec) ;;
   a4)  LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec --schedule-policy hrrn) ;;
+  a3)
+    LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec)
+    KV_DTYPE=fp8_e4m3
+    SGL_ROOT=$(python3 -c "import os, sglang; print(os.path.dirname(os.path.dirname(os.path.dirname(sglang.__file__))))")
+    patch -p1 --forward -d "$SGL_ROOT" < "$(dirname "$0")/patches/glm53flash-a3-pr36904.patch"
+    ;;
   dpa)
     LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec)
     ADAPTIVE_ARGS=()
@@ -111,7 +121,7 @@ SGLANG_CMD=(
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   --context-length 300000
   --allow-auto-truncate
-  --kv-cache-dtype bfloat16
+  --kv-cache-dtype "$KV_DTYPE"
   --dsa-prefill-backend tilelang
   --dsa-decode-backend tilelang
   --enable-metrics
