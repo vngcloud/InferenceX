@@ -6,14 +6,17 @@
 # 2026-09-26-glm53flash-next-phase-test-plan.md §b.
 #
 # Base = the agentic twin (60f53616 glm5.3flash_fp8_h200_sglang_mtp.sh, run
-# 34683194686) with image nightly-dev-20260926-1f6ce4b0 and MoE EP1:
-#   - EP1 is mandatory with MTP on this image: sgl-project/sglang#40156 (from
-#     #39574, fix #40172 unmerged) silently corrupts MoE dispatch when
-#     moe_ep_size>1 under EAGLE.
-#   - EP1 + deep_gemm boots on 1f6ce4b0: deep_gemm.py falls back to the compact
-#     layout when D//8 < E ("DeepGEMM masked standard layout disabled").
+# 34683194686) with image nightly-dev-20260926-1f6ce4b0, MoE EP4 (= TP):
+#   - This nightly carries sgl-project/sglang#40156 (from #39574): with EAGLE
+#     and moe_ep_size>1 the draft batch has num_token_non_padded=0, masking all
+#     draft topk ids and corrupting MoE dispatch. The fix #40172 is unmerged, so
+#     patches/glm53flash-pr40172.patch (its 2 source files) is applied first.
+#   - EP1 was tried first (0ebb5abf/68aae52e runs 363019*, 363049*): every arm
+#     hit a CUDA illegal memory access ~3 min into the replay: EP1 puts every
+#     MoE call on the deep_gemm compact layout (D//8 < 289 experts), whose
+#     ep_scatter kernel races (#39780, unmerged). EP4 keeps decode masked.
 # Arms (cumulative):
-#   a0ep1  base only (separates image+EP+harness from the levers)
+#   a0     base only (separates image+patch+harness from the levers)
 #   a1b    + extra_buffer_lazy + SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK + bf16 ssm
 #          (3 slots/req, mamba cap ~75 vs 31)
 #   a2     + --enable-linear-replayssm-spec (#40517)
@@ -59,29 +62,32 @@ SPEC_ARGS=(
 )
 ADAPTIVE_ARGS=(--speculative-adaptive)
 LEVER_ARGS=()
-PARALLEL_ARGS=(--tp-size "$TP" --ep-size 1)
+PARALLEL_ARGS=(--tp-size "$TP" --ep-size "$TP")
 MAX_RUNNING_REQUESTS=$((2 * CONC))
 [ "$MAX_RUNNING_REQUESTS" -gt 32 ] && MAX_RUNNING_REQUESTS=32
 USE_ROUTER=false
 KV_DTYPE=bfloat16
 
+SGL_ROOT=$(python3 -c "import os, sglang; print(os.path.dirname(os.path.dirname(os.path.dirname(sglang.__file__))))")
+PATCH_DIR="$(dirname "$0")/patches"
+patch -p1 --forward -d "$SGL_ROOT" < "$PATCH_DIR/glm53flash-pr40172.patch"
+
 MAMBA_ARGS=(--mamba-radix-cache-strategy extra_buffer_lazy --mamba-ssm-dtype bfloat16)
 case "$ARM" in
-  a0ep1) ;;
+  a0) ;;
   a1b) LEVER_ARGS=("${MAMBA_ARGS[@]}") ;;
   a2)  LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec) ;;
   a4)  LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec --schedule-policy hrrn) ;;
   a3)
     LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec)
     KV_DTYPE=fp8_e4m3
-    SGL_ROOT=$(python3 -c "import os, sglang; print(os.path.dirname(os.path.dirname(os.path.dirname(sglang.__file__))))")
-    patch -p1 --forward -d "$SGL_ROOT" < "$(dirname "$0")/patches/glm53flash-a3-pr36904.patch"
+    patch -p1 --forward -d "$SGL_ROOT" < "$PATCH_DIR/glm53flash-a3-pr36904.patch"
     ;;
   dpa)
     LEVER_ARGS=("${MAMBA_ARGS[@]}" --enable-linear-replayssm-spec)
     ADAPTIVE_ARGS=()
     PARALLEL_ARGS=(
-      --tp-size "$TP" --dp-size "$TP" --enable-dp-attention
+      --tp-size "$TP" --ep-size "$TP" --dp-size "$TP" --enable-dp-attention
       --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
       --mm-enable-dp-encoder --dist-init-addr "127.0.0.1:$((PORT + 2000))"
     )
@@ -92,7 +98,7 @@ case "$ARM" in
     ;;
   *) echo "unknown ARM=$ARM" >&2; exit 1 ;;
 esac
-[ "$ARM" != a0ep1 ] && export SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK=1
+[ "$ARM" != a0 ] && export SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK=1
 
 SERVER_PORT=$PORT
 $USE_ROUTER && SERVER_PORT=$((PORT + 1))
