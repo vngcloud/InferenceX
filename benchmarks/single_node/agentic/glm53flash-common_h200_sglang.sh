@@ -103,7 +103,11 @@ case "$ARM" in
   dpafp8)
     # dpa + KV fp8_e4m3 on the v0.5.20 image (patches baked in, no ReplaySSM
     # which v0.5.20 lacks, + hrrn). Patches are skipped above.
-    LEVER_ARGS=("${MAMBA_ARGS[@]}" --schedule-policy hrrn)
+    # Explicit mamba cache size: default ratio 0.9 caps max_running_requests to
+    # 9/rank, which at c32 exhausts the mamba ping-pong idx and crashes the
+    # scheduler (AssertionError). 60 slots = cap 20/rank, fits in ~14GB of the
+    # 35GB free GPU mem per rank.
+    LEVER_ARGS=("${MAMBA_ARGS[@]}" --schedule-policy hrrn --max-mamba-cache-size 60)
     ADAPTIVE_ARGS=()
     KV_DTYPE=fp8_e4m3
     PARALLEL_ARGS=(
