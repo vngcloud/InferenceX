@@ -8963,3 +8963,17 @@ glm53flash-dpa-fp8-h200-greennode-slurm-sglang-tp4dp4ep4-mtp-hicache32-router-ag
     - dram-utilization: 0.80
       search-space:
       - { tp: 4, ep: 4, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
+glm53flash-dpafp8-fp8-h200-greennode-slurm-sglang-tp4dp4ep4-mtp-hicache32-router-agentic:
+  image: vcr.vngcloud.vn/60108-backend-worker/portal-external/dev/sglang:v0.5.20-glm53flash-dpa-fp8
+  model: zai-org/GLM-5.3-Flash
+  model-prefix: glm53flash-dpafp8
+  runner: cluster:h200-greennode-slurm
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 4, ep: 4, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 16, 32], router: { name: sglang-router, version: "0.3.2" } }
