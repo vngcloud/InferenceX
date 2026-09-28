@@ -186,7 +186,7 @@ if $USE_ROUTER; then
     --host 0.0.0.0 \
     --port "$PORT" \
     --prometheus-host 127.0.0.1 \
-    --prometheus-port "$((PORT + 10000))" \
+    --prometheus-port "$((PORT + 1000))" \
     --connect-timeout-secs 900 \
     --request-timeout-secs 14400 \
     --disable-health-check \
