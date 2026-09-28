@@ -70,7 +70,11 @@ KV_DTYPE=bfloat16
 
 SGL_ROOT=$(python3 -c "import os, sglang; print(os.path.dirname(os.path.dirname(os.path.dirname(sglang.__file__))))")
 PATCH_DIR="$(dirname "$0")/patches"
-patch -p1 --forward -d "$SGL_ROOT" < "$PATCH_DIR/glm53flash-pr40172.patch"
+# dpafp8 ships on the v0.5.20 image with all patches baked in (no #39574, so
+# no #40156 either); applying pr40172 onto it fails under set -e.
+if [ "$ARM" != dpafp8 ]; then
+  patch -p1 --forward -d "$SGL_ROOT" < "$PATCH_DIR/glm53flash-pr40172.patch"
+fi
 
 MAMBA_ARGS=(--mamba-radix-cache-strategy extra_buffer_lazy --mamba-ssm-dtype bfloat16)
 case "$ARM" in
@@ -92,6 +96,21 @@ case "$ARM" in
       --mm-enable-dp-encoder --dist-init-addr "127.0.0.1:$((PORT + 2000))"
     )
     # Node total, split per rank; mamba clamp sets the real cap.
+    MAX_RUNNING_REQUESTS=64
+    USE_ROUTER=true
+    export SGLANG_DP_USE_GATHERV=1 NCCL_P2P_LEVEL=NVL SGLANG_ENABLE_METRICS_DP_ATTENTION=1
+    ;;
+  dpafp8)
+    # dpa + KV fp8_e4m3 on the v0.5.20 image (patches baked in, no ReplaySSM
+    # which v0.5.20 lacks, + hrrn). Patches are skipped above.
+    LEVER_ARGS=("${MAMBA_ARGS[@]}" --schedule-policy hrrn)
+    ADAPTIVE_ARGS=()
+    KV_DTYPE=fp8_e4m3
+    PARALLEL_ARGS=(
+      --tp-size "$TP" --ep-size "$TP" --dp-size "$TP" --enable-dp-attention
+      --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+      --mm-enable-dp-encoder --dist-init-addr "127.0.0.1:$((PORT + 2000))"
+    )
     MAX_RUNNING_REQUESTS=64
     USE_ROUTER=true
     export SGLANG_DP_USE_GATHERV=1 NCCL_P2P_LEVEL=NVL SGLANG_ENABLE_METRICS_DP_ATTENTION=1
