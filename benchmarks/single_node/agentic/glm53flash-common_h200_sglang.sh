@@ -70,10 +70,14 @@ KV_DTYPE=bfloat16
 
 SGL_ROOT=$(python3 -c "import os, sglang; print(os.path.dirname(os.path.dirname(os.path.dirname(sglang.__file__))))")
 PATCH_DIR="$(dirname "$0")/patches"
-# dpafp8 ships on the v0.5.20 image with all patches baked in (no #39574, so
-# no #40156 either); applying pr40172 onto it fails under set -e.
+# dpafp8 uses the public lmsysorg/sglang:v0.5.20 base + the 17-file DPA-fp8
+# patch applied at runtime below (all .py, JIT at boot). Equivalent to the
+# baked VCR image vcr.../sglang:v0.5.20-glm53flash-dpa-fp8 but needs no VCR
+# auth. Other arms use the nightly image + pr40172.
 if [ "$ARM" != dpafp8 ]; then
   patch -p1 --forward -d "$SGL_ROOT" < "$PATCH_DIR/glm53flash-pr40172.patch"
+else
+  patch -p1 --forward -d "$SGL_ROOT" < "$PATCH_DIR/glm53flash-v0520-dpa-fp8.patch"
 fi
 
 MAMBA_ARGS=(--mamba-radix-cache-strategy extra_buffer_lazy --mamba-ssm-dtype bfloat16)
@@ -101,8 +105,8 @@ case "$ARM" in
     export SGLANG_DP_USE_GATHERV=1 NCCL_P2P_LEVEL=NVL SGLANG_ENABLE_METRICS_DP_ATTENTION=1
     ;;
   dpafp8)
-    # dpa + KV fp8_e4m3 on the v0.5.20 image (patches baked in, no ReplaySSM
-    # which v0.5.20 lacks, + hrrn). Patches are skipped above.
+    # dpa + KV fp8_e4m3 on the v0.5.20 base (public image + runtime patch
+    # above, no ReplaySSM which v0.5.20 lacks, + hrrn).
     # --max-mamba-cache-size is a TOTAL across dp workers (÷dp_size per worker):
     # 384 -> 96 slots/worker -> cap floor(96/3)=32 req/worker, above the 16
     # req/worker cap of --max-running-requests 64/4, with headroom for radix
