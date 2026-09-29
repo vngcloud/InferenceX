@@ -36,6 +36,9 @@ fi
 DCGM_NAME="dcgm-exporter-${RUNNER_NAME:-h200-greennode_01}"
 RUN_ENV=(
   HF_TOKEN HF_HUB_CACHE PORT
+  # Optional read token for the private prepared SPEED-Bench repo; see
+  # resolve_speedbench_dataset in benchmarks/benchmark_lib.sh.
+  SPEEDBENCH_HF_TOKEN
   EXP_NAME MODEL MODEL_PREFIX IMAGE FRAMEWORK PRECISION TP EP_SIZE DP_ATTENTION
   PP_SIZE DCP_SIZE PCP_SIZE
   CONC SPEC_DECODING SCENARIO_TYPE SCENARIO_SUBDIR IS_AGENTIC
