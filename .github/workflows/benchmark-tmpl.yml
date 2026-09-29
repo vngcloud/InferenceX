@@ -10,6 +10,11 @@ on:
         required: false
       MODAL_TOKEN_SECRET:
         required: false
+      # Read-only token for the private prepared SPEED-Bench repo pulled by
+      # resolve_speedbench_dataset (benchmark_lib.sh). Optional: every other
+      # recipe ignores it, and the SPEED-Bench path falls back to HF_TOKEN.
+      SPEEDBENCH_HF_TOKEN:
+        required: false
     inputs:
       config:
         description: "Benchmark configuration as JSON"
@@ -158,6 +163,7 @@ env:
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
   HF_HUB_CACHE: '/mnt/hf_hub_cache/'
+  SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
   EXP_NAME: ${{ fromJSON(inputs.config).exp-name }}
   RECIPE_FINGERPRINT: ${{ fromJSON(inputs.config).recipe-fingerprint || '' }}
   MODEL: ${{ fromJSON(inputs.config).model }}
@@ -470,6 +476,19 @@ jobs:
             server.log
             results/*.log
             results/*_config.json
+          if-no-files-found: ignore
+
+      # SPEED-Bench recipes (run_speedbench_aiperf) keep the full aiperf export
+      # next to the vllm-bench-shaped result, for per-request audit and
+      # `aiperf speed-bench-report`. Absent for every other fixed-seq recipe.
+      - name: Upload SPEED-Bench aiperf artifacts
+        if: ${{ always() && inputs.scenario-type != 'agentic-coding' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: speedbench_aiperf_${{ env.RESULT_FILENAME }}
+          path: |
+            results/speedbench_aiperf/**
+            !results/speedbench_aiperf/**/inputs.json
           if-no-files-found: ignore
 
       - name: Upload GPU metrics
