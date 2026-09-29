@@ -8879,3 +8879,71 @@ gemma4-fp8block-h200-vllm-router:
       osl: 1024
       search-space:
       - { tp: 1, conc-list: [8, 32, 192] }
+
+# SPEED-Bench through aiperf (run_speedbench_aiperf in benchmark_lib.sh): the
+# aiperf port of the Stage-5 gemma4sb cells from bench/gemma4cp-8k1k-1gpu
+# (run 34502057305, vllm bench serve). Same engine config as those cells, same
+# throughput_8k high/low-entropy categories and ignore-eos, so the two clients
+# can be compared cell for cell. isl/osl label the row: osl is the per-request
+# output length; the real prompt lengths are only ~8k and are recorded as
+# total_input_tokens. Dataset: the pinned prepared snapshot, read with
+# SPEEDBENCH_HF_TOKEN (falls back to HF_TOKEN).
+gemma4sbabasehi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbabasehi
+  runner: h200-1x
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+gemma4sbabaselo-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbabaselo
+  runner: h200-1x
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+gemma4sbamtphi-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: h200-1x
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+gemma4sbamtplo-fp8block-h200-vllm:
+  image: vllm/vllm-openai:v0.28.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtplo
+  runner: h200-1x
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
