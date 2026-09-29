@@ -208,6 +208,10 @@ labels:
     - h200-greennode-slurm_1b
     - h200-greennode-slurm_1c
     - h200-greennode-slurm_1d
+    # hardware-hcm slurm cluster (han-1 decommissioned 2026-09-29): full
+    # 8-GPU nodes, runner on-node as stackops, salloc pins via the launcher.
+    - h200-greennode_08
+    - h200-greennode_09
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01
@@ -380,9 +384,11 @@ hardware:
   # Until this node gets real GPU/RAM isolation between the two paths, do not
   # dispatch a docker-path (cluster:h200-greennode) job at the same time as
   # any cluster:h200-greennode-slurm job.
+  # han-1 4-GPU slices are gone; pool is now the hardware-hcm 8xH200 nodes
+  # (hgx-h200-01/02, ~2TB RAM each).
   cluster:h200-greennode-slurm:
-    available-cpu-dram-mib: 751_160
-    gpus-per-node: 4
+    available-cpu-dram-mib: 2_000_000
+    gpus-per-node: 8
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_095_781
     gpus-per-node: 8

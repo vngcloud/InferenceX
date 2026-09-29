@@ -11,14 +11,18 @@ fi
 
 set -x
 
-# Slurm path for h200-greennode_06 (partition "test"), sibling of
-# launch_h200-greennode.sh's docker path. --gres=gpu:$GPU_COUNT with no
-# --exclusive so a second allocation can hold the other half of the node.
-SLURM_PARTITION="test"
-SLURM_ACCOUNT="greennode"
-export HF_HUB_CACHE_MOUNT="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
+# Slurm path for the hardware-hcm cluster (han-1 decommissioned 2026-09-29).
+# Runners h200-greennode_08/_09 live ON the hgx nodes (stackops); salloc pins
+# the node matching the runner so mounts + pre-imported images resolve.
+SLURM_PARTITION="hardware-hcm"
+case "$RUNNER_NAME" in
+  *_08) SLURM_NODE="hgx-h200-01" ;;
+  *_09) SLURM_NODE="hgx-h200-02" ;;
+  *) SLURM_NODE="hgx-h200-02" ;;
+esac
+export HF_HUB_CACHE_MOUNT="${HF_HUB_CACHE:-/tmp/thanglq5/hf-cache/hub}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/root/.cache/huggingface/hub}"
-export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
+export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/tmp/thanglq5/uv-cache}"
 
 # pyxis shares the host netns by default (no --container-unshare=net) -> two
 # concurrent allocations on this node can't both hardcode PORT=8888.
@@ -51,7 +55,7 @@ enroot_uri_for_image() {
 }
 
 # Local disk, not /shared (NFS) -- much faster for large image imports.
-SQUASH_CACHE_DIR="/mnt/containers"
+SQUASH_CACHE_DIR="/tmp/thanglq5/containers"
 mkdir -p "$SQUASH_CACHE_DIR"
 SQUASH_FILE="${SQUASH_CACHE_DIR}/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
 DOCKER_IMAGE_URI="$(enroot_uri_for_image "$IMAGE")"
@@ -69,7 +73,8 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # measured empirically). Reverted: this node registers as 192 sockets x 1
 # core (not 2 sockets x 96 cores), so enforce-binding made Slurm grab all
 # 192 CPUs for one allocation, starving the second concurrent job entirely.
-salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
+salloc --partition="$SLURM_PARTITION" \
+    ${SLURM_NODE:+-w "$SLURM_NODE"} \
     --gres=gpu:"$GPU_COUNT" \
     --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 170))G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
@@ -127,7 +132,7 @@ srun --jobid="$JOB_ID" bash -c "
         echo 'DCGM squash file already exists and is valid, skipping import'
     else
         rm -f \"$DCGM_SQUASH\"
-        enroot import -o \"$DCGM_SQUASH\" $DCGM_IMAGE_URI
+        enroot import -o \"$DCGM_SQUASH\" $DCGM_IMAGE_URI || echo 'DCGM import failed; continuing without GPU telemetry'
     fi
 "
 
