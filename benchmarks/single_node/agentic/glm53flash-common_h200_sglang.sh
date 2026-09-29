@@ -103,11 +103,13 @@ case "$ARM" in
   dpafp8)
     # dpa + KV fp8_e4m3 on the v0.5.20 image (patches baked in, no ReplaySSM
     # which v0.5.20 lacks, + hrrn). Patches are skipped above.
-    # Explicit mamba cache size: default ratio 0.9 caps max_running_requests to
-    # 9/rank, which at c32 exhausts the mamba ping-pong idx and crashes the
-    # scheduler (AssertionError). 60 slots = cap 20/rank, fits in ~14GB of the
-    # 35GB free GPU mem per rank.
-    LEVER_ARGS=("${MAMBA_ARGS[@]}" --schedule-policy hrrn --max-mamba-cache-size 60)
+    # --max-mamba-cache-size is a TOTAL across dp workers (÷dp_size per worker):
+    # 384 -> 96 slots/worker -> cap floor(96/3)=32 req/worker, above the 16
+    # req/worker cap of --max-running-requests 64/4, with headroom for radix
+    # checkpoints up to CCU 48 (36/96 slots). Root cause of the c32 crash
+    # (ping-pong idx AssertionError at default ratio 0.9) in handoff
+    # 2026-09-28-glm53flash-dpa-fp8-agentx-ladder.md §crash.
+    LEVER_ARGS=("${MAMBA_ARGS[@]}" --schedule-policy hrrn --max-mamba-cache-size 384)
     ADAPTIVE_ARGS=()
     KV_DTYPE=fp8_e4m3
     PARALLEL_ARGS=(
@@ -155,7 +157,7 @@ SGLANG_CMD=(
   --chunked-prefill-size 32768
   --tool-call-parser glm47
   --reasoning-parser glm45
-  --mem-fraction-static 0.75
+  --mem-fraction-static 0.88
   --max-running-requests "$MAX_RUNNING_REQUESTS"
   --context-length 300000
   --allow-auto-truncate
