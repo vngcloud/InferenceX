@@ -433,6 +433,7 @@ jobs:
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             # Only same-repository PRs owned by Klaud receive background priority.
@@ -523,6 +524,7 @@ jobs:
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with: &single-node-inputs
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
@@ -556,6 +558,7 @@ jobs:
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with: *single-node-inputs
 
     sweep-agentic:
@@ -579,6 +582,7 @@ jobs:
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
@@ -651,6 +655,7 @@ jobs:
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
@@ -689,6 +694,7 @@ jobs:
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
