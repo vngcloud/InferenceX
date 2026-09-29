@@ -8888,11 +8888,14 @@ gemma4-fp8block-h200-vllm-router:
 # output length; the real prompt lengths are only ~8k and are recorded as
 # total_input_tokens. Dataset: the pinned prepared snapshot, read with
 # SPEEDBENCH_HF_TOKEN (falls back to HF_TOKEN).
+# Runner: the Slurm pool routes TP1 (GPU_COUNT=1) jobs to the 1xH200 node via
+# launch_h200-greennode-slurm-1x.sh; the h200-1x docker pool (_03/_05) has not
+# picked up a job since 2026-09-05.
 gemma4sbabasehi-fp8block-h200-vllm:
   image: vllm/vllm-openai:v0.28.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbabasehi
-  runner: h200-1x
+  runner: cluster:h200-greennode-slurm
   precision: fp8block
   framework: vllm
   multinode: false
@@ -8907,7 +8910,7 @@ gemma4sbabaselo-fp8block-h200-vllm:
   image: vllm/vllm-openai:v0.28.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbabaselo
-  runner: h200-1x
+  runner: cluster:h200-greennode-slurm
   precision: fp8block
   framework: vllm
   multinode: false
@@ -8922,7 +8925,7 @@ gemma4sbamtphi-fp8block-h200-vllm:
   image: vllm/vllm-openai:v0.28.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbamtphi
-  runner: h200-1x
+  runner: cluster:h200-greennode-slurm
   precision: fp8block
   framework: vllm
   multinode: false
@@ -8937,7 +8940,7 @@ gemma4sbamtplo-fp8block-h200-vllm:
   image: vllm/vllm-openai:v0.28.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbamtplo
-  runner: h200-1x
+  runner: cluster:h200-greennode-slurm
   precision: fp8block
   framework: vllm
   multinode: false

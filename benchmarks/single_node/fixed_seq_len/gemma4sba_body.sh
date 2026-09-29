@@ -28,7 +28,7 @@
 # cell reuses another's prefill; KV is left at auto (BF16) because fp8 KV pins
 # gemma4 to Triton on SM90; the arm-specific --speculative-config is the only
 # engine difference between cells. Unlike Stage 5 the GPU is not pinned to
-# index 4; vLLM takes the first visible GPU (TP=1).
+# index 4; vLLM takes the first visible GPU (TP=1, one GPU per job).
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
