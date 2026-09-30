@@ -46,6 +46,14 @@ labels:
   h200-1x:
     - h200-greennode_03
     - h200-greennode_05
+  # hgx-h200-01/02 (hardware-hcm partition) flavor tiers -- see
+  # cluster:hardware-hcm below for the concurrency rationale.
+  h200-4x:
+    - hardware-hcm-4x_01
+    - hardware-hcm-4x_02
+  h200-8x:
+    - hardware-hcm-8x_01
+    - hardware-hcm-8x_02
   b200:
     - b200-cw_00
     - b200-cw_01
@@ -210,12 +218,21 @@ labels:
     - h200-greennode-slurm_1d
   # On-node runners living on the hgx-h200-01/02 HCM boxes (partition
   # hardware-hcm on the research Slurm cluster, not the greennode-slurm
-  # cluster above). Routed to launch_h200-greennode-slurm.sh by name
-  # special-case in benchmark-tmpl.yml (commit d5facdb58), but that script
-  # hardcoded the *other* cluster's partition/account until this fix.
+  # cluster above). Routed to runners/launch_hardware-hcm.sh, which salloc's
+  # --gres=gpu:$GPU_COUNT with no --exclusive, so concurrent identities
+  # sharing a box are safe -- Slurm's own gres accounting queues a job if
+  # not enough GPUs are free, no manual capacity split needed here.
+  #
+  # Naming: hardware-hcm-<flavor>_<box>, box 01=hgx-h200-01, 02=hgx-h200-02.
+  # -8x_* is the primary identity per box (full-node jobs). -4x_* is a
+  # second, independent runner process per box (own systemd service under
+  # /mnt/runner-4x), added purely for concurrency -- lets a smaller job run
+  # alongside one already on the -8x_* identity instead of queuing behind it.
   cluster:hardware-hcm:
-    - h200-greennode_08
-    - h200-greennode_09
+    - hardware-hcm-8x_01
+    - hardware-hcm-8x_02
+    - hardware-hcm-4x_01
+    - hardware-hcm-4x_02
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01

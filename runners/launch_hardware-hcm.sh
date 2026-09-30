@@ -6,9 +6,13 @@ check_env_vars GPU_COUNT
 
 set -x
 
-# Slurm path for h200-greennode_08/_09 (on-node runners for the
-# `hardware-hcm` partition: hgx-h200-01/hgx-h200-02, 8x H200 each, on the
-# research Slurm cluster). Adapted from launch_h200-greennode-slurm.sh, which
+# Slurm path for hardware-hcm-8x_01/_02 and hardware-hcm-4x_01/_02 (on-node
+# runners for the `hardware-hcm` partition: hgx-h200-01/hgx-h200-02, 8x H200
+# each, on the research Slurm cluster). GPU_COUNT and the salloc below are
+# shared as-is between the 8x and 4x runner identities on a box -- no
+# per-flavor branching needed since Slurm's own gres accounting (no
+# --exclusive) queues a job if not enough GPUs are free.
+# Adapted from launch_h200-greennode-slurm.sh, which
 # is for a *different* cluster/partition ("test"/"greennode" account) --
 # copy-pasting that launcher's partition/account here silently allocated
 # against an account (greennode) with zero associations on this cluster

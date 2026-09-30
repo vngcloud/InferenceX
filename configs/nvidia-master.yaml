@@ -8825,18 +8825,19 @@ gemma4-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192] }
 
-# Smoke test for the hardware-hcm on-node Slurm runners (h200-greennode_08/09
-# -> hgx-h200-01/02). Same model/script as gemma4-fp8block-h200-vllm above,
-# routed at a different runner to validate the new launch_hardware-hcm.sh
-# path end to end; not a real sweep, hence the short conc-list.
+# Smoke test for the hardware-hcm on-node Slurm runners (hardware-hcm-8x_01/02
+# and hardware-hcm-4x_01/02 -> hgx-h200-01/02). Same model/script as
+# gemma4-fp8block-h200-vllm above, routed at a different runner to validate
+# the launch_hardware-hcm.sh path end to end; not a real sweep, hence the
+# short conc-list.
 gemma4-fp8block-hardware-hcm-vllm:
   image: vllm/vllm-openai:v0.25.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4
-  # cluster:hardware-hcm is now a real label registered on both
-  # h200-greennode_08 and _09 (re-registered via config.sh --labels on each
-  # box), matching the configs/runners.yaml bookkeeping entry -- either idle
-  # node can pick this up.
+  # cluster:hardware-hcm is a real label registered on all four hardware-hcm
+  # runner identities (re-registered via config.sh --labels on each box),
+  # matching the configs/runners.yaml bookkeeping entry -- any idle one can
+  # pick this up.
   runner: cluster:hardware-hcm
   precision: fp8block
   framework: vllm
@@ -8847,6 +8848,25 @@ gemma4-fp8block-hardware-hcm-vllm:
       osl: 1024
       search-space:
       - { tp: 1, conc-list: [1, 8] }
+
+# Same smoke test, but pinned to the h200-4x label (hardware-hcm-4x_01/_02
+# only) with a real 4-GPU job, to validate that flavor tier specifically --
+# distinct from gemma4-fp8block-hardware-hcm-vllm above, which can land on
+# either flavor via cluster:hardware-hcm.
+gemma4-fp8block-hardware-hcm-4x-vllm:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: h200-4x
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 4, conc-list: [1] }
 
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
