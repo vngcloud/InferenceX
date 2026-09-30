@@ -27,6 +27,23 @@ set -x
 # hardcoded --nodelist for its own 1x node) apply here.
 SLURM_PARTITION="hardware-hcm"
 SLURM_ACCOUNT="dev"
+# Pin the allocation to this box's own Slurm node name. Without --nodelist,
+# salloc is free to land on either node in the partition -- caught for real
+# when a concurrent hardware-hcm-2x_02 job (running on hgx-h200-02) was
+# allocated hgx-h200-01 instead: every --container-mounts path below
+# ($GITHUB_WORKSPACE, /mnt/hf_hub_cache, /mnt/containers) is local to the
+# box the *runner* lives on, and srun executed on a sibling machine that
+# doesn't have those files ("Communication connection failure" at task
+# launch, job 863). The local hostname doesn't match Slurm's NodeName
+# either (hgx-h200-001 locally vs hgx-h200-01 in Slurm), hence the map.
+case "$(hostname -s)" in
+  hgx-h200-001) SLURM_NODELIST="hgx-h200-01" ;;
+  hgx-h200-02) SLURM_NODELIST="hgx-h200-02" ;;
+  *)
+    echo "ERROR: unrecognized hardware-hcm host $(hostname -s), add it to the map in $0" >&2
+    exit 1
+    ;;
+esac
 export HF_HUB_CACHE_MOUNT="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/root/.cache/huggingface/hub}"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
@@ -74,6 +91,7 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # `sinfo -N -p hardware-hcm -o '%N %c %m %G'`) -- same 24 CPU/GPU ratio as
 # h200-greennode, sized proportionally so two allocations can share a node.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
+    --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
     --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 240))G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
