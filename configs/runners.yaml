@@ -43,11 +43,25 @@ labels:
     - h200-dgxc-slurm_11
     - h200-dgxc-slurm_12
     - h200-dgxc-slurm_13
+  # h200-1x is shared across two independent clusters/launchers (docker path
+  # on h200-greennode_03/_05, Slurm hardware-hcm path on hardware-hcm-1x_*)
+  # -- same cluster-agnostic-flavor pattern this repo already uses for
+  # h200-8x (also shared with h200-greennode_06). Routing to the right
+  # launcher is by RUNNER_NAME prefix once GH picks a runner, so mixing
+  # clusters under one flavor label is safe.
   h200-1x:
     - h200-greennode_03
     - h200-greennode_05
+    - hardware-hcm-1x_01
+    - hardware-hcm-1x_02
   # hgx-h200-01/02 (hardware-hcm partition) flavor tiers -- see
-  # cluster:hardware-hcm below for the concurrency rationale.
+  # cluster:hardware-hcm below for the concurrency rationale. One runner
+  # identity per box per tier (not multiple slots per tier), so each tier
+  # is exactly one concurrent job slot; Slurm's gres accounting (see
+  # runners/launch_hardware-hcm.sh) prevents two tiers double-booking GPUs.
+  h200-2x:
+    - hardware-hcm-2x_01
+    - hardware-hcm-2x_02
   h200-4x:
     - hardware-hcm-4x_01
     - hardware-hcm-4x_02
@@ -233,6 +247,10 @@ labels:
     - hardware-hcm-8x_02
     - hardware-hcm-4x_01
     - hardware-hcm-4x_02
+    - hardware-hcm-2x_01
+    - hardware-hcm-2x_02
+    - hardware-hcm-1x_01
+    - hardware-hcm-1x_02
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01
