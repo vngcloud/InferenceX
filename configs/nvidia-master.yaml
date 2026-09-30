@@ -8833,7 +8833,12 @@ gemma4-fp8block-hardware-hcm-vllm:
   image: vllm/vllm-openai:v0.25.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4
-  runner: cluster:hardware-hcm
+  # cluster:hardware-hcm (configs/runners.yaml) is bookkeeping for matrix
+  # generation only; it is NOT a label actually registered on the GH runner
+  # side (unlike e.g. h200-1x). Target the runner's own name directly, which
+  # IS a real registered label (confirmed via `gh api .../actions/runners`),
+  # until cluster:hardware-hcm is registered as a real label on both nodes.
+  runner: h200-greennode_08
   precision: fp8block
   framework: vllm
   multinode: false
