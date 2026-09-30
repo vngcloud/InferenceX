@@ -8825,6 +8825,25 @@ gemma4-fp8block-h200-vllm:
       search-space:
       - { tp: 1, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 160, 192] }
 
+# Smoke test for the hardware-hcm on-node Slurm runners (h200-greennode_08/09
+# -> hgx-h200-01/02). Same model/script as gemma4-fp8block-h200-vllm above,
+# routed at a different runner to validate the new launch_hardware-hcm.sh
+# path end to end; not a real sweep, hence the short conc-list.
+gemma4-fp8block-hardware-hcm-vllm:
+  image: vllm/vllm-openai:v0.25.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8] }
+
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
 # (cache_aware policy) in front of the single vLLM backend. Same

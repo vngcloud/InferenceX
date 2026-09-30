@@ -208,6 +208,14 @@ labels:
     - h200-greennode-slurm_1b
     - h200-greennode-slurm_1c
     - h200-greennode-slurm_1d
+  # On-node runners living on the hgx-h200-01/02 HCM boxes (partition
+  # hardware-hcm on the research Slurm cluster, not the greennode-slurm
+  # cluster above). Routed to launch_h200-greennode-slurm.sh by name
+  # special-case in benchmark-tmpl.yml (commit d5facdb58), but that script
+  # hardcoded the *other* cluster's partition/account until this fix.
+  cluster:hardware-hcm:
+    - h200-greennode_08
+    - h200-greennode_09
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01
