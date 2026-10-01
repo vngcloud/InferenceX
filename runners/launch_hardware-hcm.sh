@@ -77,7 +77,11 @@ enroot_uri_for_image() {
 }
 
 # Local disk, not /shared (NFS) -- much faster for large image imports.
-SQUASH_CACHE_DIR="/mnt/containers"
+# /mnt/sqsh, not /mnt/containers: the latter is stackops-owned 755 on
+# hgx-h200-02, so a non-stackops user cannot pre-import the (private-VCR)
+# squashfs there; /mnt/sqsh is world-writable (mkdir a+rwX once) and the
+# launcher user only needs to read the sqsh + create its lock file.
+SQUASH_CACHE_DIR="/mnt/sqsh"
 mkdir -p "$SQUASH_CACHE_DIR"
 SQUASH_FILE="${SQUASH_CACHE_DIR}/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
 DOCKER_IMAGE_URI="$(enroot_uri_for_image "$IMAGE")"
