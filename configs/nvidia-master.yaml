@@ -9028,7 +9028,10 @@ glm53flash-dpafp8-fp8-h200-greennode-slurm-sglang-tp4dp4ep4-mtp-hicache32-router
   image: vcr.vngcloud.vn/60108-backend-worker/portal-external/dev/sglang:v0.5.20-glm53flash-dpa-fp8
   model: zai-org/GLM-5.3-Flash
   model-prefix: glm53flash-dpafp8
-  runner: cluster:h200-greennode-slurm
+  # hardware-hcm pool (hgx-h200-01/02). Agentic configs require a cluster:*
+  # label; pin the 4-GPU tier + the node with the weights via
+  # --runner-node-filter hardware-hcm-4x_02 at dispatch time.
+  runner: cluster:hardware-hcm
   precision: fp8
   framework: sglang
   multinode: false

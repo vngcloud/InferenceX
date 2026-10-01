@@ -162,7 +162,12 @@ env:
   IS_MULTINODE: 'false'
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-  HF_HUB_CACHE: '/mnt/hf_hub_cache/'
+  # glm53flash bench refs only: GLM-5.3-Flash weights (306G) live node-locally
+  # at /tmp/thanglq5/hf-cache/hub on hgx-h200-02 and do not fit a fresh
+  # download (275G free), so jobs mount that path host<->container 1:1 (same
+  # pattern /mnt/hf_hub_cache uses on the gemma4 configs) and dispatches pin
+  # --runner-node-filter hardware-hcm-4x_02.
+  HF_HUB_CACHE: '/tmp/thanglq5/hf-cache/hub'
   SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
   EXP_NAME: ${{ fromJSON(inputs.config).exp-name }}
   RECIPE_FINGERPRINT: ${{ fromJSON(inputs.config).recipe-fingerprint || '' }}
