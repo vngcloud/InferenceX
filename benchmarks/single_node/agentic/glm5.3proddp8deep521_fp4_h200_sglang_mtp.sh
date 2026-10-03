@@ -51,6 +51,18 @@ export SGLANG_ENABLE_METRICS_DP_ATTENTION=1
 # entirely; same env nguyennvc's dispatch-l3 GLM-5.3-W4AFP8 tp8/ep8 DeepEP
 # engines run with on these exact nodes.
 export NVSHMEM_REMOTE_TRANSPORT=none
+# v0.5.21's HiCache host pool mallocs 128G then cudaHostRegister()s it; with
+# the default 256G chunk limit that is one single 128G registration per rank.
+# All four smokes (37134667065/37136229597/37137481444/37138600261) were
+# SIGKILL'd ~40s into that registration phase with no error logged and no
+# cgroup/node limit reached (mem_watch.log: memory.max=max, cur plateaued at
+# the full 1049G, MemFree 910G, MemAvailable ~1T and falling ~12 GB/s =
+# pinning in flight). The v0.5.18/19 5.2 arm predates this malloc+register
+# pool path, so prod-exactness never exercised it. Chunk the registration
+# into 8G calls — the mitigation sglang ships the knob for
+# (pool_host/common.py "Avoid oversized cudaHostRegister calls on large host
+# host pools").
+export SGLANG_HICACHE_HOST_REGISTER_CHUNK_GB=8
 
 CACHE_ARGS=(
   --enable-hierarchical-cache
