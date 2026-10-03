@@ -55,6 +55,12 @@ esac
 # import (no pre-imported image there) before ever reaching the model.
 export HF_HUB_CACHE_MOUNT="/data/thanglq5/hf-cache/hub"
 export HF_HUB_CACHE="/data/thanglq5/hf-cache/hub"
+# GLM-5.3-W4AFP8 (400G, = PhalaCloud/GLM-5.3-W4AFP8@03179e95) is staged as a
+# plain HF snapshot dir on BOTH hgx nodes at /data/hf-cache/GLM-5.3-W4AFP8
+# (not HF-hub cache layout), so mount /data/hf-cache 1:1 and let recipes
+# point MODEL_PATH straight at the dir instead of downloading 400G into the
+# per-user hub cache.
+export MODEL_DATA_MOUNT="/data/hf-cache"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 
 # pyxis shares the host netns by default (no --container-unshare=net) -> two
@@ -193,7 +199,7 @@ fi
 # (triton -> /root/.triton, vllm -> /root/.cache/vllm/*, etc.).
 srun --jobid="$JOB_ID" \
     --container-image="$SQUASH_FILE" \
-    --container-mounts="$GITHUB_WORKSPACE:/workspace,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE,$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR" \
+    --container-mounts="$GITHUB_WORKSPACE:/workspace,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE,$MODEL_DATA_MOUNT:$MODEL_DATA_MOUNT,$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR" \
     --no-container-mount-home \
     --container-remap-root \
     --container-writable \
