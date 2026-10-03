@@ -119,7 +119,7 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 24)) --mem=$(( GPU_COUNT >= 8 ? 1990 : GPU_COUNT * 240 ))G \
+    --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 240))G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
