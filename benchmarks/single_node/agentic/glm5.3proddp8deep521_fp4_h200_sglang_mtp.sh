@@ -5,7 +5,7 @@ set -x
 # GLM-5.3-W4AFP8 prod-exact DP8 port of glm5.2proddp8deep519_fp4_h200_sglang.sh
 # (reference run 34508949422, v0.5.19, h200-greennode_06, 2026-09-11 ICT): same
 # TP8/DP8/EP8 DPA + MTP-chain + hicache-128/rank + deepep + dfs-weight server
-# config, moved to the hardware-hcm slurm pool with three forced deltas:
+# config, moved to the hardware-hcm slurm pool with four forced deltas:
 #   1. weights = /data/hf-cache/GLM-5.3-W4AFP8, a plain HF snapshot dir staged
 #      on both hgx nodes (= PhalaCloud/GLM-5.3-W4AFP8@03179e95); no
 #      snapshot_download — the slurm launcher mounts /data/hf-cache 1:1.
@@ -17,6 +17,15 @@ set -x
 #      sglang-router-patched:v0.5.18 sidecar cannot run here. Router metrics
 #      port is PORT+1000 (not the 5.2 arm's PORT+10000): the slurm launcher
 #      picks a dynamic PORT that can exceed 55535 (r2 fix 038e065d).
+#   4. --numa-node 0 1 2 3 0 1 2 3: hardware-hcm hosts are 4 NUMA nodes of
+#      ~504G each (lscpu; GPU0-2->N0, GPU3->N1, GPU4-6->N2, GPU7->N3), not
+#      han-1's 2 sockets. The ported 0 0 0 0 1 1 1 1 numa_set_preferred 4
+#      ranks (4x ~154G KV+indexer host pools) onto each 504G zone; the kernel
+#      OOM-killed ranks silently mid cudaHostRegister (5 smokes exit-137,
+#      manual repro jobs 1579/1581, faulthandler silent = SIGKILL not SEGV,
+#      global MemAvailable stayed ~1T because zones 2/3 sat empty). 2
+#      ranks/node = ~308G leaves headroom; manual boot job 1584 green,
+#      oom_kill delta 0.
 # GLM-5.3 arch == GLM-5.2 arch field-for-field (GlmMoeDsaForCausalLM, 78
 # layers / 256 experts / top-8, DSA index_topk 2048, 1 nextn layer), so every
 # serve flag ports unchanged.
@@ -51,18 +60,11 @@ export SGLANG_ENABLE_METRICS_DP_ATTENTION=1
 # entirely; same env nguyennvc's dispatch-l3 GLM-5.3-W4AFP8 tp8/ep8 DeepEP
 # engines run with on these exact nodes.
 export NVSHMEM_REMOTE_TRANSPORT=none
-# v0.5.21's HiCache host pool mallocs 128G then cudaHostRegister()s it; with
-# the default 256G chunk limit that is one single 128G registration per rank.
-# All four smokes (37134667065/37136229597/37137481444/37138600261) were
-# SIGKILL'd ~40s into that registration phase with no error logged and no
-# cgroup/node limit reached (mem_watch.log: memory.max=max, cur plateaued at
-# the full 1049G, MemFree 910G, MemAvailable ~1T and falling ~12 GB/s =
-# pinning in flight). The v0.5.18/19 5.2 arm predates this malloc+register
-# pool path, so prod-exactness never exercised it. Chunk the registration
-# into 8G calls — the mitigation sglang ships the knob for
-# (pool_host/common.py "Avoid oversized cudaHostRegister calls on large host
-# host pools").
-export SGLANG_HICACHE_HOST_REGISTER_CHUNK_GB=8
+# The silent smoke deaths were per-NUMA-zone exhaustion (delta 4), not the
+# registration call: the default single 128G cudaHostRegister is fine once
+# the zones have headroom (manual boot 1584), so registration chunking stays
+# at the sglang default. Print native fault stacks if anything still dies.
+export PYTHONFAULTHANDLER=1
 
 CACHE_ARGS=(
   --enable-hierarchical-cache
@@ -103,32 +105,6 @@ done
 nvidia-smi --query-gpu=index,memory.used --format=csv,noheader
 
 mkdir -p "$RESULT_DIR"
-# Diagnostic: three smokes (37134667065/37136229597/37137481444) all died
-# exit-137 ~60s into the 8x128G hicache host-pool allocation with no error
-# logged and no cgroup/node limit visibly reached. Sample the job cgroup and
-# node memory every 2s so the next failure leaves the numbers in the
-# server_logs artifact.
-{
-  id
-  ulimit -l
-  cat /proc/sys/vm/max_map_count 2>/dev/null
-  cat /proc/sys/vm/overcommit_memory 2>/dev/null
-  getent group adm 2>/dev/null
-  tail -30 /var/log/kern.log 2>&1 | tail -5
-} > "$RESULT_DIR/diag.txt" 2>&1 || true
-(
-  while true; do
-    printf '%s cur=%s max=%s peak=%s MemFree=%s MemAvailable=%s\n' \
-      "$(date -u +%H:%M:%S)" \
-      "$(cat /sys/fs/cgroup/memory.current 2>/dev/null)" \
-      "$(cat /sys/fs/cgroup/memory.max 2>/dev/null)" \
-      "$(cat /sys/fs/cgroup/memory.peak 2>/dev/null)" \
-      "$(awk '/MemFree/{print $2}' /proc/meminfo)" \
-      "$(awk '/MemAvailable/{print $2}' /proc/meminfo)" >> "$RESULT_DIR/mem_watch.log"
-    sleep 2
-  done
-) &
-MEM_WATCH_PID=$!
 SERVER_LOG="$RESULT_DIR/server.log"
 MAX_RUNNING_REQUESTS=$((2 * CONC))
 [ "$MAX_RUNNING_REQUESTS" -lt 256 ] && MAX_RUNNING_REQUESTS=256
@@ -144,7 +120,7 @@ if [ "$DP_ATTENTION" = "true" ]; then
     --enable-dp-lm-head
     --tokenizer-worker-num "$TP"
     --dist-init-addr "127.0.0.1:$((PORT + 2000))"
-    --numa-node 0 0 0 0 1 1 1 1
+    --numa-node 0 1 2 3 0 1 2 3
   )
 fi
 
@@ -177,6 +153,10 @@ SGLANG_CMD=(
 
 printf '%q ' "${SGLANG_CMD[@]}" | tee "$RESULT_DIR/sglang_command.txt"
 printf '\n' | tee -a "$RESULT_DIR/sglang_command.txt"
+
+# 64MB stack, as the prod containers and nguyennvc's dispatch-l3 engines run
+# (the sbatch/enroot default is 8MB).
+ulimit -s 65536
 
 "${SGLANG_CMD[@]}" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
