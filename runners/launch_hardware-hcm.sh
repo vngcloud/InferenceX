@@ -109,10 +109,17 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # hgx-h200-01/02: 192 CPUs / ~2TB RAM over 8 GPUs (confirmed via
 # `sinfo -N -p hardware-hcm -o '%N %c %m %G'`) -- same 24 CPU/GPU ratio as
 # h200-greennode, sized proportionally so two allocations can share a node.
+# hgx nodes are 2050000 MiB (~2002G). The 240G/GPU formula caps an 8-GPU job
+# at 1920G, which the GLM-5.3-W4AFP8 proddp8deep521 smoke hit and died on at
+# hicache allocation (run 37136229597: whole step SIGKILL'd mid
+# "Allocating kv hierarchical KV host pool" 8x128G, MaxRSS 680G and climbing,
+# kern.log wrote at that exact second; mapped weights + pools + anon land
+# near the cap). Give the 8x tier 1990G; smaller tiers keep 240G/GPU so two
+# 4x jobs still co-locate at 2x960G.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 240))G \
+    --cpus-per-task=$((GPU_COUNT * 24)) --mem=$(( GPU_COUNT >= 8 ? 1990 : GPU_COUNT * 240 ))G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
