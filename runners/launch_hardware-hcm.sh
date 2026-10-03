@@ -44,7 +44,7 @@ case "$(hostname -s)" in
     exit 1
     ;;
 esac
-# GLM-5.3-Flash weights (306G) live node-locally at /tmp/thanglq5/hf-cache/hub
+# GLM-5.3-Flash weights (306G) live node-locally at /data/thanglq5/hf-cache/hub
 # on hgx-h200-02 and do not fit a fresh download (disk ~90% full), so mount
 # that path host<->container 1:1 and point HF_HUB_CACHE at the same in-
 # container path. Hardcoded on purpose: the workflow file comes from
@@ -53,8 +53,8 @@ esac
 # hgx-h200-02 (the 09-30 smoke confirmed: the recipe then tried a 306G
 # pre-download into it). Jobs landing on hgx-h200-01 fail fast at the sqsh
 # import (no pre-imported image there) before ever reaching the model.
-export HF_HUB_CACHE_MOUNT="/tmp/thanglq5/hf-cache/hub"
-export HF_HUB_CACHE="/tmp/thanglq5/hf-cache/hub"
+export HF_HUB_CACHE_MOUNT="/data/thanglq5/hf-cache/hub"
+export HF_HUB_CACHE="/data/thanglq5/hf-cache/hub"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 
 # pyxis shares the host netns by default (no --container-unshare=net) -> two
