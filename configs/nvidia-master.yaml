@@ -9040,3 +9040,23 @@ glm53flash-dpafp8-fp8-h200-greennode-slurm-sglang-tp4dp4ep4-mtp-hicache32-router
     - dram-utilization: 0.80
       search-space:
       - { tp: 4, ep: 4, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [1, 8, 16, 32, 48], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.3proddp8deep521-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  # served-name for aiperf tokenizer resolution; actual weights are the staged
+  # /data/hf-cache/GLM-5.3-W4AFP8 plain dir (recipe points MODEL_PATH at it).
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3proddp8deep521
+  # hardware-hcm pool (hgx-h200-01/02). Agentic configs require a cluster:*
+  # label; pin the 8-GPU tier + the node with the pre-imported v0.5.21 sqsh
+  # and the staged weights via --runner-node-filter hardware-hcm-8x_02 at
+  # dispatch time (node 01 has no pre-imported images and only 41G free).
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32], router: { name: sglang-router, version: "0.3.2" } }
