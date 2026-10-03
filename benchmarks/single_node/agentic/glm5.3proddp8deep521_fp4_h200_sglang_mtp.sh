@@ -44,6 +44,13 @@ export AIPERF_GPU_TELEMETRY_URL="${AIPERF_GPU_TELEMETRY_URL:-http://localhost:94
 export SGLANG_DP_USE_GATHERV=1
 export NCCL_P2P_LEVEL=NVL
 export SGLANG_ENABLE_METRICS_DP_ATTENTION=1
+# hardware-hcm fabric: the 8 p2p RoCE links are Intel E810 (irdma), which
+# NVSHMEM's IBRC transport cannot probe — DeepEP low-latency bring-up segfaults
+# at main_nvshmem/.../ibrc.cpp:314 "NULL value" (smoke run 37134667065). A
+# single-node TP8 job has no remote PEs, so disable the remote transport
+# entirely; same env nguyennvc's dispatch-l3 GLM-5.3-W4AFP8 tp8/ep8 DeepEP
+# engines run with on these exact nodes.
+export NVSHMEM_REMOTE_TRANSPORT=none
 
 CACHE_ARGS=(
   --enable-hierarchical-cache
