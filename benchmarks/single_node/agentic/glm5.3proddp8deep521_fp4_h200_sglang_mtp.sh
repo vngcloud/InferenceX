@@ -91,6 +91,32 @@ done
 nvidia-smi --query-gpu=index,memory.used --format=csv,noheader
 
 mkdir -p "$RESULT_DIR"
+# Diagnostic: three smokes (37134667065/37136229597/37137481444) all died
+# exit-137 ~60s into the 8x128G hicache host-pool allocation with no error
+# logged and no cgroup/node limit visibly reached. Sample the job cgroup and
+# node memory every 2s so the next failure leaves the numbers in the
+# server_logs artifact.
+{
+  id
+  ulimit -l
+  cat /proc/sys/vm/max_map_count 2>/dev/null
+  cat /proc/sys/vm/overcommit_memory 2>/dev/null
+  getent group adm 2>/dev/null
+  tail -30 /var/log/kern.log 2>&1 | tail -5
+} > "$RESULT_DIR/diag.txt" 2>&1 || true
+(
+  while true; do
+    printf '%s cur=%s max=%s peak=%s MemFree=%s MemAvailable=%s\n' \
+      "$(date -u +%H:%M:%S)" \
+      "$(cat /sys/fs/cgroup/memory.current 2>/dev/null)" \
+      "$(cat /sys/fs/cgroup/memory.max 2>/dev/null)" \
+      "$(cat /sys/fs/cgroup/memory.peak 2>/dev/null)" \
+      "$(awk '/MemFree/{print $2}' /proc/meminfo)" \
+      "$(awk '/MemAvailable/{print $2}' /proc/meminfo)" >> "$RESULT_DIR/mem_watch.log"
+    sleep 2
+  done
+) &
+MEM_WATCH_PID=$!
 SERVER_LOG="$RESULT_DIR/server.log"
 MAX_RUNNING_REQUESTS=$((2 * CONC))
 [ "$MAX_RUNNING_REQUESTS" -lt 256 ] && MAX_RUNNING_REQUESTS=256
