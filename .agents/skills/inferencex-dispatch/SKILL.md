@@ -13,7 +13,7 @@ One arm = one config key + one recipe in a commit on top of `origin/vng-benchmar
 2. Infra changes (`runners/`, `benchmark_lib.sh`, `.github/`, `configs/runners.yaml`) are committed to `vng-benchmark` first; experiments then rebase onto it and push under a new ref name (`<name>-r2`). An experiment commit carries only the config key, the recipe, and the `perf-changelog.yaml` entry.
 3. Do not push experiment branches. Work on a local-only branch from `origin/vng-benchmark` and push it with `git push origin HEAD:refs/bench/<model>-<topic>`. Hidden refs do not appear in the GitHub branch list. For a retry, add a commit on top; never force-push, because past runs point at the old SHAs. An arm worth keeping (a new baseline) gets merged into `vng-benchmark`.
 4. Smoke first: one mid CCU at `duration-override=90` (8k1k: one conc). Run the full ladder only after the smoke is green.
-5. Pin exactly one node with `--runner-node-filter`. Exception: a single-node pool whose label contains the node name (`cluster:h200-greennode_04`). The filter is a substring match, so it emits both the label and the node, which doubles every job; omit the filter there.
+5. Pin exactly one node with `--runner-node-filter`, except in a single-node pool whose label contains the node name (`cluster:h200-greennode_04`) — the filter is a substring match that emits both the label and the node and doubles every job; omit the filter there. On multi-runner pools you can also pin by runner name (`--runner-node-filter hardware-hcm-8x_02`): that matches only a runner carrying a label equal to its own name, which is **not automatic**. Verify with `gh api repos/vngcloud/InferenceX/actions/runners/<id>/labels`; if the label is missing, a repo admin must add it first — `POST /repos/vngcloud/InferenceX/actions/runners/<id>/labels` with body `{"labels":["<runner-name>"]}` (an array of strings; an object body returns 422) — otherwise every job queues forever. Never pin by a cross-cluster flavor label (`h200-1x`, `h200-4x`): it matches runners on more than one cluster.
 6. Change one thing per retry and name that change in `test-name`.
 7. Dispatch with `--ref vng-benchmark -f ref=<sha>`. Every job checks out `inputs.ref`; `--ref` only selects the workflow file. Put the short SHA in `test-name`, because the run's `headSha` is `vng-benchmark`'s, not yours.
 
@@ -53,6 +53,12 @@ git push origin HEAD:refs/bench/<name> && SHA=$(git rev-parse HEAD)
 
 `<GEN>` is always `test-config`. `full-sweep` has no `--config-keys` and fans out to every key that shares the prefix.
 
+**Pre-dispatch checklist for slurm-backed pools** — every matrix job sallocs its own GPUs, so the partition's queue state decides what lands between them:
+
+- The partition's slurm queue is clean before you dispatch: a queued neighbor job (someone's 8-GPU server) grabs the node in the gap between two matrix jobs and starves the next one (`cluster:hardware-hcm`: `ssh slurm-client squeue`).
+- `/mnt/sqsh/*.lock` is owned by the user the GH jobs run as — a foreign-owned lock kills the launcher at `exec 9>` (EACCES). The path is node-local: remove it via a small sbatch on the node, not from the slurm client.
+- Node-local paths (`/mnt/sqsh`, `/data`) are invisible from the slurm client — verify them with an sbatch probe on the node.
+
 - agentic: `test-config --config-files configs/nvidia-master.yaml --config-keys <key> --conc 20 33 50 --runner-node-filter <node> --scenario-type agentic-coding --no-evals`
 - 8k1k: `test-config --config-files configs/nvidia-master.yaml --config-keys <key> --conc 8 64 --seq-lens 8k1k --scenario-type fixed-seq-len --no-evals --runner-node-filter <node>`. Drop `--no-evals` only when you want the eval jobs.
 
@@ -78,10 +84,15 @@ Old pushed branches still have `trigger-agentic-ingest` in their `e2e-tests.yml`
 |---|---|---|
 | `cluster:h200-greennode` | `_01 _03 _04 _06` | Docker path, 8×H200. SSH `_01`: `stackops@103.196.239.193 -p 234` |
 | `cluster:h200-greennode_04` | `_04` | 4×H200, most reliable node |
-| `h200-1x` | `_03 _05` | Single-GPU 8k1k |
+| `h200-1x` | `h200-greennode_03/_05`, `hardware-hcm-1x_01/_02` | Single-GPU 8k1k. The flavor label spans two clusters — never pin with it (rule 5) |
 | `cluster:h200-greennode-slurm` | `slurm_1a`–`1d` | 4-GPU Slurm slices of the **same machine as `_06`** (han-1) |
+| `cluster:hardware-hcm` | `hardware-hcm-{1x,2x,4x,8x}_{01,02}` | Slurm partition `hardware-hcm` (research cluster, account `dev`); boxes hgx-h200-01/02, 8×H200 each. A flavor tier is one concurrent job slot per box. Weights are node-local (`/data/hf-cache`, each box has its own disk — nothing is shared between boxes) |
 | `cluster:b300-netperf` | `b300-netperf_00` | B300 |
 | `cluster:remote-bench` | `bench-client_01` | Remote endpoint benchmarks |
+
+A slurm-backed pool is one launcher, one partition, one account: `runners/launch_<pool>.sh` sallocs inside its own partition and pins `--nodelist` to the runner's own box. A runner, node, or tier not in this table is not dispatchable — ask the user which pool and node to use instead of guessing. Adding a node is an infra commit on `vng-benchmark` (rule 2): extend the launcher's hostname→NodeName map (an unknown host exits 1), the pool list in `configs/runners.yaml`, and the runner's name label (rule 5).
+
+Dispatching while the target runner is offline is safe: the jobs queue and fire once it comes back.
 
 ## Symptom → fix
 
@@ -92,6 +103,7 @@ Old pushed branches still have `trigger-agentic-ingest` in their `e2e-tests.yml`
 | get-jobs `unrecognized arguments` / `required: --config-files` | Wrong subcommand or flag → use the `<GEN>` templates |
 | enroot `401 ... registry-1.docker.io/v2/vcr.vngcloud.vn/...` | Branch has the old Slurm launcher → rebase onto `vng-benchmark` |
 | `Not enough host memory ... hierarchical cache`, exit 137 | HiCache larger than free DRAM, or a docker `_06` job running at the same time as a `slurm_1x` job → resize; never run `_06` docker alongside Slurm |
+| job dies `exit 137` + `runner has received a shutdown signal`, nobody canceled | The node OOM-killed the runner service (a neighbor's boot spiked host RAM) — not a benchmark bug. Confirm via sbatch: `systemctl status actions.runner.vngcloud-InferenceX.<runner>.service` shows `Result: oom-kill`. Auto-restart brings the runner back, but the in-flight job still dies → rerun just that CCU |
 | `memory capacity is unbalanced ... occupied by other processes` | A leftover process holds the GPUs → check `nvidia-smi` on the node, then rerun |
 | pyxis `nvidia-container-cli: driver rpc error: timed out` | Driver flake on han-1 → rerun; if it repeats, report to the node owner |
 | `Process died before .../health became ready` / `Run aborted (warmup_failure)` | Server-side failure (OOM, context length, parser) → read the server log artifact; not a runner issue |
