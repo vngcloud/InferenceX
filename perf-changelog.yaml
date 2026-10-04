@@ -8078,3 +8078,17 @@
     - "新增基于 aiperf 的共享 SPEED-Bench 客户端：benchmark_lib.sh 中的 run_speedbench_aiperf 使用固定版本 utils/aiperf 的 speed_bench_* loader 读取预处理好的 SPEED-Bench 快照（Noridom1/speed-bench-prepared@6e5c3a81，校验 SHA256，可选 SPEEDBENCH_HF_TOKEN secret），infx.bench_serving.speedbench_aiperf 输出 benchmark_serving 格式的结果并附带 vllm:spec_decode_* 接受长度，使 SPEED-Bench 走标准 fixed-seq-len 处理流程。"
     - "首批使用者：四个 Gemma-4 31B FP8-block 单元（base 与原生 MTP depth 4，throughput_8k 高/低熵，ignore-eos，conc 1/8/32/64，runner cluster:h200-greennode（docker，TP1）），引擎配置沿用 run 34502057305 的 Stage-5 gemma4sb 单元；仅将压测客户端从 vllm bench serve 换为 aiperf，并且不再固定使用 4 号 GPU。"
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...feat/speedbench-aiperf
+
+- config-keys:
+    - gemma4sbabasehi-fp8block-hardware-hcm-vllm
+    - gemma4sbabaselo-fp8block-hardware-hcm-vllm
+    - gemma4sbamtphi-fp8block-hardware-hcm-vllm
+    - gemma4sbamtplo-fp8block-hardware-hcm-vllm
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "hardware-hcm port of the gemma4sba cells from refs/bench/gemma4-speedbench-aiperf @ 409fb591 (8xH200 docker pool): same recipes (gemma4sba_body.sh + wrappers) and engine config, re-keyed onto the on-node Slurm pool cluster:hardware-hcm (launch_hardware-hcm.sh salloc's --gres=gpu:$GPU_COUNT on hgx-h200-01/02; srun --export=ALL forwards SPEEDBENCH_HF_TOKEN into the container); dispatch pins the 1x tier with --runner-node-filter hardware-hcm-1x_02 for the 1-GPU TP1 cells."
+    - "The cells themselves are the aiperf port of the Stage-5 gemma4sb cells of run 34502057305: four Gemma-4 31B FP8-block arms (base and native MTP depth 4, throughput_8k high/low entropy, ignore-eos, conc 1/8/32/64), engine config copied unchanged; only the load generator changed (vllm bench serve -> aiperf) and the GPU is not pinned to an index."
+    - "hardware-hcm 移植 refs/bench/gemma4-speedbench-aiperf @ 409fb591（8xH200 docker 池）的 gemma4sba 单元：配方（gemma4sba_body.sh 及各 wrapper）与引擎配置不变，仅将 runner 换为节点内 Slurm 池 cluster:hardware-hcm（launch_hardware-hcm.sh 在 hgx-h200-01/02 上 salloc --gres=gpu:$GPU_COUNT；srun --export=ALL 将 SPEEDBENCH_HF_TOKEN 传入容器）；派发时用 --runner-node-filter hardware-hcm-1x_02 固定 1x 档（单卡 TP1）。"
+    - "单元本身是 run 34502057305 Stage-5 gemma4sb 单元的 aiperf 移植：四个 Gemma-4 31B FP8-block 分支（base 与原生 MTP depth 4，throughput_8k 高/低熵，ignore-eos，conc 1/8/32/64），引擎配置原样沿用；仅将压测客户端从 vllm bench serve 换为 aiperf，且不再固定 GPU 序号。"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-speedbench-aiperf-hcm
