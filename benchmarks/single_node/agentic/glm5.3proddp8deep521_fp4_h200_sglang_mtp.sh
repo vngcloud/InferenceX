@@ -65,6 +65,15 @@ export NVSHMEM_REMOTE_TRANSPORT=none
 # the zones have headroom (manual boot 1584), so registration chunking stays
 # at the sglang default. Print native fault stacks if anything still dies.
 export PYTHONFAULTHANDLER=1
+# VRAM headroom: at mem-fraction 0.75 every GPU serves with only 0.05-0.9
+# GiB free (ladder 37145396223: c32 ran with 26 recoverable torch OOM
+# warnings and 7 lazy Triton loads at ~0.96 GiB free; c16 died at 0.05 GiB
+# when the top-p bitmask kernel lazy-loaded mid-serve and NCCL could not
+# cudaMalloc its 512MB sampler all_reduce buffer; retry 37176412590 was green
+# but still served at 0.52-0.89 GiB free with 17 OOM warnings). Expandable
+# segments stop the caching allocator from stranding freed blocks — the same
+# env nguyennvc's dispatch-l3 engines run on these nodes.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 CACHE_ARGS=(
   --enable-hierarchical-cache
