@@ -9060,3 +9060,19 @@ glm5.3proddp8deep521-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
     - dram-utilization: 0.84
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32], router: { name: sglang-router, version: "0.3.2" } }
+glm5.3proddp8deep521hrrn-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  # Variant of glm5.3proddp8deep521 (tip 9fbe6df5): --schedule-policy hrrn
+  # instead of prod dfs-weight (user-requested experiment). Weights are the
+  # staged /data/hf-cache/GLM-5.3-W4AFP8 plain dir.
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3proddp8deep521hrrn
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32], router: { name: sglang-router, version: "0.3.2" } }
