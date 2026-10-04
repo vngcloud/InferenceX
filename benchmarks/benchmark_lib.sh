@@ -3839,3 +3839,225 @@ run_agentic_replay_and_write_outputs() (
 
     validate_required_agentic_server_metrics "$result_dir"
 )
+
+
+# SPEED-Bench helpers (aiperf driver, fixed-seq-len arms)
+#
+# One shared client for every SPEED-Bench recipe: the pinned aiperf fork loads
+# the prepared jsonl through its speed_bench_* custom-dataset loaders (full
+# multi-turn, category filter, placeholder rows rejected), and
+# infx.bench_serving.speedbench_aiperf maps the export onto the
+# benchmark_serving result keys, so these arms ride the normal fixed-seq-len
+# process_result/collect path. Engine launch stays in the recipe.
+
+# Prepared SPEED-Bench (all six splits, prompts resolved from their sources,
+# no SPECDEC_BENCH placeholders). Pinned by commit so every arm reads identical
+# bytes; SHA256SUMS in the repo is checked after download.
+SPEEDBENCH_HF_REPO="${SPEEDBENCH_HF_REPO:-Noridom1/speed-bench-prepared}"
+SPEEDBENCH_HF_REVISION="${SPEEDBENCH_HF_REVISION:-6e5c3a81f3d529e4daba914e1ff1046823b0165b}"
+
+# Resolve $SPEEDBENCH_CONFIG.jsonl (qualitative | throughput_{1k,2k,8k,16k,32k})
+# and export SPEEDBENCH_FILE. A pre-staged $SPEEDBENCH_DIR wins; otherwise the
+# file comes from the pinned HF snapshot, cache first (HF_HUB_CACHE is a
+# persistent mount on the runners), network second. The repo is private:
+# SPEEDBENCH_HF_TOKEN is preferred, falling back to the ambient HF_TOKEN.
+resolve_speedbench_dataset() {
+    check_env_vars SPEEDBENCH_CONFIG
+    case "$SPEEDBENCH_CONFIG" in
+        qualitative|throughput_1k|throughput_2k|throughput_8k|throughput_16k|throughput_32k) ;;
+        *)
+            echo "ERROR: unknown SPEEDBENCH_CONFIG='$SPEEDBENCH_CONFIG'" >&2
+            return 1
+            ;;
+    esac
+    local name="$SPEEDBENCH_CONFIG.jsonl"
+
+    if [ -n "${SPEEDBENCH_DIR:-}" ] && [ -f "$SPEEDBENCH_DIR/$name" ]; then
+        export SPEEDBENCH_FILE="$SPEEDBENCH_DIR/$name"
+        echo "SPEED-Bench: using pre-staged $SPEEDBENCH_FILE"
+        return 0
+    fi
+
+    install_agentic_deps || return $?
+    local snapshot_dir
+    # Subshell with tracing off so neither token reaches the job log.
+    snapshot_dir=$(
+        set +x
+        export HF_TOKEN="${SPEEDBENCH_HF_TOKEN:-${HF_TOKEN:-}}"
+        "$AIPERF_PYTHON" - "$SPEEDBENCH_HF_REPO" "$SPEEDBENCH_HF_REVISION" "$name" <<'PY'
+import sys
+from huggingface_hub import snapshot_download
+
+repo, revision, name = sys.argv[1:4]
+kwargs = dict(repo_id=repo, repo_type="dataset", revision=revision,
+              allow_patterns=[name, "SHA256SUMS"])
+try:
+    path = snapshot_download(local_files_only=True, **kwargs)
+except Exception:
+    path = snapshot_download(**kwargs)
+print(path)
+PY
+    ) || {
+        echo "ERROR: could not fetch $name from $SPEEDBENCH_HF_REPO@$SPEEDBENCH_HF_REVISION;" \
+             "check that SPEEDBENCH_HF_TOKEN (or HF_TOKEN) can read the repo" >&2
+        return 1
+    }
+
+    if ! (cd "$snapshot_dir" && grep -E "[[:space:]]\\*?${name}\$" SHA256SUMS | sha256sum -c -); then
+        echo "ERROR: $snapshot_dir/$name does not match SHA256SUMS" >&2
+        return 1
+    fi
+    export SPEEDBENCH_FILE="$snapshot_dir/$name"
+    echo "SPEED-Bench: $SPEEDBENCH_FILE ($SPEEDBENCH_HF_REPO@$SPEEDBENCH_HF_REVISION)"
+}
+
+# Run one SPEED-Bench cell with aiperf and write $RESULT_FILENAME.json in the
+# benchmark_serving shape. Call after the server is ready.
+#
+# Required: MODEL PORT CONC OSL RESULT_FILENAME SPEEDBENCH_CONFIG
+# Optional:
+#   SPEEDBENCH_CATEGORY      qualitative: coding|humanities|math|multilingual|qa|
+#                            rag|reasoning|roleplay|stem|summarization|writing;
+#                            throughput_*: low_entropy|mixed|high_entropy.
+#                            Unset = the whole split.
+#   SPEEDBENCH_NUM_PROMPTS   conversations to send; default CONC*10 clamped to
+#                            [64, rows in the selected pool]. Rows are taken in
+#                            file order, so every arm at one concurrency sees
+#                            the identical prompt set.
+#   SPEEDBENCH_IGNORE_EOS    1 (default) forces OSL output tokens per turn.
+#   SPEEDBENCH_EXTRA_INPUTS  JSON object merged into every request body, e.g.
+#                            '{"temperature": 0, "chat_template_kwargs": {"enable_thinking": false}}'.
+#   SPEEDBENCH_WARMUP_REQUESTS  default 0.
+#   SPEEDBENCH_METRICS_URL   Prometheus endpoint for acceptance counters;
+#                            default http://localhost:$PORT/metrics.
+#   SPEEDBENCH_SERVER_PID    stop the client if this server dies (server_watch).
+#   SPEEDBENCH_META          whitespace-separated KEY=VALUE pairs copied into
+#                            the result (VALUE parsed as JSON when it is).
+#   SERVED_MODEL_NAME, AIPERF_TOKENIZER, AIPERF_GPU_TELEMETRY_URL, RESULT_DIR.
+run_speedbench_aiperf() {
+    if [ "${EVAL_ONLY}" = "true" ]; then
+        echo "EVAL_ONLY mode: skipping SPEED-Bench throughput benchmark"
+        return 0
+    fi
+    check_env_vars MODEL PORT CONC OSL RESULT_FILENAME SPEEDBENCH_CONFIG INFMAX_CONTAINER_WORKSPACE
+    resolve_speedbench_dataset || return $?
+
+    local category="${SPEEDBENCH_CATEGORY:-}"
+    local preset="speed_bench_${SPEEDBENCH_CONFIG}"
+    if [ -n "$category" ]; then
+        if [ "$SPEEDBENCH_CONFIG" = "qualitative" ]; then
+            preset="speed_bench_${category}"
+        else
+            preset="speed_bench_${SPEEDBENCH_CONFIG}_${category}"
+        fi
+    fi
+
+    # The pinned loader dies ~30s in with an opaque error when a category
+    # filter matches nothing, so size the pool up front and fail loudly.
+    local pool
+    pool=$("$AIPERF_PYTHON" - "$SPEEDBENCH_FILE" "$category" <<'PY'
+import json, sys
+path, category = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    print(sum(1 for line in f if line.strip()
+              and (not category or json.loads(line).get("category") == category)))
+PY
+    ) || return 1
+    if [ "$pool" -le 0 ]; then
+        echo "ERROR: SPEED-Bench category '$category' matches no rows in $SPEEDBENCH_FILE" >&2
+        return 1
+    fi
+    local num_prompts="${SPEEDBENCH_NUM_PROMPTS:-$((CONC * 10))}"
+    if [ -z "${SPEEDBENCH_NUM_PROMPTS:-}" ] && [ "$num_prompts" -lt 64 ]; then num_prompts=64; fi
+    if [ "$num_prompts" -gt "$pool" ]; then num_prompts="$pool"; fi
+
+    local extra_inputs
+    extra_inputs=$(SPEEDBENCH_IGNORE_EOS="${SPEEDBENCH_IGNORE_EOS:-1}" "$AIPERF_PYTHON" -c '
+import json, os
+extra = {"ignore_eos": True} if os.environ["SPEEDBENCH_IGNORE_EOS"] == "1" else {}
+extra.update(json.loads(os.environ.get("SPEEDBENCH_EXTRA_INPUTS") or "{}"))
+print(json.dumps(extra, separators=(",", ":")))') || return 1
+
+    local result_dir="${RESULT_DIR:-$INFMAX_CONTAINER_WORKSPACE/results}"
+    local artifact_dir="$result_dir/speedbench_aiperf"
+    local metrics_url="${SPEEDBENCH_METRICS_URL:-http://localhost:$PORT/metrics}"
+    mkdir -p "$artifact_dir"
+
+    local -a cmd=(
+        "$AIPERF_CLI" profile
+        --model "${SERVED_MODEL_NAME:-$MODEL}"
+        --tokenizer "${AIPERF_TOKENIZER:-$MODEL}"
+        --tokenizer-trust-remote-code
+        --url "http://localhost:$PORT"
+        --endpoint-type chat
+        --streaming
+        --custom-dataset-type "$preset"
+        --input-file "$SPEEDBENCH_FILE"
+        --dataset-sampling-strategy sequential
+        --conversation-num "$num_prompts"
+        --concurrency "$CONC"
+        --osl "$OSL"
+        --extra-inputs "$extra_inputs"
+        --random-seed 42
+        --use-server-token-count
+        --server-metrics "$metrics_url"
+        --ui-type simple
+        --output-artifact-dir "$artifact_dir"
+    )
+    if [ "${SPEEDBENCH_WARMUP_REQUESTS:-0}" -gt 0 ]; then
+        cmd+=(--warmup-request-count "$SPEEDBENCH_WARMUP_REQUESTS")
+    fi
+    if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
+        cmd+=(--gpu-telemetry "$AIPERF_GPU_TELEMETRY_URL")
+    else
+        cmd+=(--no-gpu-telemetry)
+    fi
+
+    echo "===== SPEED-Bench cell ====="
+    echo "preset=$preset file=$SPEEDBENCH_FILE pool=$pool num_prompts=$num_prompts"
+    echo "conc=$CONC osl=$OSL extra_inputs=$extra_inputs"
+    echo "============================"
+    write_command "$artifact_dir/benchmark_command.txt" "${cmd[@]}"
+
+    local -a meta_args=()
+    local pair
+    for pair in ${SPEEDBENCH_META:-}; do
+        meta_args+=(--meta "$pair")
+    done
+    local py=(env "PYTHONPATH=$INFERENCEX_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$AIPERF_PYTHON" -m infx.bench_serving.speedbench_aiperf)
+    "${py[@]}" snapshot --metrics-url "$metrics_url" --out "$artifact_dir/spec_metrics_before.json"
+
+    if [[ -n "${SPEEDBENCH_SERVER_PID:-}" && "$SPEEDBENCH_SERVER_PID" != "${INFERENCEX_SERVER_PID:-}" ]]; then
+        INFERENCEX_SERVER_STATE=$(mktemp /tmp/inferencex-server-state.XXXXXX) || return 1
+        PYTHONPATH="$INFERENCEX_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -m infx.bench_serving.server_watch capture --pid "$SPEEDBENCH_SERVER_PID" \
+            > "$INFERENCEX_SERVER_STATE" || return 1
+        INFERENCEX_SERVER_PID="$SPEEDBENCH_SERVER_PID"
+    fi
+    local aiperf_rc=0
+    run_server_client "${cmd[@]}" || aiperf_rc=$?
+
+    "${py[@]}" snapshot --metrics-url "$metrics_url" --out "$artifact_dir/spec_metrics_after.json"
+
+    if [ ! -f "$artifact_dir/profile_export_aiperf.json" ]; then
+        echo "ERROR: aiperf exited with code $aiperf_rc and wrote no profile_export_aiperf.json" >&2
+        [ "$aiperf_rc" -ne 0 ] && return "$aiperf_rc"
+        return 1
+    fi
+    "${py[@]}" convert \
+        --aiperf-json "$artifact_dir/profile_export_aiperf.json" \
+        --before "$artifact_dir/spec_metrics_before.json" \
+        --after "$artifact_dir/spec_metrics_after.json" \
+        --out "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json" \
+        --model "$MODEL" \
+        --concurrency "$CONC" \
+        --meta "sb_dataset_subset=\"$SPEEDBENCH_CONFIG\"" \
+        --meta "sb_category=\"$category\"" \
+        --meta "sb_aiperf_preset=\"$preset\"" \
+        --meta "sb_num_conversations=$num_prompts" \
+        --meta "sb_ignore_eos=${SPEEDBENCH_IGNORE_EOS:-1}" \
+        --meta "sb_dataset_repo=\"$SPEEDBENCH_HF_REPO@$SPEEDBENCH_HF_REVISION\"" \
+        --meta "sb_extra_inputs=$extra_inputs" \
+        "${meta_args[@]}" || return $?
+    cp "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json" "$artifact_dir/result.json"
+    return "$aiperf_rc"
+}
