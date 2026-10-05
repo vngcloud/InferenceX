@@ -8961,7 +8961,7 @@ gemma4sbamtplo-fp8block-hardware-hcm-vllm:
 # github.com/Noridom1/sglang@2d74309 (branch gemma4-v0.5.21): sglang#42019
 # (Gemma4 FA4 on SM90, stock v0.5.21 falls back to Triton) and sglang#39286
 # (Gemma auxiliary hidden-state captures, which hurt speculative decoding).
-# Pin the 8x_01 identity with --runner-node-filter hardware-hcm-8x_01.
+# Pin the 8x_02 identity with --runner-node-filter hardware-hcm-8x_02.
 gemma4sbabasehi-fp8block-hardware-hcm-sglang:
   image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309
   model: RedHatAI/gemma-4-31B-it-FP8-block
