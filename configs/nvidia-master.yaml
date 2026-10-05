@@ -9076,3 +9076,24 @@ glm5.3proddp8deep521hrrn-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agent
     - dram-utilization: 0.84
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.3prodll-dflash2-fp4-hardware-hcm-sglang-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  # GLM-5.3-W4AFP8 TP-only low-latency (prodll) arm with DFlash2 speculative
+  # decoding: external draft incoai/GLM-5.3-DFlash2 (BF16, staged in the
+  # mounted /data/thanglq5/hf-cache/hub), --speculative-draft-attention-backend
+  # fa4, --speculative-draft-model-quantization unquant. DFLASH rejects
+  # DP-Attention, so this is pure TP8 (no dp/ep/router/deepep), unlike the
+  # glm5.3proddp8deep521(hrrn) DPA arms. DFlash2 needs >= v0.5.21 for the
+  # GLM-5.3 pairing (DFlash2DraftModel since #35371).
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3prodll-dflash2
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, spec-decoding: draft_model, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32] }
