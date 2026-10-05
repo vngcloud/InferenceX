@@ -8885,6 +8885,36 @@ gemma4-fp8block-hardware-hcm-2x-vllm:
       search-space:
       - { tp: 2, conc-list: [1] }
 
+# Qwen3.8-27B customer-service (tau2) AGENTIC arm for the hardware-hcm pool --
+# replays the private thangquang09/customer-service-agent-traces corpus
+# (mooncake_trace raw content) against the prod Qwen3.8-27B-FP8 serving shape
+# (sglang v0.5.19, TP1, EAGLE 3/1/4 off the built-in qwen3_5 MTP head,
+# ReplaySSM spec-verify, dfs-weight, HiCache 24) plus the GLM-5.3-Flash
+# dpafp8 levers (mamba state pool pinned at 384 slots, mem-fraction 0.88,
+# extra_buffer_lazy + skip-decode-lock, KV fp8, max-prefill 32768), so the
+# numbers land in the same artifacts/dashboards as the cc-traces agentic runs
+# and read side-by-side. Distinguished from a coding run purely by the
+# model-prefix qwen38tau2; recipe
+# benchmarks/single_node/agentic/qwen38tau2_fp8_h200_sglang_mtp.sh. Wire name
+# $MODEL stays the un-quantized Qwen/Qwen3.8-27B (aiperf tokenizer) while the
+# FP8 checkpoint is served. First deliverable is a CCU 8 smoke; the
+# [1,8,16,32,64] ladder follows. Pin the node with --runner-node-filter
+# hardware-hcm-8x_0X on the node carrying the staged checkpoint.
+qwen38tau2-fp8-hardware-hcm-sglang-agentic-mtp:
+  image: lmsysorg/sglang:v0.5.19
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38tau2
+  runner: cluster:hardware-hcm
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 1, kv-offloading: dram, kv-offload-backend: { name: hicache }, spec-decoding: mtp, conc-list: [1, 8, 16, 32, 64] }
+
+
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
 # (cache_aware policy) in front of the single vLLM backend. Same
