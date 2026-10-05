@@ -8890,12 +8890,12 @@ gemma4-fp8block-hardware-hcm-2x-vllm:
 # and engine config, same throughput_8k high/low-entropy categories and
 # ignore-eos, re-keyed onto the on-node Slurm pool (launch_hardware-hcm.sh
 # salloc's --gres=gpu:$GPU_COUNT on hgx-h200-01/02; --export=ALL forwards
-# SPEEDBENCH_HF_TOKEN into the container). Pin the 1x tier (1 GPU, TP1) with
-# --runner-node-filter hardware-hcm-1x_02. isl/osl label the row: osl is the
+# SPEEDBENCH_HF_TOKEN into the container). Pin the 8x_01 identity (TP1 cells salloc 1 GPU each) with
+# --runner-node-filter hardware-hcm-8x_01. isl/osl label the row: osl is the
 # per-request output length; the real prompt lengths are only ~8k and land in
 # total_input_tokens.
 gemma4sbabasehi-fp8block-hardware-hcm-vllm:
-  image: vllm/vllm-openai:v0.28.0
+  image: vllm/vllm-openai:v0.30.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbabasehi
   runner: cluster:hardware-hcm
@@ -8910,7 +8910,7 @@ gemma4sbabasehi-fp8block-hardware-hcm-vllm:
       - { tp: 1, conc-list: [1, 8, 32, 64] }
 
 gemma4sbabaselo-fp8block-hardware-hcm-vllm:
-  image: vllm/vllm-openai:v0.28.0
+  image: vllm/vllm-openai:v0.30.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbabaselo
   runner: cluster:hardware-hcm
@@ -8925,7 +8925,7 @@ gemma4sbabaselo-fp8block-hardware-hcm-vllm:
       - { tp: 1, conc-list: [1, 8, 32, 64] }
 
 gemma4sbamtphi-fp8block-hardware-hcm-vllm:
-  image: vllm/vllm-openai:v0.28.0
+  image: vllm/vllm-openai:v0.30.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbamtphi
   runner: cluster:hardware-hcm
@@ -8940,7 +8940,7 @@ gemma4sbamtphi-fp8block-hardware-hcm-vllm:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
 
 gemma4sbamtplo-fp8block-hardware-hcm-vllm:
-  image: vllm/vllm-openai:v0.28.0
+  image: vllm/vllm-openai:v0.30.0
   model: RedHatAI/gemma-4-31B-it-FP8-block
   model-prefix: gemma4sbamtplo
   runner: cluster:hardware-hcm
