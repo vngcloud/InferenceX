@@ -8078,3 +8078,17 @@
     - "hardware-hcm 移植 refs/bench/gemma4-speedbench-aiperf @ 409fb591（8xH200 docker 池）的 gemma4sba 单元：配方（gemma4sba_body.sh 及各 wrapper）与引擎配置不变，仅将 runner 换为节点内 Slurm 池 cluster:hardware-hcm（launch_hardware-hcm.sh 在 hgx-h200-01/02 上 salloc --gres=gpu:$GPU_COUNT；srun --export=ALL 将 SPEEDBENCH_HF_TOKEN 传入容器）；派发时用 --runner-node-filter hardware-hcm-8x_01 固定（TP1 单元各 salloc 1 张卡；hardware-hcm-1x_* 无已注册 runner）。镜像为 vllm/vllm-openai:v0.30.0。"
     - "单元本身是 run 34502057305 Stage-5 gemma4sb 单元的 aiperf 移植：四个 Gemma-4 31B FP8-block 分支（base 与原生 MTP depth 4，throughput_8k 高/低熵，ignore-eos，conc 1/8/32/64），引擎配置原样沿用；仅将压测客户端从 vllm bench serve 换为 aiperf，且不再固定 GPU 序号。"
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-speedbench-aiperf-hcm
+
+- config-keys:
+    - gemma4sbabasehi-fp8block-hardware-hcm-sglang
+    - gemma4sbabaselo-fp8block-hardware-hcm-sglang
+    - gemma4sbamtphi-fp8block-hardware-hcm-sglang
+    - gemma4sbamtplo-fp8block-hardware-hcm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang counterpart of the four gemma4sba hardware-hcm vLLM cells: same Gemma-4 31B FP8-block model, throughput_8k high/low entropy, ignore-eos, conc 1/8/32/64, base and MTP depth 4, same aiperf client. New recipe gemma4sba_sglang_body.sh maps each vLLM serving knob to its SGLang flag (mem-fraction-static 0.88, context-length 65536, max-running-requests=CONC, chunked-prefill-size 16384, radix cache off, NEXTN with the google/gemma-4-31B-it-assistant draft, num-steps 4, topk 1, draft-tokens 5)."
+    - "Image ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309 = lmsysorg/sglang:v0.5.21 with python/sglang overlaid from github.com/Noridom1/sglang@2d74309 (branch gemma4-v0.5.21): sgl-project/sglang#42019 (Gemma4 FA4 on SM90 with head-dim 512; stock falls back to Triton) and #39286 (Gemma auxiliary hidden-state captures, which degrade speculative decoding). Both PRs are unmerged upstream, so these are results for a patched SGLang build, not stock v0.5.21. Dispatch pins --runner-node-filter hardware-hcm-8x_01."
+    - "vLLM 对应 gemma4sba hardware-hcm 单元的 SGLang 版本：同一 Gemma-4 31B FP8-block 模型、throughput_8k 高/低熵、ignore-eos、conc 1/8/32/64、base 与 MTP depth 4、同一 aiperf 客户端。新配方 gemma4sba_sglang_body.sh 将各 vLLM 服务参数映射为 SGLang 参数（mem-fraction-static 0.88、context-length 65536、max-running-requests=CONC、chunked-prefill-size 16384、关闭 radix cache、NEXTN 搭配 google/gemma-4-31B-it-assistant 草稿模型、num-steps 4、topk 1、draft-tokens 5）。"
+    - "镜像 ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309 = lmsysorg/sglang:v0.5.21 并以 github.com/Noridom1/sglang@2d74309（分支 gemma4-v0.5.21）覆盖 python/sglang：包含 sgl-project/sglang#42019（SM90 上 head-dim 512 的 Gemma4 FA4；原版回退到 Triton）与 #39286（修复 Gemma 辅助隐状态捕获，该问题会降低投机解码性能）。两个 PR 均未合入上游，因此结果对应打补丁的 SGLang 构建，而非原版 v0.5.21。派发时用 --runner-node-filter hardware-hcm-8x_01 固定。"
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-speedbench-aiperf-hcm

@@ -8954,6 +8954,74 @@ gemma4sbamtplo-fp8block-hardware-hcm-vllm:
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
 
+# SGLang counterpart of the four gemma4sba hardware-hcm vLLM cells above: same
+# model, workload, categories, conc ladder and aiperf client, with the serving
+# knobs mapped flag for flag (see gemma4sba_sglang_body.sh). The image is the
+# lmsysorg/sglang:v0.5.21 base plus two unmerged upstream fixes, built from
+# github.com/Noridom1/sglang@2d74309 (branch gemma4-v0.5.21): sglang#42019
+# (Gemma4 FA4 on SM90, stock v0.5.21 falls back to Triton) and sglang#39286
+# (Gemma auxiliary hidden-state captures, which hurt speculative decoding).
+# Pin the 8x_01 identity with --runner-node-filter hardware-hcm-8x_01.
+gemma4sbabasehi-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbabasehi
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+gemma4sbabaselo-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbabaselo
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+gemma4sbamtphi-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+gemma4sbamtplo-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtplo
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
 # (cache_aware policy) in front of the single vLLM backend. Same
