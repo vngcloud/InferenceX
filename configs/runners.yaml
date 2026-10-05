@@ -426,6 +426,13 @@ hardware:
   cluster:h200-greennode-slurm:
     available-cpu-dram-mib: 751_160
     gpus-per-node: 4
+  # hgx-h200-01/02: 8x H200, ~2TB DRAM per box (sinfo %m = 2050000M). Jobs
+  # salloc --mem=$((GPU_COUNT*240))G via runners/launch_hardware-hcm.sh; the
+  # 4x tier (hardware-hcm-4x_*, what glm53flash agentic dispatches pin via
+  # --runner-node-filter) reserves 960G, so use that as the DRAM budget.
+  cluster:hardware-hcm:
+    available-cpu-dram-mib: 983_040
+    gpus-per-node: 8
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_095_781
     gpus-per-node: 8
