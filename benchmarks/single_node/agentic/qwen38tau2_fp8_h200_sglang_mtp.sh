@@ -67,8 +67,13 @@ export AIPERF_GPU_TELEMETRY_URL="http://localhost:9400/metrics"
 
 # benchmark_lib.sh reassigns AIPERF_UV_CACHE_DIR to an ephemeral /tmp dir at
 # source time, so every dispatch cold-downloads aiperf's deps from PyPI.
-# Restore the launcher's persistent mount so reruns hit the uv cache.
-if [ -d /mnt/uv-cache ]; then
+# Restore the launcher's persistent mount so reruns hit the uv cache -- but
+# only when the job user can actually write it: on hgx-h200-01 /mnt/uv-cache
+# is root-owned 755 (created 2026-09-29), and uv aborts at
+# "Failed to initialize cache at /mnt/uv-cache: CACHEDIR.TAG: Permission
+# denied" (run 37331049314). The -w probe runs as the container's remapped
+# user, so an unwritable mount falls back to benchmark_lib's ephemeral cache.
+if [ -d /mnt/uv-cache ] && [ -w /mnt/uv-cache ]; then
     export AIPERF_UV_CACHE_DIR=/mnt/uv-cache
 fi
 install_agentic_deps
