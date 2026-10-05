@@ -44,17 +44,15 @@ case "$(hostname -s)" in
     exit 1
     ;;
 esac
-# GLM-5.3-Flash weights (306G) live node-locally at /data/thanglq5/hf-cache/hub
-# on hgx-h200-02 and do not fit a fresh download (disk ~90% full), so mount
-# that path host<->container 1:1 and point HF_HUB_CACHE at the same in-
-# container path. Hardcoded on purpose: the workflow file comes from
-# vng-benchmark, whose job-level HF_HUB_CACHE=/mnt/hf_hub_cache/ default
-# cannot be overridden from a bench ref, and /mnt/hf_hub_cache is empty on
-# hgx-h200-02 (the 09-30 smoke confirmed: the recipe then tried a 306G
-# pre-download into it). Jobs landing on hgx-h200-01 fail fast at the sqsh
-# import (no pre-imported image there) before ever reaching the model.
-export HF_HUB_CACHE_MOUNT="/data/thanglq5/hf-cache/hub"
-export HF_HUB_CACHE="/data/thanglq5/hf-cache/hub"
+# Models live in the shared group-writable hub cache /mnt/hf_hub_cache (md0
+# RAID0 2x7T NVMe). Migrated 2026-10-05 from the old /data/thanglq5/hf-cache/hub
+# sda2 copy (311G whole hub tree: GLM-5.3-Flash FP8 + GLM-5.3-DFlash2 draft +
+# zai-org tokenizer repos + cc-traces dataset; verified 0 broken snapshot
+# symlinks, spot-read 1.4 GB/s). /mnt/hf_hub_cache is also the workflow's
+# job-level HF_HUB_CACHE default — mount it host<->container 1:1 and point
+# HF_HUB_CACHE at it. W4AFP8 target stays on /data/hf-cache (MODEL_DATA_MOUNT).
+export HF_HUB_CACHE_MOUNT="/mnt/hf_hub_cache"
+export HF_HUB_CACHE="/mnt/hf_hub_cache"
 # GLM-5.3-W4AFP8 (400G, = PhalaCloud/GLM-5.3-W4AFP8@03179e95) is staged as a
 # plain HF snapshot dir on BOTH hgx nodes at /data/hf-cache/GLM-5.3-W4AFP8
 # (not HF-hub cache layout), so mount /data/hf-cache 1:1 and let recipes
