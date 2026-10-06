@@ -8914,6 +8914,25 @@ qwen38tau2-fp8-hardware-hcm-sglang-agentic-mtp:
       search-space:
       - { tp: 1, kv-offloading: dram, kv-offload-backend: { name: hicache }, spec-decoding: mtp, conc-list: [1, 8, 16, 32, 64] }
 
+# Qwen3.8-27B AgentX cc-traces arm: the standard-Weka-loader twin of the tau2
+# arm above -- same serving config, same GLM dpafp8 levers, only the trace
+# source differs (public cc-traces Weka loader vs private tau2 corpus), so
+# DURATION stays the generator's agentic 3600 and the entry cap stays
+# loader-owned. Ladder dispatched without CCU 1 (user call).
+qwen38agentx-fp8-hardware-hcm-sglang-agentic-mtp:
+  image: lmsysorg/sglang:v0.5.19
+  model: Qwen/Qwen3.8-27B
+  model-prefix: qwen38agentx
+  runner: cluster:hardware-hcm
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.80
+      search-space:
+      - { tp: 1, kv-offloading: dram, kv-offload-backend: { name: hicache }, spec-decoding: mtp, conc-list: [1, 8, 16, 32, 64] }
+
 
 # Router + eagle3 speculative-decoding variant of gemma4-fp8block-h200-vllm:
 # adds chunked-prefill anti-HOL-blocking tuning and a vllm-router
