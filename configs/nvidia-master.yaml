@@ -9077,6 +9077,27 @@ glm5.3proddp8deep521hrrn-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agent
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32], router: { name: sglang-router, version: "0.3.2" } }
 
+glm5.3prodll-mtp-fp4-hardware-hcm-sglang-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  # GLM-5.3-W4AFP8 TP-only low-latency (prodll) arm with built-in EAGLE/MTP
+  # 5/1/6 — the apples-to-apples MTP baseline for glm5.3prodll-dflash2
+  # (37294572283): same weights/image/hicache/NUMA/flags, only the spec
+  # algorithm differs. The existing GLM-5.3 MTP runs are all DP-attention
+  # (glm5.3proddp8deep521hrrn, 37208036979) and the GLM-5.2 baseline
+  # (34197652789) differs in image + weights, so neither is a valid
+  # low-latency comparison. CCU 16/32 only (user request; c8 skipped).
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3prodll-mtp
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16, 32] }
+
 glm5.3prodll-dflash2-fp4-hardware-hcm-sglang-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.21
   # GLM-5.3-W4AFP8 TP-only low-latency (prodll) arm with DFlash2 speculative
