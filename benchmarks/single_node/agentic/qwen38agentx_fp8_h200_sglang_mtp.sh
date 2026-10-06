@@ -134,6 +134,12 @@ SERVER_PID=$!
 
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
+# Materialize the Weka loader into TRACE_SOURCE_FLAG ("--public-dataset
+# <loader>"); the export alone is inert -- build_replay_cmd only appends
+# $TRACE_SOURCE_FLAG and never resolves it (runs 37397810640 c32/c16 died at
+# aiperf's dataset validation with the synthetic default).
+resolve_trace_source
+
 build_replay_cmd "$RESULT_DIR"
 
 run_agentic_replay_and_write_outputs "$RESULT_DIR"
