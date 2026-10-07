@@ -9111,3 +9111,35 @@ gemma4sbamtphi-fp8block-gnslurm-sglang-swapool-b:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8] }
+
+# Same A/B as the gnslurm swapool keys above, on the hardware-hcm Slurm pool
+# (8xH200 nodes hgx-h200-01/02). Pin with --runner-node-filter hardware-hcm-8x_02.
+gemma4sbamtphi-fp8block-hardware-hcm-sglang-swapool-a:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-aux-fa4-swapool-8c1384a
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8] }
+
+gemma4sbamtphi-fp8block-hardware-hcm-sglang-swapool-b:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8] }

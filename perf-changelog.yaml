@@ -8101,3 +8101,12 @@
   description:
     - "A/B of the FA backend FROZEN_KV_MTP SWA-pool fix (FlashAttentionBackend._resolve_swa_kv_pool) on the 1xH200 test-partition runner: Gemma-4 31B FP8-block, MTP depth 4, throughput_8k high entropy, conc 1/8, same aiperf client as the hardware-hcm cells. Image A = v0.5.21 + sglang#39286 + sglang#42019 + fix; image B = v0.5.21 + sglang#42019 + fix. Patched builds, not stock v0.5.21."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-swapool-ab
+
+- config-keys:
+    - gemma4sbamtphi-fp8block-hardware-hcm-sglang-swapool-a
+    - gemma4sbamtphi-fp8block-hardware-hcm-sglang-swapool-b
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "Same FROZEN_KV_MTP SWA-pool fix A/B as the gnslurm swapool keys, run on the hardware-hcm Slurm pool (hardware-hcm-8x_02): Gemma-4 31B FP8-block, MTP depth 4, throughput_8k high entropy, conc 1/8. Image A = v0.5.21 + sglang#39286 + sglang#42019 + fix; image B = v0.5.21 + sglang#42019 + fix. Patched builds, not stock v0.5.21."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-swapool-ab
