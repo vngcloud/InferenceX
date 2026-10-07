@@ -8092,3 +8092,12 @@
     - "vLLM 对应 gemma4sba hardware-hcm 单元的 SGLang 版本：同一 Gemma-4 31B FP8-block 模型、throughput_8k 高/低熵、ignore-eos、conc 1/8/32/64、base 与 MTP depth 4、同一 aiperf 客户端。新配方 gemma4sba_sglang_body.sh 将各 vLLM 服务参数映射为 SGLang 参数（mem-fraction-static 0.88、context-length 65536、max-running-requests=CONC、chunked-prefill-size 16384、关闭 radix cache、NEXTN 搭配 google/gemma-4-31B-it-assistant 草稿模型、num-steps 4、topk 1、draft-tokens 5）。"
     - "镜像 ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309 = lmsysorg/sglang:v0.5.21 并以 github.com/Noridom1/sglang@2d74309（分支 gemma4-v0.5.21）覆盖 python/sglang：包含 sgl-project/sglang#42019（SM90 上 head-dim 512 的 Gemma4 FA4；原版回退到 Triton）与 #39286（修复 Gemma 辅助隐状态捕获，该问题会降低投机解码性能）。两个 PR 均未合入上游，因此结果对应打补丁的 SGLang 构建，而非原版 v0.5.21。派发时用 --runner-node-filter hardware-hcm-8x_02 固定。"
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-speedbench-aiperf-hcm
+
+- config-keys:
+    - gemma4sbamtphi-fp8block-gnslurm-sglang-swapool-a
+    - gemma4sbamtphi-fp8block-gnslurm-sglang-swapool-b
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "A/B of the FA backend FROZEN_KV_MTP SWA-pool fix (FlashAttentionBackend._resolve_swa_kv_pool) on the 1xH200 test-partition runner: Gemma-4 31B FP8-block, MTP depth 4, throughput_8k high entropy, conc 1/8, same aiperf client as the hardware-hcm cells. Image A = v0.5.21 + sglang#39286 + sglang#42019 + fix; image B = v0.5.21 + sglang#42019 + fix. Patched builds, not stock v0.5.21."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-swapool-ab

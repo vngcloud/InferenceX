@@ -9076,3 +9076,38 @@ gemma4-fp8block-h200-vllm-router:
       osl: 1024
       search-space:
       - { tp: 1, conc-list: [8, 32, 192] }
+
+# A/B of the FROZEN_KV_MTP + FA4 SWA-pool fix on the 1xH200 `test` partition
+# (TP=1 -> GPU_COUNT=1 -> launch_h200-greennode-slurm-1x.sh). Same recipe as the
+# hardware-hcm sglang cells (gemma4sbamtphi). Images: v0.5.21 + sglang#42019 +
+# fix (branch gemma4-v0.5.21-fa4-swapool, B) and the same plus sglang#39286
+# (branch gemma4-v0.5.21-aux-fa4-swapool, A).
+gemma4sbamtphi-fp8block-gnslurm-sglang-swapool-a:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-aux-fa4-swapool-8c1384a
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8] }
+
+gemma4sbamtphi-fp8block-gnslurm-sglang-swapool-b:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8] }
