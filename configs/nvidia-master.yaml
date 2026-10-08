@@ -9527,3 +9527,198 @@ gemma4sbaemtplo-fp8block-gnslurm-sglang:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+gemma4sbqakb-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqakb
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8, 32] }
+
+gemma4sbqakm-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqakm
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32] }
+
+gemma4sbqb-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqb
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8, 32] }
+
+gemma4sbqcb-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqcb
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8] }
+
+gemma4sbqcm-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqcm
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32] }
+
+gemma4sbqd2h-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqd2h
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32] }
+
+gemma4sbqd3h-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqd3h
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32] }
+
+gemma4sbqd2l-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqd2l
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [8] }
+
+gemma4sbqd3l-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqd3l
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [8] }
+
+gemma4sbqe-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqe
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [64] }
+
+gemma4sbqf-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqf
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8] }
+
+gemma4sbqgc-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqgc
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8] }
+
+gemma4sbqgt-fp8block-gnslurm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbqgt
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [8] }

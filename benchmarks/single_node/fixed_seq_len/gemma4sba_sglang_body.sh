@@ -121,6 +121,17 @@ if [[ -n "${SB_SWA_EVICTION:-}" ]]; then
     export SGLANG_SWA_EVICTION_INTERVAL="$SB_SWA_EVICTION"
 fi
 
+# Probe knobs (all optional, defaults reproduce the sweep recipe):
+#   SB_RADIX=1       keep the radix cache on (default: --disable-radix-cache)
+#   SB_ATTN_ARGS     attention backend flags (default: --attention-backend fa4)
+#   SB_EXTRA_ARGS    extra launch_server flags, word-split
+#   SB_EXTRA_ENV     "KEY=VAL KEY=VAL" exported before launch
+RADIX_ARGS=(--disable-radix-cache)
+if [[ "${SB_RADIX:-0}" == "1" ]]; then RADIX_ARGS=(); fi
+SB_ATTN_ARGS="${SB_ATTN_ARGS:---attention-backend fa4}"
+SB_EXTRA_ARGS="${SB_EXTRA_ARGS:-}"
+for kv in ${SB_EXTRA_ENV:-}; do export "$kv"; done
+
 SGLANG_CMD=(
     python3 -m sglang.launch_server
     --model-path "$MODEL_PATH"
@@ -133,9 +144,10 @@ SGLANG_CMD=(
     --context-length "$MAX_MODEL_LEN"
     --max-running-requests "$MAX_RUNNING"
     --chunked-prefill-size "$CHUNKED_PREFILL"
-    --disable-radix-cache
-    --attention-backend fa4
+    "${RADIX_ARGS[@]}"
+    $SB_ATTN_ARGS
     --enable-metrics
+    $SB_EXTRA_ARGS
     "${SPEC_ARGS[@]}"
     --tool-call-parser gemma4
     --reasoning-parser gemma4

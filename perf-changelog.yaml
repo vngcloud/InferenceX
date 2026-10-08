@@ -8198,3 +8198,23 @@
   description:
     - "SGLang mem+evict full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: --mem-fraction-static 0.92 and SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size left at 16384 (the 8192 tuned sweep regressed base lo c8/c32 via SWA pool exhaustion). base/MTP4 x high/low entropy x conc 1/8/32/64. Split across h200-greennode-slurm 1x_01/_02."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-memevict
+
+- config-keys:
+    - gemma4sbqakb-fp8block-gnslurm-sglang
+    - gemma4sbqakm-fp8block-gnslurm-sglang
+    - gemma4sbqb-fp8block-gnslurm-sglang
+    - gemma4sbqcb-fp8block-gnslurm-sglang
+    - gemma4sbqcm-fp8block-gnslurm-sglang
+    - gemma4sbqd2h-fp8block-gnslurm-sglang
+    - gemma4sbqd3h-fp8block-gnslurm-sglang
+    - gemma4sbqd2l-fp8block-gnslurm-sglang
+    - gemma4sbqd3l-fp8block-gnslurm-sglang
+    - gemma4sbqe-fp8block-gnslurm-sglang
+    - gemma4sbqf-fp8block-gnslurm-sglang
+    - gemma4sbqgc-fp8block-gnslurm-sglang
+    - gemma4sbqgt-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang probes A-G, Gemma-4 31B FP8-block, image B, mem 0.92 (chunk 16384, default evict), one knob each: A FP8 KV cache, B schedule-conservativeness 1.3 + RETRACT_DECODE_STEPS 40, C fa4 prefill + flashinfer decode, D MTP depth 2/3, E cuda-graph-max-bs-decode 128, F radix cache on, G fp8 gemm runner cutlass/triton. Compare against the mem-only sweep cells."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-probes
