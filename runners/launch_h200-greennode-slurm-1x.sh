@@ -77,11 +77,13 @@ ENROOT_ENV="R=$NODE_ROOT/enroot; export ENROOT_DATA_PATH=\$R/data ENROOT_RUNTIME
 ensure_container() {
     local image="$1" name
     name="$(echo "$image" | sed 's/[\/:@#.]/_/g')"
-# Steps do not inherit the salloc's --mem: a bare `srun --jobid` lands on a
-# ~4G step cgroup, which OOM-kills enroot-mksquashovlfs mid-import (run
-# 37728043872, step 2349.0 OUT_OF_MEMORY at MaxRSS 3.95G). Pass --mem on the
-# heavy steps; the light ship/copy steps fit the default.
-    srun --jobid="$JOB_ID" --mem=90G bash -c "
+# Steps do not inherit the salloc's --mem, and a bare `srun --jobid` fans out
+# one task per allocated CPU (15 concurrent tasks): that OOM-killed
+# enroot-mksquashovlfs on a ~4G step cgroup (run 37728043872) and made 15
+# tars race the workspace extract into "File exists" (run 37731666640). Pin
+# --ntasks=1 and an explicit --cpus-per-task/--mem on every step; the dcgm
+# sidecar (2 CPU, 4G) runs overlapped with the bench step (13 CPU, 90G).
+    srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=15 --mem=90G bash -c "
         set -e; $ENROOT_ENV
         exec 9>\$R/$name.lock; flock -w 1800 9
         # .ok marks a finished create: a half-unpacked container is redone.
@@ -128,26 +130,26 @@ chmod 600 "$ENV_FILE"
 export -p | grep -vE '^declare -x (PATH|HOME|PWD|OLDPWD|SHLVL|HOSTNAME|USER|LOGNAME|SHELL|TMPDIR|TERM|MAIL|_|LD_[A-Z_]*|CUDA_[A-Z_]*|NVIDIA_[A-Z_]*|SLURM_[A-Z_]*|ENROOT_[A-Z_]*|XDG_[A-Z_]*|DBUS_[A-Z_]*)=' > "$ENV_FILE"
 echo "export INFMAX_CONTAINER_WORKSPACE=/workspace RESULT_DIR=/workspace/results HOME=/ixhome" >> "$ENV_FILE"
 
-srun --jobid="$JOB_ID" bash -c "umask 077; mkdir -p $WS $NODE_ROOT/hf $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
+srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=2 bash -c "umask 077; mkdir -p $WS $NODE_ROOT/hf $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
     < <(tar -cz -C "$GITHUB_WORKSPACE" --exclude=.git --exclude=./results .)
-srun --jobid="$JOB_ID" bash -c "cat > $WS/.ix_env" < "$ENV_FILE"
+srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=1 bash -c "cat > $WS/.ix_env" < "$ENV_FILE"
 rm -f "$ENV_FILE"
 
 MOUNTS="-m $WS:/workspace -m $NODE_ROOT/hf:$HF_HUB_CACHE -m $NODE_ROOT/uv:$AIPERF_UV_CACHE_DIR -m $NODE_ROOT/home:/ixhome"
 START="$ENROOT_ENV; enroot start --rw -e NVIDIA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES"
 
-srun --jobid="$JOB_ID" --overlap --mem=4G bash -c "$START $DCGM_CSV_MOUNT $DCGM_CT dcgm-exporter -a :$DCGM_PORT $DCGM_EXTRA_ARGS" &
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=2 --mem=4G bash -c "$START $DCGM_CSV_MOUNT $DCGM_CT dcgm-exporter -a :$DCGM_PORT $DCGM_EXTRA_ARGS" &
 DCGM_SRUN_PID=$!
 trap 'rc=$?; kill "$DCGM_SRUN_PID" 2>/dev/null || true; srun --jobid="$JOB_ID" --overlap rm -rf "$WS" 2>/dev/null || true; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 set +e
-srun --jobid="$JOB_ID" --overlap --mem=90G bash -c "$START $MOUNTS $IMAGE_CT bash -c 'source /workspace/.ix_env && rm -f /workspace/.ix_env && cd /workspace && bash $BENCH_SCRIPT'"
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=13 --mem=90G bash -c "$START $MOUNTS $IMAGE_CT bash -c 'source /workspace/.ix_env && rm -f /workspace/.ix_env && cd /workspace && bash $BENCH_SCRIPT'"
 BENCH_RC=$?
 set -e
 
 # Results: results/ plus whatever the recipe wrote at the workspace root
 # (RESULT_FILENAME.json, eval outputs). Extract over the runner's checkout.
-srun --jobid="$JOB_ID" --overlap bash -c "cd $WS && tar -cz \$(find . -maxdepth 1 -newer $WS/benchmarks ! -name . ! -name .ix_env -printf '%P\n')" \
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=2 bash -c "cd $WS && tar -cz \$(find . -maxdepth 1 -newer $WS/benchmarks ! -name . ! -name .ix_env -printf '%P\n')" \
     | tar -xz -C "$GITHUB_WORKSPACE" || echo "WARN: result copy-back failed" >&2
 
 exit "$BENCH_RC"
