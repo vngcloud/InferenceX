@@ -9175,3 +9175,52 @@ gemma4sbamtplo-fp8block-hardware-hcm-sglang-b:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# Same remaining MTP cells as the hardware-hcm *-sglang-b keys, on the two 1xH200
+# greennode nodes (h200-greennode-slurm-1x_01/_02), split 3+3 across them:
+# _01 = hi [32,64] + lo [1]; _02 = lo [8,32,64].
+
+gemma4sbamtphi-fp8block-gnslurm-sglang-b:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [32, 64] }
+
+gemma4sbamtplo-fp8block-gnslurm-sglang-b-c1:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtplo
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1] }
+
+gemma4sbamtplo-fp8block-gnslurm-sglang-b-rest:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtplo
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [8, 32, 64] }
