@@ -97,6 +97,16 @@ fi
 
 start_gpu_monitor
 
+# FROZEN_KV_MTP sizes the SWA pool from the worst case at --max-running-requests
+# (draft SWA layers included). At 64 that is ~107 GiB and startup aborts, so MTP
+# above 32 runs with 32 slots and a shorter SWA eviction interval. Base is not
+# affected and keeps $CONC.
+MAX_RUNNING="$CONC"
+if [[ "$SB_ARM" == "mtp" && "$CONC" -gt 32 ]]; then
+    MAX_RUNNING=32
+    export SGLANG_SWA_EVICTION_INTERVAL=32
+fi
+
 SGLANG_CMD=(
     python3 -m sglang.launch_server
     --model-path "$MODEL_PATH"
@@ -107,7 +117,7 @@ SGLANG_CMD=(
     --tp "$TP"
     --mem-fraction-static 0.88
     --context-length "$MAX_MODEL_LEN"
-    --max-running-requests "$CONC"
+    --max-running-requests "$MAX_RUNNING"
     --chunked-prefill-size 16384
     --disable-radix-cache
     --attention-backend fa4

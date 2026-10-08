@@ -8110,3 +8110,12 @@
   description:
     - "Same FROZEN_KV_MTP SWA-pool fix A/B as the gnslurm swapool keys, run on the hardware-hcm Slurm pool (hardware-hcm-8x_02): Gemma-4 31B FP8-block, MTP depth 4, throughput_8k high entropy, conc 1/8. Image A = v0.5.21 + sglang#39286 + sglang#42019 + fix; image B = v0.5.21 + sglang#42019 + fix. Patched builds, not stock v0.5.21."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-swapool-ab
+
+- config-keys:
+    - gemma4sbamtphi-fp8block-hardware-hcm-sglang-b
+    - gemma4sbamtplo-fp8block-hardware-hcm-sglang-b
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "Remaining SGLang MTP (depth 4) SPEED-Bench cells for Gemma-4 31B FP8-block on hardware-hcm-8x_02 with image B (v0.5.21 + sglang#42019 + SWA-pool fix): high entropy conc 32/64, low entropy conc 1/8/32/64. MTP above conc 32 runs with --max-running-requests 32 and SGLANG_SWA_EVICTION_INTERVAL=32, because the FROZEN_KV_MTP SWA pool worst case at 64 slots (~107 GiB) exceeds the available memory."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-mtp-sweep
