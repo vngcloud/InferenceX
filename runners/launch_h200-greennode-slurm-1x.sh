@@ -6,23 +6,35 @@ check_env_vars GPU_COUNT IMAGE GITHUB_WORKSPACE RUNNER_NAME
 
 set -x
 
-# 1-GPU slurm path: hoanq3-h200-1x-han-3-1 (1xH200, 16 CPU, ~118G RAM)
-# in the same "test" partition as han-1. Exec'd by launch_h200-greennode-slurm.sh
-# when GPU_COUNT=1. Differs from the han-1 path because on these nodes:
+# 1-GPU slurm path: the 1xH200 nodes (16 CPU, ~118G RAM) of the "test"
+# partition. Exec'd by launch_h200-greennode-slurm.sh when GPU_COUNT=1.
+# Differs from the han-1 path because on these nodes:
 # - the runner user has no passwd entry and /mnt is root-only, so pyxis
 #   (enroot.conf -> /mnt/enroot-*-$uid) cannot start a container. Use the
-#   enroot CLI with its paths under /var/tmp instead.
-# - the runner's workspace (on han-1's disk) is not visible, so ship it over
+#   enroot CLI with its own paths instead.
+# - the node's / is tiny and effectively full (<3G free), so every per-uid
+#   scratch path (enroot, HF cache, uv cache, workspace) lives under /data,
+#   the 984G local disk.
+# - the runner's workspace is not visible across the salloc, so ship it over
 #   srun stdin and pull results back the same way.
 # - enroot start does not pass the host env into the container, so the job env
 #   is written to a 0600 file inside the shipped workspace and sourced there.
 SLURM_PARTITION="test"
 SLURM_ACCOUNT="greennode"
-# Its sibling hoanq3-h200-1x-han-3 lacks nvidia-container-cli (enroot's GPU
-# hook fails there), so pin the one node that works.
-SLURM_NODELIST="hoanq3-h200-1x-han-3-1"
-# Per uid: the runner user and people testing by hand share these nodes.
-NODE_ROOT="/var/tmp/inferencex-$(id -u)"
+# Pin salloc to the runner's own node: one runner per node, one GPU per node.
+# (hoanq3-h200-1x-han-3 lacked nvidia-container-cli until 2026-10-08, which
+# is why this was hardcoded to its sibling; both nodes work now.)
+case "$(hostname -s)" in
+  hoanq3-h200-1x-han-3) SLURM_NODELIST="hoanq3-h200-1x-han-3" ;;
+  hoanq3-h200-1x-han-3-1) SLURM_NODELIST="hoanq3-h200-1x-han-3-1" ;;
+  *)
+    echo "ERROR: unrecognized 1xH200 host $(hostname -s), add it to the map in $0" >&2
+    exit 1
+    ;;
+esac
+# Per-uid scratch on /data (984G): the node's / is <3G free. World-writable,
+# so any runner user (stackops daemon or a sbatch-held runner) can create it.
+NODE_ROOT="/data/inferencex-$(id -u)"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 # One GPU per node -> one job per node, so fixed ports cannot collide.
@@ -45,8 +57,10 @@ enroot_uri_for_image() {
 }
 
 scancel --name="$RUNNER_NAME" 2>/dev/null || true
+# 15 of the 16 CPUs: a sbatch-held runner daemon on the node occupies 1 CPU
+# for its whole 7-day allocation, so a full-16 salloc would pend forever.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
-    --nodelist="$SLURM_NODELIST" --gres=gpu:1 --cpus-per-task=16 --mem=100G \
+    --nodelist="$SLURM_NODELIST" --gres=gpu:1 --cpus-per-task=15 --mem=100G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
@@ -63,7 +77,13 @@ ENROOT_ENV="R=$NODE_ROOT/enroot; export ENROOT_DATA_PATH=\$R/data ENROOT_RUNTIME
 ensure_container() {
     local image="$1" name
     name="$(echo "$image" | sed 's/[\/:@#.]/_/g')"
-    srun --jobid="$JOB_ID" bash -c "
+# Steps do not inherit the salloc's --mem, and a bare `srun --jobid` fans out
+# one task per allocated CPU (15 concurrent tasks): that OOM-killed
+# enroot-mksquashovlfs on a ~4G step cgroup (run 37728043872) and made 15
+# tars race the workspace extract into "File exists" (run 37731666640). Pin
+# --ntasks=1 and an explicit --cpus-per-task/--mem on every step; the dcgm
+# sidecar (2 CPU, 4G) runs overlapped with the bench step (13 CPU, 90G).
+    srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=15 --mem=90G bash -c "
         set -e; $ENROOT_ENV
         exec 9>\$R/$name.lock; flock -w 1800 9
         # .ok marks a finished create: a half-unpacked container is redone.
@@ -110,26 +130,26 @@ chmod 600 "$ENV_FILE"
 export -p | grep -vE '^declare -x (PATH|HOME|PWD|OLDPWD|SHLVL|HOSTNAME|USER|LOGNAME|SHELL|TMPDIR|TERM|MAIL|_|LD_[A-Z_]*|CUDA_[A-Z_]*|NVIDIA_[A-Z_]*|SLURM_[A-Z_]*|ENROOT_[A-Z_]*|XDG_[A-Z_]*|DBUS_[A-Z_]*)=' > "$ENV_FILE"
 echo "export INFMAX_CONTAINER_WORKSPACE=/workspace RESULT_DIR=/workspace/results HOME=/ixhome" >> "$ENV_FILE"
 
-srun --jobid="$JOB_ID" bash -c "umask 077; mkdir -p $WS $NODE_ROOT/hf $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
+srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=2 bash -c "umask 077; mkdir -p $WS $NODE_ROOT/hf $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
     < <(tar -cz -C "$GITHUB_WORKSPACE" --exclude=.git --exclude=./results .)
-srun --jobid="$JOB_ID" bash -c "cat > $WS/.ix_env" < "$ENV_FILE"
+srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=1 bash -c "cat > $WS/.ix_env" < "$ENV_FILE"
 rm -f "$ENV_FILE"
 
 MOUNTS="-m $WS:/workspace -m $NODE_ROOT/hf:$HF_HUB_CACHE -m $NODE_ROOT/uv:$AIPERF_UV_CACHE_DIR -m $NODE_ROOT/home:/ixhome"
 START="$ENROOT_ENV; enroot start --rw -e NVIDIA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES"
 
-srun --jobid="$JOB_ID" --overlap bash -c "$START $DCGM_CSV_MOUNT $DCGM_CT dcgm-exporter -a :$DCGM_PORT $DCGM_EXTRA_ARGS" &
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=2 --mem=4G bash -c "$START $DCGM_CSV_MOUNT $DCGM_CT dcgm-exporter -a :$DCGM_PORT $DCGM_EXTRA_ARGS" &
 DCGM_SRUN_PID=$!
 trap 'rc=$?; kill "$DCGM_SRUN_PID" 2>/dev/null || true; srun --jobid="$JOB_ID" --overlap rm -rf "$WS" 2>/dev/null || true; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 set +e
-srun --jobid="$JOB_ID" --overlap bash -c "$START $MOUNTS $IMAGE_CT bash -c 'source /workspace/.ix_env && rm -f /workspace/.ix_env && cd /workspace && bash $BENCH_SCRIPT'"
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=13 --mem=90G bash -c "$START $MOUNTS $IMAGE_CT bash -c 'source /workspace/.ix_env && rm -f /workspace/.ix_env && cd /workspace && bash $BENCH_SCRIPT'"
 BENCH_RC=$?
 set -e
 
 # Results: results/ plus whatever the recipe wrote at the workspace root
 # (RESULT_FILENAME.json, eval outputs). Extract over the runner's checkout.
-srun --jobid="$JOB_ID" --overlap bash -c "cd $WS && tar -cz \$(find . -maxdepth 1 -newer $WS/benchmarks ! -name . ! -name .ix_env -printf '%P\n')" \
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=2 bash -c "cd $WS && tar -cz \$(find . -maxdepth 1 -newer $WS/benchmarks ! -name . ! -name .ix_env -printf '%P\n')" \
     | tar -xz -C "$GITHUB_WORKSPACE" || echo "WARN: result copy-back failed" >&2
 
 exit "$BENCH_RC"
