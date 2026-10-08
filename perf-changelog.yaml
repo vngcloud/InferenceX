@@ -8168,3 +8168,11 @@
   description:
     - "SGLang tuned full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: --mem-fraction-static 0.92, SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size 8192. base/MTP4 x high/low entropy x conc 1/8/32/64 (MTP c64 runs with 32 slots). Split across h200-greennode-slurm 1x_01/_02."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-tuned
+
+- config-keys:
+    - gemma4tau2mtp-fp8-h200-sglang-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Gemma-4 31B tau2 (customer-service-agent-traces) agentic arm, SGLang MTP4 engine A/B of gemma4tau2mtp-fp8-h200-vllm-agentic: patched image B v0.5.21-fa4-swapool-3a7d5ad (sglang#42019 FA4 SM90 + SWA-pool fix under FROZEN_KV_MTP, Noridom1@3a7d5ad64), NEXTN auto-promote draft google/gemma-4-31B-it-assistant num-steps 4/topk 1/5 draft tokens, tuned knobs mem-fraction 0.92 + SGLANG_SWA_EVICTION_INTERVAL=32 + chunked-prefill 8192, MTP slots capped 32 (SWA pool aborts at 64), radix cache ON (SWA-aware) + --schedule-policy hrrn, context 262144 BF16 KV. Single replica on 1xH200 greennode-slurm."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4tau2-mtp-sglang

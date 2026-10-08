@@ -9392,3 +9392,26 @@ gemma4sbatmtplo-fp8block-gnslurm-sglang:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# Gemma-4-31B customer-service (tau2) agentic arm, SGLang MTP4 engine-side A/B
+# partner of gemma4tau2mtp-fp8-h200-vllm-agentic above (same private tau2 corpus
+# replay, same conc ladder, single replica on one 1xH200 greennode-slurm GPU).
+# Engine: patched image B = release/v0.5.21 + sglang#42019 (Gemma4 FA4 on SM90)
+# + SWA-KV-pool fix under FROZEN_KV_MTP (Noridom1/sglang@3a7d5ad64,
+# gemma4-v0.5.21-fa4-swapool) — the winner of the Oct 7 swapool A/B and the
+# image of today's tuned sweeps. Tuned knobs: mem 0.92, SWA eviction 32, chunk
+# 8192, MTP slots capped at 32. Radix cache ON (SWA-aware) + --schedule-policy
+# hrrn (token-based aging). Recipe:
+# benchmarks/single_node/agentic/gemma4tau2_fp8_h200_sglang_mtp.sh
+gemma4tau2mtp-fp8-h200-sglang-agentic:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: google/gemma-4-31b-it
+  model-prefix: gemma4tau2
+  runner: cluster:h200-greennode-slurm
+  precision: fp8
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, kv-offloading: none, spec-decoding: mtp, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 256] }
