@@ -8176,3 +8176,14 @@
   description:
     - "SGLang tuned variant v, Gemma-4 31B FP8-block base low entropy conc 8/32, image B: --mem-fraction-static 0.92, SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size 16384. Investigates the retract storm (475/3547 retracts, 133/98.6 tok/s) of the chunk-8192 tuned sweep; the SWA pool is slots x per_request + 2 x chunk."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-tuned
+
+- config-keys:
+    - gemma4sbambasehi-fp8block-gnslurm-sglang
+    - gemma4sbambaselo-fp8block-gnslurm-sglang
+    - gemma4sbammtphi-fp8block-gnslurm-sglang
+    - gemma4sbammtplo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang mem-only full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: only --mem-fraction-static 0.92 changed vs the 0.88 sweep (engine-default SWA eviction, --chunked-prefill-size 16384; MTP c64 still auto-caps to 32 slots + evict 32). base/MTP4 x high/low entropy x conc 1/8/32/64. Split across h200-greennode-slurm 1x_01/_02."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-memonly
