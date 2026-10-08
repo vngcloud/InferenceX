@@ -9097,3 +9097,27 @@ glm5.3prodll-dflash2-fp4-hardware-hcm-sglang-hicache1024-agentic:
     - dram-utilization: 0.84
       search-space:
       - { tp: 8, spec-decoding: draft_model, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [8, 16, 32] }
+
+glm5.3prodll-dflash2bs6-fp4-hardware-hcm-sglang-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  # Block-size 6 sweep point of glm5.3prodll-dflash2 (ladder 37294572283):
+  # identical arm + --speculative-dflash-block-size 6 (drives
+  # num_draft_tokens). bs8 tied the matched MTP baseline (37419991320) at c16
+  # — hypothesis: the 8-tok verify window costs ~33% more per step than
+  # MTP's 6; bs6 measures the verify-cost vs accept-length trade-off at
+  # MTP's verify size. CAVEAT: draft checkpoint declares block_size 8 (its
+  # training value), so accept length may drop off-distribution. c16 only —
+  # the matched comparison point (MTP + bs8 both have c16 3600s numbers).
+  # Same early-EOS/empty-response caveat as the other v0.5.21 GLM-5.3 arms:
+  # numbers are provisional until the base-path bug is fixed.
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3prodll-dflash2bs6
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, spec-decoding: draft_model, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16] }
