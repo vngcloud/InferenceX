@@ -18,9 +18,17 @@ set -x
 #   is written to a 0600 file inside the shipped workspace and sourced there.
 SLURM_PARTITION="test"
 SLURM_ACCOUNT="greennode"
-# Its sibling hoanq3-h200-1x-han-3 lacks nvidia-container-cli (enroot's GPU
-# hook fails there), so pin the one node that works.
-SLURM_NODELIST="hoanq3-h200-1x-han-3-1"
+# Pin salloc to the runner's own node: one runner per node, one GPU per node.
+# (hoanq3-h200-1x-han-3 lacked nvidia-container-cli until 2026-10-08, which
+# is why this was hardcoded to its sibling; both nodes work now.)
+case "$(hostname -s)" in
+  hoanq3-h200-1x-han-3) SLURM_NODELIST="hoanq3-h200-1x-han-3" ;;
+  hoanq3-h200-1x-han-3-1) SLURM_NODELIST="hoanq3-h200-1x-han-3-1" ;;
+  *)
+    echo "ERROR: unrecognized 1xH200 host $(hostname -s), add it to the map in $0" >&2
+    exit 1
+    ;;
+esac
 # Per uid: the runner user and people testing by hand share these nodes.
 NODE_ROOT="/var/tmp/inferencex-$(id -u)"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
