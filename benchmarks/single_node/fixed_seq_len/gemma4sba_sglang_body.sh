@@ -24,6 +24,8 @@
 #
 # Wrapper variables: SB_ARM (base|mtp), SB_CATEGORY, SB_CONFIG, SB_IGNORE_EOS,
 # NUM_SPEC_TOKENS (required for mtp). Same contract as gemma4sba_body.sh.
+# Optional probe knobs: SB_MEM_FRACTION (0.88), SB_CHUNKED_PREFILL (16384),
+# SB_SWA_EVICTION (SGLANG_SWA_EVICTION_INTERVAL, engine default 128).
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -107,6 +109,14 @@ if [[ "$SB_ARM" == "mtp" && "$CONC" -gt 32 ]]; then
     export SGLANG_SWA_EVICTION_INTERVAL=32
 fi
 
+# KV-pool probe knobs, set by the probe wrappers; defaults are the sweep recipe.
+# SB_SWA_EVICTION overrides the MTP cap above only when set.
+MEM_FRACTION="${SB_MEM_FRACTION:-0.88}"
+CHUNKED_PREFILL="${SB_CHUNKED_PREFILL:-16384}"
+if [[ -n "${SB_SWA_EVICTION:-}" ]]; then
+    export SGLANG_SWA_EVICTION_INTERVAL="$SB_SWA_EVICTION"
+fi
+
 SGLANG_CMD=(
     python3 -m sglang.launch_server
     --model-path "$MODEL_PATH"
@@ -115,7 +125,7 @@ SGLANG_CMD=(
     --port "$PORT"
     --trust-remote-code
     --tp "$TP"
-    --mem-fraction-static 0.88
+    --mem-fraction-static "$MEM_FRACTION"
     --context-length "$MAX_MODEL_LEN"
     --max-running-requests "$MAX_RUNNING"
     --chunked-prefill-size 16384

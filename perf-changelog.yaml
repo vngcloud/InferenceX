@@ -8129,3 +8129,13 @@
   description:
     - "Same SGLang MTP (depth 4) SPEED-Bench cells as the hardware-hcm sweep (high entropy conc 32/64, low entropy conc 1/8/32/64) on the 1xH200 greennode Slurm nodes h200-greennode-slurm-1x_01 and _02, image B, split 3+3 across the two nodes. MTP above conc 32 keeps --max-running-requests 32 and SGLANG_SWA_EVICTION_INTERVAL=32."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-mtp-gnslurm
+
+- config-keys:
+    - gemma4sbaprobea-fp8block-hardware-hcm-sglang
+    - gemma4sbaprobeb-fp8block-hardware-hcm-sglang
+    - gemma4sbaprobec-fp8block-hardware-hcm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang KV-pool probes for Gemma-4 31B FP8-block base, throughput_8k high entropy, conc 64, image B. a: --mem-fraction-static 0.92; b: a + SGLANG_SWA_EVICTION_INTERVAL=32; c: b + --chunked-prefill-size 8192. Baseline (0.88, interval 128, chunk 16384) gave max_total_num_tokens=115525."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-kvprobe

@@ -9224,3 +9224,51 @@ gemma4sbamtplo-fp8block-gnslurm-sglang-b-rest:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [8, 32, 64] }
+
+# SGLang KV-pool probes for base c64 (high entropy): does a bigger mem fraction,
+# a shorter SWA eviction interval or a smaller prefill chunk grow the KV pool?
+# Image B, one cell each. Pin hardware-hcm-8x_02 with --runner-node-filter.
+gemma4sbaprobea-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbaprobea
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [64] }
+
+gemma4sbaprobeb-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbaprobeb
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [64] }
+
+gemma4sbaprobec-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbaprobec
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [64] }
