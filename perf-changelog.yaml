@@ -8157,3 +8157,14 @@
   description:
     - "SGLang tuned smokes (probe-c settings: --mem-fraction-static 0.92, SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size 8192), Gemma-4 31B FP8-block, throughput_8k high entropy, image B. f: MTP depth 4 conc 32 (32 slots), compare smoke d (0.92, default evict/chunk) and 0.88 baseline; g: base conc 8, checks low-concurrency regression."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-tunedsmoke
+
+- config-keys:
+    - gemma4sbatbasehi-fp8block-gnslurm-sglang
+    - gemma4sbatbaselo-fp8block-gnslurm-sglang
+    - gemma4sbatmtphi-fp8block-gnslurm-sglang
+    - gemma4sbatmtplo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang tuned full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: --mem-fraction-static 0.92, SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size 8192. base/MTP4 x high/low entropy x conc 1/8/32/64 (MTP c64 runs with 32 slots). Split across h200-greennode-slurm 1x_01/_02."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-tuned
