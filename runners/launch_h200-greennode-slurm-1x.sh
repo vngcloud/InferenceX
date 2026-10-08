@@ -6,13 +6,16 @@ check_env_vars GPU_COUNT IMAGE GITHUB_WORKSPACE RUNNER_NAME
 
 set -x
 
-# 1-GPU slurm path: hoanq3-h200-1x-han-3-1 (1xH200, 16 CPU, ~118G RAM)
-# in the same "test" partition as han-1. Exec'd by launch_h200-greennode-slurm.sh
-# when GPU_COUNT=1. Differs from the han-1 path because on these nodes:
+# 1-GPU slurm path: the 1xH200 nodes (16 CPU, ~118G RAM) of the "test"
+# partition. Exec'd by launch_h200-greennode-slurm.sh when GPU_COUNT=1.
+# Differs from the han-1 path because on these nodes:
 # - the runner user has no passwd entry and /mnt is root-only, so pyxis
 #   (enroot.conf -> /mnt/enroot-*-$uid) cannot start a container. Use the
-#   enroot CLI with its paths under /var/tmp instead.
-# - the runner's workspace (on han-1's disk) is not visible, so ship it over
+#   enroot CLI with its own paths instead.
+# - the node's / is tiny and effectively full (<3G free), so every per-uid
+#   scratch path (enroot, HF cache, uv cache, workspace) lives under /data,
+#   the 984G local disk.
+# - the runner's workspace is not visible across the salloc, so ship it over
 #   srun stdin and pull results back the same way.
 # - enroot start does not pass the host env into the container, so the job env
 #   is written to a 0600 file inside the shipped workspace and sourced there.
@@ -29,8 +32,9 @@ case "$(hostname -s)" in
     exit 1
     ;;
 esac
-# Per uid: the runner user and people testing by hand share these nodes.
-NODE_ROOT="/var/tmp/inferencex-$(id -u)"
+# Per-uid scratch on /data (984G): the node's / is <3G free. World-writable,
+# so any runner user (stackops daemon or a sbatch-held runner) can create it.
+NODE_ROOT="/data/inferencex-$(id -u)"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 # One GPU per node -> one job per node, so fixed ports cannot collide.
@@ -53,8 +57,10 @@ enroot_uri_for_image() {
 }
 
 scancel --name="$RUNNER_NAME" 2>/dev/null || true
+# 15 of the 16 CPUs: a sbatch-held runner daemon on the node occupies 1 CPU
+# for its whole 7-day allocation, so a full-16 salloc would pend forever.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
-    --nodelist="$SLURM_NODELIST" --gres=gpu:1 --cpus-per-task=16 --mem=100G \
+    --nodelist="$SLURM_NODELIST" --gres=gpu:1 --cpus-per-task=15 --mem=100G \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
