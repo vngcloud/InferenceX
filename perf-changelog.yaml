@@ -8187,3 +8187,14 @@
   description:
     - "SGLang mem-only full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: only --mem-fraction-static 0.92 changed vs the 0.88 sweep (engine-default SWA eviction, --chunked-prefill-size 16384; MTP c64 still auto-caps to 32 slots + evict 32). base/MTP4 x high/low entropy x conc 1/8/32/64. Split across h200-greennode-slurm 1x_01/_02."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-memonly
+
+- config-keys:
+    - gemma4sbaebasehi-fp8block-gnslurm-sglang
+    - gemma4sbaebaselo-fp8block-gnslurm-sglang
+    - gemma4sbaemtphi-fp8block-gnslurm-sglang
+    - gemma4sbaemtplo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang mem+evict full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: --mem-fraction-static 0.92 and SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size left at 16384 (the 8192 tuned sweep regressed base lo c8/c32 via SWA pool exhaustion). base/MTP4 x high/low entropy x conc 1/8/32/64. Split across h200-greennode-slurm 1x_01/_02."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-memevict
