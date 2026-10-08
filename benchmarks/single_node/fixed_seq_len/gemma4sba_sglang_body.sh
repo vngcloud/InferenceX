@@ -25,7 +25,8 @@
 # Wrapper variables: SB_ARM (base|mtp), SB_CATEGORY, SB_CONFIG, SB_IGNORE_EOS,
 # NUM_SPEC_TOKENS (required for mtp). Same contract as gemma4sba_body.sh.
 # Optional probe knobs: SB_MEM_FRACTION (0.88), SB_CHUNKED_PREFILL (16384),
-# SB_SWA_EVICTION (SGLANG_SWA_EVICTION_INTERVAL, engine default 128).
+# SB_SWA_EVICTION (SGLANG_SWA_EVICTION_INTERVAL, engine default 128),
+# SB_MAX_RUNNING (--max-running-requests; overrides the MTP cap of 32 above).
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -113,6 +114,9 @@ fi
 # SB_SWA_EVICTION overrides the MTP cap above only when set.
 MEM_FRACTION="${SB_MEM_FRACTION:-0.88}"
 CHUNKED_PREFILL="${SB_CHUNKED_PREFILL:-16384}"
+if [[ -n "${SB_MAX_RUNNING:-}" ]]; then
+    MAX_RUNNING="$SB_MAX_RUNNING"
+fi
 if [[ -n "${SB_SWA_EVICTION:-}" ]]; then
     export SGLANG_SWA_EVICTION_INTERVAL="$SB_SWA_EVICTION"
 fi

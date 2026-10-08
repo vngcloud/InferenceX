@@ -8139,3 +8139,12 @@
   description:
     - "SGLang KV-pool probes for Gemma-4 31B FP8-block base, throughput_8k high entropy, conc 64, image B. a: --mem-fraction-static 0.92; b: a + SGLANG_SWA_EVICTION_INTERVAL=32; c: b + --chunked-prefill-size 8192. Baseline (0.88, interval 128, chunk 16384) gave max_total_num_tokens=115525."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-kvprobe
+
+- config-keys:
+    - gemma4sbamtpprobed-fp8block-gnslurm-sglang
+    - gemma4sbamtpprobee-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang MTP (depth 4) KV-pool smokes, Gemma-4 31B FP8-block, throughput_8k high entropy, image B, --mem-fraction-static 0.92. d: conc 32, --max-running-requests 32; e: conc 64, --max-running-requests 64 with SGLANG_SWA_EVICTION_INTERVAL=32. Baseline (0.88): c32 max_total_num_tokens=218616, c64 (32 slots) 329009."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-mtpprobe
