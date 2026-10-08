@@ -128,7 +128,7 @@ SGLANG_CMD=(
     --mem-fraction-static "$MEM_FRACTION"
     --context-length "$MAX_MODEL_LEN"
     --max-running-requests "$MAX_RUNNING"
-    --chunked-prefill-size 16384
+    --chunked-prefill-size "$CHUNKED_PREFILL"
     --disable-radix-cache
     --attention-backend fa4
     --enable-metrics
