@@ -85,7 +85,7 @@ Old pushed branches still have `trigger-agentic-ingest` in their `e2e-tests.yml`
 | `cluster:h200-greennode` | `_01 _03 _04 _06` | Docker path, 8×H200. SSH `_01`: `stackops@103.196.239.193 -p 234` |
 | `cluster:h200-greennode_04` | `_04` | 4×H200, most reliable node |
 | `h200-1x` | `h200-greennode_03/_05`, `hardware-hcm-1x_01/_02` | Single-GPU 8k1k. The flavor label spans two clusters — never pin with it (rule 5) |
-| `cluster:h200-greennode-slurm` | `slurm_1a`–`1d` | 4-GPU Slurm slices of the **same machine as `_06`** (han-1) |
+| `cluster:h200-greennode-slurm` | `h200-greennode-slurm-1x_01/_02` | One runner per 1xH200 node of partition `test` (`hoanq3-h200-1x-han-3/-3-1`), via `launch_h200-greennode-slurm-1x.sh` (the GPU_COUNT=1 handoff). Scratch lives on `/data` (984G; `/` is <3G free). `_02` runs as an sbatch-held daemon (7-day job, resubmit before it expires) — the bench salloc takes 15/16 CPUs; `_01` pending. The old `slurm_1a`–`1d` slices died with han-1 |
 | `cluster:hardware-hcm` | `hardware-hcm-{1x,2x,4x,8x}_{01,02}` | Slurm partition `hardware-hcm` (research cluster, account `dev`); boxes hgx-h200-01/02, 8×H200 each. A flavor tier is one concurrent job slot per box. Weights are node-local (`/data/hf-cache`, each box has its own disk — nothing is shared between boxes) |
 | `cluster:b300-netperf` | `b300-netperf_00` | B300 |
 | `cluster:remote-bench` | `bench-client_01` | Remote endpoint benchmarks |
@@ -106,6 +106,8 @@ Dispatching while the target runner is offline is safe: the jobs queue and fire 
 | job dies `exit 137` + `runner has received a shutdown signal`, nobody canceled | The node OOM-killed the runner service (a neighbor's boot spiked host RAM) — not a benchmark bug. Confirm via sbatch: `systemctl status actions.runner.vngcloud-InferenceX.<runner>.service` shows `Result: oom-kill`. Auto-restart brings the runner back, but the in-flight job still dies → rerun just that CCU |
 | `memory capacity is unbalanced ... occupied by other processes` | A leftover process holds the GPUs → check `nvidia-smi` on the node, then rerun |
 | pyxis `nvidia-container-cli: driver rpc error: timed out` | Driver flake on han-1 → rerun; if it repeats, report to the node owner |
+| `enroot-mksquashovlfs ... Killed` repeating every ~106s, step `OUT_OF_MEMORY` at ~4G MaxRSS | A bare `srun --jobid` step gets a ~4G cgroup and does not inherit the salloc's `--mem` → pin `--mem` on heavy steps (1x launcher `3ecbd58dc`) |
+| `tar: ... Cannot open: File exists` + `tasks 0-N: Exited with exit code 2` | A bare `srun --jobid` from inside an allocation fans out one task per allocated CPU → pin `--ntasks=1 --cpus-per-task` on every step |
 | `Process died before .../health became ready` / `Run aborted (warmup_failure)` | Server-side failure (OOM, context length, parser) → read the server log artifact; not a runner issue |
 
 ## Debug a red run
