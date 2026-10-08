@@ -8168,3 +8168,11 @@
   description:
     - "SGLang tuned full sweep, Gemma-4 31B FP8-block, throughput_8k, image B: --mem-fraction-static 0.92, SGLANG_SWA_EVICTION_INTERVAL=32, --chunked-prefill-size 8192. base/MTP4 x high/low entropy x conc 1/8/32/64 (MTP c64 runs with 32 slots). Split across h200-greennode-slurm 1x_01/_02."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-tuned
+
+- config-keys:
+    - gemma4tau2mtp-fp8-h200-vllm-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "Gemma-4 31B tau2 (customer-service-agent-traces) agentic arm, MTP4 variant of the spec-none gemma4tau2 arm: vLLM v0.30.0 --speculative-config method mtp (draft google/gemma-4-31B-it-assistant, num_speculative_tokens 4), env VLLM_DISABLE_COMPILE_CACHE=1/NCCL_P2P_LEVEL=NVL/VLLM_ATTENTION_BACKEND=FLASHINFER, single replica no router on the 1xH200 greennode-slurm pool (the spec-none arm ran two replicas + vllm-router on han-1). max-model-len 262144, prefix caching ON, gpu-mem 0.92, max-num-seqs 64 unchanged."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4tau2-mtp-vllm

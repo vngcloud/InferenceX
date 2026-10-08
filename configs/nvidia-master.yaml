@@ -9392,3 +9392,26 @@ gemma4sbatmtplo-fp8block-gnslurm-sglang:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# Gemma-4-31B customer-service (tau2) agentic arm, MTP4 speculative-decoding
+# variant of the spec-none gemma4tau2 arm (feat/gemma4-tau2-agentic-arm, run
+# 35114979674): same private tau2 corpus replay (thangquang09/
+# customer-service-agent-traces, mooncake_trace) and the same agentic-coding
+# scenario + conc ladder, but vLLM v0.30.0 with --speculative-config method mtp
+# (draft google/gemma-4-31B-it-assistant, num_speculative_tokens 4) and the
+# gemma4sba MTP env set (VLLM_DISABLE_COMPILE_CACHE=1, NCCL_P2P_LEVEL=NVL,
+# VLLM_ATTENTION_BACKEND=FLASHINFER). Single replica, no router: the 1xH200
+# greennode-slurm nodes have one GPU per node. Recipe:
+# benchmarks/single_node/agentic/gemma4tau2_fp8_h200_mtp.sh
+gemma4tau2mtp-fp8-h200-vllm-agentic:
+  image: vllm/vllm-openai:v0.30.0
+  model: google/gemma-4-31b-it
+  model-prefix: gemma4tau2
+  runner: cluster:h200-greennode-slurm
+  precision: fp8
+  framework: vllm
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - { tp: 1, kv-offloading: none, spec-decoding: mtp, conc-list: [1, 2, 4, 8, 16, 32, 64, 128, 256] }
