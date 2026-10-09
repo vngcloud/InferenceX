@@ -9782,3 +9782,66 @@ gemma4sbat2mtplo-fp8block-gnslurm-sglang:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# vLLM gemma4sba cells on the greennode Slurm 1xH200 runners (same pool as the SGLang cells);
+# the hardware-hcm runners never picked up jobs. Same recipes (gemma4sba*_fp8block_h200[_mtp].sh).
+
+gemma4sbabasehi-fp8block-gnslurm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbabasehi
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+gemma4sbabaselo-fp8block-gnslurm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbabaselo
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }
+
+gemma4sbamtphi-fp8block-gnslurm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtphi
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+gemma4sbamtplo-fp8block-gnslurm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbamtplo
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
