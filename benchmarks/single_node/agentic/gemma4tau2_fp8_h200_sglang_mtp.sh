@@ -25,6 +25,12 @@ set -x
 #   --chunked-prefill-size 8192, NEXTN->FROZEN_KV_MTP auto-promote with the
 #   google/gemma-4-31B-it-assistant draft at num-steps 4 / topk 1 / 5 draft
 #   tokens (= vLLM num_speculative_tokens 4).
+# KV fix (run 37802254543 postmortem): default --swa-full-tokens-ratio 0.8
+# sized the SWA pool 105,728 tok (90.75 GB, ~10% used) and starved the
+# full-attention pool to 132,161 tok -> 98-100% usage + retraction at c16+.
+# 0.2 shifts the split toward the full pool (tau2 needs ~14k tok/req of
+# full-attn KV; 16 conc ~= 224k); SWA worst case stays far above the
+# window+page admission floor.
 # Image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad =
 # release/v0.5.21 + sglang#42019 (Gemma4 FA4 on SM90 head-dim 512; stock falls
 # back to Triton) + the SWA-KV-pool fix for FA under FROZEN_KV_MTP
@@ -107,6 +113,7 @@ SGLANG_CMD=(
     --trust-remote-code
     --tp "$TP"
     --mem-fraction-static 0.92
+    --swa-full-tokens-ratio 0.2
     --context-length 262144
     --max-running-requests "$MAX_RUNNING"
     --chunked-prefill-size 8192

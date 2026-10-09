@@ -8176,3 +8176,11 @@
   description:
     - "Gemma-4 31B tau2 (customer-service-agent-traces) agentic arm, SGLang MTP4 engine A/B of gemma4tau2mtp-fp8-h200-vllm-agentic: patched image B v0.5.21-fa4-swapool-3a7d5ad (sglang#42019 FA4 SM90 + SWA-pool fix under FROZEN_KV_MTP, Noridom1@3a7d5ad64), NEXTN auto-promote draft google/gemma-4-31B-it-assistant num-steps 4/topk 1/5 draft tokens, tuned knobs mem-fraction 0.92 + SGLANG_SWA_EVICTION_INTERVAL=32 + chunked-prefill 8192, MTP slots capped 32 (SWA pool aborts at 64), radix cache ON (SWA-aware) + --schedule-policy hrrn, context 262144 BF16 KV. Single replica on 1xH200 greennode-slurm."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4tau2-mtp-sglang
+
+- config-keys:
+    - gemma4tau2mtp-fp8-h200-sglang-agentic
+  scenario-type:
+    - agentic-coding
+  description:
+    - "KV fix on the SGLang tau2 MTP4 arm: --swa-full-tokens-ratio 0.8 -> 0.2. Postmortem of run 37802254543: default 0.8 sized SWA pool 105,728 tok (90.75 GB, ~10% used) and starved the full-attention pool to 132,161 tok (98-100% usage + retraction at c16/c32, cache hit 0.50/0.30). 0.2 shifts the split toward the full pool; everything else unchanged (mem 0.92, evict 32, chunk 8192, HRRN, radix on, MTP4)."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4tau2-mtp-sglang
