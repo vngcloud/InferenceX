@@ -9,10 +9,10 @@
 #   vLLM                                  SGLang
 #   --gpu-memory-utilization 0.92         --mem-fraction-static 0.88 (SGLang's
 #                                          fraction excludes activations/graphs)
-#   --max-model-len 65536                 --context-length 65536
+#   --max-model-len 262144                --context-length 262144
 #   --max-num-seqs $CONC                  --max-running-requests $CONC
 #   --max-num-batched-tokens 16384        --chunked-prefill-size 16384
-#   --no-enable-prefix-caching            --disable-radix-cache
+#   --enable-prefix-caching               radix cache on (default; SB_RADIX=0 disables)
 #   mtp, num_speculative_tokens=N         NEXTN + Gemma4 assistant draft
 #                                          (auto-promoted to FROZEN_KV_MTP),
 #                                          num-steps N, topk 1, draft-tokens N+1
@@ -95,7 +95,7 @@ if [ "${EVAL_ONLY}" = "true" ]; then
     setup_eval_context
     MAX_MODEL_LEN="$EVAL_MAX_MODEL_LEN"
 else
-    MAX_MODEL_LEN=65536
+    MAX_MODEL_LEN=262144
 fi
 
 start_gpu_monitor
@@ -122,12 +122,16 @@ if [[ -n "${SB_SWA_EVICTION:-}" ]]; then
 fi
 
 # Probe knobs (all optional, defaults reproduce the sweep recipe):
-#   SB_RADIX=1       keep the radix cache on (default: --disable-radix-cache)
+#   SB_RADIX=0       --disable-radix-cache (default: radix cache on, as vLLM's
+#                    --enable-prefix-caching)
+#   SB_SWA_RATIO     --swa-full-tokens-ratio (default 0.3). With the radix cache
+#                    on, the request-cap pool sizing is not used, so the SWA pool
+#                    is full_pool x ratio instead of max_running-based
 #   SB_ATTN_ARGS     attention backend flags (default: --attention-backend fa4)
 #   SB_EXTRA_ARGS    extra launch_server flags, word-split
 #   SB_EXTRA_ENV     "KEY=VAL KEY=VAL" exported before launch
-RADIX_ARGS=(--disable-radix-cache)
-if [[ "${SB_RADIX:-0}" == "1" ]]; then RADIX_ARGS=(); fi
+RADIX_ARGS=(--swa-full-tokens-ratio "${SB_SWA_RATIO:-0.3}")
+if [[ "${SB_RADIX:-1}" == "0" ]]; then RADIX_ARGS=(--disable-radix-cache); fi
 SB_ATTN_ARGS="${SB_ATTN_ARGS:---attention-backend fa4}"
 SB_EXTRA_ARGS="${SB_EXTRA_ARGS:-}"
 for kv in ${SB_EXTRA_ENV:-}; do export "$kv"; done

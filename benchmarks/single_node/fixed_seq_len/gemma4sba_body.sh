@@ -24,8 +24,8 @@
 #   SB_IGNORE_EOS   1 (default) | 0
 #   NUM_SPEC_TOKENS required for mtp; e3/dflash/dflash2 have defaults
 #
-# Engine notes carried over from gemma4sb_body.sh: prefix caching is OFF so no
-# cell reuses another's prefill; KV is left at auto (BF16) because fp8 KV pins
+# Engine notes carried over from gemma4sb_body.sh: prefix caching is ON (changed
+# from the Stage-5 OFF setting; cells may now reuse prefill); KV is left at auto (BF16) because fp8 KV pins
 # gemma4 to Triton on SM90; the arm-specific --speculative-config is the only
 # engine difference between cells. Unlike Stage 5 the GPU is not pinned to
 # index 4; vLLM takes the first visible GPU (TP=1, one GPU per job).
@@ -115,8 +115,10 @@ if [ "${EVAL_ONLY}" = "true" ]; then
     setup_eval_context
     MAX_MODEL_LEN="$EVAL_MAX_MODEL_LEN"
 else
-    # 64k serve ceiling (as in Stage 5): throughput_32k prompts plus OSL fit.
-    MAX_MODEL_LEN=65536
+    # 256k serve ceiling, the same as the agentic tau2 recipes: vLLM's reported
+    # "GPU KV cache size" is concurrency x max_model_len, so keeping it equal
+    # makes the pool lines comparable across SPEED-Bench and tau2 runs.
+    MAX_MODEL_LEN=262144
 fi
 
 start_gpu_monitor
@@ -132,7 +134,7 @@ vllm serve "$MODEL_PATH" --host 0.0.0.0 --port "$PORT" \
     --max-num-batched-tokens 16384 \
     --enable-chunked-prefill \
     --long-prefill-token-threshold 8192 \
-    --no-enable-prefix-caching \
+    --enable-prefix-caching \
     "${SPEC_ARGS[@]}" \
     --enable-auto-tool-choice \
     --tool-call-parser gemma4 \
