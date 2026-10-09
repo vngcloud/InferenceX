@@ -8226,3 +8226,14 @@
   description:
     - "vLLM smoke, Gemma-4 31B FP8-block, base high entropy c1: VLLM_ATTENTION_BACKEND=FLASH_ATTN with VLLM_FLASH_ATTN_VERSION=4 instead of FLASHINFER, to match the FA4 backend of the SGLang cells."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-vllm-fa4
+
+- config-keys:
+    - gemma4sbat15mtphi-fp8block-gnslurm-sglang
+    - gemma4sbat15mtplo-fp8block-gnslurm-sglang
+    - gemma4sbat25mtphi-fp8block-gnslurm-sglang
+    - gemma4sbat25mtplo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang MTP4 swa-full-tokens-ratio sweep, Gemma-4 31B FP8-block, image B, tau2 serving config (mem 0.92, chunk 8192, hrrn, evict 32, 256k, radix): ratio 0.15 and 0.25 vs the 0.2 run (b0208a66). Dispatched at c64 only."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-mtp-ratio
