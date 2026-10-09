@@ -8218,3 +8218,11 @@
   description:
     - "SGLang probes A-G, Gemma-4 31B FP8-block, image B, mem 0.92 (chunk 16384, default evict), one knob each: A FP8 KV cache, B schedule-conservativeness 1.3 + RETRACT_DECODE_STEPS 40, C fa4 prefill + flashinfer decode, D MTP depth 2/3, E cuda-graph-max-bs-decode 128, F radix cache on, G fp8 gemm runner cutlass/triton. Compare against the mem-only sweep cells."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-probes
+
+- config-keys:
+    - gemma4sbafa4basehi-fp8block-gnslurm-vllm
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "vLLM smoke, Gemma-4 31B FP8-block, base high entropy c1: VLLM_ATTENTION_BACKEND=FLASH_ATTN with VLLM_FLASH_ATTN_VERSION=4 instead of FLASHINFER, to match the FA4 backend of the SGLang cells."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-vllm-fa4

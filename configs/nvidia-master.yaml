@@ -9845,3 +9845,19 @@ gemma4sbamtplo-fp8block-gnslurm-vllm:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }
+
+# Smoke: vLLM base hi c1 with FLASH_ATTN v4 (gemma4sba_body.sh SB_VLLM_ATTN/SB_VLLM_FA_VERSION).
+gemma4sbafa4basehi-fp8block-gnslurm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbafa4basehi
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 1024
+      search-space:
+      - { tp: 1, conc-list: [1, 8, 32, 64] }

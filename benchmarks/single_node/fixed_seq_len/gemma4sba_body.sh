@@ -109,7 +109,10 @@ SERVER_LOG=/workspace/server.log
 
 export VLLM_DISABLE_COMPILE_CACHE=1
 export NCCL_P2P_LEVEL=NVL
-export VLLM_ATTENTION_BACKEND=FLASHINFER
+# SB_VLLM_ATTN overrides the attention backend (default FLASHINFER). FLASH_ATTN
+# with SB_VLLM_FA_VERSION=4 runs FA4, the backend the SGLang cells use.
+export VLLM_ATTENTION_BACKEND="${SB_VLLM_ATTN:-FLASHINFER}"
+if [[ -n "${SB_VLLM_FA_VERSION:-}" ]]; then export VLLM_FLASH_ATTN_VERSION="$SB_VLLM_FA_VERSION"; fi
 
 if [ "${EVAL_ONLY}" = "true" ]; then
     setup_eval_context
