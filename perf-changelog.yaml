@@ -8246,3 +8246,12 @@
   description:
     - "SGLang MTP4 c64 with --max-running-requests 64 (instead of the 32-slot cap), Gemma-4 31B FP8-block, image B, tau2 serving config with ratio 0.2 (b0208a66 otherwise): checks whether 64 slots start now that radix sizes the SWA pool as full x ratio."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-mtp-s64
+
+- config-keys:
+    - gemma4sbat2s64m97mtphi-fp8block-gnslurm-sglang
+    - gemma4sbat2s64m97mtplo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang MTP4 c64 with 64 running slots and --mem-fraction-static 0.97 (was 0.92), Gemma-4 31B FP8-block, image B, tau2 serving config with ratio 0.2: s64 (194b67d8) left ~20 GiB free after the pool and ran only 39 of 64 slots with retracts; checks whether a bigger pool helps."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-mtp-s64m97
