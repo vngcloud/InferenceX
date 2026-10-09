@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemma-4 31B SPEED-Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#f6faf3; --card:#ffffff; --line:#d8e6d2; --text:#1d2b1f; --muted:#5a6e5c;
+  --g1:#2e7d32; --g2:#66bb6a; --g3:#c8e6c9; --g4:#eef7ec;
+  --good:rgba(76,175,80,.28); --bad:rgba(239,108,95,.26); --flat:#f1f4ef;
+  --s-bh:#2e7d32; --s-bl:#9ccc65; --s-mh:#0288d1; --s-ml:#4fc3f7;
+}
+*{box-sizing:border-box}
+html{color-scheme:light}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 Inter,system-ui,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 16px 64px}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,serif;color:var(--text);margin:0}
+h1{font-size:30px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:21px;font-weight:600;margin-bottom:4px}
+.sub{color:var(--muted);margin:6px 0 0;max-width:820px}
+header{padding-bottom:18px;border-bottom:3px solid var(--g1);margin-bottom:22px;position:relative}
+header:after{content:"";position:absolute;left:0;bottom:-3px;width:96px;height:3px;background:var(--g2)}
+.stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.stat{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--g2);border-radius:8px;padding:8px 14px}
+.stat b{font-family:"Source Serif 4",Georgia,serif;font-size:22px;color:var(--g1);display:block;line-height:1.1}
+.stat span{font-size:12px;color:var(--muted)}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 20px 18px;margin-bottom:22px;box-shadow:0 1px 0 rgba(46,125,50,.05)}
+section>p.desc{color:var(--muted);margin:2px 0 14px;font-size:14px}
+.ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:12px;font-size:14px}
+.ctl label{color:var(--muted)}
+select{font:inherit;padding:5px 9px;border:1px solid var(--line);border-radius:6px;background:var(--g4);color:var(--text)}
+.seg{display:inline-flex;border:1px solid var(--g2);border-radius:7px;overflow:hidden}
+.seg button{font:inherit;border:0;background:#fff;color:var(--g1);padding:5px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--g3)}
+.seg button.on{background:var(--g1);color:#fff}
+.chartbox{position:relative;height:360px}
+.legendnote{font-size:13px;color:var(--muted);margin-top:8px}
+.tblwrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{white-space:normal;vertical-align:bottom;min-width:96px;background:var(--g4);color:var(--g1);font-weight:600;position:sticky;top:0}
+th:first-child,td:first-child,th.l,td.l{text-align:left}
+td.rowh{text-align:left;color:var(--muted)}
+tr.sep td{border-top:2px solid var(--g3)}
+.good{background:var(--good)} .bad{background:var(--bad)} .flat{background:var(--flat)}
+.na{color:#9aa99b;background:repeating-linear-gradient(45deg,#fafcf8,#fafcf8 4px,#f1f5ee 4px,#f1f5ee 8px)}
+.base{background:var(--g4);font-weight:600}
+.d{display:block;font-size:11.5px;color:var(--muted)}
+.chip{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--g3);color:#1b4d1f;font-size:12px}
+.chip.no{background:#ece9df;color:#6b6552}
+.cav{margin:0;padding-left:18px;color:var(--muted);font-size:14px}
+.cav li{margin:3px 0}
+.key{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:8px}
+.key i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+#tip{position:fixed;z-index:50;display:none;max-width:640px;background:#fff;border:1px solid var(--g2);border-left:5px solid var(--g1);border-radius:8px;padding:10px 12px;box-shadow:0 6px 24px rgba(46,125,50,.18);pointer-events:none;font-size:13px}
+#tip h4{margin:0 0 4px;font-family:"Source Serif 4",Georgia,serif;font-size:15px;color:var(--g1)}
+#tip .m{color:var(--text);margin-bottom:6px}
+#tip pre{margin:0;padding:8px 10px;background:var(--g4);border:1px solid var(--line);border-radius:6px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#23402a}
+details.cm{margin:2px 0}
+details.cm summary{cursor:pointer;color:var(--g1)}
+details.cm pre{margin:6px 0 4px;padding:8px 10px;background:var(--g4);border:1px solid var(--line);border-radius:6px;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:#23402a}
+td[data-k],tr[data-k]{cursor:help}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px;align-items:start}
+.panel{border:1px solid var(--line);border-radius:10px;background:var(--g4);padding:12px 12px 8px;max-height:520px;overflow:auto}
+.panel h3{font-size:15px;color:var(--g1);margin:0 0 2px}
+.panel .tools{display:flex;gap:6px;margin:6px 0 10px}
+.panel .tools button{font:inherit;font-size:12px;border:1px solid var(--g2);background:#fff;color:var(--g1);border-radius:6px;padding:2px 9px;cursor:pointer}
+.item{display:flex;gap:9px;align-items:flex-start;padding:8px 8px;border:1px solid transparent;border-radius:8px;background:#fff;margin-bottom:7px;cursor:pointer}
+.item:hover{border-color:var(--g2)}
+.item.off{opacity:.45}
+.item .sw{flex:none;width:14px;height:14px;border-radius:4px;margin-top:3px}
+.item .t{font-weight:600;font-size:13px;line-height:1.3}
+.item .p{font-size:12px;color:var(--muted);line-height:1.4;margin-top:2px}
+.item .only{margin-left:auto;font-size:11px;color:var(--g1);border:0;background:none;cursor:pointer;text-decoration:underline;padding:0 0 0 6px}
+.item.nodata{cursor:default;opacity:.6}
+@media(max-width:900px){.split{grid-template-columns:1fr}.panel{max-height:none}}
+footer{color:var(--muted);font-size:12.5px;margin-top:6px}
+@media(max-width:640px){h1{font-size:24px}.chartbox{height:300px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Gemma-4 31B FP8-block on SPEED-Bench</h1>
+  <p class="sub">Optimization progress across the serving configurations run on the full 16-cell matrix (base and MTP depth 4, high and low entropy, conc 1/8/32/64). 1×H200, ISL 8192 / OSL 1024, aiperf 0.12.0.</p>
+  <div class="stats" id="stats"></div>
+</header>
+
+<section>
+  <h2>1. Throughput vs. concurrency, one line per configuration</h2>
+  <p class="desc">Pick a scenario (the entropy category of the data). Each line is one serving configuration (base and MTP depth 4 count as separate configurations); the four points are conc 1, 8, 32, 64. The same hue means the same engine config: base is dark, MTP is light with triangle markers. Solid lines are 65k context, dashed lines are 256k + prefix/radix cache (two things changed at once, so dashed and solid lines are not a one-factor comparison). Hover a point to see its numbers and the exact serve command of that node.</p>
+  <p class="desc" style="border-left:3px solid var(--good);padding-left:10px"><b>Note on the statistics.</b> The <b>Statistic</b> selector applies to TTFT, TPOT, ITL and E2E and picks how the requests of a cell are summarised: <b>avg</b> (mean), <b>p50</b> (median), <b>p90</b> / <b>p95</b> / <b>p99</b> (90% / 95% / 99% of requests are at or below the value) or <b>max</b> (the slowest request). Default is p90. TTFT, TPOT and E2E are per request; ITL pools the gaps between all streamed chunks of all requests, so its max is a single worst gap. Throughput is total output tokens per second per GPU and accept length is the mean over verify steps (MTP only), so neither depends on the selector. All values are recomputed from the per-request aiperf export of each run (<code>profile_export.jsonl</code>), TPOT = (E2E - TTFT) / (OSL - 1). Each cell is one run (n=1), and with 64-96 requests per cell p99 and max are close to the single worst request, so treat them as noisy.</p>
+  <div class="ctl">
+    <label>Scenario</label><span class="seg" id="scseg"></span>
+    <label>Metric</label><select id="metric"></select>
+    <label>Statistic</label><select id="stat"></select>
+  </div>
+  <div class="split">
+    <div>
+      <div class="chartbox"><canvas id="journey"></canvas></div>
+      <div class="legendnote" id="unitnote"></div>
+    </div>
+    <aside class="panel"><h3>Configurations</h3>
+      <div class="tools"><button id="allon">Select all</button><button id="alloff">Clear</button></div>
+      <div id="cfglist"></div>
+      <div class="p" style="font-size:11.5px;color:var(--muted);margin-top:6px">Names: engine, context, prefill chunk (c8k = 8192, c16k = 16384), m = mem fraction; base or MTP4 is the arm. Hover an item for details.</div>
+    </aside>
+  </div>
+</section>
+
+<section>
+  <h2>2. Heatmap of the 16 cells against a baseline <span id="heatmetric" style="font-weight:500;color:var(--muted)"></span></h2>
+  <p class="desc">Each cell shows the value and its percentage change against the baseline column. Green is better, red is worse, grey is within 3% (single-sample noise). For latency metrics, lower is better.</p>
+  <div class="ctl"><label>Baseline</label><select id="basecfg"></select></div>
+  <div class="tblwrap"><table id="heat"></table></div>
+  <div class="key"><span><i style="background:var(--good)"></i>better by more than 3%</span><span><i style="background:var(--bad)"></i>worse by more than 3%</span><span><i style="background:var(--flat)"></i>within ±3%</span><span><i style="background:#e5ebe2"></i>no data yet</span></div>
+</section>
+
+<section>
+  <h2>3. Pool size, retracts and actual concurrency</h2>
+  <p class="desc">KV pool sizes, retract counts and peak concurrent requests, taken from the server log. Only available for configurations whose logs were parsed (65k·c8k, 256k·c16k, 256k·c8k).</p>
+  <div class="ctl"><label>Config</label><select id="poolcfg"></select></div>
+  <div class="tblwrap"><table id="pool"></table></div>
+</section>
+
+<section>
+  <h2>4. Configuration list</h2>
+  <div class="tblwrap"><table id="reg"></table></div>
+  <p class="desc" style="margin-top:14px">Hover a point on the chart, a cell in the heatmap or a row in the pool table to see the exact serve command of that node. The commands of every configuration are below.</p>
+  <div id="regcmd"></div>
+</section>
+
+<section>
+  <h2>Notes</h2>
+  <ul class="cav" id="cav"></ul>
+  <footer id="foot"></footer>
+</section>
+</div>
+
+<div id="tip"></div>
+<script>
+const DATA =/*__DATA__*/null;
+const CFG = DATA.configs, CELLS = DATA.cells, U = DATA.meta.units;
+const ORDER = CFG.map(c => c.id);
+const SHORT = Object.fromEntries(CFG.map(c => [c.id, c.short]));
+const AXIS = Object.fromEntries(CFG.map(c => [c.id, c.axis]));
+const METRICS = [
+  ["tput","Throughput (tput)","tok/s per GPU",true],
+  ["ttft","TTFT","s",false],
+  ["tpot","TPOT","ms",false],
+  ["itl","ITL","ms",false],
+  ["e2e","E2E","s",false],
+  ["acc","Accept length (MTP)","tokens per verify step",true],
+];
+const MET = Object.fromEntries(METRICS.map(m => [m[0], m]));
+const ARMS = [["base","hi","Base · high entropy","#2e7d32",[]],["base","lo","Base · low entropy","#9ccc65",[6,4]],
+              ["mtp","hi","MTP · high entropy","#0288d1",[]],["mtp","lo","MTP · low entropy","#4fc3f7",[6,4]]];
+const CONCS = [1,8,32,64];
+const idx = {};
+CELLS.forEach(c => idx[[c.cfg,c.arm,c.cat,c.conc].join("|")] = c);
+const LAT = ["ttft","tpot","itl","e2e"];
+const STATS = [["avg","avg"],["p50","p50"],["p90","p90"],["p95","p95"],["p99","p99"],["max","max"]];
+let stat = "p90";
+const val = (c,m) => !c ? null : LAT.includes(m) ? (c.stats && c.stats[m] ? c.stats[m][stat] : null) : c[m];
+const lab = m => MET[m][1] + (LAT.includes(m) ? " " + stat : "");
+const get = (cfg,arm,cat,conc,m) => val(idx[[cfg,arm,cat,conc].join("|")], m);
+const fmt = (v,m) => v == null ? "–" : (m==="e2e"||m==="ttft"||m==="acc") ? v.toFixed(2).replace(/\.00$/,"") : (m==="tput") ? v.toFixed(1) : Math.round(v).toLocaleString("en-US");
+let metric = "tput", scen = "hi";
+const hasData = id => CELLS.some(c => c.cfg === id && c.tput != null);
+const BREAK_AFTER = ORDER.indexOf("memonly");
+
+/* tooltip: metrics of the node + the exact serving command */
+const tip = document.getElementById("tip");
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function tipHtml(k){
+  const c = idx[k]; if (!c) return "";
+  const cf = CFG.find(x => x.id === c.cfg);
+  const mm = [["tput","tput","tok/s"],["ttft","TTFT "+stat,"s"],["tpot","TPOT "+stat,"ms"],["itl","ITL "+stat,"ms"],["e2e","E2E "+stat,"s"]]
+    .map(([m,l,u]) => `${l} <b>${fmt(val(c,m),m)}</b> ${u}`).join(" · ");
+  const ex = [c.acc!=null ? `accept ${c.acc.toFixed(2)}` : null, c.retract!=null ? `retract ${c.retract}` : null, c.peak!=null ? `peak running ${c.peak}` : null].filter(Boolean).join(" · ");
+  return `<h4>${esc(cf.short)} · ${c.arm} ${c.cat==="hi"?"high entropy":"low entropy"} · c${c.conc}</h4>
+    <div class="m">${mm}${ex ? "<br>"+ex : ""}</div><pre>${esc(c.cmd)}</pre>`;
+}
+function cfgTip(c, arm){
+  const row = (k, v) => v == null || v === "" ? "" : `<tr><td style="color:var(--muted);padding:1px 10px 1px 0;border:0;text-align:left">${k}</td><td style="border:0;text-align:left;white-space:normal">${v}</td></tr>`;
+  return `<h4>${esc(c.short)}${arm ? (arm === "mtp" ? " · MTP depth 4" : " · base") : ""}</h4><div class="m">${esc(c.label)}</div><table style="width:auto;font-size:12.5px">`
+    + row("Arm", arm === "mtp" ? "MTP depth 4 (draft google/gemma-4-31B-it-assistant)" : arm === "base" ? "base, no speculation" : "") + row("Engine", c.engine === "vllm" ? "vLLM v0.30.0" : "SGLang v0.5.21 (image B)") + row("Context", (c.context/1024|0) + "k")
+    + row(c.engine === "vllm" ? "Prefix cache" : "Radix cache", c.radix ? "on" : "off") + row("Mem", c.mem)
+    + row(c.engine === "vllm" ? "Max batched tokens" : "Chunk prefill", c.engine === "vllm" ? "16384" : c.chunk)
+    + row("SWA ratio", c.ratio) + row("SWA evict", c.evict) + row("Commit", c.commit) + row("Run", esc(c.runs)) + row("Node", esc(c.node))
+    + row("Notes", esc(c.note)) + `</table>`;
+}
+function showTip(html, x, y, left){
+  if (!html) { tip.style.display = "none"; return; }
+  tip.innerHTML = html; tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let l = left === true ? x - w - 14 : x + 14, t = left ? y - h / 2 : y + 14;
+  if (l < 8) l = 8; if (t < 8) t = 8;
+  if (l + w > innerWidth - 8) l = left === "right" ? Math.max(8, innerWidth - w - 8) : Math.max(8, x - w - 14);
+  if (t + h > innerHeight - 8) t = Math.max(8, innerHeight - h - 8);
+  tip.style.left = l + "px"; tip.style.top = t + "px";
+}
+function chartTip(keyOf){
+  return { enabled: false, external(ctx){
+    const t = ctx.tooltip;
+    if (t.opacity === 0 || !t.dataPoints || !t.dataPoints.length) return showTip("");
+    const p = t.dataPoints[0], r = ctx.chart.canvas.getBoundingClientRect();
+    showTip(tipHtml(keyOf(p)), r.left + t.caretX, r.top + t.caretY);
+  }};
+}
+function tableTip(el){
+  el.addEventListener("mousemove", e => { const n = e.target.closest("[data-k]"); showTip(n ? tipHtml(n.dataset.k) : "", e.clientX, e.clientY); });
+  el.addEventListener("mouseleave", () => showTip(""));
+}
+
+/* header stats */
+(function(){
+  const withData = CFG.filter(c => hasData(c.id)).length;
+  const n = CELLS.filter(c => c.tput != null).length;
+  const best = CELLS.filter(c => c.tput != null).reduce((a,b) => b.tput > a.tput ? b : a);
+  const s = document.getElementById("stats");
+  [[withData+"/"+CFG.length,"configurations with data"],[n,"cells measured"],[best.tput.toFixed(0)+" tok/s","best ("+SHORT[best.cfg]+", "+best.arm+" "+best.cat+" c"+best.conc+")"]]
+    .forEach(x => s.insertAdjacentHTML("beforeend",`<div class="stat"><b>${x[0]}</b><span>${x[1]}</span></div>`));
+})();
+
+/* controls */
+const msel = document.getElementById("metric");
+METRICS.forEach(m => msel.add(new Option(m[1]+" ("+m[2]+")", m[0])));
+msel.onchange = () => { metric = msel.value; renderAll(); };
+const ssel = document.getElementById("stat");
+STATS.forEach(x => ssel.add(new Option(x[1], x[0])));
+ssel.value = stat;
+ssel.onchange = () => { stat = ssel.value; renderAll(); };
+function seg(el, items, cur, cb){
+  el.innerHTML = "";
+  items.forEach(([v,l]) => { const b = document.createElement("button"); b.textContent = l; if (v === cur) b.className = "on";
+    b.onclick = () => { cb(v); seg(el, items, v, cb); }; el.appendChild(b); });
+}
+seg(document.getElementById("scseg"), [["hi","High entropy"],["lo","Low entropy"]], scen, v => { scen = v; drawJourney(); });
+
+/* 1. journey */
+Chart.defaults.font.family = "Inter, system-ui, sans-serif";
+Chart.defaults.color = "#5a6e5c";
+let jChart;
+/* one entry = one serving config: engine config x arm (base | MTP depth 4) */
+const ENTRIES = CFG.flatMap((c, ci) => ["base","mtp"].map(a => ({
+  id: c.id + "|" + a, cfg: c, arm: a, name: c.short + (a === "base" ? " · base" : " · MTP4"),
+  color: a === "base" ? `hsl(${(ci * 47 + 120) % 360},58%,36%)` : `hsl(${(ci * 47 + 120) % 360},72%,56%)` })));
+const on = {};
+const entryHas = e => CELLS.some(c => c.cfg === e.cfg.id && c.arm === e.arm && c.tput != null);
+ENTRIES.forEach(e => { if (entryHas(e)) on[e.id] = true; });
+let hover = null;
+function buildPanel(){
+  const box = document.getElementById("cfglist"); box.innerHTML = "";
+  ENTRIES.forEach(e => {
+    const ok = entryHas(e), d = document.createElement("div");
+    d.className = "item" + (ok ? (on[e.id] ? "" : " off") : " nodata");
+    d.innerHTML = `<span class="sw" style="background:${e.color}"></span><div class="t">${e.name}${ok ? "" : " <span class='chip no'>no data</span>"}</div>` +
+      (ok ? `<button class="only">only this</button>` : "");
+    if (ok) {
+      d.onclick = ev => { if (ev.target.classList.contains("only")) { Object.keys(on).forEach(k => on[k] = k === e.id); } else { on[e.id] = !on[e.id]; } hover = null; showTip(""); buildPanel(); drawJourney(); };
+    }
+    d.addEventListener("mouseenter", () => { if (ok) { hover = e.id; applyHover(); } const r = d.getBoundingClientRect(); showTip(cfgTip(e.cfg, e.arm), r.right, r.top + r.height / 2, "right"); });
+    d.addEventListener("mouseleave", () => { hover = null; applyHover(); showTip(""); });
+    box.appendChild(d);
+  });
+}
+function applyHover(){
+  if (!jChart) return;
+  jChart.data.datasets.forEach(ds => { const dim = hover && ds.entryId !== hover; ds.borderWidth = dim ? 1.2 : (hover ? 4 : 2.6); ds.borderColor = dim ? ds.baseColor.replace(")", ",.3)").replace("hsl(", "hsla(") : ds.baseColor; ds.backgroundColor = ds.borderColor; });
+  jChart.update("none");
+}
+document.getElementById("allon").onclick = () => { Object.keys(on).forEach(k => on[k] = true); buildPanel(); drawJourney(); };
+document.getElementById("alloff").onclick = () => { Object.keys(on).forEach(k => on[k] = false); buildPanel(); drawJourney(); };
+function drawJourney(){
+  const m = MET[metric];
+  const ds = ENTRIES.filter(e => on[e.id]).map(e => ({
+    label: e.name, data: CONCS.map(cc => get(e.cfg.id, e.arm, scen, cc, metric)), borderColor: e.color, backgroundColor: e.color,
+    borderDash: e.cfg.context > 65536 ? [7,4] : [], pointStyle: e.arm === "mtp" ? "triangle" : "circle", pointRadius: 5.5, pointHoverRadius: 8,
+    tension: .15, spanGaps: false, borderWidth: 2.6, entryId: e.id, baseColor: e.color, cfgId: e.cfg.id, arm: e.arm }));
+  if (jChart) jChart.destroy();
+  jChart = new Chart(document.getElementById("journey"), {
+    type: "line", data: {labels: CONCS.map(c => "conc " + c), datasets: ds},
+    options: { responsive: true, maintainAspectRatio: false, interaction: {mode:"nearest", intersect:true},
+      onHover: (e, els) => { e.native.target.style.cursor = els.length ? "help" : "default"; },
+      scales: { y: {title:{display:true,text:lab(metric)+" ("+m[2]+")"}, grid:{color:"#e6efe2"}, beginAtZero: metric==="tput"}, x:{grid:{color:"#eef4ea"}} },
+      plugins: { legend: {display:false},
+        tooltip: chartTip(p => [p.dataset.cfgId, p.dataset.arm, scen, CONCS[p.dataIndex]].join("|")) } }
+  });
+  const miss = CFG.filter(c => !hasData(c.id)).map(c => c.short);
+  document.getElementById("unitnote").textContent = "Unit: " + m[2] + (m[3] ? ". Higher is better." : ". Lower is better.") +
+    (miss.length ? " No data yet: " + miss.join(", ") + "." : "") + (metric==="acc" ? " Accept length exists for MTP only." : "") + (metric==="itl" ? " ITL is measured per streamed chunk: MTP packs ~2-4 tokens into each chunk, so its ITL is the time of one verify step and is higher than base. Use TPOT to compare per-token speed." : "") +
+    " SGLang MTP at c64 runs only 32 slots.";
+}
+
+/* 2. heatmap */
+const bsel = document.getElementById("basecfg");
+CFG.forEach(c => { if (hasData(c.id)) bsel.add(new Option(c.short, c.id)); });
+bsel.value = "memonly"; bsel.onchange = drawHeat;
+function drawHeat(){
+  const b = bsel.value, m = MET[metric], t = document.getElementById("heat");
+  document.getElementById("heatmetric").textContent = "· " + lab(metric) + " (" + m[2] + "), set by the Metric and Statistic selectors above";
+  let h = "<tr><th class='l'>Arm</th><th class='l'>Entropy</th><th>conc</th>" + CFG.map(c => `<th>${c.short}${c.id===b?" ★":""}</th>`).join("") + "</tr>";
+  ARMS.forEach((a,ai) => CONCS.forEach((cc,ci) => {
+    const bv = get(b,a[0],a[1],cc,metric);
+    h += `<tr class="${ci===0&&ai>0?"sep":""}"><td class="l">${ci===0?a[0]:""}</td><td class="rowh">${ci===0?(a[1]==="hi"?"high":"low"):""}</td><td>c${cc}</td>`;
+    CFG.forEach(c => {
+      const v = get(c.id,a[0],a[1],cc,metric);
+      const k = [c.id,a[0],a[1],cc].join("|");
+      if (v == null) { h += `<td class="na">–</td>`; return; }
+      if (c.id === b) { h += `<td class="base" data-k="${k}">${fmt(v,metric)}</td>`; return; }
+      if (bv == null || bv === 0) { h += `<td data-k="${k}">${fmt(v,metric)}</td>`; return; }
+      const d = (v - bv) / bv * 100, good = m[3] ? d : -d;
+      const cl = Math.abs(d) < 3 ? "flat" : good > 0 ? "good" : "bad";
+      h += `<td class="${cl}" data-k="${k}">${fmt(v,metric)}<span class="d">${d>0?"+":""}${d.toFixed(1)}%</span></td>`;
+    });
+    h += "</tr>";
+  }));
+  t.innerHTML = h;
+}
+tableTip(document.getElementById("heat"));
+tableTip(document.getElementById("pool"));
+
+/* 4. pool */
+const psel = document.getElementById("poolcfg");
+CFG.forEach(c => { if (CELLS.some(x => x.cfg===c.id && x.full != null)) psel.add(new Option(c.short, c.id)); });
+psel.value = "B"; psel.onchange = drawPool;
+function drawPool(){
+  const id = psel.value, t = document.getElementById("pool");
+  let h = "<tr><th class='l'>Arm</th><th class='l'>Entropy</th><th>conc</th><th>Full pool (tokens)</th><th>SWA pool (tokens)</th><th>Peak running</th><th>Retracts</th><th>Accept (tokens/step)</th></tr>";
+  ARMS.forEach((a,ai) => CONCS.forEach((cc,ci) => { const c = idx[[id,a[0],a[1],cc].join("|")]; if (!c) return;
+    h += `<tr data-k="${id}|${a[0]}|${a[1]}|${cc}" class="${ci===0&&ai>0?"sep":""}"><td class="l">${ci===0?a[0]:""}</td><td class="rowh">${ci===0?(a[1]==="hi"?"high":"low"):""}</td><td>c${cc}</td>
+    <td>${fmt(c.full,"x")}</td><td>${fmt(c.swa,"x")}</td><td>${c.peak==null?"–":c.peak}</td><td>${c.retract==null?"–":c.retract}</td><td>${c.acc==null?"–":c.acc.toFixed(2)}</td></tr>`; }));
+  t.innerHTML = h;
+}
+
+/* 5. registry + caveats */
+(function(){
+  const r = document.getElementById("reg");
+  let h = "<tr><th class='l'>Config</th><th class='l'>Description</th><th>Context</th><th>Radix</th><th>Mem</th><th>Chunk</th><th>Ratio</th><th>Evict</th><th class='l'>Commit</th><th class='l'>Run</th><th class='l'>Notes</th></tr>";
+  CFG.forEach(c => { h += `<tr><td class="l"><b>${c.short}</b></td><td class="l" style="white-space:normal;min-width:220px">${c.label}</td><td>${c.context/1024|0}k</td>
+    <td><span class="chip ${c.radix?"":"no"}">${c.radix?"on":"off"}</span></td><td>${c.mem}</td><td>${c.chunk}</td><td>${c.ratio??"–"}</td><td>${c.evict??"default"}</td>
+    <td class="l">${c.commit??"–"}</td><td class="l" style="white-space:normal;min-width:160px">${c.runs}</td><td class="l" style="white-space:normal;min-width:240px">${c.note}</td></tr>`; });
+  h += "";
+  r.innerHTML = h;
+  const rc = document.getElementById("regcmd");
+  rc.innerHTML = CFG.map(c => `<details class="cm"><summary><b>${c.short}</b>: serve command ($CONC = concurrency)</summary>
+    <div class="l"><b>base</b></div><pre>${esc(c.cmds.base)}</pre><div class="l"><b>mtp</b></div><pre>${esc(c.cmds.mtp)}</pre></details>`).join("");
+  document.getElementById("cav").innerHTML = DATA.meta.caveats.map(x => `<li>${x}</li>`).join("");
+  document.getElementById("foot").textContent = "Source: " + DATA.meta.source + ". Updated " + DATA.meta.generated + ".";
+})();
+
+function renderAll(){ buildPanel(); drawJourney(); drawHeat(); drawPool(); }
+renderAll();
+</script>
+</body>
+</html>
