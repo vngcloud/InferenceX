@@ -8237,3 +8237,12 @@
   description:
     - "SGLang MTP4 swa-full-tokens-ratio sweep, Gemma-4 31B FP8-block, image B, tau2 serving config (mem 0.92, chunk 8192, hrrn, evict 32, 256k, radix): ratio 0.15 and 0.25 vs the 0.2 run (b0208a66). Dispatched at c64 only."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-mtp-ratio
+
+- config-keys:
+    - gemma4sbat2s64mtphi-fp8block-gnslurm-sglang
+    - gemma4sbat2s64mtplo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang MTP4 c64 with --max-running-requests 64 (instead of the 32-slot cap), Gemma-4 31B FP8-block, image B, tau2 serving config with ratio 0.2 (b0208a66 otherwise): checks whether 64 slots start now that radix sizes the SWA pool as full x ratio."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-mtp-s64
