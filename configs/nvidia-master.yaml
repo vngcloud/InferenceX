@@ -9826,5 +9826,5 @@ gemma4sbdfalo-fp8block-gnslurm-sglang:
     - isl: 8192
       osl: 1024
       search-space:
-      - { tp: 1, spec-decoding: draft_model, conc-list: [8] }
+      - { tp: 1, spec-decoding: draft_model, conc-list: [8, 32] }
 
