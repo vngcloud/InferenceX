@@ -1,11 +1,13 @@
 ---
 name: gemma4-dashboard
-description: Import one or more finished gemma4 SpeedBench e2e runs (gemma4sba* recipes, aiperf ISL 8192/OSL 1024) into the gemma4 dashboard. Downloads the run artifacts, recomputes avg/p50/p90/p95/p99/max for TTFT, TPOT, ITL and E2E from the per-request exports, reads pool size, retracts and peak running slots from the server logs, stores everything in docs/gemma4-configs.json, and rebuilds docs/gemma4-dashboard.html. Use when asked to add a run or config to the gemma4 dashboard, refresh it after new runs, or compare a new run against the existing configs.
+description: Import finished gemma4 e2e runs into the Gemma Optimization Journey dashboard, for the SpeedBench scenarios (gemma4sba* recipes, aiperf ISL 8192/OSL 1024, high and low entropy) and the tau2 bench scenario (gemma4tau2 agentic recipes). Downloads the run artifacts, recomputes avg/p50/p90/p95/p99/max for TTFT, TPOT, ITL and E2E from the per-request exports, reads pool size, retracts and peak running slots from the server logs, stores everything in docs/gemma4-configs.json, and rebuilds docs/gemma-optimization-journey.html. Use when asked to add a run or config to the gemma dashboard, refresh it after new runs, change which configuration is shown as best, or compare a new run against the existing configs.
 ---
 
 # Gemma4 dashboard import
 
-`docs/gemma4-configs.json` is the single source of data: `meta` (units, caveats), `configs` (one per serving configuration) and `cells` (one per config × arm × entropy × conc, with `stats`). `docs/gemma4-dashboard.html` is generated from it plus `dashboard_template.html`. Do not edit the html; do not recompute stats by hand.
+`docs/gemma4-configs.json` is the single source of data: `meta` (units, `caveats` for SpeedBench, `caveats_t2` for tau2, `best`), `configs` (one per serving configuration) and `cells` (one per config × arm × cat × conc, with `stats`). `docs/gemma-optimization-journey.html` is generated from it plus `dashboard_template.html`. Do not edit the html; do not recompute stats by hand.
+
+The page has three scenario tabs: SpeedBench high entropy 8k (`cat` hi), SpeedBench low entropy 8k (`cat` lo) and tau2 bench (`cat` t2). A config with `"scenario": "tau2"` belongs to the tau2 tab (MTP only, conc 1/8/16/32, `arm` mtp); every other config is a SpeedBench config with 16 cells. Each tab opens with a "best configuration" card driven by `meta.best.<hi|lo|t2>` = `{cfg, arm, ref, why}`: `cfg` is the config shown, `ref` the reference it is compared with, `why` the justification. Pick `cfg` from the data (summed throughput over the concs, plus retracts), and re-check it after every import.
 
 Script (stdlib only, needs a logged-in `gh`, run with `-I`):
 
@@ -14,6 +16,8 @@ S=.agents/skills/gemma4-dashboard/gemma4_dash.py
 python3 -I $S list                                   # configs and how many of the 16 cells each has
 python3 -I $S new-config --id r015 --copy-from B --set 'short=SGL 256k·c8k r0.15' --set ratio=0.15 --set commit=6ecff88c
 python3 -I $S import --config r015 [--key t15] <run-id>...
+python3 -I $S new-config --id t2x --set scenario=tau2 --set short=... --set label=... --set engine=sglang --set context=262144 --set radix=true --set mem=0.92 --set chunk=8192 --set ratio=0.2 --set evict=32 --set mtp_max_running=32 --set commit=<sha> --set image=<image> --set note=...
+python3 -I $S import-tau2 --config t2x <run-id>...   # tau2 agentic runs: conc from the aggregate json, stats from the profiling phase
 python3 -I $S build --copy-to /home/phucnlt2/InferenceX/docs
 ```
 
@@ -25,6 +29,13 @@ python3 -I $S build --copy-to /home/phucnlt2/InferenceX/docs
 4. **Check the numbers** against the baseline of the same arm/cat/conc (usually B or vllm256). Single runs are n=1: differences under ~3% are noise. Pool size, retracts and peak running (cell fields `full swa retract peak`) explain throughput gaps, so say so when you report.
 5. **Build** with `--copy-to` the checkout the user actually opens (`/home/phucnlt2/InferenceX/docs`; a worktree copy alone goes stale). Run `node --check` on the inline script if you changed the template.
 6. **Report** (Vietnamese to this user): what was imported, table vs baseline, where the html is. Add a diary entry in `docs/gemma4-optimization-diary.md` only if asked.
+
+## tau2 runs
+
+- Artifacts per conc: `agentic_gemma4tau2_*` (aiperf files), `bmk_agentic_gemma4tau2_*` (aggregate json: output/total throughput, cache hit, pool, power, accepted/errored counts) and `server_logs_gemma4tau2_*`; they share a 20-hex suffix, which is how `import-tau2` groups them. One run can hold several concs; use one tau2 config per recipe (engine + SGLang ratio), not per run.
+- Cell fields beyond SpeedBench: `ttot` (total tok/s), `hit` (prefix-cache hit), `ok`, `err` (errored requests in the profiling phase, counted from the jsonl), `werr` (errored requests in the warmup phase; the harness aggregate `records_error_dropped` adds both, and almost all of it is warmup, so do not report it as the error rate), `power` (W). `tput` is `output_tput_tps`. Latency stats come from `profile_export.jsonl` records with `benchmark_phase == "profiling"`; the import prints a cross-check of TTFT and E2E p90 against the harness aggregate, which must match.
+- The tau2 serve command shown on the page is built by `serve_cmd_tau2` from the config fields; `ratio_flag=false` means the recipe did not pass `--swa-full-tokens-ratio` (engine default 0.8).
+- tau2 recipes are not SpeedBench recipes: `gemma4tau2_fp8_h200_mtp.sh` (vLLM) and `gemma4tau2_fp8_h200_sglang_mtp.sh` (SGLang); commit of each run is in the config, not the run's `headSha`.
 
 ## How the numbers are computed
 

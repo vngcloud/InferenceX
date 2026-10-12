@@ -11,100 +11,52 @@
    "full": "tokens",
    "swa": "tokens",
    "retract": "count",
-   "peak": "requests"
+   "peak": "requests",
+   "ttot": "tok/s per GPU",
+   "hit": "fraction of prompt tokens",
+   "ok": "requests",
+   "err": "requests",
+   "power": "W"
   },
   "caveats": [
    "Each cell was run once, so there are no confidence intervals; differences under 3% should be treated as noise.",
-   "Going from 65k·c16k to 256k·c16k changes the context (65k to 256k) and the radix/prefix cache (off to on) at the same time, so it is not a one-factor comparison.",
-   "The older configs (vLLM 65k, mem 0.88, 65k·c8k) ran on different nodes; TTFT, TPOT, ITL and E2E on the dashboard are recomputed from each run's per-request export and can differ from the diary tables (which hold the older mean/median numbers).",
+   "TTFT, TPOT, ITL and E2E on the dashboard are recomputed from each run's per-request export and can differ from the diary tables (which hold the older mean/median numbers).",
    "SGLang MTP at c64 runs only 32 concurrent slots (vLLM runs all 64).",
    "Why MTP shows a higher ITL than base: ITL here is the inter-chunk latency (the dashboard offers avg/p50/p90/p95/p99/max, the example below is the mean), i.e. the gap between streamed response chunks. With MTP each verify step emits several tokens in one chunk (raw export of the 256k·c8k c1 high-entropy cell: base 1.00 tokens/chunk, 1020.7 chunks per request, ITL 14.3 ms; MTP 2.31 tokens/chunk, 442.5 chunks per request, ITL 17.9 ms), so ITL is the time of one draft+verify step, which is longer than a base decode step. TPOT, (e2e - TTFT) / (OSL - 1), divides by tokens and is 7.7 ms for MTP versus 14.3 ms for base. Compare MTP against base with TPOT, E2E or throughput, not ITL.",
-   "The serve commands in the tooltips are reconstructed from the recipes (body scripts at the matching commits) and were checked against server_args in the logs of the 256k·c8k config; the older configs were not checked against logs. $PORT is assigned by the launcher."
+   "The serve commands in the tooltips are reconstructed from the recipes (body scripts at the matching commits) and were checked against server_args in the logs of the 256k·c8k config; the other configs were not checked against logs. $PORT is assigned by the launcher."
   ],
-  "source": "per-request aiperf exports (profile_export.jsonl) and server logs of the benchmark run artifacts; see docs/gemma4-optimization-diary.md for the narrative"
+  "source": "per-request aiperf exports (profile_export.jsonl), harness aggregates (bmk_agentic json) and server logs of the benchmark run artifacts; see docs/gemma4-optimization-diary.md for the narrative",
+  "best": {
+   "hi": {
+    "cfg": "B",
+    "arm": "mtp",
+    "ref": "vllm256",
+    "why": "Highest summed MTP throughput over conc 1/8/32/64 among the 256k configurations (2147 tok/s, against 2123 for A and 2100 for vLLM 256k MTP4; the two SGLang configs are within noise), with no retracts on MTP, whereas A retracts at c32/c64. Against vLLM 256k MTP4 it wins clearly at low concurrency (c1 +32%, c8 +6%) and ties at c32/c64."
+   },
+   "lo": {
+    "cfg": "B",
+    "arm": "mtp",
+    "ref": "vllm256",
+    "why": "Highest summed MTP throughput of every configuration, ahead of the second best by about 1.5%. Acceptance is high on low-entropy text, so speculation pays most here; B wins at every concurrency against vLLM 256k MTP4."
+   },
+   "t2": {
+    "cfg": "t2sgl02",
+    "arm": "mtp",
+    "ref": "t2vllm",
+    "why": "Ratio 0.2 puts the KV pool where tau2 needs it (long, mostly cached prompts): a 365k-token full pool instead of 132k, no retracts, and the best throughput at every concurrency: 37.2 / 167.3 / 327.1 / 327.7 tok/s at c1/c8/c16/c32 against 34.3 / 159.6 / 322.0 / 288.5 for vLLM 256k MTP4. The gap is largest at c32 (+13.6%), where vLLM's prefix-cache hit falls to 60%; at c1-c16 the difference is small (+1.6% at c16, within noise)."
+   }
+  },
+  "caveats_t2": [
+   "tau2 is the private customer-service trace (thangquang09/customer-service-agent-traces, mooncake format) replayed with aiperf for 1200 s per concurrency, MTP depth 4 only, 1×H200. Prompts average about 14.7k input tokens and 200 output tokens, and 88-91% of the prompt tokens hit the prefix cache at c1-c8, so it stresses cache and KV capacity much more than decode speed.",
+   "Throughput here is output tokens per second per GPU over the profiled window (warmup dropped). Total throughput counts input plus output tokens. All latencies are recomputed from the per-request export for the profiling phase and match the harness aggregate (p90 TTFT and E2E checked on every cell).",
+   "Errored requests (the stream carried no content chunk, InvalidInferenceResultError) happen almost only in the warmup phase, which is excluded from every number here: for example vLLM c8 had 45 errors in warmup and 0 in the measured window. The measured window has 0 to 3 errored requests per cell on every configuration, so errors do not change the comparison. The cause of the empty streams was not investigated.",
+   "Each cell is one run (n=1) and a run is a time-capped replay, so request counts differ between configurations. Differences under about 3% are noise.",
+   "SGL ratio 0.8 (the engine default, used in run 37802254543) sized the SWA pool at 105,728 tokens and left only 132,161 tokens to the full pool, so c16 and c32 retracted and cache hit fell to 50% and 30%. Ratio 0.2 is the fix; the full ladder c1-c32 was run with it (run 37920508659), with no retracts and 63% cache hit at c32.",
+   "vLLM keeps a 90% prefix-cache hit up to c16 and drops to 60% at c32, with a TTFT p90 of 10 s; the cause was not investigated. The tau2 recipes cap SGLang MTP at 32 slots, and c32 is the top of the ladder for both engines.",
+   "The serve commands are reconstructed from the tau2 recipes at the commits shown in the configuration list. vLLM v0.30.0 ignores VLLM_ATTENTION_BACKEND (it selects FlashAttention 4 itself)."
+  ]
  },
  "configs": [
-  {
-   "id": "vllm65",
-   "short": "vLLM 65k",
-   "axis": [
-    "vLLM",
-    "65k",
-    "no prefix"
-   ],
-   "label": "vLLM v0.30.0, 65k, prefix cache off",
-   "engine": "vllm",
-   "context": 65536,
-   "radix": false,
-   "mem": 0.92,
-   "chunk": 16384,
-   "runs": "37259992014",
-   "node": "hcm 8x_01",
-   "note": "vLLM baseline, untuned."
-  },
-  {
-   "id": "sgl088",
-   "short": "SGL 65k·m0.88",
-   "axis": [
-    "SGL mem0.88",
-    "65k"
-   ],
-   "label": "SGLang image B, mem 0.88, 65k, radix cache off",
-   "engine": "sglang",
-   "context": 65536,
-   "radix": false,
-   "mem": 0.88,
-   "chunk": 16384,
-   "runs": "37298154251 (base), 37738313355 / 37738317822 / 37735723272 / 37601519336 (MTP)",
-   "node": "hcm 8x_02 (base), Greennode 1x (MTP)",
-   "note": "Base c64 reaches only 362 tok/s because the KV pool is small. MTP at c64 runs only 32 slots.",
-   "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
-   "image_base": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-2d74309",
-   "mtp_max_running": 32
-  },
-  {
-   "id": "tuned",
-   "short": "SGL 65k·c8k",
-   "axis": [
-    "SGL mem0.92",
-    "chunk8k ev32",
-    "65k"
-   ],
-   "label": "SGLang mem 0.92 + evict 32 + chunk 8192, 65k, radix cache off",
-   "engine": "sglang",
-   "context": 65536,
-   "radix": false,
-   "mem": 0.92,
-   "chunk": 8192,
-   "evict": 32,
-   "commit": "e46c9d30",
-   "runs": "37768891961 ... 37768926650 (8 run)",
-   "node": "Greennode 1x_01/_02",
-   "note": "Base lo c8/c32 regresses badly: chunk 8192 shrinks the SWA pool (475 and 3547 retracts).",
-   "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
-   "mtp_max_running": 32
-  },
-  {
-   "id": "memonly",
-   "short": "SGL 65k·c16k",
-   "axis": [
-    "SGL mem0.92",
-    "chunk16k",
-    "65k"
-   ],
-   "label": "SGLang mem 0.92, chunk 16384, 65k, radix cache off (baseline)",
-   "engine": "sglang",
-   "context": 65536,
-   "radix": false,
-   "mem": 0.92,
-   "chunk": 16384,
-   "commit": "4a3a5431",
-   "runs": "37807812093 / 37807817494 / 37807823121 / 37807828318",
-   "node": "Greennode 1x_01/_02",
-   "note": "Safe configuration: the c8/c32 regression is gone, base c64 is +42% over mem 0.88.",
-   "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
-   "mtp_max_running": 32
-  },
   {
    "id": "A",
    "short": "SGL 256k·c16k",
@@ -124,7 +76,7 @@
    "commit": "b2c9f949",
    "runs": "37880075115 / 37880078321",
    "node": "Greennode 1x_01/_02",
-   "note": "Pool is sized by ratio and no longer varies with conc. Base c64 is +21-27% over 65k·c16k.",
+   "note": "Pool is sized by ratio and no longer varies with conc.",
    "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
    "mtp_max_running": 32
   },
@@ -246,2953 +198,106 @@
    "extra": "--schedule-policy hrrn --enable-cache-report",
    "mtp_max_running": 64,
    "commit": "194b67d8"
+  },
+  {
+   "id": "s64m97",
+   "short": "SGL 256k·c8k 64 slots m0.97",
+   "axis": [
+    "SGL mem0.97",
+    "chunk8k ev32 hrrn",
+    "radix r0.2",
+    "256k",
+    "64 slots"
+   ],
+   "label": "SGLang 256k + radix, ratio 0.2, chunk 8192, hrrn, evict 32, MTP with 64 running slots and mem-fraction-static 0.97",
+   "engine": "sglang",
+   "context": 262144,
+   "radix": true,
+   "mem": 0.97,
+   "chunk": 8192,
+   "ratio": 0.2,
+   "evict": 32,
+   "runs": "37962665284 / 37962669982",
+   "node": "Greennode 1x_01/_02",
+   "note": "MTP c64 with 64 running slots and mem-fraction-static 0.97 (s64 used 0.92); MTP c64 only.",
+   "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
+   "extra": "--schedule-policy hrrn --enable-cache-report",
+   "mtp_max_running": 64
+  },
+  {
+   "id": "t2vllm",
+   "runs": "37800187468",
+   "scenario": "tau2",
+   "short": "vLLM 256k MTP4",
+   "label": "vLLM v0.30.0, 256k, prefix cache on (default), max-num-seqs 64, batched tokens 16384, MTP4",
+   "axis": [
+    "vLLM",
+    "256k",
+    "prefix cache"
+   ],
+   "engine": "vllm",
+   "context": 262144,
+   "radix": true,
+   "mem": 0.92,
+   "chunk": 16384,
+   "ratio": null,
+   "evict": null,
+   "commit": "2bad62d4",
+   "node": "Greennode 1x_01",
+   "image": "vllm/vllm-openai:v0.30.0",
+   "note": "tau2 customer-service replay, MTP only, 1200 s per conc."
+  },
+  {
+   "id": "t2sgl08",
+   "runs": "37802254543",
+   "scenario": "tau2",
+   "short": "SGL 256k ratio 0.8 (default)",
+   "label": "SGLang image B, 256k, radix, hrrn, chunk 8192, evict 32, swa-full-tokens-ratio left at the default 0.8, MTP4",
+   "axis": [
+    "SGL",
+    "256k",
+    "radix r0.8"
+   ],
+   "engine": "sglang",
+   "context": 262144,
+   "radix": true,
+   "mem": 0.92,
+   "chunk": 8192,
+   "ratio": 0.8,
+   "ratio_flag": false,
+   "evict": 32,
+   "mtp_max_running": 32,
+   "commit": "5678ae34",
+   "node": "Greennode 1x_02",
+   "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
+   "note": "Default ratio 0.8 sized the SWA pool at 105,728 tokens and starved the full pool to 132,161 tokens (recipe postmortem: usage 98-100% at c16+)."
+  },
+  {
+   "id": "t2sgl02",
+   "runs": "37920508659",
+   "scenario": "tau2",
+   "short": "SGL 256k ratio 0.2",
+   "label": "SGLang image B, 256k, radix, hrrn, chunk 8192, evict 32, swa-full-tokens-ratio 0.2 (kv fix), MTP4",
+   "axis": [
+    "SGL",
+    "256k",
+    "radix r0.2"
+   ],
+   "engine": "sglang",
+   "context": 262144,
+   "radix": true,
+   "mem": 0.92,
+   "chunk": 8192,
+   "ratio": 0.2,
+   "evict": 32,
+   "mtp_max_running": 32,
+   "commit": "cd19d215",
+   "node": "Greennode 1x_02",
+   "image": "ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad",
+   "note": "KV fix of the ratio 0.8 run: more of the pool goes to full attention. Full ladder c1-c32 from run 37920508659 (it replaced the earlier c32-only run 37879258874)."
   }
  ],
  "cells": [
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 53.1,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.695482537375,
-     "p50": 0.6891156505,
-     "p90": 0.7283120157999999,
-     "p95": 0.74734025165,
-     "p99": 0.8486139099399996,
-     "max": 0.933154405
-    },
-    "tpot": {
-     "avg": 18.17518010202835,
-     "p50": 18.13957691544477,
-     "p90": 18.387768348289345,
-     "p95": 18.490715280449656,
-     "p99": 19.149384786187678,
-     "max": 19.659780038123166
-    },
-    "itl": {
-     "avg": 18.29168229405887,
-     "p50": 18.147554,
-     "p90": 18.5951022,
-     "p95": 18.808892699999998,
-     "p99": 19.80419952,
-     "max": 129.616604
-    },
-    "e2e": {
-     "avg": 19.28869178175,
-     "p50": 19.240312671999998,
-     "p90": 19.5341350805,
-     "p95": 19.662151058849997,
-     "p99": 20.438434546209997,
-     "max": 21.045109384
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 323.8,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 4.041885629674999,
-     "p50": 4.4024448755,
-     "p90": 5.3266489115,
-     "p95": 5.37448522425,
-     "p99": 5.504991669789998,
-     "max": 5.680311629
-    },
-    "tpot": {
-     "avg": 20.77381065068426,
-     "p50": 20.292395061094815,
-     "p90": 22.747286942913,
-     "p95": 22.799967756207234,
-     "p99": 23.477932127790805,
-     "max": 24.405290047898337
-    },
-    "itl": {
-     "avg": 20.900223291560636,
-     "p50": 19.383195,
-     "p90": 20.344777200000003,
-     "p95": 20.6957164,
-     "p99": 21.290986879999963,
-     "max": 1370.304118
-    },
-    "e2e": {
-     "avg": 25.293493925325,
-     "p50": 25.1394877225,
-     "p90": 25.805924902900006,
-     "p95": 26.817011543999996,
-     "p99": 26.926443819339994,
-     "max": 27.332118658
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 649.3,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 12.197183096706251,
-     "p50": 12.821213792499998,
-     "p90": 19.957300393600004,
-     "p95": 20.7018944764,
-     "p99": 21.424706445659996,
-     "max": 21.741396692
-    },
-    "tpot": {
-     "avg": 37.38971040188477,
-     "p50": 37.34737560899316,
-     "p90": 45.5521042400782,
-     "p95": 46.19393466808407,
-     "p99": 47.305491435474096,
-     "max": 48.07936522091886
-    },
-    "itl": {
-     "avg": 40.89480055983922,
-     "p50": 28.5043565,
-     "p90": 40.044029,
-     "p95": 43.25052375,
-     "p99": 99.09193044999948,
-     "max": 2473.202719
-    },
-    "e2e": {
-     "avg": 50.446856837834375,
-     "p50": 50.410909585499994,
-     "p90": 51.2905660159,
-     "p95": 51.32685248719999,
-     "p99": 52.84513103442,
-     "max": 54.22309889699999
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 695.5,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 17.554432355375,
-     "p50": 12.844598246499999,
-     "p90": 39.12375008590002,
-     "p95": 54.4605005212,
-     "p99": 82.26507546127962,
-     "max": 89.455459385
-    },
-    "tpot": {
-     "avg": 73.60319365247358,
-     "p50": 75.45218996529815,
-     "p90": 79.12744975884652,
-     "p95": 80.12114605474095,
-     "p99": 81.82559237563049,
-     "max": 83.31441921309872
-    },
-    "itl": {
-     "avg": 84.14088458553972,
-     "p50": 44.893071,
-     "p90": 76.217757,
-     "p95": 133.21704499999913,
-     "p99": 1260.22211664,
-     "max": 4726.764219
-    },
-    "e2e": {
-     "avg": 92.85049946185546,
-     "p50": 89.674561609,
-     "p90": 116.74716502100006,
-     "p95": 136.52627822464999,
-     "p99": 165.8167411259896,
-     "max": 169.764316276
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 52.6,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.755075999859375,
-     "p50": 0.7329210849999999,
-     "p90": 0.8038496425,
-     "p95": 0.8113938776999999,
-     "p99": 1.7724280051799937,
-     "max": 3.3151012019999997
-    },
-    "tpot": {
-     "avg": 18.302063448069404,
-     "p50": 18.415084111925708,
-     "p90": 18.837893326979472,
-     "p95": 18.90363179384164,
-     "p99": 19.065998263509286,
-     "max": 19.245270805474096
-    },
-    "itl": {
-     "avg": 18.53333381907045,
-     "p50": 18.371057,
-     "p90": 18.9543116,
-     "p95": 19.107655499999996,
-     "p99": 20.738956759999997,
-     "max": 116.26636699999999
-    },
-    "e2e": {
-     "avg": 19.478086907234374,
-     "p50": 19.5960696555,
-     "p90": 20.0929116383,
-     "p95": 20.167802259049996,
-     "p99": 20.888752788589997,
-     "max": 21.458182829
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 317.3,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 4.0087909513375,
-     "p50": 4.2742059045,
-     "p90": 5.4175002779,
-     "p95": 5.6048627562,
-     "p99": 5.870632183389998,
-     "max": 5.970505846999999
-    },
-    "tpot": {
-     "avg": 21.30911928053519,
-     "p50": 20.981713397360704,
-     "p90": 23.085413315053763,
-     "p95": 23.73829426202346,
-     "p99": 24.602607761065492,
-     "max": 24.795744317693057
-    },
-    "itl": {
-     "avg": 21.590342460680414,
-     "p50": 19.854314,
-     "p90": 20.3730733,
-     "p95": 20.55080545,
-     "p99": 39.33127903,
-     "max": 1399.756254
-    },
-    "e2e": {
-     "avg": 25.808019975325,
-     "p50": 25.717554575,
-     "p90": 26.4329039849,
-     "p95": 26.7591891483,
-     "p99": 26.76814089616,
-     "max": 26.774103180999997
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 634.2,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 12.5186358974875,
-     "p50": 12.974981591499999,
-     "p90": 20.553781619,
-     "p95": 21.4853619191,
-     "p99": 22.43453474871,
-     "max": 22.82037546
-    },
-    "tpot": {
-     "avg": 38.248542349120235,
-     "p50": 37.97689569208211,
-     "p90": 46.564620445943305,
-     "p95": 47.75231336925709,
-     "p99": 48.83879013472141,
-     "max": 49.426863555229716
-    },
-    "itl": {
-     "avg": 44.13106689391098,
-     "p50": 28.918715999999996,
-     "p90": 45.437066800000004,
-     "p95": 48.83520585,
-     "p99": 142.8651027800001,
-     "max": 2509.96791
-    },
-    "e2e": {
-     "avg": 51.64689472063749,
-     "p50": 51.678725767,
-     "p90": 52.412805424,
-     "p95": 52.437126106849995,
-     "p99": 52.6974828022,
-     "max": 54.119604333999995
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 694.2,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 18.95365497414258,
-     "p50": 13.939260373499998,
-     "p90": 52.055399752,
-     "p95": 54.607393705499994,
-     "p99": 85.02115399297998,
-     "max": 89.263798148
-    },
-    "tpot": {
-     "avg": 72.96072216378758,
-     "p50": 73.85503031524927,
-     "p90": 78.1846851293255,
-     "p95": 79.24105924765396,
-     "p99": 80.88986014584555,
-     "max": 81.67327004203325
-    },
-    "itl": {
-     "avg": 89.37421848769252,
-     "p50": 44.548179999999995,
-     "p90": 85.2588578,
-     "p95": 215.43073099999978,
-     "p99": 1219.3255551999996,
-     "max": 4476.281753
-    },
-    "e2e": {
-     "avg": 93.59247374769726,
-     "p50": 89.007270253,
-     "p90": 132.398278621,
-     "p95": 135.90705997624997,
-     "p99": 166.65157700963996,
-     "max": 168.047277524
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 94.4,
-   "acc": 2.31,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.73395750634375,
-     "p50": 0.7218099135,
-     "p90": 0.7732232217,
-     "p95": 0.7878778864999999,
-     "p99": 0.9078857977199997,
-     "max": 0.989279817
-    },
-    "tpot": {
-     "avg": 9.878355979166665,
-     "p50": 10.027893939393941,
-     "p90": 11.37994315210166,
-     "p95": 11.673106282258065,
-     "p99": 12.779466040987286,
-     "max": 14.446781048875854
-    },
-    "itl": {
-     "avg": 22.85598200049475,
-     "p50": 22.834491,
-     "p90": 23.3571968,
-     "p95": 23.5940996,
-     "p99": 24.87282856,
-     "max": 75.355392
-    },
-    "e2e": {
-     "avg": 10.839515673031249,
-     "p50": 10.960949936999999,
-     "p90": 12.4093512566,
-     "p95": 12.715712138499999,
-     "p99": 13.770529599639993,
-     "max": 15.453335874999999
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 455.3,
-   "acc": 2.36,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 1.9040053086874997,
-     "p50": 0.788101599,
-     "p90": 3.129839462300047,
-     "p95": 11.776095868999999,
-     "p99": 11.900428366669999,
-     "max": 11.913502887999998
-    },
-    "tpot": {
-     "avg": 15.177732289723853,
-     "p50": 15.670750795698925,
-     "p90": 18.023654862952103,
-     "p95": 18.796161440713586,
-     "p99": 20.281058278895383,
-     "max": 23.115450404692083
-    },
-    "itl": {
-     "avg": 35.80392616928487,
-     "p50": 25.86706,
-     "p90": 26.8085158,
-     "p95": 27.904245999999997,
-     "p99": 445.77542716,
-     "max": 2558.795428
-    },
-    "e2e": {
-     "avg": 17.430825441075,
-     "p50": 17.0342628455,
-     "p90": 23.089519490200004,
-     "p95": 26.516116966099997,
-     "p99": 29.33944975405999,
-     "max": 30.270961178999997
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 752.2,
-   "acc": 2.38,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.6295838036343753,
-     "p50": 0.946197012,
-     "p90": 6.530858339200041,
-     "p95": 25.667310364500015,
-     "p99": 34.62145580591,
-     "max": 34.927945606
-    },
-    "tpot": {
-     "avg": 38.444364717222626,
-     "p50": 40.139385150048874,
-     "p90": 45.87290559354839,
-     "p95": 50.969663199804494,
-     "p99": 57.96701625640274,
-     "max": 66.50549061583577
-    },
-    "itl": {
-     "avg": 91.63764223386437,
-     "p50": 45.2676575,
-     "p90": 271.45135700000003,
-     "p95": 475.80554275,
-     "p99": 668.1465609499999,
-     "max": 3691.511768
-    },
-    "e2e": {
-     "avg": 42.95816890935312,
-     "p50": 42.689967304999996,
-     "p90": 55.24565781820001,
-     "p95": 61.77095467645,
-     "p99": 75.61964378468,
-     "max": 80.562972233
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 785.7,
-   "acc": 2.4,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 15.870259314466795,
-     "p50": 12.452666209,
-     "p90": 22.9008750618,
-     "p95": 40.278684993899994,
-     "p99": 72.05731503755997,
-     "max": 85.133084162
-    },
-    "tpot": {
-     "avg": 64.7253610499851,
-     "p50": 67.70037681524926,
-     "p90": 77.76262278044966,
-     "p95": 84.78352417126099,
-     "p99": 95.05992245334309,
-     "max": 110.30602629227761
-    },
-    "itl": {
-     "avg": 155.41065319524438,
-     "p50": 76.4191515,
-     "p90": 484.37791669999996,
-     "p95": 506.08965879999994,
-     "p99": 629.30783538,
-     "max": 4581.293555
-    },
-    "e2e": {
-     "avg": 82.08430366860156,
-     "p50": 82.97943797650001,
-     "p90": 99.7676178452,
-     "p95": 110.68118297364998,
-     "p99": 141.78709426485,
-     "max": 176.43069185099998
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 156.9,
-   "acc": 4.13,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.8052655858593749,
-     "p50": 0.7771908135,
-     "p90": 0.8587355229999999,
-     "p95": 0.8836425385,
-     "p99": 1.8645960178999936,
-     "max": 3.409690655
-    },
-    "tpot": {
-     "avg": 5.591293059582722,
-     "p50": 5.694681891495601,
-     "p90": 6.583913498435972,
-     "p95": 6.783390646676441,
-     "p99": 7.117464431720429,
-     "max": 7.366643623655913
-    },
-    "itl": {
-     "avg": 23.145747293689933,
-     "p50": 23.234876,
-     "p90": 24.041638,
-     "p95": 24.269134,
-     "p99": 25.06523145,
-     "max": 70.829616
-    },
-    "e2e": {
-     "avg": 6.5251583858124995,
-     "p50": 6.6511799745,
-     "p90": 7.588545402499999,
-     "p95": 7.881317400299999,
-     "p99": 8.236962234329999,
-     "max": 8.255157773999999
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 620.3,
-   "acc": 4.17,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 1.9722782702375,
-     "p50": 0.851566536,
-     "p90": 3.682104102500042,
-     "p95": 11.9798716928,
-     "p99": 12.260487968,
-     "max": 12.270802760999999
-    },
-    "tpot": {
-     "avg": 10.688073820112413,
-     "p50": 10.645850022482893,
-     "p90": 13.182820250928641,
-     "p95": 14.129616948289343,
-     "p99": 16.085472272521976,
-     "max": 18.415521979472143
-    },
-    "itl": {
-     "avg": 44.5940332112159,
-     "p50": 26.563074,
-     "p90": 27.530085800000013,
-     "p95": 126.5731375,
-     "p99": 495.27147396,
-     "max": 2846.778168
-    },
-    "e2e": {
-     "avg": 12.9061777882125,
-     "p50": 12.1934482965,
-     "p90": 17.93095148470001,
-     "p95": 21.321328742049992,
-     "p99": 24.511956603119994,
-     "max": 25.304720791
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 915.2,
-   "acc": 4.16,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.7690562394781253,
-     "p50": 1.5958521849999998,
-     "p90": 4.320658581300097,
-     "p95": 24.518434865849997,
-     "p99": 33.39470627931001,
-     "max": 33.872242417
-    },
-    "tpot": {
-     "avg": 30.923005120436216,
-     "p50": 31.071836121212115,
-     "p90": 37.161210582013695,
-     "p95": 40.40613799858261,
-     "p99": 44.176865560957964,
-     "max": 52.034455893450634
-    },
-    "itl": {
-     "avg": 128.93677263346538,
-     "p50": 45.884713,
-     "p90": 427.25976399999996,
-     "p95": 587.6754765,
-     "p99": 1126.5489423,
-     "max": 3628.778488
-    },
-    "e2e": {
-     "avg": 35.40329047768437,
-     "p50": 34.158247661,
-     "p90": 45.73812814650001,
-     "p95": 54.9409526616,
-     "p99": 65.85351265534,
-     "max": 69.062317069
-    }
-   }
-  },
-  {
-   "cfg": "vllm65",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 942.3,
-   "acc": 4.14,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 15.882066180992188,
-     "p50": 12.6561656375,
-     "p90": 23.93923179630001,
-     "p95": 41.10580435764999,
-     "p99": 69.33628450911998,
-     "max": 72.885070195
-    },
-    "tpot": {
-     "avg": 51.673414068680124,
-     "p50": 52.47736714076247,
-     "p90": 63.37089227321603,
-     "p95": 65.57635182355816,
-     "p99": 74.5784866670381,
-     "max": 86.70381441642229
-    },
-    "itl": {
-     "avg": 214.02426183377221,
-     "p50": 78.24309,
-     "p90": 540.2183764,
-     "p95": 638.7886079,
-     "p99": 777.0141184199999,
-     "max": 8004.155229
-    },
-    "e2e": {
-     "avg": 68.74396877325195,
-     "p50": 68.14907221,
-     "p90": 82.8092849093,
-     "p95": 92.9824075765,
-     "p99": 123.55931151929997,
-     "max": 150.27414240099998
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 66.2,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.7795737115312499,
-     "p50": 0.6652809774999999,
-     "p90": 0.7037397017,
-     "p95": 0.7360743515999999,
-     "p99": 3.3865490911999827,
-     "max": 7.617359488999999
-    },
-    "tpot": {
-     "avg": 14.341600018725561,
-     "p50": 14.341557069892474,
-     "p90": 14.358286497360703,
-     "p95": 14.371201269012706,
-     "p99": 14.496077133313781,
-     "max": 14.539358240469207
-    },
-    "itl": {
-     "avg": 14.41735100764648,
-     "p50": 14.3534265,
-     "p90": 14.4523434,
-     "p95": 14.558229699999998,
-     "p99": 20.153248009999963,
-     "max": 72.286451
-    },
-    "e2e": {
-     "avg": 15.451030530687499,
-     "p50": 15.335780643,
-     "p90": 15.387120548,
-     "p95": 15.450145473849998,
-     "p99": 18.175760106819983,
-     "max": 22.262602795
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 324.7,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.6592409803749995,
-     "p50": 3.227413012,
-     "p90": 5.2536514038,
-     "p95": 6.541864388799999,
-     "p99": 8.81161439175,
-     "max": 8.811719126
-    },
-    "tpot": {
-     "avg": 21.07670508900293,
-     "p50": 21.178425214076245,
-     "p90": 23.307867819159338,
-     "p95": 23.613482390224828,
-     "p99": 24.64454182344085,
-     "max": 25.684768707722384
-    },
-    "itl": {
-     "avg": 21.161776256995985,
-     "p50": 18.58426,
-     "p90": 19.233086999999998,
-     "p95": 19.506224500000002,
-     "p99": 26.149627199999934,
-     "max": 5768.09426
-    },
-    "e2e": {
-     "avg": 25.220710286424996,
-     "p50": 24.833910619999997,
-     "p90": 27.17775071130001,
-     "p95": 28.55588143945,
-     "p99": 28.557029235839998,
-     "max": 28.557199562999998
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 647.5,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 6.40250344719375,
-     "p50": 5.885104726,
-     "p90": 9.93177283000001,
-     "p95": 12.2647406511,
-     "p99": 19.10471150364,
-     "max": 21.190693212
-    },
-    "tpot": {
-     "avg": 43.1853971807368,
-     "p50": 43.452611044965785,
-     "p90": 46.470739976246335,
-     "p95": 47.77870012150537,
-     "p99": 49.953012405767346,
-     "max": 53.176040925708705
-    },
-    "itl": {
-     "avg": 43.35159418311894,
-     "p50": 28.101989999999997,
-     "p90": 29.0060868,
-     "p95": 29.3907106,
-     "p99": 102.26269044000031,
-     "max": 11345.996133999999
-    },
-    "e2e": {
-     "avg": 50.5811647630875,
-     "p50": 50.4637689625,
-     "p90": 53.517508098,
-     "p95": 55.73556398775,
-     "p99": 61.823486831290005,
-     "max": 62.101420587
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 361.9,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 130.83710459929296,
-     "p50": 136.361758065,
-     "p90": 147.74624892510002,
-     "p95": 152.78214405615,
-     "p99": 162.47782092646,
-     "max": 163.73746443299999
-    },
-    "tpot": {
-     "avg": 39.81511781162176,
-     "p50": 28.955351476050836,
-     "p90": 32.134017428054754,
-     "p95": 163.506833086999,
-     "p99": 172.97941894527858,
-     "max": 299.77708499413484
-    },
-    "itl": {
-     "avg": 39.999162098986126,
-     "p50": 23.8494935,
-     "p90": 24.809863,
-     "p95": 25.649627,
-     "p99": 32.3425551,
-     "max": 148312.14797999998
-    },
-    "e2e": {
-     "avg": 171.567970120582,
-     "p50": 164.97875317999998,
-     "p90": 188.9013956048001,
-     "p95": 304.61701787255,
-     "p99": 317.96395593526995,
-     "max": 468.4312166259999
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 66.0,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.802647829265625,
-     "p50": 0.7106714355,
-     "p90": 0.7866480232999999,
-     "p95": 0.7938391358499999,
-     "p99": 3.369329388209983,
-     "max": 7.680962721
-    },
-    "tpot": {
-     "avg": 14.364785798310727,
-     "p50": 14.357558507331378,
-     "p90": 14.447989374193547,
-     "p95": 14.46104368739003,
-     "p99": 14.471409495190615,
-     "max": 14.479495809384163
-    },
-    "itl": {
-     "avg": 14.447979964467317,
-     "p50": 14.372062,
-     "p90": 14.5100012,
-     "p95": 14.562435099999998,
-     "p99": 20.000634279999982,
-     "max": 78.928327
-    },
-    "e2e": {
-     "avg": 15.497823700937499,
-     "p50": 15.390219124999998,
-     "p90": 15.563798520899999,
-     "p95": 15.5957769636,
-     "p99": 18.13735728989998,
-     "max": 22.407950744999997
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 324.8,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.6984004012,
-     "p50": 3.5615686199999996,
-     "p90": 5.3567677211,
-     "p95": 6.267387681299995,
-     "p99": 8.587473484449996,
-     "max": 9.072595218999998
-    },
-    "tpot": {
-     "avg": 21.03478088900293,
-     "p50": 21.085433947702835,
-     "p90": 22.962516043695015,
-     "p95": 23.83345679550342,
-     "p99": 24.078310353607037,
-     "max": 24.10470739198436
-    },
-    "itl": {
-     "avg": 21.19065545626431,
-     "p50": 18.758525,
-     "p90": 19.161592199999998,
-     "p95": 19.318051049999998,
-     "p99": 26.199865750000015,
-     "max": 3242.306956
-    },
-    "e2e": {
-     "avg": 25.216981250649997,
-     "p50": 25.1794556905,
-     "p90": 25.741184790000023,
-     "p95": 28.35349257795,
-     "p99": 28.489013227989997,
-     "max": 28.489519948999998
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 634.2,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 6.5125520794,
-     "p50": 6.2039272285,
-     "p90": 8.811728152700002,
-     "p95": 11.716587365400013,
-     "p99": 19.99901871703,
-     "max": 22.365575729
-    },
-    "tpot": {
-     "avg": 44.11935776303458,
-     "p50": 44.39071946138807,
-     "p90": 47.77997354095797,
-     "p95": 49.03925594491691,
-     "p99": 50.32462797872923,
-     "max": 51.73433280840665
-    },
-    "itl": {
-     "avg": 44.30259859421913,
-     "p50": 28.4035825,
-     "p90": 28.924048,
-     "p95": 29.188868,
-     "p99": 141.6320830000001,
-     "max": 8697.497706
-    },
-    "e2e": {
-     "avg": 51.646655070984366,
-     "p50": 51.7099782495,
-     "p90": 54.302118217300006,
-     "p95": 57.06786325345,
-     "p99": 64.1663167108,
-     "max": 65.31375382
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 349.6,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 139.2648132895371,
-     "p50": 146.248592294,
-     "p90": 157.88073930399997,
-     "p95": 162.0108005935,
-     "p99": 165.2241130149,
-     "max": 166.091088822
-    },
-    "tpot": {
-     "avg": 37.2510734376031,
-     "p50": 30.587011161779067,
-     "p90": 31.97043281094818,
-     "p95": 91.72808034892321,
-     "p99": 178.7959760088856,
-     "max": 181.54136167448678
-    },
-    "itl": {
-     "avg": 37.44560217415435,
-     "p50": 24.086885,
-     "p90": 24.615737199999998,
-     "p95": 25.055460999999998,
-     "p99": 69.68093040000001,
-     "max": 157445.230146
-    },
-    "e2e": {
-     "avg": 177.37266141620506,
-     "p50": 178.58776524899997,
-     "p90": 193.6594078258,
-     "p95": 197.38188546675,
-     "p99": 328.33438537014,
-     "max": 334.203056554
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 116.9,
-   "acc": 2.32,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.983136513953125,
-     "p50": 0.6699765375,
-     "p90": 0.7005664409,
-     "p95": 0.7393395943999999,
-     "p99": 8.164431978909949,
-     "max": 20.527479682
-    },
-    "tpot": {
-     "avg": 7.599552078369379,
-     "p50": 7.679930211632453,
-     "p90": 8.366516901270773,
-     "p95": 9.125989644770284,
-     "p99": 9.811613917702829,
-     "max": 10.753122013685237
-    },
-    "itl": {
-     "avg": 17.648277007590533,
-     "p50": 17.618062,
-     "p90": 17.7590444,
-     "p95": 17.900678199999998,
-     "p99": 22.666664639999986,
-     "max": 35.825782
-    },
-    "e2e": {
-     "avg": 8.757478290125,
-     "p50": 8.526129970499998,
-     "p90": 9.4313805279,
-     "p95": 10.110409022549998,
-     "p99": 17.798289722829956,
-     "max": 28.317293793999998
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 448.7,
-   "acc": 2.36,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 2.0818243758749997,
-     "p50": 0.7196399915,
-     "p90": 1.7649606291000326,
-     "p95": 7.283932634499962,
-     "p99": 21.688387271489997,
-     "max": 21.691705720999998
-    },
-    "tpot": {
-     "avg": 15.307545808602152,
-     "p50": 15.122937890518084,
-     "p90": 18.10574500840665,
-     "p95": 23.02476443704789,
-     "p99": 29.076159241661767,
-     "max": 29.730654072336264
-    },
-    "itl": {
-     "avg": 36.143491214217704,
-     "p50": 25.028641999999998,
-     "p90": 26.155973,
-     "p95": 29.786282999999997,
-     "p99": 651.0673272,
-     "max": 14475.420266
-    },
-    "e2e": {
-     "avg": 17.741443738075,
-     "p50": 16.285986326999996,
-     "p90": 24.801581352500065,
-     "p95": 34.623190548349996,
-     "p99": 37.46035459372999,
-     "max": 39.023257266
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 721.7,
-   "acc": 2.37,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 14.700526282578124,
-     "p50": 13.360004255,
-     "p90": 17.511123074200004,
-     "p95": 24.59618084835,
-     "p99": 46.978145954220004,
-     "max": 49.636118749
-    },
-    "tpot": {
-     "avg": 29.100897558599094,
-     "p50": 29.43745027614858,
-     "p90": 35.58281620146628,
-     "p95": 38.54248653499511,
-     "p99": 49.227539014046926,
-     "max": 49.879979535679375
-    },
-    "itl": {
-     "avg": 68.99189479206409,
-     "p50": 34.977894,
-     "p90": 39.916968,
-     "p95": 44.138895,
-     "p99": 722.308766,
-     "max": 17451.737688999998
-    },
-    "e2e": {
-     "avg": 44.470744485025,
-     "p50": 43.855892072,
-     "p90": 52.0875759359,
-     "p95": 57.8497170525,
-     "p99": 79.1630339853,
-     "max": 88.474654752
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 787.5,
-   "acc": 2.38,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 40.83911789318945,
-     "p50": 42.025836383,
-     "p90": 44.2949288152,
-     "p95": 46.15665411165,
-     "p99": 60.57078831256999,
-     "max": 68.48028940399999
-    },
-    "tpot": {
-     "avg": 38.778697259626256,
-     "p50": 39.977356707233625,
-     "p90": 45.6192513939394,
-     "p95": 48.53968971974583,
-     "p99": 55.35975718439882,
-     "max": 102.82154349462365
-    },
-    "itl": {
-     "avg": 92.50007257360802,
-     "p50": 46.05924449999999,
-     "p90": 51.8153041,
-     "p95": 692.1715408999999,
-     "p99": 742.32121824,
-     "max": 59194.273051
-    },
-    "e2e": {
-     "avg": 80.5097251897871,
-     "p50": 82.614871734,
-     "p90": 90.4172152995,
-     "p95": 95.33548712224999,
-     "p99": 105.40007385192,
-     "max": 121.161987994
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 199.5,
-   "acc": 4.15,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.7077362585,
-     "p50": 0.721647049,
-     "p90": 0.7988026288,
-     "p95": 0.8052979551499999,
-     "p99": 0.8287950327599999,
-     "max": 0.8469322589999999
-    },
-    "tpot": {
-     "avg": 4.3221703647360705,
-     "p50": 4.346809366080157,
-     "p90": 4.862437131573802,
-     "p95": 5.093861769599218,
-     "p99": 5.266725919051807,
-     "max": 5.420439567937438
-    },
-    "itl": {
-     "avg": 17.91700254020514,
-     "p50": 17.876516,
-     "p90": 18.0790439,
-     "p95": 18.198183399999998,
-     "p99": 23.140447709999997,
-     "max": 36.237559
-    },
-    "e2e": {
-     "avg": 5.129316541625,
-     "p50": 5.1831160545,
-     "p90": 5.7354947011,
-     "p95": 5.998356734299999,
-     "p99": 6.1787859871299995,
-     "max": 6.316689805
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 601.6,
-   "acc": 4.19,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 2.2301128670749994,
-     "p50": 0.7834582235,
-     "p90": 2.0026541425000315,
-     "p95": 7.53678573374996,
-     "p99": 22.483467374539998,
-     "max": 22.484059933
-    },
-    "tpot": {
-     "avg": 10.896890783088955,
-     "p50": 10.107496378787879,
-     "p90": 13.43824758445748,
-     "p95": 16.648188042570844,
-     "p99": 26.90408778367545,
-     "max": 28.39131473216031
-    },
-    "itl": {
-     "avg": 45.64680051635358,
-     "p50": 25.456832,
-     "p90": 26.962584,
-     "p95": 31.62263,
-     "p99": 718.18445448,
-     "max": 16412.727096
-    },
-    "e2e": {
-     "avg": 13.377632138174999,
-     "p50": 11.314705166,
-     "p90": 18.510875195200096,
-     "p95": 32.10460397355,
-     "p99": 34.39925667578999,
-     "max": 34.424181096
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 925.7,
-   "acc": 4.14,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 12.554653937896875,
-     "p50": 12.199349341,
-     "p90": 14.504205676,
-     "p95": 15.613407342999999,
-     "p99": 28.4729562169,
-     "max": 31.283099326
-    },
-    "tpot": {
-     "avg": 21.741465669855813,
-     "p50": 21.834992930107525,
-     "p90": 26.57965483000978,
-     "p95": 27.214533089882703,
-     "p99": 30.195321372375364,
-     "max": 32.173805233626595
-    },
-    "itl": {
-     "avg": 90.09679226396273,
-     "p50": 34.9321695,
-     "p90": 41.953391499999995,
-     "p95": 659.17513325,
-     "p99": 825.2371518499999,
-     "max": 12785.773411
-    },
-    "e2e": {
-     "avg": 34.79617331815937,
-     "p50": 34.400800319,
-     "p90": 39.976901515099996,
-     "p95": 42.7680856844,
-     "p99": 53.20035203033,
-     "max": 59.422640492999996
-    }
-   }
-  },
-  {
-   "cfg": "sgl088",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 971.7,
-   "acc": 4.11,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 33.697523633273434,
-     "p50": 34.43793329249999,
-     "p90": 36.01408905179999,
-     "p95": 36.836095014849995,
-     "p99": 53.16239425241998,
-     "max": 57.349321332
-    },
-    "tpot": {
-     "avg": 31.157306330967817,
-     "p50": 31.070497299608995,
-     "p90": 36.865245734408596,
-     "p95": 39.04125215219942,
-     "p99": 45.2486457381525,
-     "max": 77.21043986412512
-    },
-    "itl": {
-     "avg": 128.27537124718205,
-     "p50": 46.109472999999994,
-     "p90": 635.4224428,
-     "p95": 762.0018146499999,
-     "p99": 1183.5357066799997,
-     "max": 44849.536667
-    },
-    "e2e": {
-     "avg": 65.5714480098535,
-     "p50": 66.0677786825,
-     "p90": 73.1492046414,
-     "p95": 77.3225181392,
-     "p99": 87.03016227481997,
-     "max": 92.57864723899999
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 66.9,
-   "acc": null,
-   "full": 1079692,
-   "swa": 17442,
-   "retract": 0,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.6992311451406249,
-     "p50": 0.695944665,
-     "p90": 0.7276750938000001,
-     "p95": 0.74480207155,
-     "p99": 0.8499522149199996,
-     "max": 0.93202957
-    },
-    "tpot": {
-     "avg": 14.281558698619257,
-     "p50": 14.279056501466275,
-     "p90": 14.301943417497556,
-     "p95": 14.323520285679376,
-     "p99": 14.441075871700878,
-     "max": 14.451787765395894
-    },
-    "itl": {
-     "avg": 14.334322808419307,
-     "p50": 14.289906,
-     "p90": 14.39326,
-     "p95": 14.470082999999999,
-     "p99": 20.087586199999993,
-     "max": 75.19750499999999
-    },
-    "e2e": {
-     "avg": 15.309265693828124,
-     "p50": 15.292302512500001,
-     "p90": 15.3633980387,
-     "p95": 15.394068476100001,
-     "p99": 15.623172831669999,
-     "max": 15.716208454
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 323.2,
-   "acc": null,
-   "full": 1004709,
-   "swa": 24841,
-   "retract": 13,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 2.5899217682625,
-     "p50": 2.575704224,
-     "p90": 3.9399164506,
-     "p95": 4.4000438328,
-     "p99": 5.251247920779996,
-     "max": 5.69349586
-    },
-    "tpot": {
-     "avg": 22.230236767534212,
-     "p50": 21.230744938905183,
-     "p90": 25.67747590430109,
-     "p95": 29.381794374389052,
-     "p99": 30.962871922179865,
-     "max": 31.36294719648094
-    },
-    "itl": {
-     "avg": 22.302179281345,
-     "p50": 18.579833,
-     "p90": 19.3463285,
-     "p95": 19.631263750000002,
-     "p99": 26.752032,
-     "max": 5114.088194
-    },
-    "e2e": {
-     "avg": 25.33145398145,
-     "p50": 24.256183494,
-     "p90": 30.072519888600016,
-     "p95": 33.2573534049,
-     "p99": 35.44356833079,
-     "max": 35.992081762000005
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 610.6,
-   "acc": null,
-   "full": 751029,
-   "swa": 50209,
-   "retract": 51,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.949292387921875,
-     "p50": 2.6728582265,
-     "p90": 7.382611832700002,
-     "p95": 11.042158955000009,
-     "p99": 19.763085239200002,
-     "max": 21.939345619
-    },
-    "tpot": {
-     "avg": 48.54754143584432,
-     "p50": 46.806821543988264,
-     "p90": 57.00683583870967,
-     "p95": 58.938183070625605,
-     "p99": 64.67297390820137,
-     "max": 75.18394656793744
-    },
-    "itl": {
-     "avg": 48.737064539334604,
-     "p50": 28.063499,
-     "p90": 29.090597799999998,
-     "p95": 30.460930300000005,
-     "p99": 1254.12657694,
-     "max": 19086.748389
-    },
-    "e2e": {
-     "avg": 53.61342727679063,
-     "p50": 50.140689376,
-     "p90": 65.1868463583,
-     "p95": 68.1656121993,
-     "p99": 78.02162780883,
-     "max": 80.506198244
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 615.7,
-   "acc": null,
-   "full": 413782,
-   "swa": 84033,
-   "retract": 60,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 33.16583817797656,
-     "p50": 23.326218400499997,
-     "p90": 56.0280576051,
-     "p95": 57.275392618,
-     "p99": 77.75274152309,
-     "max": 80.970406533
-    },
-    "tpot": {
-     "avg": 68.29995752954507,
-     "p50": 65.42938291544476,
-     "p90": 72.02762629521015,
-     "p95": 103.61553682815247,
-     "p99": 127.80552784239488,
-     "max": 150.98222588465296
-    },
-    "itl": {
-     "avg": 68.56214973751993,
-     "p50": 37.03127,
-     "p90": 37.746268799999996,
-     "p95": 38.9891304,
-     "p99": 789.5874809599999,
-     "max": 80791.90344899999
-    },
-    "e2e": {
-     "avg": 103.03669473070117,
-     "p50": 94.353580375,
-     "p90": 126.49698659189998,
-     "p95": 141.91362181965,
-     "p99": 155.17750236935,
-     "max": 172.320481274
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 66.6,
-   "acc": null,
-   "full": 1079692,
-   "swa": 17442,
-   "retract": 0,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.7176380051875,
-     "p50": 0.7363339929999999,
-     "p90": 0.8008176908,
-     "p95": 0.81331416775,
-     "p99": 0.8367784754299997,
-     "max": 0.8654916949999999
-    },
-    "tpot": {
-     "avg": 14.313478249526515,
-     "p50": 14.30287097947214,
-     "p90": 14.418647017595307,
-     "p95": 14.432298115640274,
-     "p99": 14.439254263255132,
-     "max": 14.4435454457478
-    },
-    "itl": {
-     "avg": 14.395048431713798,
-     "p50": 14.318757999999999,
-     "p90": 14.467462999999999,
-     "p95": 14.509742,
-     "p99": 20.760942,
-     "max": 75.58241799999999
-    },
-    "e2e": {
-     "avg": 15.360326254453126,
-     "p50": 15.366981498999998,
-     "p90": 15.5552962461,
-     "p95": 15.58208599655,
-     "p99": 15.58876907134,
-     "max": 15.589169929
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 133.1,
-   "acc": null,
-   "full": 1004709,
-   "swa": 24841,
-   "retract": 475,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 2.3998882938375,
-     "p50": 2.448882873,
-     "p90": 3.9818413168,
-     "p95": 4.20356684125,
-     "p99": 5.476316257009996,
-     "max": 5.931470792
-    },
-    "tpot": {
-     "avg": 57.66209714435483,
-     "p50": 22.455380160312806,
-     "p90": 150.3074778471173,
-     "p95": 257.5386781717497,
-     "p99": 374.72419939775176,
-     "max": 375.29434300782015
-    },
-    "itl": {
-     "avg": 58.01654819638554,
-     "p50": 18.7582535,
-     "p90": 19.3207206,
-     "p95": 31.92812425000004,
-     "p99": 817.7105399699999,
-     "max": 5400.166392
-    },
-    "e2e": {
-     "avg": 61.38821367251251,
-     "p50": 24.595224181999995,
-     "p90": 157.27426182080103,
-     "p95": 265.93310174715,
-     "p99": 386.99900287583,
-     "max": 388.200024963
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 98.6,
-   "acc": null,
-   "full": 751029,
-   "swa": 50209,
-   "retract": 3547,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.542732580578125,
-     "p50": 2.6064088485,
-     "p90": 6.7088931989,
-     "p95": 11.62602069915001,
-     "p99": 20.36767389895,
-     "max": 22.62022196
-    },
-    "tpot": {
-     "avg": 320.2326200658633,
-     "p50": 320.90097186901266,
-     "p90": 585.1460574402756,
-     "p95": 665.5479535645161,
-     "p99": 668.84570255478,
-     "max": 1088.5750665933529
-    },
-    "itl": {
-     "avg": 321.7936179437184,
-     "p50": 28.6497995,
-     "p90": 837.0155456,
-     "p95": 846.5312431,
-     "p99": 1606.89580248,
-     "max": 21431.686336
-    },
-    "e2e": {
-     "avg": 331.14070290795627,
-     "p50": 330.167356129,
-     "p90": 600.677942962202,
-     "p95": 684.91892089975,
-     "p99": 689.17405021965,
-     "max": 1114.464062261
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 591.4,
-   "acc": null,
-   "full": 413782,
-   "swa": 84033,
-   "retract": 71,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 36.24875738013476,
-     "p50": 26.0173389385,
-     "p90": 57.152298804,
-     "p95": 60.022922766499995,
-     "p99": 78.45911990119997,
-     "max": 82.46436566
-    },
-    "tpot": {
-     "avg": 69.76204976193067,
-     "p50": 66.22737234164222,
-     "p90": 83.27525401133924,
-     "p95": 117.06931278049849,
-     "p99": 130.73131163458453,
-     "max": 191.36077031085043
-    },
-    "itl": {
-     "avg": 70.1054994649086,
-     "p50": 36.6620475,
-     "p90": 37.6411067,
-     "p95": 38.41283519999999,
-     "p99": 930.5617654299989,
-     "max": 78794.547255
-    },
-    "e2e": {
-     "avg": 107.61533428658984,
-     "p50": 100.45977611549999,
-     "p90": 138.7379394258,
-     "p95": 148.60778761319997,
-     "p99": 169.80926221308988,
-     "max": 224.527645409
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 119.6,
-   "acc": 2.33,
-   "full": 762550,
-   "swa": 17579,
-   "retract": 0,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.7098447224375,
-     "p50": 0.7014801739999998,
-     "p90": 0.733937902,
-     "p95": 0.7624901204999999,
-     "p99": 0.8528431510999996,
-     "max": 0.936840377
-    },
-    "tpot": {
-     "avg": 7.668456671432062,
-     "p50": 7.743318017106549,
-     "p90": 8.643546592570871,
-     "p95": 9.206938540029324,
-     "p99": 10.393071245024432,
-     "max": 11.717849913000975
-    },
-    "itl": {
-     "avg": 17.846272889204847,
-     "p50": 17.819322,
-     "p90": 17.95955,
-     "p95": 18.0585116,
-     "p99": 23.76918384,
-     "max": 44.49221
-    },
-    "e2e": {
-     "avg": 8.5546758973125,
-     "p50": 8.625811528499998,
-     "p90": 9.5597824709,
-     "p95": 10.143366449499998,
-     "p99": 11.388405308909995,
-     "max": 12.663255632999999
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 463.9,
-   "acc": 2.34,
-   "full": 702140,
-   "swa": 25937,
-   "retract": 10,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 1.0769044899374998,
-     "p50": 0.734094716,
-     "p90": 1.445791334400003,
-     "p95": 3.8418483970499997,
-     "p99": 5.82103211732,
-     "max": 5.885756810999999
-    },
-    "tpot": {
-     "avg": 15.63623770057429,
-     "p50": 15.635736841642228,
-     "p90": 18.720549988758552,
-     "p95": 21.86585220337243,
-     "p99": 25.202876385249255,
-     "max": 26.26100732062561
-    },
-    "itl": {
-     "avg": 36.63735952287563,
-     "p50": 25.139075499999997,
-     "p90": 26.1714085,
-     "p95": 31.062564200000004,
-     "p99": 594.16923908,
-     "max": 5186.113394999999
-    },
-    "e2e": {
-     "avg": 17.072775657624998,
-     "p50": 16.716865649,
-     "p90": 23.0842255141,
-     "p95": 24.97011465629999,
-     "p99": 28.688075311969982,
-     "max": 30.780443207999998
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 768.5,
-   "acc": 2.37,
-   "full": 497455,
-   "swa": 54593,
-   "retract": 9,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 2.016660436521875,
-     "p50": 0.7783228680000001,
-     "p90": 2.44348393520001,
-     "p95": 11.331022963950014,
-     "p99": 20.478121634590003,
-     "max": 22.92925733
-    },
-    "tpot": {
-     "avg": 39.12230892171921,
-     "p50": 40.179935231182796,
-     "p90": 47.83132813773216,
-     "p95": 51.06844259477028,
-     "p99": 57.45002427832845,
-     "max": 66.5280398347996
-    },
-    "itl": {
-     "avg": 92.55743012245517,
-     "p50": 45.360783,
-     "p90": 132.0557252,
-     "p95": 631.565995,
-     "p99": 711.18794756,
-     "max": 14050.705377
-    },
-    "e2e": {
-     "avg": 42.038782463440626,
-     "p50": 42.234732658,
-     "p90": 52.94665629700001,
-     "p95": 59.75206234250001,
-     "p99": 69.96000079282,
-     "max": 72.92295019699999
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 769.0,
-   "acc": 2.39,
-   "full": 498164,
-   "swa": 54593,
-   "retract": 13,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 41.09523731300782,
-     "p50": 42.71584201699999,
-     "p90": 44.681893859,
-     "p95": 45.7982422365,
-     "p99": 63.20230707099996,
-     "max": 68.850554063
-    },
-    "tpot": {
-     "avg": 40.55566360824902,
-     "p50": 40.646710925708696,
-     "p90": 47.16999074193548,
-     "p95": 52.3292939115347,
-     "p99": 82.13045935718473,
-     "max": 145.9714302404692
-    },
-    "itl": {
-     "avg": 96.8997290458067,
-     "p50": 45.941454,
-     "p90": 135.85750439999998,
-     "p95": 637.5783848,
-     "p99": 721.18447968,
-     "max": 63646.191583
-    },
-    "e2e": {
-     "avg": 82.58368118424656,
-     "p50": 83.65587481,
-     "p90": 91.38344850899999,
-     "p95": 98.70603136449999,
-     "p99": 139.52972081969958,
-     "max": 158.836763668
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 200.1,
-   "acc": 4.17,
-   "full": 762550,
-   "swa": 17579,
-   "retract": 0,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.7308556045312499,
-     "p50": 0.7359777215,
-     "p90": 0.8075969311,
-     "p95": 0.8140624430999999,
-     "p99": 0.8423282546599999,
-     "max": 0.86834147
-    },
-    "tpot": {
-     "avg": 4.286245668759165,
-     "p50": 4.317766725317693,
-     "p90": 4.809805004203323,
-     "p95": 4.889995351417399,
-     "p99": 5.4833889402248275,
-     "max": 5.717775670576735
-    },
-    "itl": {
-     "avg": 17.890416704386077,
-     "p50": 17.861506,
-     "p90": 18.0316215,
-     "p95": 18.131761,
-     "p99": 23.44858754999999,
-     "max": 36.289925
-    },
-    "e2e": {
-     "avg": 5.115684923671875,
-     "p50": 5.1943492550000006,
-     "p90": 5.687924177,
-     "p95": 5.849198662549999,
-     "p99": 6.3697281615499985,
-     "max": 6.6311506399999995
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 613.2,
-   "acc": 4.15,
-   "full": 702140,
-   "swa": 25937,
-   "retract": 16,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 1.1612890756624998,
-     "p50": 0.7840748595,
-     "p90": 1.841313596900001,
-     "p95": 4.002631815249999,
-     "p99": 6.188980292289999,
-     "max": 6.250570311
-    },
-    "tpot": {
-     "avg": 11.67690759848485,
-     "p50": 10.88828177956989,
-     "p90": 15.838892082795708,
-     "p95": 21.88405477072336,
-     "p99": 24.438390978396864,
-     "max": 24.971337944281522
-    },
-    "itl": {
-     "avg": 48.40879985107137,
-     "p50": 25.510312,
-     "p90": 26.956663,
-     "p95": 68.851563,
-     "p99": 600.3851672,
-     "max": 5507.308626999999
-    },
-    "e2e": {
-     "avg": 13.106765548912497,
-     "p50": 12.035740702999998,
-     "p90": 17.435680966700044,
-     "p95": 25.752891315949995,
-     "p99": 28.443562603969998,
-     "max": 28.958121644
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 918.0,
-   "acc": 4.13,
-   "full": 497455,
-   "swa": 54593,
-   "retract": 19,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 2.16125497023125,
-     "p50": 0.8607974654999999,
-     "p90": 2.3819602308000003,
-     "p95": 11.45143044875002,
-     "p99": 21.54442742868,
-     "max": 23.302487255
-    },
-    "tpot": {
-     "avg": 32.371030737634406,
-     "p50": 31.754543883675463,
-     "p90": 40.88831051710655,
-     "p95": 45.065965921261004,
-     "p99": 57.371234492130995,
-     "max": 65.05637820723362
-    },
-    "itl": {
-     "avg": 133.7631039644543,
-     "p50": 45.9141865,
-     "p90": 622.2168333999999,
-     "p95": 636.8159796499999,
-     "p99": 831.5793110999998,
-     "max": 22780.87607
-    },
-    "e2e": {
-     "avg": 35.27681941483125,
-     "p50": 33.436597768,
-     "p90": 46.72354503760002,
-     "p95": 57.43274651035001,
-     "p99": 68.27911348468,
-     "max": 71.75463599199999
-    }
-   }
-  },
-  {
-   "cfg": "tuned",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 931.4,
-   "acc": 4.1,
-   "full": 498164,
-   "swa": 54593,
-   "retract": 9,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 34.58269506679101,
-     "p50": 35.512558025,
-     "p90": 37.0689891345,
-     "p95": 38.1640907997,
-     "p99": 53.66518404795999,
-     "max": 58.341074921
-    },
-    "tpot": {
-     "avg": 33.08450476064577,
-     "p50": 32.50474469599219,
-     "p90": 39.50853839608993,
-     "p95": 43.01719493895405,
-     "p99": 65.96481946147603,
-     "max": 102.04222255620722
-    },
-    "itl": {
-     "avg": 135.63717284505987,
-     "p50": 46.458667999999996,
-     "p90": 632.9499137999999,
-     "p95": 644.5202283,
-     "p99": 838.7755201,
-     "max": 48575.684343
-    },
-    "e2e": {
-     "avg": 68.42814343693163,
-     "p50": 68.4503001155,
-     "p90": 76.1021125448,
-     "p95": 81.68253475059998,
-     "p99": 98.11967822181998,
-     "max": 147.298431059
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 67.5,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.6841441850781249,
-     "p50": 0.68038324,
-     "p90": 0.716152505,
-     "p95": 0.7412431569499999,
-     "p99": 0.8374552290299997,
-     "max": 0.91965279
-    },
-    "tpot": {
-     "avg": 14.143438656845673,
-     "p50": 14.14417642521994,
-     "p90": 14.172095051417399,
-     "p95": 14.192040080351905,
-     "p99": 14.27961338255132,
-     "max": 14.372313636363636
-    },
-    "itl": {
-     "avg": 14.200481770016408,
-     "p50": 14.156262,
-     "p90": 14.266528,
-     "p95": 14.339455999999998,
-     "p99": 19.437990719999995,
-     "max": 71.987641
-    },
-    "e2e": {
-     "avg": 15.15288193103125,
-     "p50": 15.139039169,
-     "p90": 15.2085758093,
-     "p95": 15.249199320949998,
-     "p99": 15.445499719379997,
-     "max": 15.622529639999998
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 325.4,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.3806665945,
-     "p50": 3.1831941004999997,
-     "p90": 5.2589098418999995,
-     "p95": 5.354804723249999,
-     "p99": 5.560675551559995,
-     "max": 6.170245505
-    },
-    "tpot": {
-     "avg": 21.29639076885386,
-     "p50": 21.402606964809383,
-     "p90": 23.623704957478004,
-     "p95": 23.887429251221896,
-     "p99": 25.08993655437927,
-     "max": 25.862969125122188
-    },
-    "itl": {
-     "avg": 21.377627844362127,
-     "p50": 18.754403999999997,
-     "p90": 19.4921516,
-     "p95": 19.80089,
-     "p99": 25.61781896,
-     "max": 4643.230543
-    },
-    "e2e": {
-     "avg": 25.1668743510375,
-     "p50": 25.199638803499997,
-     "p90": 25.64483530430001,
-     "p95": 27.2260957839,
-     "p99": 27.338411771029996,
-     "max": 27.421594697
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 641.5,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 6.30291942415625,
-     "p50": 5.9403653384999995,
-     "p90": 8.664687127599999,
-     "p95": 11.215328641000013,
-     "p99": 19.21426261671,
-     "max": 21.399871899999997
-    },
-    "tpot": {
-     "avg": 43.7495530153348,
-     "p50": 43.858679579667644,
-     "p90": 47.075133556695995,
-     "p95": 48.36915932649072,
-     "p99": 49.69043531484848,
-     "max": 50.724498923753664
-    },
-    "itl": {
-     "avg": 43.929775671514065,
-     "p50": 28.409321,
-     "p90": 29.28276,
-     "p95": 29.6361784,
-     "p99": 98.35173596000003,
-     "max": 8991.559824
-    },
-    "e2e": {
-     "avg": 51.05871215884375,
-     "p50": 50.9389399815,
-     "p90": 53.655666016999994,
-     "p95": 55.78922601795,
-     "p99": 62.49692061348001,
-     "max": 64.306045855
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 515.1,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 82.54034555457031,
-     "p50": 82.8839954825,
-     "p90": 98.8875335899,
-     "p95": 104.33510954715,
-     "p99": 110.05219437733997,
-     "max": 115.820871388
-    },
-    "tpot": {
-     "avg": 37.77456014730534,
-     "p50": 34.1203106661779,
-     "p90": 36.873645462756606,
-     "p95": 37.73258026568915,
-     "p99": 125.14636532762462,
-     "max": 132.3695840801564
-    },
-    "itl": {
-     "avg": 37.94233117730026,
-     "p50": 23.814153499999996,
-     "p90": 25.0818843,
-     "p95": 26.021030949999997,
-     "p99": 75.80651302999996,
-     "max": 99113.34833899999
-    },
-    "e2e": {
-     "avg": 121.18372058526367,
-     "p50": 118.26613228,
-     "p90": 139.34050488120002,
-     "p95": 150.7148980706,
-     "p99": 217.87771234598998,
-     "max": 219.740627083
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 66.8,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.6955096970781249,
-     "p50": 0.710480888,
-     "p90": 0.7830584340999999,
-     "p95": 0.7913916973999999,
-     "p99": 0.8129922532699998,
-     "max": 0.8293886149999999
-    },
-    "tpot": {
-     "avg": 14.306142440722752,
-     "p50": 14.29714143597263,
-     "p90": 14.403116964907136,
-     "p95": 14.421984056842618,
-     "p99": 14.441574655200391,
-     "max": 14.455747235581622
-    },
-    "itl": {
-     "avg": 14.361639367040278,
-     "p50": 14.311760999999999,
-     "p90": 14.462304799999998,
-     "p95": 14.5048812,
-     "p99": 19.709368679999997,
-     "max": 77.27667199999999
-    },
-    "e2e": {
-     "avg": 15.3306934139375,
-     "p50": 15.3369983045,
-     "p90": 15.503131399699999,
-     "p95": 15.54864712475,
-     "p99": 15.57939048057,
-     "max": 15.617618037
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 328.7,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 3.3793961922999998,
-     "p50": 3.110670377,
-     "p90": 5.2374220155,
-     "p95": 5.376358261599999,
-     "p99": 5.674337769039998,
-     "max": 5.835378576999999
-    },
-    "tpot": {
-     "avg": 21.049926484274195,
-     "p50": 21.12688420478983,
-     "p90": 22.996988035581623,
-     "p95": 23.93924587380254,
-     "p99": 24.10810773503421,
-     "max": 24.13752624926686
-    },
-    "itl": {
-     "avg": 21.195477047577448,
-     "p50": 18.780381499999997,
-     "p90": 19.170264,
-     "p95": 19.3533217,
-     "p99": 25.68205113999998,
-     "max": 3271.894386
-    },
-    "e2e": {
-     "avg": 24.913470985712497,
-     "p50": 25.087481092999997,
-     "p90": 25.447969182999998,
-     "p95": 25.492966922349996,
-     "p99": 25.495717268649997,
-     "max": 25.496042405
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 632.9,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 6.037616959390624,
-     "p50": 5.403855611499999,
-     "p90": 8.507898283399998,
-     "p95": 11.693784430900012,
-     "p99": 20.973914325720003,
-     "max": 22.731502697
-    },
-    "tpot": {
-     "avg": 44.68474951554863,
-     "p50": 44.78474938611926,
-     "p90": 48.065817256695986,
-     "p95": 49.35466946857282,
-     "p99": 50.99453106623656,
-     "max": 51.616919536656894
-    },
-    "itl": {
-     "avg": 44.8894782270374,
-     "p50": 28.418326999999998,
-     "p90": 29.017702999999997,
-     "p95": 29.3200973,
-     "p99": 123.50468942000009,
-     "max": 8717.551216
-    },
-    "e2e": {
-     "avg": 51.75011571379688,
-     "p50": 51.5981660635,
-     "p90": 54.412235660099995,
-     "p95": 57.04724679145,
-     "p99": 66.48634345555999,
-     "max": 68.83717145199999
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "base",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 489.1,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 86.27596337227538,
-     "p50": 88.8635119635,
-     "p90": 101.69297166589999,
-     "p95": 106.41448191094999,
-     "p99": 112.36231838582,
-     "max": 117.10584797599999
-    },
-    "tpot": {
-     "avg": 40.60848667942594,
-     "p50": 35.371913456011725,
-     "p90": 37.52410354809384,
-     "p95": 118.88527603064514,
-     "p99": 133.09200265416422,
-     "max": 149.4416511945259
-    },
-    "itl": {
-     "avg": 40.80512059234883,
-     "p50": 24.36748,
-     "p90": 24.84196,
-     "p95": 25.813127499999982,
-     "p99": 74.05782192,
-     "max": 116443.233239
-    },
-    "e2e": {
-     "avg": 127.8184452453281,
-     "p50": 126.161349008,
-     "p90": 147.428456164,
-     "p95": 203.23451529844996,
-     "p99": 226.12697897833996,
-     "max": 231.981021905
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 1,
-   "tput": 120.9,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.6791846835312499,
-     "p50": 0.6730664559999999,
-     "p90": 0.7065810666000001,
-     "p95": 0.7455056611999998,
-     "p99": 0.8307921272899996,
-     "max": 0.910017662
-    },
-    "tpot": {
-     "avg": 7.610202526438783,
-     "p50": 7.664687501466275,
-     "p90": 8.499760644477028,
-     "p95": 9.206467973167156,
-     "p99": 10.062075795835772,
-     "max": 11.223343416422287
-    },
-    "itl": {
-     "avg": 17.646096465894605,
-     "p50": 17.6202515,
-     "p90": 17.7557975,
-     "p95": 17.851994249999997,
-     "p99": 22.550168000000017,
-     "max": 42.703835
-    },
-    "e2e": {
-     "avg": 8.464421868078125,
-     "p50": 8.501817234,
-     "p90": 9.3656437585,
-     "p95": 10.1101945283,
-     "p99": 10.948361379999994,
-     "max": 12.111279198999998
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 8,
-   "tput": 492.7,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 1.139119659575,
-     "p50": 0.7226143469999999,
-     "p90": 1.8765284165000014,
-     "p95": 3.3252800103499998,
-     "p99": 5.345702879519999,
-     "max": 5.350682022
-    },
-    "tpot": {
-     "avg": 14.626658892412024,
-     "p50": 14.944607610459432,
-     "p90": 17.280131909970674,
-     "p95": 18.800249500537635,
-     "p99": 20.960349680185693,
-     "max": 24.922709298142713
-    },
-    "itl": {
-     "avg": 34.705026201872904,
-     "p50": 25.106893499999998,
-     "p90": 26.132528,
-     "p95": 29.596707099999986,
-     "p99": 654.3359984099999,
-     "max": 1528.497742
-    },
-    "e2e": {
-     "avg": 16.1021917065125,
-     "p50": 16.449832590499998,
-     "p90": 18.758943581900002,
-     "p95": 20.186629195949997,
-     "p99": 23.33342421522998,
-     "max": 26.175447606
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 32,
-   "tput": 746.3,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 6.990598601937499,
-     "p50": 6.175106195,
-     "p90": 9.5312507032,
-     "p95": 14.6021167883,
-     "p99": 19.69430221407,
-     "max": 32.249246146
-    },
-    "tpot": {
-     "avg": 35.33741071674915,
-     "p50": 36.40769813929619,
-     "p90": 41.728365751515156,
-     "p95": 46.19312560943304,
-     "p99": 51.0827368050049,
-     "max": 61.287547913978486
-    },
-    "itl": {
-     "avg": 83.45336266284076,
-     "p50": 43.813237,
-     "p90": 49.446719599999994,
-     "p95": 661.2533763999999,
-     "p99": 730.2182583599999,
-     "max": 18932.619982
-    },
-    "e2e": {
-     "avg": 43.14076976517187,
-     "p50": 43.378839601,
-     "p90": 51.7469031839,
-     "p95": 54.8847121036,
-     "p99": 68.66303695762001,
-     "max": 77.299028595
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "hi",
-   "conc": 64,
-   "tput": 794.6,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 40.452463310529296,
-     "p50": 41.828135574499996,
-     "p90": 43.6324269486,
-     "p95": 46.01546939975,
-     "p99": 59.60736158717998,
-     "max": 65.754775564
-    },
-    "tpot": {
-     "avg": 38.48535765258049,
-     "p50": 39.71552732453567,
-     "p90": 45.32779111974585,
-     "p95": 48.68217661652004,
-     "p99": 54.84907479792764,
-     "max": 95.027696686217
-    },
-    "itl": {
-     "avg": 91.50199588665352,
-     "p50": 45.693743999999995,
-     "p90": 51.299937299999996,
-     "p95": 684.6696587999999,
-     "p99": 733.5056036699999,
-     "max": 55395.334821
-    },
-    "e2e": {
-     "avg": 79.82298418911914,
-     "p50": 82.162048589,
-     "p90": 88.9383253889,
-     "p95": 93.14596657814998,
-     "p99": 104.67593561173997,
-     "max": 113.99649351699999
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 1,
-   "tput": 197.8,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 0.7069471787968749,
-     "p50": 0.724029168,
-     "p90": 0.7992759257,
-     "p95": 0.8034127554999999,
-     "p99": 0.8249027651799999,
-     "max": 0.84513472
-    },
-    "tpot": {
-     "avg": 4.367880502627077,
-     "p50": 4.404197383186705,
-     "p90": 5.0402905330400785,
-     "p95": 5.350440666862169,
-     "p99": 5.832278445141739,
-     "max": 6.065271704789834
-    },
-    "itl": {
-     "avg": 17.937268535909176,
-     "p50": 17.87226,
-     "p90": 18.0977306,
-     "p95": 18.234134599999997,
-     "p99": 23.35690556,
-     "max": 36.19787
-    },
-    "e2e": {
-     "avg": 5.175288932984374,
-     "p50": 5.266089192499999,
-     "p90": 5.8972995986,
-     "p95": 6.20191822125,
-     "p99": 6.737148780479999,
-     "max": 6.963039189
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 8,
-   "tput": 672.4,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 1.1968412728,
-     "p50": 0.786142991,
-     "p90": 1.7026468839000022,
-     "p95": 3.4558809862499995,
-     "p99": 5.84909103554,
-     "max": 5.852901975
-    },
-    "tpot": {
-     "avg": 10.465436227639296,
-     "p50": 10.404313379276637,
-     "p90": 12.840787072922774,
-     "p95": 13.20449994315738,
-     "p99": 14.317576418514173,
-     "max": 14.423972609970676
-    },
-    "itl": {
-     "avg": 43.415009168187346,
-     "p50": 25.808738499999997,
-     "p90": 27.28720569999998,
-     "p95": 32.157185899999995,
-     "p99": 728.1793435899999,
-     "max": 4645.265201
-    },
-    "e2e": {
-     "avg": 11.902982533675,
-     "p50": 11.697319450999998,
-     "p90": 14.4676064346,
-     "p95": 15.615904500099997,
-     "p99": 17.58780985382999,
-     "max": 18.606832294
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 32,
-   "tput": 910.7,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 7.576013123156249,
-     "p50": 6.609544887499999,
-     "p90": 10.163082202100005,
-     "p95": 12.952087551149999,
-     "p99": 30.576181351120002,
-     "max": 32.489984971
-    },
-    "tpot": {
-     "avg": 27.295398772244617,
-     "p50": 27.77230465151515,
-     "p90": 33.50211539305963,
-     "p95": 35.20363814692082,
-     "p99": 40.061203197947215,
-     "max": 45.85470155131964
-    },
-    "itl": {
-     "avg": 113.05794647976822,
-     "p50": 44.655467,
-     "p90": 53.00206059999999,
-     "p95": 753.2620165999996,
-     "p99": 1198.52340719,
-     "max": 8027.628857
-    },
-    "e2e": {
-     "avg": 35.4992060671625,
-     "p50": 35.517510333,
-     "p90": 42.578209448100004,
-     "p95": 46.1956090563,
-     "p99": 61.48036336415,
-     "max": 70.96347077600001
-    }
-   }
-  },
-  {
-   "cfg": "memonly",
-   "arm": "mtp",
-   "cat": "lo",
-   "conc": 64,
-   "tput": 956.9,
-   "acc": null,
-   "full": null,
-   "swa": null,
-   "retract": null,
-   "peak": null,
-   "stats": {
-    "ttft": {
-     "avg": 34.09171836862305,
-     "p50": 34.851323046999994,
-     "p90": 36.4873875991,
-     "p95": 37.73408829755,
-     "p99": 52.92925187680999,
-     "max": 57.889660854999995
-    },
-    "tpot": {
-     "avg": 31.697418430292718,
-     "p50": 31.599188208211146,
-     "p90": 37.728003771847504,
-     "p95": 40.321841963049856,
-     "p99": 47.59670082423262,
-     "max": 77.24909036950146
-    },
-    "itl": {
-     "avg": 130.52159619296384,
-     "p50": 46.5264745,
-     "p90": 641.1701934,
-     "p95": 769.8678271499999,
-     "p99": 1206.7592056899998,
-     "max": 44599.407699999996
-    },
-    "e2e": {
-     "avg": 66.5181774228125,
-     "p50": 66.961529382,
-     "p90": 74.04470824920001,
-     "p95": 78.48310516935,
-     "p99": 88.71243010901999,
-     "max": 94.314068869
-    }
-   }
-  },
   {
    "cfg": "A",
    "arm": "base",
@@ -3237,7 +342,8 @@
      "p99": 15.585692509449999,
      "max": 15.729135435999998
     }
-   }
+   },
+   "ttot": 658.758210911739
   },
   {
    "cfg": "A",
@@ -3283,7 +389,8 @@
      "p99": 25.63847378487,
      "max": 25.638476271
     }
-   }
+   },
+   "ttot": 3271.052445706691
   },
   {
    "cfg": "A",
@@ -3329,7 +436,8 @@
      "p99": 60.54671392733,
      "max": 75.006875491
     }
-   }
+   },
+   "ttot": 6118.424988045784
   },
   {
    "cfg": "A",
@@ -3375,7 +483,8 @@
      "p99": 133.27775695756998,
      "max": 190.339806181
     }
-   }
+   },
+   "ttot": 6250.436136495678
   },
   {
    "cfg": "A",
@@ -3421,7 +530,8 @@
      "p99": 15.62300501361,
      "max": 15.646733115
     }
-   }
+   },
+   "ttot": 670.1275176538113
   },
   {
    "cfg": "A",
@@ -3467,7 +577,8 @@
      "p99": 25.3089590745,
      "max": 25.309014651
     }
-   }
+   },
+   "ttot": 3345.9510371585307
   },
   {
    "cfg": "A",
@@ -3513,7 +624,8 @@
      "p99": 75.23044823772,
      "max": 100.284358199
     }
-   }
+   },
+   "ttot": 6234.558982867771
   },
   {
    "cfg": "A",
@@ -3559,7 +671,8 @@
      "p99": 157.3115370365999,
      "max": 230.51473378799997
     }
-   }
+   },
+   "ttot": 6249.895977408281
   },
   {
    "cfg": "A",
@@ -3605,7 +718,8 @@
      "p99": 11.142022869949994,
      "max": 12.67155617
     }
-   }
+   },
+   "ttot": 1172.0940660137471
   },
   {
    "cfg": "A",
@@ -3651,7 +765,8 @@
      "p99": 23.945193616849977,
      "max": 26.833259963
     }
-   }
+   },
+   "ttot": 4761.7012961776
   },
   {
    "cfg": "A",
@@ -3697,7 +812,8 @@
      "p99": 66.60147778428001,
      "max": 74.224788018
     }
-   }
+   },
+   "ttot": 7395.675277516187
   },
   {
    "cfg": "A",
@@ -3743,7 +859,8 @@
      "p99": 119.94127637739996,
      "max": 140.52356311399998
     }
-   }
+   },
+   "ttot": 7463.510977566619
   },
   {
    "cfg": "A",
@@ -3789,7 +906,8 @@
      "p99": 6.261725498129999,
      "max": 6.36675768
     }
-   }
+   },
+   "ttot": 2037.585835421582
   },
   {
    "cfg": "A",
@@ -3835,7 +953,8 @@
      "p99": 17.438687232319996,
      "max": 17.848409666
     }
-   }
+   },
+   "ttot": 6938.680820119328
   },
   {
    "cfg": "A",
@@ -3881,7 +1000,8 @@
      "p99": 57.29665807607,
      "max": 63.026817294
     }
-   }
+   },
+   "ttot": 9540.186747447226
   },
   {
    "cfg": "A",
@@ -3927,7 +1047,8 @@
      "p99": 100.73988616153994,
      "max": 111.696937721
     }
-   }
+   },
+   "ttot": 9539.060517766757
   },
   {
    "cfg": "B",
@@ -3973,7 +1094,8 @@
      "p99": 15.618775056479999,
      "max": 15.745453254
     }
-   }
+   },
+   "ttot": 658.3159439824324
   },
   {
    "cfg": "B",
@@ -4019,7 +1141,8 @@
      "p99": 25.865401344869998,
      "max": 25.865865190999997
     }
-   }
+   },
+   "ttot": 3261.75035726494
   },
   {
    "cfg": "B",
@@ -4065,7 +1188,8 @@
      "p99": 51.24695477545,
      "max": 51.260587903
     }
-   }
+   },
+   "ttot": 6389.282270501243
   },
   {
    "cfg": "B",
@@ -4111,7 +1235,8 @@
      "p99": 138.43913500154,
      "max": 138.448646831
     }
-   }
+   },
+   "ttot": 6090.250903977149
   },
   {
    "cfg": "B",
@@ -4157,7 +1282,8 @@
      "p99": 15.642149440209998,
      "max": 15.683347050999998
     }
-   }
+   },
+   "ttot": 669.2035357866472
   },
   {
    "cfg": "B",
@@ -4203,7 +1329,8 @@
      "p99": 25.457777586629998,
      "max": 25.457930612
     }
-   }
+   },
+   "ttot": 3335.692786071648
   },
   {
    "cfg": "B",
@@ -4249,7 +1376,8 @@
      "p99": 51.66422458476,
      "max": 51.684902788
     }
-   }
+   },
+   "ttot": 6512.089728744625
   },
   {
    "cfg": "B",
@@ -4295,7 +1423,8 @@
      "p99": 137.57518855261,
      "max": 137.584895107
     }
-   }
+   },
+   "ttot": 6304.869688011468
   },
   {
    "cfg": "B",
@@ -4341,7 +1470,8 @@
      "p99": 11.197350215849994,
      "max": 12.696949614
     }
-   }
+   },
+   "ttot": 1169.4425005391759
   },
   {
    "cfg": "B",
@@ -4387,7 +1517,8 @@
      "p99": 24.022821230859993,
      "max": 24.829824926999997
     }
-   }
+   },
+   "ttot": 4699.191228373309
   },
   {
    "cfg": "B",
@@ -4433,7 +1564,8 @@
      "p99": 64.31323263354001,
      "max": 66.668771956
     }
-   }
+   },
+   "ttot": 7565.526752470993
   },
   {
    "cfg": "B",
@@ -4479,7 +1611,8 @@
      "p99": 103.4844781623,
      "max": 109.617804513
     }
-   }
+   },
+   "ttot": 7592.973757604441
   },
   {
    "cfg": "B",
@@ -4525,7 +1658,8 @@
      "p99": 6.285013964639999,
      "max": 6.407154189
     }
-   }
+   },
+   "ttot": 1997.9855625972323
   },
   {
    "cfg": "B",
@@ -4571,7 +1705,8 @@
      "p99": 17.307849278709995,
      "max": 18.012487053999997
     }
-   }
+   },
+   "ttot": 6849.150378611371
   },
   {
    "cfg": "B",
@@ -4617,7 +1752,8 @@
      "p99": 51.23080946657,
      "max": 56.965725436
     }
-   }
+   },
+   "ttot": 9778.174274035284
   },
   {
    "cfg": "B",
@@ -4663,7 +1799,8 @@
      "p99": 85.17712030196999,
      "max": 88.99914066599999
     }
-   }
+   },
+   "ttot": 9862.576791144822
   },
   {
    "cfg": "vllm256",
@@ -4709,7 +1846,8 @@
      "p99": 21.70112832894999,
      "max": 23.262842344
     }
-   }
+   },
+   "ttot": 527.8208543472236
   },
   {
    "cfg": "vllm256",
@@ -4755,7 +1893,8 @@
      "p99": 26.563814625699997,
      "max": 26.604421313
     }
-   }
+   },
+   "ttot": 3233.9725732956426
   },
   {
    "cfg": "vllm256",
@@ -4801,7 +1940,8 @@
      "p99": 51.006440020019994,
      "max": 51.02318643099999
     }
-   }
+   },
+   "ttot": 6407.004399916058
   },
   {
    "cfg": "vllm256",
@@ -4847,7 +1987,8 @@
      "p99": 137.34422994199,
      "max": 165.553961186
     }
-   }
+   },
+   "ttot": 7013.965291588696
   },
   {
    "cfg": "vllm256",
@@ -4893,7 +2034,8 @@
      "p99": 21.132041069629995,
      "max": 22.235330585
     }
-   }
+   },
+   "ttot": 530.3229950644813
   },
   {
    "cfg": "vllm256",
@@ -4939,7 +2081,8 @@
      "p99": 26.538031535929996,
      "max": 26.539810009999997
     }
-   }
+   },
+   "ttot": 3202.0882611199486
   },
   {
    "cfg": "vllm256",
@@ -4985,7 +2128,8 @@
      "p99": 51.21464809347,
      "max": 51.356149626
     }
-   }
+   },
+   "ttot": 6552.135060735872
   },
   {
    "cfg": "vllm256",
@@ -5031,7 +2175,8 @@
      "p99": 164.32480598088998,
      "max": 165.08866597499997
     }
-   }
+   },
+   "ttot": 7163.822971712649
   },
   {
    "cfg": "vllm256",
@@ -5077,7 +2222,8 @@
      "p99": 14.55591815711999,
      "max": 16.507227033
     }
-   }
+   },
+   "ttot": 885.8238557249053
   },
   {
    "cfg": "vllm256",
@@ -5123,7 +2269,8 @@
      "p99": 32.36442700940998,
      "max": 34.278628547
     }
-   }
+   },
+   "ttot": 4414.767280968541
   },
   {
    "cfg": "vllm256",
@@ -5169,7 +2316,8 @@
      "p99": 77.31506575776,
      "max": 80.967957269
     }
-   }
+   },
+   "ttot": 7506.871987264603
   },
   {
    "cfg": "vllm256",
@@ -5215,7 +2363,8 @@
      "p99": 151.75408571115995,
      "max": 166.870553264
     }
-   }
+   },
+   "ttot": 7754.485667283371
   },
   {
    "cfg": "vllm256",
@@ -5261,7 +2410,8 @@
      "p99": 8.258623288269998,
      "max": 8.750965183
     }
-   }
+   },
+   "ttot": 1540.6527429953626
   },
   {
    "cfg": "vllm256",
@@ -5307,7 +2457,8 @@
      "p99": 27.50506989720999,
      "max": 28.611152373999996
     }
-   }
+   },
+   "ttot": 6159.386969405129
   },
   {
    "cfg": "vllm256",
@@ -5353,7 +2504,8 @@
      "p99": 65.214860522,
      "max": 69.99053038499999
     }
-   }
+   },
+   "ttot": 9534.72379584311
   },
   {
    "cfg": "vllm256",
@@ -5399,7 +2551,8 @@
      "p99": 121.79358821086997,
      "max": 138.392268434
     }
-   }
+   },
+   "ttot": 9727.965444420273
   },
   {
    "cfg": "r015",
@@ -5447,7 +2600,8 @@
      "p99": 115.39645404622,
      "max": 152.995889507
     }
-   }
+   },
+   "ttot": 7502.682041416936
   },
   {
    "cfg": "r015",
@@ -5495,7 +2649,8 @@
      "p99": 89.15472656066999,
      "max": 99.78565488999999
     }
-   }
+   },
+   "ttot": 9814.021581490919
   },
   {
    "cfg": "r025",
@@ -5543,7 +2698,8 @@
      "p99": 105.85034572282,
      "max": 108.996126096
     }
-   }
+   },
+   "ttot": 7614.865215555642
   },
   {
    "cfg": "r025",
@@ -5591,7 +2747,8 @@
      "p99": 85.71131773505999,
      "max": 115.925124121
     }
-   }
+   },
+   "ttot": 9827.942524956477
   },
   {
    "cfg": "s64",
@@ -5639,7 +2796,8 @@
      "p99": 124.81634766949999,
      "max": 131.94768798799998
     }
-   }
+   },
+   "ttot": 7278.563511889858
   },
   {
    "cfg": "s64",
@@ -5686,6 +2844,753 @@
      "p95": 88.14450486775,
      "p99": 99.67882788574997,
      "max": 106.082007095
+    }
+   },
+   "ttot": 9473.80367376264
+  },
+  {
+   "cfg": "s64m97",
+   "arm": "mtp",
+   "cat": "hi",
+   "conc": 64,
+   "tput": 758.7044907440117,
+   "acc": 2.05,
+   "full": 392509,
+   "swa": 78501,
+   "retract": 12,
+   "peak": 42,
+   "run": "37962665284",
+   "n": 512,
+   "stats": {
+    "ttft": {
+     "avg": 33.34458490109377,
+     "p50": 33.4506791255,
+     "p90": 42.11719462279999,
+     "p95": 50.0975837521,
+     "p99": 64.83105959561,
+     "max": 77.445055688
+    },
+    "tpot": {
+     "avg": 49.78472983971584,
+     "p50": 51.71087090078201,
+     "p90": 63.480388350928635,
+     "p95": 69.54169987385141,
+     "p99": 78.77595031718475,
+     "max": 88.58604416715542
+    },
+    "itl": {
+     "avg": 118.67799007162259,
+     "p50": 59.619076,
+     "p90": 144.114753,
+     "p95": 651.9285249999999,
+     "p99": 825.0798596,
+     "max": 30429.617309999998
+    },
+    "e2e": {
+     "avg": 84.2743635271231,
+     "p50": 84.7414196855,
+     "p90": 102.92869503130001,
+     "p95": 114.68317546104997,
+     "p99": 127.18645846719997,
+     "max": 138.590899713
+    }
+   },
+   "ttot": 7420.162276944873
+  },
+  {
+   "cfg": "s64m97",
+   "arm": "mtp",
+   "cat": "lo",
+   "conc": 64,
+   "tput": 955.8431212131214,
+   "acc": 4.197826086956522,
+   "full": 392201,
+   "swa": 78440,
+   "retract": 6,
+   "peak": 42,
+   "run": "37962669982",
+   "n": 512,
+   "stats": {
+    "ttft": {
+     "avg": 27.11430237969336,
+     "p50": 26.529042259999997,
+     "p90": 34.9326940343,
+     "p95": 40.826875766749986,
+     "p99": 53.56125957113,
+     "max": 58.001041339
+    },
+    "tpot": {
+     "avg": 39.09389783459913,
+     "p50": 39.536444332844574,
+     "p90": 48.30444626011729,
+     "p95": 52.452859544672535,
+     "p99": 55.99617600304008,
+     "max": 58.648989683284455
+    },
+    "itl": {
+     "avg": 160.40582694012826,
+     "p50": 59.633904,
+     "p90": 642.5505326,
+     "p95": 651.7899206,
+     "p99": 1237.4007029500006,
+     "max": 25676.153256999998
+    },
+    "e2e": {
+     "avg": 67.10735986448826,
+     "p50": 66.667550325,
+     "p90": 82.75905439129998,
+     "p95": 89.41923768474999,
+     "p99": 102.61320998518998,
+     "max": 108.43500036399999
+    }
+   },
+   "ttot": 9668.314666648115
+  },
+  {
+   "cfg": "t2vllm",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 1,
+   "tput": 34.26037,
+   "ttot": 2044.54533,
+   "hit": 0.89992,
+   "ok": 163,
+   "err": 1,
+   "werr": 7,
+   "power": null,
+   "acc": 3.5865000000000005,
+   "full": 519675,
+   "swa": null,
+   "retract": 0,
+   "peak": 1,
+   "run": "37800187468",
+   "n": 163,
+   "stats": {
+    "ttft": {
+     "avg": 0.21979314242944792,
+     "p50": 0.14190873299999998,
+     "p90": 0.38971724100000016,
+     "p95": 0.5316274731,
+     "p99": 1.50391740998,
+     "max": 1.6908455509999998
+    },
+    "tpot": {
+     "avg": 7.062787600770072,
+     "p50": 7.106238379120878,
+     "p90": 9.52016755108147,
+     "p95": 10.037933638338687,
+     "p99": 11.400660376759081,
+     "max": 12.172146957894734
+    },
+    "itl": {
+     "avg": 33.70554097222845,
+     "p50": 29.073843,
+     "p90": 34.6559398,
+     "p95": 59.57248875000005,
+     "p99": 168.73949863999997,
+     "max": 789.5779309999999
+    },
+    "e2e": {
+     "avg": 2.0589163412453986,
+     "p50": 1.539857931,
+     "p90": 3.6174203744000004,
+     "p95": 4.749636939500001,
+     "p99": 11.291119442299966,
+     "max": 16.455523004
+    }
+   }
+  },
+  {
+   "cfg": "t2vllm",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 8,
+   "tput": 159.64952,
+   "ttot": 11306.92333,
+   "hit": 0.91113,
+   "ok": 909,
+   "err": 0,
+   "werr": 45,
+   "power": null,
+   "acc": 3.612644628099175,
+   "full": 519675,
+   "swa": null,
+   "retract": 0,
+   "peak": 7,
+   "run": "37800187468",
+   "n": 909,
+   "stats": {
+    "ttft": {
+     "avg": 0.2831020890792078,
+     "p50": 0.193413129,
+     "p90": 0.4847380714,
+     "p95": 0.7161615512000001,
+     "p99": 1.8392499097999992,
+     "max": 3.709656307
+    },
+    "tpot": {
+     "avg": 8.090466230990284,
+     "p50": 7.974593916455697,
+     "p90": 11.295080995688904,
+     "p95": 12.462935403104575,
+     "p99": 17.71025259531209,
+     "max": 35.9185657368421
+    },
+    "itl": {
+     "avg": 41.039690181932805,
+     "p50": 29.639231,
+     "p90": 41.08419,
+     "p95": 69.965198,
+     "p99": 267.68088450000045,
+     "max": 4926.225676999999
+    },
+    "e2e": {
+     "avg": 2.035347870873487,
+     "p50": 1.6582544430000001,
+     "p90": 4.157911027200001,
+     "p95": 4.9323568062,
+     "p99": 6.896551436079998,
+     "max": 11.474839198
+    }
+   }
+  },
+  {
+   "cfg": "t2vllm",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 16,
+   "tput": 322.03952,
+   "ttot": 22125.17488,
+   "hit": 0.90489,
+   "ok": 1803,
+   "err": 2,
+   "werr": 96,
+   "power": null,
+   "acc": 3.6470161290322607,
+   "full": 519675,
+   "swa": null,
+   "retract": 0,
+   "peak": 10,
+   "run": "37800187468",
+   "n": 1803,
+   "stats": {
+    "ttft": {
+     "avg": 0.3744180251674988,
+     "p50": 0.237321069,
+     "p90": 0.6747506637999998,
+     "p95": 1.1702007647000003,
+     "p99": 2.588168298960003,
+     "max": 6.488365003999999
+    },
+    "tpot": {
+     "avg": 10.364153604955478,
+     "p50": 9.532117426934096,
+     "p90": 14.571663427366689,
+     "p95": 18.020144650171922,
+     "p99": 33.35887739839003,
+     "max": 86.69411475000001
+    },
+    "itl": {
+     "avg": 48.431830135662096,
+     "p50": 34.581191499999996,
+     "p90": 60.448763,
+     "p95": 89.118167,
+     "p99": 347.4367798500007,
+     "max": 8131.121853
+    },
+    "e2e": {
+     "avg": 2.660787217528564,
+     "p50": 2.017157731,
+     "p90": 5.480887459799999,
+     "p95": 6.7980478677,
+     "p99": 11.399999301780008,
+     "max": 16.9486056
+    }
+   }
+  },
+  {
+   "cfg": "t2vllm",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 32,
+   "tput": 288.4897,
+   "ttot": 19614.07209,
+   "hit": 0.60198,
+   "ok": 1633,
+   "err": 3,
+   "werr": 191,
+   "power": null,
+   "acc": 3.588467741935485,
+   "full": 519675,
+   "swa": null,
+   "retract": 0,
+   "peak": 32,
+   "run": "37800187468",
+   "n": 1633,
+   "stats": {
+    "ttft": {
+     "avg": 3.440315093748318,
+     "p50": 1.435355607,
+     "p90": 10.189858080199999,
+     "p95": 13.406898464000005,
+     "p99": 18.31907116880001,
+     "max": 20.765711763
+    },
+    "tpot": {
+     "avg": 55.55903696618034,
+     "p50": 29.36308548447205,
+     "p90": 144.25635713932385,
+     "p95": 184.06368188654977,
+     "p99": 268.7109735566669,
+     "max": 415.69995111864404
+    },
+    "itl": {
+     "avg": 241.89538506084932,
+     "p50": 45.974551999999996,
+     "p90": 759.595507,
+     "p95": 1384.545838,
+     "p99": 1774.9764856999998,
+     "max": 70888.31043
+    },
+    "e2e": {
+     "avg": 14.901238448030602,
+     "p50": 8.861898284999999,
+     "p90": 33.819988085599995,
+     "p95": 49.967633994000046,
+     "p99": 86.75045019168003,
+     "max": 128.501097518
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl08",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 1,
+   "tput": 37.07022,
+   "ttot": 2285.46144,
+   "hit": 0.87772,
+   "ok": 180,
+   "err": 0,
+   "werr": 2,
+   "power": null,
+   "acc": 3.1410220994475124,
+   "full": 132161,
+   "swa": 105728,
+   "retract": 0,
+   "peak": 1,
+   "run": "37802254543",
+   "n": 180,
+   "stats": {
+    "ttft": {
+     "avg": 0.2854337972555555,
+     "p50": 0.17014173349999998,
+     "p90": 0.5409001586000001,
+     "p95": 0.8156184690000006,
+     "p99": 1.49250340254,
+     "max": 1.660183609
+    },
+    "tpot": {
+     "avg": 5.022444281170658,
+     "p50": 4.954506834415518,
+     "p90": 6.360339601884723,
+     "p95": 6.853536444782218,
+     "p99": 9.642416818125772,
+     "max": 17.024102300133986
+    },
+    "itl": {
+     "avg": 21.438858252461806,
+     "p50": 18.587086499999998,
+     "p90": 19.1636991,
+     "p95": 22.17932124999999,
+     "p99": 68.93648527999983,
+     "max": 1560.535106
+    },
+    "e2e": {
+     "avg": 1.6884879651111107,
+     "p50": 1.154289045,
+     "p90": 2.7370187877,
+     "p95": 3.42993919135,
+     "p99": 9.859529146220018,
+     "max": 38.613792327
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl08",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 8,
+   "tput": 164.31992,
+   "ttot": 11563.76127,
+   "hit": 0.87951,
+   "ok": 932,
+   "err": 0,
+   "werr": 11,
+   "power": null,
+   "acc": 3.652736077481845,
+   "full": 132161,
+   "swa": 105728,
+   "retract": 0,
+   "peak": 6,
+   "run": "37802254543",
+   "n": 932,
+   "stats": {
+    "ttft": {
+     "avg": 0.35523824424463574,
+     "p50": 0.24162813149999998,
+     "p90": 0.7172520598999998,
+     "p95": 1.121791493050001,
+     "p99": 1.8289196355900001,
+     "max": 3.231454534
+    },
+    "tpot": {
+     "avg": 6.424767367850989,
+     "p50": 6.08969205025069,
+     "p90": 9.713595752361083,
+     "p95": 11.46591289171123,
+     "p99": 18.402033117259897,
+     "max": 32.2746605
+    },
+    "itl": {
+     "avg": 30.395608801374312,
+     "p50": 21.714525,
+     "p90": 29.841337199999995,
+     "p95": 44.917139399999954,
+     "p99": 202.04853436000255,
+     "max": 4168.525285
+    },
+    "e2e": {
+     "avg": 1.7504032108905578,
+     "p50": 1.425845861,
+     "p90": 3.4868190148,
+     "p95": 4.2420749401,
+     "p99": 6.539117686320009,
+     "max": 12.329343274
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl08",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 16,
+   "tput": 220.85311,
+   "ttot": 14465.47306,
+   "hit": 0.50395,
+   "ok": 1207,
+   "err": 0,
+   "werr": 25,
+   "power": null,
+   "acc": 3.5937183098591556,
+   "full": 132161,
+   "swa": 105728,
+   "retract": 2,
+   "peak": 11,
+   "run": "37802254543",
+   "n": 1207,
+   "stats": {
+    "ttft": {
+     "avg": 2.0874901243719957,
+     "p50": 1.566808195,
+     "p90": 4.6334036732,
+     "p95": 5.788427938800001,
+     "p99": 8.45874653958001,
+     "max": 15.810082185999999
+    },
+    "tpot": {
+     "avg": 23.1138740381604,
+     "p50": 19.021174620437954,
+     "p90": 46.066911419167916,
+     "p95": 54.79974415798029,
+     "p99": 74.7384772537029,
+     "max": 138.97148121146955
+    },
+    "itl": {
+     "avg": 107.11428274877703,
+     "p50": 34.878068,
+     "p90": 81.0370194,
+     "p95": 607.6848583999999,
+     "p99": 1560.2779464400007,
+     "max": 45411.143521
+    },
+    "e2e": {
+     "avg": 7.514820853507876,
+     "p50": 5.634523564999999,
+     "p90": 15.563134132600002,
+     "p95": 19.702844340400002,
+     "p99": 32.24378877302001,
+     "max": 145.376168461
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl08",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 32,
+   "tput": 207.33843,
+   "ttot": 12795.04064,
+   "hit": 0.30025,
+   "ok": 1155,
+   "err": 0,
+   "werr": 41,
+   "power": null,
+   "acc": 3.5837195121951213,
+   "full": 132161,
+   "swa": 105728,
+   "retract": 5,
+   "peak": 16,
+   "run": "37802254543",
+   "n": 1155,
+   "stats": {
+    "ttft": {
+     "avg": 15.075612680378361,
+     "p50": 13.891466381999999,
+     "p90": 26.479283066599997,
+     "p95": 30.45526029779998,
+     "p99": 41.255447910500024,
+     "max": 54.894593670999996
+    },
+    "tpot": {
+     "avg": 45.65556851007207,
+     "p50": 45.88093055673758,
+     "p90": 68.67192150317989,
+     "p95": 79.04122532017942,
+     "p99": 106.21562082173595,
+     "max": 167.12387715714286
+    },
+    "itl": {
+     "avg": 194.85588822010644,
+     "p50": 45.8825055,
+     "p90": 655.7271591000002,
+     "p95": 800.6568943,
+     "p99": 1941.2725690399998,
+     "max": 28447.008552
+    },
+    "e2e": {
+     "avg": 25.307318229099558,
+     "p50": 23.781012628,
+     "p90": 42.152877903,
+     "p95": 48.69810815069997,
+     "p99": 61.236462539739996,
+     "max": 91.38263920399999
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl02",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 1,
+   "tput": 37.22812,
+   "ttot": 2295.28768,
+   "hit": 0.87486,
+   "ok": 180,
+   "err": 0,
+   "werr": 2,
+   "power": null,
+   "acc": 3.205225988700566,
+   "full": 365387,
+   "swa": 73077,
+   "retract": 0,
+   "peak": 1,
+   "run": "37920508659",
+   "n": 180,
+   "stats": {
+    "ttft": {
+     "avg": 0.28851085750000005,
+     "p50": 0.170969417,
+     "p90": 0.5479976263999997,
+     "p95": 0.8159658059500006,
+     "p99": 1.4903538588899998,
+     "max": 1.654920586
+    },
+    "tpot": {
+     "avg": 4.94271402861288,
+     "p50": 4.891153005243016,
+     "p90": 6.140407160140035,
+     "p95": 6.982593083499903,
+     "p99": 9.165437786919286,
+     "max": 17.183722887003125
+    },
+    "itl": {
+     "avg": 22.24946019910155,
+     "p50": 18.6068045,
+     "p90": 19.251107100000002,
+     "p95": 27.95395799999999,
+     "p99": 74.96880075999972,
+     "max": 1849.447543
+    },
+    "e2e": {
+     "avg": 1.6642691464777781,
+     "p50": 1.1209762689999998,
+     "p90": 2.7060310952999997,
+     "p95": 3.604969823350001,
+     "p99": 7.149484189310022,
+     "max": 38.973444126
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl02",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 8,
+   "tput": 167.30178,
+   "ttot": 11762.51275,
+   "hit": 0.90044,
+   "ok": 946,
+   "err": 0,
+   "werr": 12,
+   "power": null,
+   "acc": 3.6663689095127556,
+   "full": 365387,
+   "swa": 73077,
+   "retract": 0,
+   "peak": 5,
+   "run": "37920508659",
+   "n": 946,
+   "stats": {
+    "ttft": {
+     "avg": 0.3110865606733616,
+     "p50": 0.22064309099999999,
+     "p90": 0.5436982504999999,
+     "p95": 0.84426399525,
+     "p99": 1.7777674853999945,
+     "max": 3.0900929699999997
+    },
+    "tpot": {
+     "avg": 6.071905673587476,
+     "p50": 5.864492442112619,
+     "p90": 8.959447302819548,
+     "p95": 10.487001155149649,
+     "p99": 14.033420778224755,
+     "max": 30.04203751231527
+    },
+    "itl": {
+     "avg": 28.945208110216637,
+     "p50": 21.39375,
+     "p90": 29.2664568,
+     "p95": 42.10846420000001,
+     "p99": 160.7618872399998,
+     "max": 3123.578958
+    },
+    "e2e": {
+     "avg": 1.6452893087135305,
+     "p50": 1.317395614,
+     "p90": 3.2805344515000003,
+     "p95": 4.06847193675,
+     "p99": 6.3672214208999804,
+     "max": 8.807259643
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl02",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 16,
+   "tput": 327.05934,
+   "ttot": 22386.00411,
+   "hit": 0.8784,
+   "ok": 1830,
+   "err": 2,
+   "werr": 25,
+   "power": null,
+   "acc": 3.6786274509803922,
+   "full": 365387,
+   "swa": 73077,
+   "retract": 0,
+   "peak": 11,
+   "run": "37920508659",
+   "n": 1830,
+   "stats": {
+    "ttft": {
+     "avg": 0.4515944801612023,
+     "p50": 0.292259516,
+     "p90": 0.9897554860999994,
+     "p95": 1.4551838476499999,
+     "p99": 2.4831243229500015,
+     "max": 4.293646032
+    },
+    "tpot": {
+     "avg": 9.2567816215819,
+     "p50": 8.433847852585759,
+     "p90": 14.559018303586216,
+     "p95": 17.933807713938677,
+     "p99": 27.401353629693713,
+     "max": 51.47143805714286
+    },
+    "itl": {
+     "avg": 41.92026646706833,
+     "p50": 27.204140499999998,
+     "p90": 45.9970906,
+     "p95": 88.88525489999999,
+     "p99": 459.2720622399999,
+     "max": 8007.412791
+    },
+    "e2e": {
+     "avg": 2.5008312001672133,
+     "p50": 1.8764878315,
+     "p90": 5.130368047799999,
+     "p95": 6.520794305749999,
+     "p99": 10.621665484800001,
+     "max": 18.162701569999996
+    }
+   }
+  },
+  {
+   "cfg": "t2sgl02",
+   "arm": "mtp",
+   "cat": "t2",
+   "conc": 32,
+   "tput": 327.73349,
+   "ttot": 22604.38838,
+   "hit": 0.63497,
+   "ok": 1879,
+   "err": 3,
+   "werr": 43,
+   "power": null,
+   "acc": 3.801034482758621,
+   "full": 365387,
+   "swa": 73077,
+   "retract": 0,
+   "peak": 29,
+   "run": "37920508659",
+   "n": 1879,
+   "stats": {
+    "ttft": {
+     "avg": 2.4567514824587557,
+     "p50": 1.39218361,
+     "p90": 5.6258003084000014,
+     "p95": 8.620778443199997,
+     "p99": 16.20310969286001,
+     "max": 22.616892826
+    },
+    "tpot": {
+     "avg": 45.44399369585461,
+     "p50": 37.52797166240876,
+     "p90": 87.1249566523256,
+     "p95": 111.76925849275912,
+     "p99": 178.96472270524922,
+     "max": 399.5971135111111
+    },
+    "itl": {
+     "avg": 199.68121255025056,
+     "p50": 51.692111,
+     "p90": 197.5660116,
+     "p95": 637.1313828,
+     "p99": 3615.7543543599986,
+     "max": 30869.837578
+    },
+    "e2e": {
+     "avg": 12.164829082300706,
+     "p50": 9.709990039000001,
+     "p90": 25.561651919600003,
+     "p95": 31.767283742899988,
+     "p99": 47.066160163240006,
+     "max": 79.47316045499998
     }
    }
   }
