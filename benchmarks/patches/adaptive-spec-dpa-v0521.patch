@@ -1,0 +1,1017 @@
+diff --git a/python/sglang/srt/arg_groups/speculative_hook.py b/python/sglang/srt/arg_groups/speculative_hook.py
+index 539188ba15..cf5f41de50 100644
+--- a/python/sglang/srt/arg_groups/speculative_hook.py
++++ b/python/sglang/srt/arg_groups/speculative_hook.py
+@@ -1265,6 +1265,9 @@ def _maybe_disable_adaptive(server_args: ServerArgs) -> None:
+     )
+ 
+     reason = adaptive_unsupported_reason(server_args)
++    if reason is not None and resolved_view(server_args).enable_dp_attention:
++        # Under DP attention, fail instead of silently serving static spec params.
++        raise ValueError(f"--speculative-adaptive with DP attention: {reason}")
+     if reason is not None:
+         logger.warning(
+             f"speculative_adaptive disabled: {reason}. "
+diff --git a/python/sglang/srt/managers/schedule_batch.py b/python/sglang/srt/managers/schedule_batch.py
+index 52c72a0e24..e373ce55b9 100755
+--- a/python/sglang/srt/managers/schedule_batch.py
++++ b/python/sglang/srt/managers/schedule_batch.py
+@@ -2481,6 +2481,9 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
+     # sync all-gather (the TBO-only `global_forward_mode` is None without TBO).
+     recv_skipper_forward_mode: Optional[ForwardMode] = None
+     spec_verify_tier_num_tokens: int = -1
++    # Adaptive spec tier every DP rank runs this forward, resolved from the
++    # MLP-sync gather; None outside adaptive spec under DP attention.
++    adaptive_spec_num_steps: Optional[int] = None
+ 
+     # For processing logprobs
+     return_logprob: bool = False
+@@ -3839,6 +3842,7 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
+             can_run_decode_cuda_graph=self.can_run_decode_cuda_graph,
+             can_run_dp_draft_cuda_graph=self.can_run_dp_draft_cuda_graph,
+             can_run_dp_prefill_cuda_graph=self.can_run_dp_prefill_cuda_graph,
++            adaptive_spec_num_steps=self.adaptive_spec_num_steps,
+             dp_prefill_cuda_graph_max_prefix_len=self.dp_prefill_cuda_graph_max_prefix_len,
+             is_extend_in_batch=self.is_extend_in_batch,
+             is_prefill_only=self.is_prefill_only,
+diff --git a/python/sglang/srt/managers/scheduler.py b/python/sglang/srt/managers/scheduler.py
+index a7d8baeecc..1dce76b7d0 100644
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -2340,6 +2340,11 @@ class Scheduler(
+             enable_overlap=self.enable_overlap,
+             spec_algorithm=self.spec_algorithm,
+             get_require_mlp_sync=lambda: self.require_mlp_sync,
++            dp_adaptive_consensus=(
++                self.draft_worker.dp_adaptive_consensus
++                if isinstance(self.draft_worker, BaseSpecWorker)
++                else None
++            ),
+         )
+ 
+     def init_pool_stats_observer(self) -> None:
+diff --git a/python/sglang/srt/managers/scheduler_components/batch_result_processor.py b/python/sglang/srt/managers/scheduler_components/batch_result_processor.py
+index e0f922fe8d..ed75bd1e70 100644
+--- a/python/sglang/srt/managers/scheduler_components/batch_result_processor.py
++++ b/python/sglang/srt/managers/scheduler_components/batch_result_processor.py
+@@ -775,7 +775,9 @@ class SchedulerBatchResultProcessor:
+         # instead of doing a synchronous GPU→CPU copy in the worker hot path.
+         # BaseSpecWorker provides a no-op default for non-adaptive workers.
+         self.model_worker.on_verify_complete_cpu(
+-            result.num_correct_drafts_per_req_cpu, batch_size=len(batch.reqs)
++            result.num_correct_drafts_per_req_cpu,
++            batch_size=len(batch.reqs),
++            num_steps=batch.adaptive_spec_num_steps,
+         )
+ 
+         # Advance the grammar FSM over this batch's committed tokens (idempotent):
+diff --git a/python/sglang/srt/managers/scheduler_components/dp_attn.py b/python/sglang/srt/managers/scheduler_components/dp_attn.py
+index ea64aea930..73ac789fb5 100644
+--- a/python/sglang/srt/managers/scheduler_components/dp_attn.py
++++ b/python/sglang/srt/managers/scheduler_components/dp_attn.py
+@@ -1,6 +1,6 @@
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ from typing import TYPE_CHECKING, Callable, Optional
+ 
+ import torch
+@@ -36,6 +36,11 @@ from sglang.srt.runtime_context import (
+     get_schedule,
+     get_spec,
+ )
++from sglang.srt.speculative.dp_adaptive_consensus import (
++    DPAdaptiveConsensus,
++    RankSpecSignals,
++    SpecCounters,
++)
+ from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
+ from sglang.srt.utils.common import require_mlp_tp_gather
+ 
+@@ -45,6 +50,12 @@ if TYPE_CHECKING:
+ 
+ _ENABLE_METRICS_DP_ATTENTION = envs.SGLANG_ENABLE_METRICS_DP_ATTENTION.get()
+ 
++# MLPSyncBatchInfo gather row layout. New columns go after _NUM_BASE_COLUMNS
++# so existing indices never shift; the adaptive spec counters start there.
++_NUM_TOKENS_COL = 0
++_IS_EXTEND_COL = 3
++_NUM_BASE_COLUMNS = 9
++
+ 
+ def _spec_input_cuda_graph_compatible(
+     local_batch: Optional[ScheduleBatch],
+@@ -118,6 +129,8 @@ class MLPSyncBatchInfo:
+     local_can_run_tbo: bool
+     local_forward_mode: int
+     prefill_cuda_graph_max_prefix_len: int = 0
++    # Zeros unless adaptive spec runs under DP attention.
++    spec_counters: SpecCounters = field(default_factory=SpecCounters)
+ 
+     # some gathered elements
+     tp0_info_cpu: torch.Tensor = None
+@@ -139,6 +152,7 @@ class MLPSyncBatchInfo:
+                 int(self.can_run_prefill_cuda_graph),
+                 self.prefill_cuda_graph_max_prefix_len,
+                 int(self.can_run_draft_cuda_graph),
++                *self.spec_counters.to_columns(),
+             ],
+             device=device,
+             dtype=dtype,
+@@ -156,6 +170,7 @@ class MLPSyncBatchInfo:
+                 0,  # can_run_prefill_cuda_graph
+                 0,  # prefill_cuda_graph_max_prefix_len
+                 1,  # can_run_draft_cuda_graph
++                *SpecCounters().to_columns(),
+             ],
+             device=device,
+             dtype=dtype,
+@@ -232,10 +247,10 @@ class MLPSyncBatchInfo:
+         # attn_tp * attn_cp > 1, adding a gather kernel inside the wait.
+         tp0_info_cpu = global_info_tensor.cpu()[:, 0, :]
+         self.tp0_info_cpu = tp0_info_cpu
+-        self.global_num_tokens = tp0_info_cpu[:, 0].tolist()
++        self.global_num_tokens = tp0_info_cpu[:, _NUM_TOKENS_COL].tolist()
+         self.global_num_tokens_for_logprob = tp0_info_cpu[:, 1].tolist()
+         self.can_run_decode_cuda_graph = bool(tp0_info_cpu[:, 2].min())
+-        self.is_extend_in_batch = bool(tp0_info_cpu[:, 3].max())
++        self.is_extend_in_batch = bool(tp0_info_cpu[:, _IS_EXTEND_COL].max())
+         self.can_run_prefill_cuda_graph = bool(tp0_info_cpu[:, 6].min())
+         self.prefill_cuda_graph_max_prefix_len = int(tp0_info_cpu[:, 7].max())
+         self.can_run_draft_cuda_graph = bool(tp0_info_cpu[:, 8].min())
+@@ -244,6 +259,17 @@ class MLPSyncBatchInfo:
+                 tp0_info_cpu[:, 5].tolist()
+             )
+ 
++    def rank_spec_signals(self) -> list[RankSpecSignals]:
++        """Adaptive spec signals of every DP rank, read from attn-TP rank 0 rows."""
++        return [
++            RankSpecSignals.from_gather_row(
++                num_tokens=row[_NUM_TOKENS_COL],
++                is_extend=row[_IS_EXTEND_COL],
++                counter_columns=row[_NUM_BASE_COLUMNS:],
++            )
++            for row in self.tp0_info_cpu.tolist()
++        ]
++
+ 
+ def _update_gather_batch(
+     batch: ScheduleBatch,
+@@ -251,6 +277,7 @@ def _update_gather_batch(
+     require_mlp_tp_gather: bool,
+     draft_require_mlp_tp_gather: Optional[bool] = None,
+     skip_global_metadata=False,
++    adaptive_spec_num_steps: Optional[int] = None,
+ ):
+     if not require_mlp_tp_gather:
+         batch.global_num_tokens = [mlp_sync_info.num_tokens]
+@@ -280,7 +307,7 @@ def _update_gather_batch(
+         batch.dp_spec_prefill_coordination_metadata = (
+             mlp_sync_info.global_num_tokens,
+             mlp_sync_info.global_num_tokens_for_logprob,
+-            info[:, 3],
++            info[:, _IS_EXTEND_COL],
+         )
+     if not skip_global_metadata:
+         batch.is_extend_in_batch = mlp_sync_info.is_extend_in_batch
+@@ -294,6 +321,7 @@ def _update_gather_batch(
+     batch.dp_prefill_cuda_graph_max_prefix_len = (
+         mlp_sync_info.prefill_cuda_graph_max_prefix_len
+     )
++    batch.adaptive_spec_num_steps = adaptive_spec_num_steps
+ 
+ 
+ def should_skip_scheduler_all_gather(dp_size: int) -> bool:
+@@ -419,6 +447,7 @@ def prepare_mlp_sync_batch_raw(
+     offload_tags: set[str],
+     draft_require_mlp_tp_gather: Optional[bool] = None,
+     dwdp: bool = False,
++    dp_adaptive_consensus: Optional[DPAdaptiveConsensus] = None,
+ ):
+     parallel = get_parallel()
+     dp_size = parallel.dp_size
+@@ -520,6 +549,8 @@ def prepare_mlp_sync_batch_raw(
+         local_forward_mode=local_forward_mode,
+         prefill_cuda_graph_max_prefix_len=prefill_cuda_graph_max_prefix_len,
+     )
++    if dp_adaptive_consensus is not None:
++        mlp_sync_info.spec_counters = dp_adaptive_consensus.local_counters
+ 
+     if dp_size == 1:
+         mlp_sync_info.finalize_local()
+@@ -537,6 +568,12 @@ def prepare_mlp_sync_batch_raw(
+                 mlp_sync_info.tp0_info_cpu[:, 4:6],
+             )
+         )
++    # Every rank resolves the same gathered rows, so all ranks agree on the tier.
++    adaptive_spec_num_steps = (
++        dp_adaptive_consensus.resolve(mlp_sync_info.rank_spec_signals())
++        if dp_adaptive_consensus is not None and metadata_ready
++        else None
++    )
+     # Decide whether to emit idle batch
+     if skip_all_gather:
+         # Skip idle batch when attn-dp=1 (and always under DWDP: ranks run independently)
+@@ -559,6 +596,7 @@ def prepare_mlp_sync_batch_raw(
+             require_mlp_tp_gather,
+             draft_require_mlp_tp_gather,
+             skip_global_metadata=not metadata_ready,
++            adaptive_spec_num_steps=adaptive_spec_num_steps,
+         )
+ 
+     # Set on `local_batch`, not `batch_to_gather`: for PREBUILT batches the
+@@ -587,6 +625,7 @@ class SchedulerDPAttnAdapter:
+     enable_overlap: bool
+     spec_algorithm: SpeculativeAlgorithm
+     get_require_mlp_sync: Callable[[], bool]
++    dp_adaptive_consensus: Optional[DPAdaptiveConsensus] = None
+ 
+     def prepare_mlp_sync_batch(self, local_batch: ScheduleBatch):
+         draft_require_mlp_tp_gather = None
+@@ -608,6 +647,7 @@ class SchedulerDPAttnAdapter:
+             disable_overlap_schedule=get_schedule().disable_overlap_schedule,
+             offload_tags=self.offload_tags,
+             dwdp=get_parallel().dwdp_size > 1,
++            dp_adaptive_consensus=self.dp_adaptive_consensus,
+         )
+ 
+     def maybe_prepare_mlp_sync_batch(
+diff --git a/python/sglang/srt/managers/tp_worker.py b/python/sglang/srt/managers/tp_worker.py
+index 6adfbe0437..468caed15c 100644
+--- a/python/sglang/srt/managers/tp_worker.py
++++ b/python/sglang/srt/managers/tp_worker.py
+@@ -86,7 +86,10 @@ class BaseTpWorker(ABC):
+         pass
+ 
+     def on_verify_complete_cpu(
+-        self, num_correct_drafts_per_req: list[int], batch_size: int = 0
++        self,
++        num_correct_drafts_per_req: list[int],
++        batch_size: int = 0,
++        num_steps: Optional[int] = None,
+     ) -> None:
+         """No-op mirror of BaseSpecWorker's hook: PP+spec non-last stages
+         process relayed spec results through a plain worker."""
+diff --git a/python/sglang/srt/speculative/adaptive_runtime_state.py b/python/sglang/srt/speculative/adaptive_runtime_state.py
+index d28e324061..d8709d3783 100644
+--- a/python/sglang/srt/speculative/adaptive_runtime_state.py
++++ b/python/sglang/srt/speculative/adaptive_runtime_state.py
+@@ -2,6 +2,8 @@ from dataclasses import dataclass
+ from typing import TYPE_CHECKING, Protocol
+ 
+ if TYPE_CHECKING:
++    import torch
++
+     from sglang.srt.layers.attention.base_attn_backend import AttentionBackend
+     from sglang.srt.model_executor.cpu_graph_runner import CPUGraphRunner
+     from sglang.srt.model_executor.runner import DecodeCudaGraphRunner
+@@ -33,6 +35,12 @@ class SpecRuntimeState:
+     draft_extend_attn_backend: "AttentionBackend | None"
+     cuda_graph_runner_for_draft_extend: "DecodeCudaGraphRunner | None"
+ 
++    # -- topk=1 chain constants read by draft_forward; None when topk > 1 --
++    # Built once with this state (its draft CUDA graphs return views of these
++    # same tensors), so a switch only swaps references and allocates nothing.
++    topk1_parents: "torch.Tensor | None" = None
++    topk1_score_indices: "torch.Tensor | None" = None
++
+ 
+ class AdaptiveSpecWorker(Protocol):
+     """Protocol that a worker must implement to use AdaptiveController."""
+@@ -120,9 +128,12 @@ class AdaptiveController:
+         self._activate(self.worker.speculative_num_steps)
+ 
+     def activate_step_by_batch(self, batch_size: int) -> None:
+-        target = self.params.get_steps_for_batch(batch_size)
+-        if target != self.worker.speculative_num_steps:
+-            self._activate(target)
++        self.activate_steps(self.params.get_steps_for_batch(batch_size))
++
++    def activate_steps(self, speculative_num_steps: int) -> None:
++        """Switch to an externally decided step, e.g. the DP-attention consensus."""
++        if speculative_num_steps != self.worker.speculative_num_steps:
++            self._activate(speculative_num_steps)
+ 
+     def on_verify_complete(
+         self, num_correct_drafts_per_req: list[int], batch_size: int
+diff --git a/python/sglang/srt/speculative/adaptive_spec_params.py b/python/sglang/srt/speculative/adaptive_spec_params.py
+index 6d33534996..7881d6af3b 100644
+--- a/python/sglang/srt/speculative/adaptive_spec_params.py
++++ b/python/sglang/srt/speculative/adaptive_spec_params.py
+@@ -16,6 +16,7 @@ from sglang.srt.arg_groups.overrides import (
+     resolved_view,
+     resolving_view,
+ )
++from sglang.srt.environ import envs
+ from sglang.srt.utils import log_info_on_rank0
+ 
+ if TYPE_CHECKING:
+@@ -67,10 +68,9 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
+             "(only topk=1 is supported)"
+         )
+     if resolved_view(server_args).enable_dp_attention:
+-        return (
+-            "enable_dp_attention=True is not supported "
+-            "(adaptive tier decisions are not synchronized across DP ranks)"
+-        )
++        reason = _dp_attention_unsupported_reason(server_args)
++        if reason is not None:
++            return reason
+     if resolved_view(server_args).enable_multi_layer_eagle:
+         return (
+             "enable_multi_layer_eagle=True is not supported "
+@@ -89,6 +89,27 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
+     return None
+ 
+ 
++def _dp_attention_unsupported_reason(server_args: ServerArgs) -> str | None:
++    """DP ranks agree on the tier through the scheduler MLP-sync all-gather."""
++    cfg = resolving_view(server_args)
++    if envs.SGLANG_SCHEDULER_SKIP_ALL_GATHER.get():
++        return (
++            "SGLANG_SCHEDULER_SKIP_ALL_GATHER with enable_dp_attention is not "
++            "supported (DP ranks agree on the tier through that all-gather)"
++        )
++    if cfg.speculative_skip_dp_mlp_sync:
++        return (
++            "speculative_skip_dp_mlp_sync=True with enable_dp_attention is not "
++            "supported (DP ranks agree on the tier through the MLP-sync all-gather)"
++        )
++    if cfg.pp_size > 1:
++        return (
++            f"pp_size={cfg.pp_size} with enable_dp_attention is not supported "
++            "(the PP scheduler does not carry the agreed tier)"
++        )
++    return None
++
++
+ def _load_adaptive_config(
+     cfg_path: str | None,
+ ) -> tuple[dict, dict[int, dict]]:
+@@ -171,7 +192,7 @@ class AdaptiveStepSlot:
+ 
+         # Initialize EMA at current steps - 1 (neutral starting point)
+         self.ema_accept_len = float(self.current_steps - 1)
+-        self._batch_count = 0
++        self.batch_count = 0
+ 
+     def update(self, num_correct_drafts_per_req: list[int]) -> bool:
+         """Update EMA with observed accept lengths. Returns True if params changed.
+@@ -181,20 +202,22 @@ class AdaptiveStepSlot:
+         """
+         if not num_correct_drafts_per_req:
+             return False
++        return self.update_mean(
++            sum(num_correct_drafts_per_req) / len(num_correct_drafts_per_req)
++        )
+ 
++    def update_mean(self, batch_avg: float) -> bool:
++        """Like ``update`` but fed the mean correct drafts per request of one batch."""
+         if self.current_steps > 0:
+-            batch_avg = sum(num_correct_drafts_per_req) / len(
+-                num_correct_drafts_per_req
+-            )
+             self.ema_accept_len = (
+                 1 - self.ema_alpha
+             ) * self.ema_accept_len + self.ema_alpha * batch_avg
+ 
+-        self._batch_count += 1
+-        if self._batch_count <= self.warmup_batches:
++        self.batch_count += 1
++        if self.batch_count <= self.warmup_batches:
+             return False
+ 
+-        if (self._batch_count - self.warmup_batches) % self.update_interval != 0:
++        if (self.batch_count - self.warmup_batches) % self.update_interval != 0:
+             return False
+ 
+         return self._recompute_params()
+@@ -250,13 +273,9 @@ class AdaptiveStepSlot:
+         return self._apply_target_steps(old_steps, target)
+ 
+     def _apply_target_steps(self, old_steps: int, target: int) -> bool:
++        # Callers log the switch; a DP consensus caller may still veto it.
+         if target != old_steps:
+             self.current_steps = target
+-            log_info_on_rank0(
+-                logger,
+-                f"Adaptive spec params updated: steps {old_steps} -> {target} "
+-                f"(ema_accept_len={self.ema_accept_len:.2f})",
+-            )
+             return True
+         return False
+ 
+@@ -310,7 +329,14 @@ class AdaptiveSpeculativeParams:
+         Returns the new step if a switch is warranted, else ``None``.
+         """
+         params = self._route(batch_size)
++        old_steps = params.current_steps
+         if params.update(num_correct_drafts_per_req):
++            log_info_on_rank0(
++                logger,
++                f"Adaptive spec params updated: steps {old_steps} -> "
++                f"{params.current_steps} "
++                f"(ema_accept_len={params.ema_accept_len:.2f})",
++            )
+             return params.current_steps
+         return None
+ 
+@@ -335,13 +361,23 @@ class AdaptiveSpeculativeParams:
+         ]
+ 
+     def _pad_to_cuda_graph_bs(self, batch_size: int) -> int:
+-        if self._cuda_graph_bs is None:
+-            return batch_size
+-        idx = bisect.bisect_left(self._cuda_graph_bs, batch_size)
+-        return (
+-            self._cuda_graph_bs[idx] if idx < len(self._cuda_graph_bs) else batch_size
++        return pad_to_cuda_graph_bs(
++            batch_size=batch_size, cuda_graph_bs=self._cuda_graph_bs
+         )
+ 
+     def _find_closest_bs(self, target: int) -> int:
+-        idx = bisect.bisect_right(self._bs_list, target) - 1
+-        return self._bs_list[max(0, idx)]
++        return find_closest_slot_bs(target=target, slot_bs=self._bs_list)
++
++
++def pad_to_cuda_graph_bs(*, batch_size: int, cuda_graph_bs: list[int] | None) -> int:
++    """Pad *batch_size* up to the next captured graph bs; unchanged past the largest."""
++    if cuda_graph_bs is None:
++        return batch_size
++    idx = bisect.bisect_left(cuda_graph_bs, batch_size)
++    return cuda_graph_bs[idx] if idx < len(cuda_graph_bs) else batch_size
++
++
++def find_closest_slot_bs(*, target: int, slot_bs: list[int]) -> int:
++    """Largest slot bs <= *target*, or the smallest slot when none is."""
++    idx = bisect.bisect_right(slot_bs, target) - 1
++    return slot_bs[max(0, idx)]
+diff --git a/python/sglang/srt/speculative/base_spec_worker.py b/python/sglang/srt/speculative/base_spec_worker.py
+index d8bab5c428..4b5afc5fa5 100644
+--- a/python/sglang/srt/speculative/base_spec_worker.py
++++ b/python/sglang/srt/speculative/base_spec_worker.py
+@@ -19,6 +19,7 @@ if TYPE_CHECKING:
+         ModelRunner,
+         SamplingPrewarmResult,
+     )
++    from sglang.srt.speculative.dp_adaptive_consensus import DPAdaptiveConsensus
+     from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
+ 
+ 
+@@ -318,8 +319,16 @@ class BaseSpecWorker(ABC):
+         if self.draft_worker is not None:
+             self.draft_worker.init_cuda_graphs()
+ 
++    @property
++    def dp_adaptive_consensus(self) -> Optional[DPAdaptiveConsensus]:
++        """Adaptive spec consensus under DP attention; None when not in use."""
++        return None
++
+     def on_verify_complete_cpu(
+-        self, num_correct_drafts_per_req: list[int], batch_size: int = 0
++        self,
++        num_correct_drafts_per_req: list[int],
++        batch_size: int = 0,
++        num_steps: Optional[int] = None,
+     ) -> None:
+         """Hook called after verify finishes and accept counts are on CPU.
+ 
+diff --git a/python/sglang/srt/speculative/dp_adaptive_consensus.py b/python/sglang/srt/speculative/dp_adaptive_consensus.py
+new file mode 100644
+index 0000000000..c8cf7e0a63
+--- /dev/null
++++ b/python/sglang/srt/speculative/dp_adaptive_consensus.py
+@@ -0,0 +1,324 @@
++"""DP-attention consensus for adaptive speculative decoding.
++
++Every DP rank feeds the same all-gathered per-rank signals into
++``resolve_consensus_steps`` and gets the same ``num_steps``, so no rank can
++diverge from the others' draft forward count or verify width.
++"""
++
++from __future__ import annotations
++
++import logging
++from collections.abc import Sequence
++
++import msgspec
++
++from sglang.srt.speculative.adaptive_spec_params import (
++    AdaptiveStepSlot,
++    _load_adaptive_config,
++    find_closest_slot_bs,
++    pad_to_cuda_graph_bs,
++)
++from sglang.srt.utils import log_info_on_rank0
++
++logger = logging.getLogger(__name__)
++
++# Appended after the existing MLPSyncBatchInfo columns, in SpecCounters.to_columns order.
++NUM_CONSENSUS_COLUMNS = 3
++
++
++class RankSpecSignals(msgspec.Struct, frozen=True, kw_only=True):
++    """One rank's row of the consensus gather."""
++
++    decode_bs: int
++    is_extend: bool
++    correct_draft_ct: int
++    verify_req_ct: int
++    counter_steps: int
++
++    @classmethod
++    def from_gather_row(
++        cls, *, num_tokens: int, is_extend: bool, counter_columns: Sequence[int]
++    ) -> RankSpecSignals:
++        correct_draft_ct, verify_req_ct, counter_steps = counter_columns
++        return cls(
++            decode_bs=0 if is_extend else int(num_tokens),
++            is_extend=bool(is_extend),
++            correct_draft_ct=int(correct_draft_ct),
++            verify_req_ct=int(verify_req_ct),
++            counter_steps=int(counter_steps),
++        )
++
++
++class SpecCounters(msgspec.Struct, frozen=True, kw_only=True):
++    """A rank's cumulative verify counters; all-zero doubles as the fallback row."""
++
++    correct_draft_ct: int = 0
++    verify_req_ct: int = 0
++    counter_steps: int = 0
++
++    def to_columns(self) -> list[int]:
++        return [self.correct_draft_ct, self.verify_req_ct, self.counter_steps]
++
++    def add_verify(
++        self, *, num_correct_drafts_per_req: Sequence[int], num_steps: int
++    ) -> SpecCounters:
++        if not num_correct_drafts_per_req:
++            return self
++        return SpecCounters(
++            correct_draft_ct=self.correct_draft_ct + sum(num_correct_drafts_per_req),
++            verify_req_ct=self.verify_req_ct + len(num_correct_drafts_per_req),
++            counter_steps=num_steps,
++        )
++
++
++class SlotState(msgspec.Struct, frozen=True, kw_only=True):
++    current_steps: int
++    ema_accept_len: float
++    batch_count: int
++
++
++class ConsensusState(msgspec.Struct, frozen=True, kw_only=True):
++    steps: int
++    slots: tuple[SlotState, ...]
++    dwell_left: int
++    prev_correct_draft_cts: tuple[int, ...]
++    prev_verify_req_cts: tuple[int, ...]
++
++
++class ConsensusPolicy(msgspec.Struct, frozen=True, kw_only=True):
++    slot_bs: tuple[int, ...]
++    slot_cfgs: tuple[dict, ...]
++    min_dwell_batches: int
++    cuda_graph_bs: tuple[int, ...] | None
++
++    @classmethod
++    def from_config(
++        cls, *, cfg_path: str | None, cuda_graph_bs: list[int] | None
++    ) -> ConsensusPolicy:
++        cfg, bs_entries = _load_adaptive_config(cfg_path)
++        slot_bs = tuple(sorted(bs_entries))
++        return cls(
++            slot_bs=slot_bs,
++            slot_cfgs=tuple({**cfg, **bs_entries[bs]} for bs in slot_bs),
++            min_dwell_batches=_load_min_dwell_batches(cfg),
++            cuda_graph_bs=tuple(sorted(cuda_graph_bs)) if cuda_graph_bs else None,
++        )
++
++    def initial_state(self, *, initial_steps: int, num_ranks: int) -> ConsensusState:
++        return ConsensusState(
++            steps=initial_steps,
++            slots=tuple(
++                _slot_state(AdaptiveStepSlot(initial_steps=initial_steps, cfg=c))
++                for c in self.slot_cfgs
++            ),
++            dwell_left=0,
++            prev_correct_draft_cts=(0,) * num_ranks,
++            prev_verify_req_cts=(0,) * num_ranks,
++        )
++
++
++def resolve_consensus_steps(
++    *,
++    signals: Sequence[RankSpecSignals],
++    state: ConsensusState,
++    policy: ConsensusPolicy,
++) -> tuple[int, ConsensusState]:
++    """Return the ``num_steps`` every rank runs this iteration, and the next state."""
++    slot_idx = _route_slot(
++        policy=policy, max_decode_bs=max(s.decode_bs for s in signals)
++    )
++    if any(s.is_extend for s in signals):
++        return _mixed_iteration_steps(
++            state=state, policy=policy, slot_idx=slot_idx
++        ), state
++    if all(s.decode_bs == 0 for s in signals):
++        return state.steps, state
++
++    feedback, state = _consume_fresh_feedback(signals=signals, state=state)
++    slot = state.slots[slot_idx]
++    if feedback is not None:
++        slot = _feed_slot(
++            slot=slot, cfg=policy.slot_cfgs[slot_idx], mean_correct_drafts=feedback
++        )
++    return _commit_steps(
++        state=state,
++        slot_idx=slot_idx,
++        slot=slot,
++        candidate_steps=policy.slot_cfgs[slot_idx]["candidate_steps"],
++        min_dwell_batches=policy.min_dwell_batches,
++        has_feedback=feedback is not None,
++    )
++
++
++class DPAdaptiveConsensus:
++    """One scheduler's consensus state plus this rank's cumulative counters.
++
++    The verify hook only accumulates counters; the tier changes only through
++    ``resolve`` on the gathered rows, which every DP rank calls identically.
++    """
++
++    def __init__(self, *, policy: ConsensusPolicy, initial_steps: int, num_ranks: int):
++        self._policy = policy
++        self._state = policy.initial_state(
++            initial_steps=initial_steps, num_ranks=num_ranks
++        )
++        self.local_counters = SpecCounters()
++
++    @classmethod
++    def from_config(
++        cls,
++        *,
++        cfg_path: str | None,
++        cuda_graph_bs: list[int] | None,
++        initial_steps: int,
++        num_ranks: int,
++    ) -> DPAdaptiveConsensus:
++        policy = ConsensusPolicy.from_config(
++            cfg_path=cfg_path, cuda_graph_bs=cuda_graph_bs
++        )
++        log_info_on_rank0(
++            logger,
++            f"Adaptive spec DP consensus initialized: steps={initial_steps}, "
++            f"num_ranks={num_ranks}, slot_bs={list(policy.slot_bs)}, "
++            f"min_dwell_batches={policy.min_dwell_batches}",
++        )
++        return cls(policy=policy, initial_steps=initial_steps, num_ranks=num_ranks)
++
++    def record_verify(
++        self, *, num_correct_drafts_per_req: Sequence[int], num_steps: int
++    ) -> None:
++        self.local_counters = self.local_counters.add_verify(
++            num_correct_drafts_per_req=num_correct_drafts_per_req,
++            num_steps=num_steps,
++        )
++
++    def resolve(self, signals: Sequence[RankSpecSignals]) -> int:
++        num_ranks = len(self._state.prev_verify_req_cts)
++        if len(signals) != num_ranks:
++            raise RuntimeError(
++                f"Adaptive spec DP consensus expects {num_ranks} gathered rows, "
++                f"got {len(signals)}"
++            )
++        prev_steps = self._state.steps
++        steps, self._state = resolve_consensus_steps(
++            signals=signals, state=self._state, policy=self._policy
++        )
++        # Mixed iterations may return a temporary width; log committed switches only.
++        if self._state.steps != prev_steps:
++            ema = [round(s.ema_accept_len, 2) for s in self._state.slots]
++            log_info_on_rank0(
++                logger,
++                f"Adaptive spec params updated: steps {prev_steps} -> "
++                f"{self._state.steps} (DP consensus, slot ema_accept_len={ema})",
++            )
++        return steps
++
++
++def _load_min_dwell_batches(cfg: dict) -> int:
++    min_dwell_batches = cfg.get("min_dwell_batches", 0)
++    if not isinstance(min_dwell_batches, int) or min_dwell_batches < 0:
++        raise ValueError(
++            f"min_dwell_batches must be a non-negative int, got {min_dwell_batches!r}"
++        )
++    return min_dwell_batches
++
++
++def _route_slot(*, policy: ConsensusPolicy, max_decode_bs: int) -> int:
++    padded = pad_to_cuda_graph_bs(
++        batch_size=max_decode_bs,
++        cuda_graph_bs=None
++        if policy.cuda_graph_bs is None
++        else list(policy.cuda_graph_bs),
++    )
++    return policy.slot_bs.index(
++        find_closest_slot_bs(target=padded, slot_bs=list(policy.slot_bs))
++    )
++
++
++def _mixed_iteration_steps(
++    *, state: ConsensusState, policy: ConsensusPolicy, slot_idx: int
++) -> int:
++    """Prefill coordination needs a positive verify width every rank agrees on."""
++    if state.steps > 0:
++        return state.steps
++    positive = [s for s in policy.slot_cfgs[slot_idx]["candidate_steps"] if s > 0]
++    if not positive:
++        positive = [s for c in policy.slot_cfgs for s in c["candidate_steps"] if s > 0]
++    return min(positive, default=0)
++
++
++def _consume_fresh_feedback(
++    *, signals: Sequence[RankSpecSignals], state: ConsensusState
++) -> tuple[float | None, ConsensusState]:
++    """Pool this gather's counter deltas produced under the committed tier.
++
++    Returns the mean correct drafts per verified request, or None when no
++    fresh request was verified, plus the state with the per-rank totals advanced.
++    """
++    num_correct_drafts = 0
++    num_verify_reqs = 0
++    for rank, s in enumerate(signals):
++        delta_correct = s.correct_draft_ct - state.prev_correct_draft_cts[rank]
++        delta_verify = s.verify_req_ct - state.prev_verify_req_cts[rank]
++        # A decrease means the rank reset its counters; drop that delta.
++        if s.counter_steps == state.steps and delta_correct >= 0 and delta_verify >= 0:
++            num_correct_drafts += delta_correct
++            num_verify_reqs += delta_verify
++    # A row that never verified is a fallback row; keep the last real totals.
++    reported = [s.verify_req_ct > 0 for s in signals]
++    state = msgspec.structs.replace(
++        state,
++        prev_correct_draft_cts=tuple(
++            s.correct_draft_ct if r else prev
++            for s, r, prev in zip(signals, reported, state.prev_correct_draft_cts)
++        ),
++        prev_verify_req_cts=tuple(
++            s.verify_req_ct if r else prev
++            for s, r, prev in zip(signals, reported, state.prev_verify_req_cts)
++        ),
++    )
++    if num_verify_reqs == 0:
++        return None, state
++    return num_correct_drafts / num_verify_reqs, state
++
++
++def _feed_slot(*, slot: SlotState, cfg: dict, mean_correct_drafts: float) -> SlotState:
++    policy_slot = AdaptiveStepSlot(initial_steps=slot.current_steps, cfg=cfg)
++    policy_slot.ema_accept_len = slot.ema_accept_len
++    policy_slot.batch_count = slot.batch_count
++    policy_slot.update_mean(mean_correct_drafts)
++    return _slot_state(policy_slot)
++
++
++def _commit_steps(
++    *,
++    state: ConsensusState,
++    slot_idx: int,
++    slot: SlotState,
++    candidate_steps: list[int],
++    min_dwell_batches: int,
++    has_feedback: bool,
++) -> tuple[int, ConsensusState]:
++    # A slot that cannot run the committed tier has no graphs for it,
++    # so leaving it bypasses the dwell window.
++    if state.dwell_left > 0 and state.steps in candidate_steps:
++        slot = msgspec.structs.replace(slot, current_steps=state.steps)
++    steps = slot.current_steps
++    if steps != state.steps:
++        dwell_left = min_dwell_batches
++    elif has_feedback:
++        dwell_left = max(0, state.dwell_left - 1)
++    else:
++        dwell_left = state.dwell_left
++    slots = state.slots[:slot_idx] + (slot,) + state.slots[slot_idx + 1 :]
++    return steps, msgspec.structs.replace(
++        state, steps=steps, slots=slots, dwell_left=dwell_left
++    )
++
++
++def _slot_state(slot: AdaptiveStepSlot) -> SlotState:
++    return SlotState(
++        current_steps=slot.current_steps,
++        ema_accept_len=slot.ema_accept_len,
++        batch_count=slot.batch_count,
++    )
+diff --git a/python/sglang/srt/speculative/eagle_worker_v2.py b/python/sglang/srt/speculative/eagle_worker_v2.py
+index 993b53f637..22c0a6d91c 100644
+--- a/python/sglang/srt/speculative/eagle_worker_v2.py
++++ b/python/sglang/srt/speculative/eagle_worker_v2.py
+@@ -73,6 +73,7 @@ from sglang.srt.speculative.adaptive_runtime_state import (
+ )
+ from sglang.srt.speculative.adaptive_spec_params import AdaptiveSpeculativeParams
+ from sglang.srt.speculative.base_spec_worker import BaseSpecWorker, EagleDraftWorkerBase
++from sglang.srt.speculative.dp_adaptive_consensus import DPAdaptiveConsensus
+ from sglang.srt.speculative.dp_spec_prefill_coordination import (
+     DPSpecPrefillCoordinationPlan,
+ )
+@@ -1196,6 +1197,12 @@ class EagleDraftWorker(EagleDraftWorkerBase):
+         )
+ 
+ 
++def _adaptive_decode_cuda_graph_bs() -> Optional[list[int]]:
++    if check_cuda_graph_backend(Phase.DECODE, Backend.DISABLED):
++        return None
++    return get_exec().graph.cuda_graph_bs_decode
++
++
+ class EAGLEWorkerV2(BaseSpecWorker):
+     def __init__(
+         self,
+@@ -1239,6 +1246,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+ 
+         # Adaptive speculative
+         self.adaptive_controller: Optional[AdaptiveController] = None
++        self._dp_adaptive_consensus: Optional[DPAdaptiveConsensus] = None
+         if get_spec().speculative_adaptive and self._hosts_draft:
+             self.adaptive_controller = AdaptiveController(
+                 self,
+@@ -1247,6 +1255,13 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                     cfg_path=get_spec().speculative_adaptive_config,
+                 ),
+             )
++            if get_parallel().enable_dp_attention:
++                self._dp_adaptive_consensus = DPAdaptiveConsensus.from_config(
++                    cfg_path=get_spec().speculative_adaptive_config,
++                    cuda_graph_bs=_adaptive_decode_cuda_graph_bs(),
++                    initial_steps=self.speculative_num_steps,
++                    num_ranks=get_parallel().dp_size,
++                )
+ 
+         # Some dummy tensors
+         self.num_new_pages_per_topk = torch.empty(
+@@ -1300,16 +1315,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                         target_graph_runner=self._target_worker.model_runner.decode_cuda_graph_runner,
+                         draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
+                         cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
++                        topk1_parents=self._draft_worker._topk1_parents_prealloc,
++                        topk1_score_indices=self._draft_worker._topk1_score_indices_prealloc,
+                     )
+                 )
+                 self.adaptive_controller.init_states(
+-                    cuda_graph_bs=(
+-                        None
+-                        if check_cuda_graph_backend(Phase.DECODE, Backend.DISABLED)
+-                        else get_exec().graph.cuda_graph_bs_decode
+-                    ),
++                    cuda_graph_bs=_adaptive_decode_cuda_graph_bs(),
+                 )
+ 
++    @property
++    def dp_adaptive_consensus(self) -> Optional[DPAdaptiveConsensus]:
++        return self._dp_adaptive_consensus
++
+     def forward_batch_generation(
+         self,
+         batch: ScheduleBatch,
+@@ -1317,6 +1334,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+         grammar_barrier=None,
+         pp_proxy_tensors: Optional[PPProxyTensors] = None,
+     ):
++        if self._dp_adaptive_consensus is not None:
++            # Every DP rank, idle ones included, must switch before the
++            # coordination plan or any draft/verify forward reads the width.
++            self.adaptive_controller.activate_steps(batch.adaptive_spec_num_steps)
+         if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
+             if not (
+                 batch.is_extend_in_batch and self.enable_dp_spec_prefill_coordination
+@@ -1339,7 +1360,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                         batch, plan, on_publish, grammar_barrier, pp_proxy_tensors
+                     )
+         else:
+-            self.activate_step_by_batch(batch.seq_lens.shape[0])
++            if self._dp_adaptive_consensus is None:
++                self.activate_step_by_batch(batch.seq_lens.shape[0])
+ 
+             if batch.spec_info is None:
+                 capture_mode = (
+@@ -1671,9 +1693,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+             )
+ 
+     def on_verify_complete_cpu(
+-        self, num_correct_drafts_per_req: list[int], batch_size: int = 0
++        self,
++        num_correct_drafts_per_req: list[int],
++        batch_size: int = 0,
++        num_steps: Optional[int] = None,
+     ) -> None:
+-        if self.adaptive_controller is not None:
++        if self._dp_adaptive_consensus is not None:
++            # Under DP attention only the gathered consensus may switch the tier.
++            self._dp_adaptive_consensus.record_verify(
++                num_correct_drafts_per_req=num_correct_drafts_per_req,
++                num_steps=num_steps,
++            )
++        elif self.adaptive_controller is not None:
+             self.adaptive_controller.on_verify_complete(
+                 num_correct_drafts_per_req, batch_size=batch_size
+             )
+@@ -1750,6 +1781,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                 target_graph_runner=target_graph_runner,
+                 draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
+                 cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
++                # Built by _override_worker_state on entry; the draft graphs
++                # captured above return views of these same tensors.
++                topk1_parents=self._draft_worker._topk1_parents_prealloc,
++                topk1_score_indices=self._draft_worker._topk1_score_indices_prealloc,
+             )
+ 
+         after_mem = get_available_gpu_memory(self.device, self.gpu_id)
+@@ -1794,7 +1829,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+         if state.draft_extend_attn_backend is not None:
+             dw.draft_runner.attn_backend = state.draft_extend_attn_backend
+         dw.cuda_graph_runner_for_draft_extend = state.cuda_graph_runner_for_draft_extend
+-        dw._rebuild_topk1_chain_buffers()
++        # Reference swap only: the previous overlapped batch may still be
++        # running, so nothing is allocated on a switch.
++        dw._topk1_parents_prealloc = state.topk1_parents
++        dw._topk1_score_indices_prealloc = state.topk1_score_indices
+ 
+         # Target side
+         self._target_worker.model_runner.attn_backend = state.target_attn_backend
+@@ -1833,6 +1871,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+             get_spec().speculative_num_draft_tokens,
+             get_exec().graph.cuda_graph_bs_decode,
+             get_exec().graph.disable_cuda_graph,
++            dw._topk1_parents_prealloc,
++            dw._topk1_score_indices_prealloc,
+         )
+ 
+         self.speculative_num_steps = speculative_num_steps
+@@ -1854,6 +1894,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                 cuda_graph_bs_decode=cuda_graph_bs,
+                 **({"disable_cuda_graph": True} if not cuda_graph_bs else {}),
+             )
++        # Startup-only allocation: the candidate state keeps these buffers.
+         dw._rebuild_topk1_chain_buffers()
+ 
+         try:
+@@ -1878,7 +1919,12 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                 cuda_graph_bs_decode=backup[12],
+                 disable_cuda_graph=backup[13],
+             )
+-            dw._rebuild_topk1_chain_buffers()
++            # Restore (not rebuild) so the live worker keeps the tensors its
++            # registered state and captured graphs reference.
++            (
++                dw._topk1_parents_prealloc,
++                dw._topk1_score_indices_prealloc,
++            ) = backup[14:16]
+ 
+     def verify(self, batch: ScheduleBatch, pp_proxy_tensors=None, grammar_barrier=None):
+         return run_eagle_verify(
+diff --git a/python/sglang/srt/speculative/frozen_kv_mtp_worker_v2.py b/python/sglang/srt/speculative/frozen_kv_mtp_worker_v2.py
+index fa73bf2071..55c13fed8f 100644
+--- a/python/sglang/srt/speculative/frozen_kv_mtp_worker_v2.py
++++ b/python/sglang/srt/speculative/frozen_kv_mtp_worker_v2.py
+@@ -737,6 +737,7 @@ class FrozenKVMTPWorkerV2(EAGLEWorkerV2):
+             "Frozen-KV MTP does not support adaptive speculative decoding yet."
+         )
+         self.adaptive_controller = None
++        self._dp_adaptive_consensus = None
+ 
+         # Some dummy tensors (parity with EAGLEWorkerV2 init).
+         self.num_new_pages_per_topk = torch.empty(
+diff --git a/python/sglang/srt/speculative/ngram_worker.py b/python/sglang/srt/speculative/ngram_worker.py
+index c31157acb5..19fb43b11c 100644
+--- a/python/sglang/srt/speculative/ngram_worker.py
++++ b/python/sglang/srt/speculative/ngram_worker.py
+@@ -229,7 +229,10 @@ class NGRAMWorker(BaseSpecWorker):
+             )
+ 
+     def on_verify_complete_cpu(
+-        self, num_correct_drafts_per_req: list[int], batch_size: int = 0
++        self,
++        num_correct_drafts_per_req: list[int],
++        batch_size: int = 0,
++        num_steps: Optional[int] = None,
+     ) -> None:
+         # Signature must match BaseSpecWorker.on_verify_complete_cpu; the
+         # result processor calls it with batch_size as a keyword argument.
+diff --git a/python/sglang/srt/speculative/standalone_worker_v2.py b/python/sglang/srt/speculative/standalone_worker_v2.py
+index 3122d98aca..3957ff9251 100644
+--- a/python/sglang/srt/speculative/standalone_worker_v2.py
++++ b/python/sglang/srt/speculative/standalone_worker_v2.py
+@@ -199,6 +199,7 @@ class StandaloneWorkerV2(EAGLEWorkerV2):
+ 
+         # TODO: Adaptive speculative
+         self.adaptive_controller: Optional[AdaptiveController] = None
++        self._dp_adaptive_consensus = None
+ 
+     def _validate_vocab_compatibility(
+         self,

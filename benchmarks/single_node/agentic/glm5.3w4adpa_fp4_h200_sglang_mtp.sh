@@ -67,6 +67,9 @@ if [ "$SPEC_DECODING" = "mtp" ]; then
     --speculative-eagle-topk 1
     --speculative-num-draft-tokens "$((SPEC_NUM_STEPS + 1))"
   )
+  # Extra spec flags from wrapper recipes (e.g. --speculative-adaptive); empty here.
+  read -r -a _SPEC_EXTRA <<< "${SPEC_EXTRA_ARGS:-}"
+  SPEC_ARGS+=("${_SPEC_EXTRA[@]}")
 fi
 
 SGLANG_BACKEND_PORT="$PORT"

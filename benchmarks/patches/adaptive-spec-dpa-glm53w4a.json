@@ -1,0 +1,4 @@
+{"warmup_batches": 10, "update_interval": 5, "min_dwell_batches": 20,
+ "1":  {"candidate_steps": [1, 2, 3, 4, 5]},
+ "8":  {"candidate_steps": [1, 2, 3]},
+ "24": {"candidate_steps": [1, 2]}}

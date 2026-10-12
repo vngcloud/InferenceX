@@ -9014,3 +9014,18 @@ glm5.3w4adpak5-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
     - dram-utilization: 0.84
       search-space:
       - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
+# Adaptive arm of the glm5.3w4adpa campaign (patched v0.5.21: adaptive spec under DPA).
+glm5.3w4adpaadapt-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3w4adpaadapt
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
