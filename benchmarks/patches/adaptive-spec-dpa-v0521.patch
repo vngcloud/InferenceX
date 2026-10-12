@@ -1219,7 +1219,7 @@ index 0000000000..6b16d0ee22
 +        batch_count=slot.batch_count,
 +    )
 diff --git a/python/sglang/srt/speculative/eagle_worker_v2.py b/python/sglang/srt/speculative/eagle_worker_v2.py
-index 993b53f637..224583f434 100644
+index 993b53f637..f571aefb47 100644
 --- a/python/sglang/srt/speculative/eagle_worker_v2.py
 +++ b/python/sglang/srt/speculative/eagle_worker_v2.py
 @@ -1,7 +1,8 @@
@@ -1232,7 +1232,15 @@ index 993b53f637..224583f434 100644
  
  import torch
  
-@@ -73,6 +74,7 @@ from sglang.srt.speculative.adaptive_runtime_state import (
+@@ -45,6 +46,7 @@ from sglang.srt.model_executor.cuda_graph_config import (
+     Backend,
+     Phase,
+     check_cuda_graph_backend,
++    with_phase,
+ )
+ from sglang.srt.model_executor.forward_batch_info import (
+     CaptureHiddenMode,
+@@ -73,6 +75,7 @@ from sglang.srt.speculative.adaptive_runtime_state import (
  )
  from sglang.srt.speculative.adaptive_spec_params import AdaptiveSpeculativeParams
  from sglang.srt.speculative.base_spec_worker import BaseSpecWorker, EagleDraftWorkerBase
@@ -1240,7 +1248,7 @@ index 993b53f637..224583f434 100644
  from sglang.srt.speculative.dp_spec_prefill_coordination import (
      DPSpecPrefillCoordinationPlan,
  )
-@@ -1196,6 +1198,12 @@ class EagleDraftWorker(EagleDraftWorkerBase):
+@@ -1196,6 +1199,12 @@ class EagleDraftWorker(EagleDraftWorkerBase):
          )
  
  
@@ -1253,7 +1261,7 @@ index 993b53f637..224583f434 100644
  class EAGLEWorkerV2(BaseSpecWorker):
      def __init__(
          self,
-@@ -1239,6 +1247,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1239,6 +1248,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
  
          # Adaptive speculative
          self.adaptive_controller: Optional[AdaptiveController] = None
@@ -1261,7 +1269,7 @@ index 993b53f637..224583f434 100644
          if get_spec().speculative_adaptive and self._hosts_draft:
              self.adaptive_controller = AdaptiveController(
                  self,
-@@ -1247,6 +1256,13 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1247,6 +1257,13 @@ class EAGLEWorkerV2(BaseSpecWorker):
                      cfg_path=get_spec().speculative_adaptive_config,
                  ),
              )
@@ -1275,7 +1283,7 @@ index 993b53f637..224583f434 100644
  
          # Some dummy tensors
          self.num_new_pages_per_topk = torch.empty(
-@@ -1300,16 +1316,30 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1300,16 +1317,30 @@ class EAGLEWorkerV2(BaseSpecWorker):
                          target_graph_runner=self._target_worker.model_runner.decode_cuda_graph_runner,
                          draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
                          cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
@@ -1311,7 +1319,7 @@ index 993b53f637..224583f434 100644
      def forward_batch_generation(
          self,
          batch: ScheduleBatch,
-@@ -1317,6 +1347,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1317,6 +1348,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
          grammar_barrier=None,
          pp_proxy_tensors: Optional[PPProxyTensors] = None,
      ):
@@ -1322,7 +1330,7 @@ index 993b53f637..224583f434 100644
          if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
              if not (
                  batch.is_extend_in_batch and self.enable_dp_spec_prefill_coordination
-@@ -1339,7 +1373,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1339,7 +1374,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
                          batch, plan, on_publish, grammar_barrier, pp_proxy_tensors
                      )
          else:
@@ -1332,7 +1340,7 @@ index 993b53f637..224583f434 100644
  
              if batch.spec_info is None:
                  capture_mode = (
-@@ -1671,9 +1706,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1671,9 +1707,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
              )
  
      def on_verify_complete_cpu(
@@ -1353,7 +1361,7 @@ index 993b53f637..224583f434 100644
              self.adaptive_controller.on_verify_complete(
                  num_correct_drafts_per_req, batch_size=batch_size
              )
-@@ -1750,6 +1794,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1750,6 +1795,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  target_graph_runner=target_graph_runner,
                  draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
                  cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
@@ -1364,7 +1372,7 @@ index 993b53f637..224583f434 100644
              )
  
          after_mem = get_available_gpu_memory(self.device, self.gpu_id)
-@@ -1767,13 +1815,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1767,13 +1816,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
          if self.speculative_num_steps == state.speculative_num_steps:
              return
  
@@ -1386,7 +1394,7 @@ index 993b53f637..224583f434 100644
  
          # Top-level
          self.speculative_num_steps = state.speculative_num_steps
-@@ -1794,7 +1847,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1794,7 +1848,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
          if state.draft_extend_attn_backend is not None:
              dw.draft_runner.attn_backend = state.draft_extend_attn_backend
          dw.cuda_graph_runner_for_draft_extend = state.cuda_graph_runner_for_draft_extend
@@ -1398,26 +1406,45 @@ index 993b53f637..224583f434 100644
  
          # Target side
          self._target_worker.model_runner.attn_backend = state.target_attn_backend
-@@ -1833,6 +1889,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1833,6 +1890,9 @@ class EAGLEWorkerV2(BaseSpecWorker):
              get_spec().speculative_num_draft_tokens,
              get_exec().graph.cuda_graph_bs_decode,
              get_exec().graph.disable_cuda_graph,
 +            dw._topk1_parents_prealloc,
 +            dw._topk1_score_indices_prealloc,
++            get_exec().graph.cuda_graph_config,
          )
  
          self.speculative_num_steps = speculative_num_steps
-@@ -1854,6 +1912,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1849,11 +1909,22 @@ class EAGLEWorkerV2(BaseSpecWorker):
+             # for steps that no BS range uses (e.g. step=1). Disable graph
+             # capture for those steps; restore in finally so subsequent steps
+             # are not affected.
++            # Graph runners read cuda_graph_config, which cuda_graph_bs_decode
++            # only feeds during resolution; override both.
+             get_context().override(
+                 "adaptive_spec.capture_override",
                  cuda_graph_bs_decode=cuda_graph_bs,
-                 **({"disable_cuda_graph": True} if not cuda_graph_bs else {}),
+-                **({"disable_cuda_graph": True} if not cuda_graph_bs else {}),
++                **(
++                    {
++                        "cuda_graph_config": with_phase(
++                            backup[16], Phase.DECODE, bs=list(cuda_graph_bs)
++                        )
++                    }
++                    if cuda_graph_bs
++                    else {"disable_cuda_graph": True}
++                ),
              )
 +        # Startup-only allocation: the candidate state keeps these buffers.
          dw._rebuild_topk1_chain_buffers()
  
          try:
-@@ -1878,7 +1937,12 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1877,8 +1948,14 @@ class EAGLEWorkerV2(BaseSpecWorker):
+                 speculative_num_draft_tokens=backup[11],
                  cuda_graph_bs_decode=backup[12],
                  disable_cuda_graph=backup[13],
++                cuda_graph_config=backup[16],
              )
 -            dw._rebuild_topk1_chain_buffers()
 +            # Restore (not rebuild) so the live worker keeps the tensors its
