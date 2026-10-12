@@ -8218,3 +8218,11 @@
   description:
     - "SGLang probes A-G, Gemma-4 31B FP8-block, image B, mem 0.92 (chunk 16384, default evict), one knob each: A FP8 KV cache, B schedule-conservativeness 1.3 + RETRACT_DECODE_STEPS 40, C fa4 prefill + flashinfer decode, D MTP depth 2/3, E cuda-graph-max-bs-decode 128, F radix cache on, G fp8 gemm runner cutlass/triton. Compare against the mem-only sweep cells."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-sglang-probes
+- config-keys:
+    - gemma4sbdfa-fp8block-gnslurm-sglang
+    - gemma4sbdft-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang DFLASH smoke, Gemma-4 31B FP8-block, image B, target --attention-backend fa4, z-lab/gemma-4-31B-it-DFlash (block 16), tau2 B serving config, high_entropy conc 8. dfa = draft attention fa4, dft = draft attention triton (control). Goal: find out whether fa4 draft attention loads."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-dflash-fa4

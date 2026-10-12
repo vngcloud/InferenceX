@@ -45,6 +45,7 @@ export SPEEDBENCH_CONFIG="${SB_CONFIG:-throughput_8k}"
 export SPEEDBENCH_CATEGORY="$SB_CATEGORY"
 export SPEEDBENCH_IGNORE_EOS="${SB_IGNORE_EOS:-1}"
 
+echo "runner user: $(id -un) uid=$(id -u) host=$(hostname -s)"
 if [[ -n "$SLURM_JOB_ID" ]]; then
   echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 fi
@@ -79,8 +80,21 @@ case "$SB_ARM" in
             --speculative-num-draft-tokens "$((NUM_SPEC_TOKENS + 1))"
         )
         ;;
+    dflash)
+        # z-lab block-diffusion draft. num-draft-tokens must equal the draft's
+        # block_size (16); steps/topk are forced to 1 by the engine.
+        # SB_DRAFT_ATTN picks the draft attention backend (fa4|triton|flashinfer).
+        DRAFT_MODEL="z-lab/gemma-4-31B-it-DFlash"
+        NUM_SPEC_TOKENS="${NUM_SPEC_TOKENS:-16}"
+        SPEC_ARGS=(
+            --speculative-algorithm DFLASH
+            --speculative-draft-model-path "$DRAFT_MODEL"
+            --speculative-num-draft-tokens "$NUM_SPEC_TOKENS"
+            --speculative-draft-attention-backend "${SB_DRAFT_ATTN:-fa4}"
+        )
+        ;;
     *)
-        echo "CRITICAL: unknown SB_ARM='$SB_ARM' (expected base|mtp)" >&2
+        echo "CRITICAL: unknown SB_ARM='$SB_ARM' (expected base|mtp|dflash)" >&2
         exit 1
         ;;
 esac
