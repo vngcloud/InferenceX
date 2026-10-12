@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Gemma4 SpeedBench dashboard: import run artifacts into docs/gemma4-configs.json and build docs/gemma4-dashboard.html.
+"""Gemma optimization journey dashboard: import run artifacts into docs/gemma4-configs.json and build
+docs/gemma-optimization-journey.html. Scenarios: SpeedBench high/low entropy 8k (import) and tau2 bench (import-tau2).
 
-Run with `python3 -I` (stdlib only, needs `gh` logged in). Subcommands: list, new-config, import, build.
+Run with `python3 -I` (stdlib only, needs `gh` logged in). Subcommands: list, new-config, import, import-tau2, build.
 """
 import argparse
 import io
@@ -18,10 +19,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 CONFIGS = ROOT / "docs" / "gemma4-configs.json"
-OUT_HTML = ROOT / "docs" / "gemma4-dashboard.html"
+OUT_HTML = ROOT / "docs" / "gemma-optimization-journey.html"
 TEMPLATE = HERE / "dashboard_template.html"
 REPO = "vngcloud/InferenceX"
 CONCS = (1, 8, 32, 64)
+T2_CONCS = (1, 8, 16, 32)
+T2_CAT = "t2"
 CATS = ("hi", "lo")
 ARMS = ("base", "mtp")
 MODEL = "RedHatAI/gemma-4-31B-it-FP8-block"
@@ -74,7 +77,8 @@ def log_stats(txt, engine):
         pool = re.search(r"GPU KV cache size: ([\d,]+) tokens", txt)
         running = ints(r"Running: (\d+) reqs")
         return dict(full=int(pool.group(1).replace(",", "")) if pool else None, swa=None,
-                    retract=len(re.findall(r"[Pp]reempt", txt)), peak=max(running) if running else None, acc=None)
+                    retract=len(re.findall(r"[Pp]reempt", txt)), peak=max(running) if running else None,
+                    acc=sum(vacc) / len(vacc) if (vacc := [float(x) for x in re.findall(r"Mean acceptance length: ([\d.]+)", txt)]) else None)
     full = re.search(r"Full KV Cache is allocated.*?#tokens: (\d+)", txt)
     swa = re.search(r"SWA KV Cache is allocated.*?#tokens: (\d+)", txt)
     running = ints(r"Decode batch, #running-req: (\d+)")
@@ -131,8 +135,12 @@ def cmd_list(_):
     data = load()
     have = {key_of(c) for c in data["cells"]}
     for c in data["configs"]:
-        missing = [f"{a}/{k}/c{n}" for a in ARMS for k in CATS for n in CONCS if (c["id"], a, k, n) not in have]
-        print(f"{c['id']:<10} {c['short']:<16} {c['engine']:<7} cells {16 - len(missing)}/16"
+        if c.get("scenario") == "tau2":
+            want = [("mtp", T2_CAT, n) for n in T2_CONCS]
+        else:
+            want = [(a, k, n) for a in ARMS for k in CATS for n in CONCS]
+        missing = [f"{a}/{k}/c{n}" for a, k, n in want if (c["id"], a, k, n) not in have]
+        print(f"{c['id']:<10} {c['short']:<24} {c['engine']:<7} {c.get('scenario', 'speedbench'):<10} cells {len(want) - len(missing)}/{len(want)}"
               + (f"  missing: {' '.join(missing)}" if missing else ""))
 
 
@@ -207,6 +215,7 @@ def cmd_import(a):
                                      encoding="utf-8")
             st, n = request_stats(lines)
             cell = OrderedDict(cfg=cfg["id"], arm=arm, cat=cat, conc=conc, tput=res["output_throughput"],
+                               ttot=res.get("total_token_throughput"),
                                acc=res.get("acceptance_length"), full=None, swa=None, retract=None, peak=None, run=run, n=n)
             if "logs" in parts and not parts["logs"][1]:
                 lz = download(parts["logs"][0])
@@ -244,8 +253,124 @@ def cmd_import(a):
     cmd_list(None)
 
 
+T2_RE = re.compile(r"^(agentic|bmk_agentic|server_logs)_gemma4tau2_.*-([0-9a-f]{20})$")
+
+
+def cmd_import_tau2(a):
+    """tau2 (agentic) runs: one artifact triple per conc: agentic_* (aiperf files), bmk_agentic_* (aggregate json), server_logs_*."""
+    data = load()
+    cfg = find_config(data, a.config)
+    if cfg.get("scenario") != "tau2":
+        raise SystemExit(f"config {a.config} is not a tau2 config (set scenario=tau2 with new-config --set scenario=tau2)")
+    have = {key_of(c): i for i, c in enumerate(data["cells"])}
+    added, notes = [], []
+    for run in a.runs:
+        groups = {}
+        for aid, expired, name in run_artifacts(run):
+            m = T2_RE.match(name)
+            if m:
+                groups.setdefault(m.group(2), {})[m.group(1)] = (aid, expired)
+        if not groups:
+            notes.append(f"run {run}: no gemma4tau2 artifacts (expired or not a tau2 run)")
+            continue
+        for h, parts in sorted(groups.items()):
+            if any(k not in parts or parts[k][1] for k in ("agentic", "bmk_agentic")):
+                notes.append(f"run {run} {h}: aiperf or aggregate artifact missing or expired, skipped")
+                continue
+            bz = download(parts["bmk_agentic"][0])
+            agg = json.loads(bz.read(next(n for n in bz.namelist() if n.endswith(".json"))))
+            conc = agg["conc"]
+            if conc not in T2_CONCS and not a.any_conc:
+                notes.append(f"run {run} c{conc}: not in the tau2 ladder {T2_CONCS}, skipped (--any-conc to keep)")
+                continue
+            if agg["num_requests_successful"] == 0:
+                notes.append(f"run {run} c{conc}: no successful requests, skipped")
+                continue
+            az = download(parts["agentic"][0])
+            raw = az.read("aiperf_artifacts/profile_export.jsonl").decode("utf-8", "ignore").splitlines()
+            recs = [json.loads(l) for l in raw]
+            prof = [l for l, r in zip(raw, recs) if r["metadata"].get("benchmark_phase") == "profiling"]
+            # errors per phase: nearly all errored requests are warmup ones (cold start), which the harness drops
+            perr = sum(1 for r in recs if r.get("error") and r["metadata"].get("benchmark_phase") == "profiling")
+            werr = sum(1 for r in recs if r.get("error") and r["metadata"].get("benchmark_phase") != "profiling")
+            st, n = request_stats(prof)
+            sm, th = agg.get("server_metrics") or {}, agg["request_metrics"]["throughput"]["per_gpu"]
+            cache = (sm.get("cache") or {})
+            cell = OrderedDict(cfg=cfg["id"], arm="mtp", cat=T2_CAT, conc=conc, tput=th["output_tput_tps"], ttot=th["total_tput_tps"],
+                               hit=cache.get("overall_cache_hit_rate"), ok=agg["num_requests_successful"],
+                               err=perr, werr=werr, power=sm.get("avg_power_w"),
+                               acc=None, full=sm.get("kv_cache_pool_tokens"), swa=None, retract=None, peak=None, run=run, n=n)
+            if "server_logs" in parts and not parts["server_logs"][1]:
+                lz = download(parts["server_logs"][0])
+                logname = next((x for x in lz.namelist() if x.endswith("server.log")), None)
+                if logname:
+                    ls = log_stats(lz.read(logname).decode("utf-8", "ignore"), cfg["engine"])
+                    cell.update(full=ls["full"] or cell["full"], swa=ls["swa"], retract=ls["retract"], peak=ls["peak"], acc=ls["acc"])
+            else:
+                notes.append(f"run {run} c{conc}: no server log; pool/retract/peak left empty")
+            cell["stats"] = st
+            k = key_of(cell)
+            if k in have and not a.replace:
+                notes.append(f"{'/'.join(map(str, k))}: already imported (run {data['cells'][have[k]].get('run')}), skipped; use --replace")
+                continue
+            if k in have:
+                data["cells"][have[k]] = cell
+            else:
+                have[k] = len(data["cells"])
+                data["cells"].append(cell)
+            added.append(cell)
+            agg_lat = agg["request_metrics"]["latency"]
+            notes.append(f"c{conc} cross-check against the harness aggregate (profiling phase): TTFT p90 {agg_lat['ttft']['p90']:.3f}s vs ours {st['ttft']['p90']:.3f}s; "
+                         f"E2E p90 {agg_lat['e2el']['p90']:.3f}s vs ours {st['e2e']['p90']:.3f}s; {agg['num_requests_successful']} ok vs {n} records")
+        if run not in cfg.get("runs", ""):
+            cfg["runs"] = (cfg.get("runs", "") + " / " + run).strip(" /")
+    order = [x["id"] for x in data["configs"]]
+    data["cells"].sort(key=lambda c: (order.index(c["cfg"]), c["arm"], c["cat"] != "hi", c["conc"]))
+    save(data)
+    f = lambda v, p=1: "-" if v is None else f"{v:.{p}f}"
+    print(f"{'cell':<10}{'out t/s':>9}{'tot t/s':>9}{'TTFT p90':>10}{'TPOT p90':>10}{'E2E p90':>9}{'hit':>6}{'acc':>6}{'retr':>6}{'peak':>6}{'pool':>9}{'ok':>6}{'err':>5}")
+    for c in sorted(added, key=lambda c: c["conc"]):
+        s = c["stats"]
+        print(f"c{c['conc']:<9}{f(c['tput']):>9}{f(c['ttot'], 0):>9}{f(s['ttft']['p90'], 2):>10}{f(s['tpot']['p90']):>10}{f(s['e2e']['p90'], 2):>9}"
+              f"{f(c['hit'], 3):>6}{f(c['acc'], 2):>6}{f(c['retract'], 0):>6}{f(c['peak'], 0):>6}{f(c['full'], 0):>9}{c['ok']:>6}{c['err']:>5}")
+    for n in notes:
+        print("NOTE:", n)
+    cmd_list(None)
+
+
 # ---------------------------------------------------------------- serve command text
+def serve_cmd_tau2(cfg, conc):
+    """Serve command of the tau2 recipes (gemma4tau2_fp8_h200_mtp.sh for vLLM, gemma4tau2_fp8_h200_sglang_mtp.sh for SGLang)."""
+    cc = "$CONC" if conc is None else str(conc)
+    name = "google/gemma-4-31b-it"
+    if cfg["engine"] == "vllm":
+        return (f"# image {cfg['image']}, 1×H200 (TP1), MTP4. VLLM_ATTENTION_BACKEND is ignored by v0.30.0 (logged as unknown); vLLM auto-selects FLASH_ATTN, FlashAttention 4.\n"
+                "VLLM_DISABLE_COMPILE_CACHE=1 NCCL_P2P_LEVEL=NVL VLLM_ATTENTION_BACKEND=FLASHINFER \\\n"
+                f"vllm serve {MODEL} --served-model-name {name} gemma-4-31b-it --host 0.0.0.0 --port $PORT \\\n"
+                f"    --trust-remote-code --tensor-parallel-size 1 --gpu-memory-utilization {cfg['mem']} \\\n"
+                f"    --max-model-len {cfg['context']} --max-num-seqs 64 --max-num-batched-tokens 16384 \\\n"
+                f"    --enable-chunked-prefill --long-prefill-token-threshold 8192 \\\n"
+                f"    --speculative-config '{{\"method\": \"mtp\", \"model\": \"{DRAFT}\", \"num_speculative_tokens\": 4}}' \\\n"
+                f"    --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4")
+    cap = cfg.get("mtp_max_running", 32)
+    maxrun = f"min($CONC, {cap})" if conc is None else str(min(conc, cap))
+    ratio = (f"--swa-full-tokens-ratio {cfg['ratio']}" if cfg.get("ratio_flag", True)
+             else "# --swa-full-tokens-ratio not passed: engine default 0.8")
+    return (f"# image {cfg['image']}, 1×H200 (TP1), MTP4\n"
+            f"SGLANG_SWA_EVICTION_INTERVAL={cfg['evict']} \\\n"
+            f"python3 -m sglang.launch_server --model-path {MODEL} --served-model-name {name} \\\n"
+            f"    --host 0.0.0.0 --port $PORT --trust-remote-code --tp 1 \\\n"
+            f"    --mem-fraction-static {cfg['mem']} {ratio} --context-length {cfg['context']} \\\n"
+            f"    --max-running-requests {maxrun} --chunked-prefill-size {cfg['chunk']} \\\n"
+            f"    --attention-backend fa4 --schedule-policy hrrn --enable-metrics --enable-cache-report \\\n"
+            f"    --speculative-algorithm NEXTN --speculative-draft-model-path {DRAFT} \\\n"
+            f"    --speculative-num-steps 4 --speculative-eagle-topk 1 --speculative-num-draft-tokens 5 \\\n"
+            f"    --tool-call-parser gemma4 --reasoning-parser gemma4")
+
+
 def serve_cmd(cfg, arm, conc):
+    if cfg.get("scenario") == "tau2":
+        return serve_cmd_tau2(cfg, conc)
     cc = "$CONC" if conc is None else str(conc)
     if cfg["engine"] == "vllm":
         pc = "--enable-prefix-caching" if cfg["radix"] else "--no-enable-prefix-caching"
@@ -279,13 +404,44 @@ def serve_cmd(cfg, arm, conc):
             f"    {spec}--tool-call-parser gemma4 --reasoning-parser gemma4")
 
 
+def cmd_backfill_ttot(a):
+    """Fill `ttot` (total_token_throughput of result.json) into SpeedBench cells imported before it was stored."""
+    data = load()
+    t2 = {c["id"] for c in data["configs"] if c.get("scenario") == "tau2"}
+    todo = [c for c in data["cells"] if c["cfg"] not in t2 and c.get("ttot") is None]
+    done = miss = 0
+    cache = {}
+
+    def results_of(run):
+        if run not in cache:
+            cache[run] = []
+            for _, parts in sorted(parse_artifacts(run_artifacts(run)).items()):
+                if "aiperf" in parts and not parts["aiperf"][1]:
+                    zf = download(parts["aiperf"][0])
+                    cache[run].append(json.loads(zf.read(next(n for n in zf.namelist() if n.endswith("result.json")))))
+        return cache[run]
+
+    for c in todo:
+        runs = [c["run"]] if c.get("run") else find_config(data, c["cfg"]).get("runs", "").split(" / ")
+        hit = [r for run in runs for r in results_of(run) if r["max_concurrency"] == c["conc"] and r.get("sb_arm", c["arm"]) == c["arm"]
+               and abs(r["output_throughput"] - c["tput"]) <= 1e-6 * c["tput"] and r.get("total_token_throughput") is not None]
+        if hit:
+            c["ttot"] = hit[0]["total_token_throughput"]
+            done += 1
+        else:
+            miss += 1
+            print(f"no match: {c['cfg']}/{c['arm']}/{c['cat']}/c{c['conc']} (artifact expired?)")
+    save(data)
+    print(f"backfilled {done} cells, {miss} without a match")
+
+
 def cmd_build(a):
     data = load()
     by_id = {c["id"]: c for c in data["configs"]}
     out = OrderedDict(meta=dict(data["meta"], generated=date.today().isoformat()), configs=[], cells=[])
     for c in data["configs"]:
         c = OrderedDict(c)
-        c["cmds"] = {arm: serve_cmd(c, arm, None) for arm in ARMS}
+        c["cmds"] = {arm: serve_cmd(c, arm, None) for arm in (("mtp",) if c.get("scenario") == "tau2" else ARMS)}
         out["configs"].append(c)
     for cell in data["cells"]:
         if cell["cfg"] not in by_id:
@@ -319,7 +475,14 @@ def main():
     i.add_argument("--include-failed", action="store_true")
     i.add_argument("runs", nargs="+")
     i.set_defaults(fn=cmd_import)
-    b = sub.add_parser("build", help="write docs/gemma4-dashboard.html")
+    t = sub.add_parser("import-tau2", help="import the tau2 (agentic) artifacts of runs into a tau2 config")
+    t.add_argument("--config", required=True)
+    t.add_argument("--replace", action="store_true")
+    t.add_argument("--any-conc", action="store_true", help="keep conc values outside the ladder 1/8/16/32")
+    t.add_argument("runs", nargs="+")
+    t.set_defaults(fn=cmd_import_tau2)
+    sub.add_parser("backfill-ttot", help="add total throughput to SpeedBench cells imported earlier").set_defaults(fn=cmd_backfill_ttot)
+    b = sub.add_parser("build", help="write docs/gemma-optimization-journey.html")
     b.add_argument("--copy-to", action="append", metavar="DIR", help="also copy the html into DIR (e.g. the main checkout's docs/)")
     b.set_defaults(fn=cmd_build)
     a = p.parse_args()
