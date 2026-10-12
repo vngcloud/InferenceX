@@ -8940,7 +8940,8 @@ gemma4-fp8block-h200-vllm-router:
       search-space:
       - { tp: 1, conc-list: [8, 32, 192] }
 
-# GLM-5.3-W4AFP8 adaptive-spec-under-DPA campaign (static EAGLE arm). Recipe and
+# GLM-5.3-W4AFP8 adaptive-spec-under-DPA campaign (static EAGLE arm; k1/k2/k4/k5
+# keys below are the static num_steps sweep via thin wrapper recipes). Recipe and
 # search space identical to glm5.3proddp8deep521 (baseline run 37189063255) except
 # weights come from the canonical HF hub cache. Pin hardware-hcm-8x_02 at dispatch:
 # the W4AFP8 snapshot is staged on hgx-h200-02 only.
@@ -8948,6 +8949,62 @@ glm5.3w4adpa-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
   image: lmsysorg/sglang:v0.5.21
   model: zai-org/GLM-5.3
   model-prefix: glm5.3w4adpa
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.3w4adpak1-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3w4adpak1
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.3w4adpak2-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3w4adpak2
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.3w4adpak4-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3w4adpak4
+  runner: cluster:hardware-hcm
+  precision: fp4
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - dram-utilization: 0.84
+      search-space:
+      - { tp: 8, ep: 8, dp-attn: true, spec-decoding: mtp, kv-offloading: dram, kv-offload-backend: { name: hicache }, conc-list: [16], router: { name: sglang-router, version: "0.3.2" } }
+
+glm5.3w4adpak5-fp4-hardware-hcm-sglang-dpattn-router-hicache1024-agentic:
+  image: lmsysorg/sglang:v0.5.21
+  model: zai-org/GLM-5.3
+  model-prefix: glm5.3w4adpak5
   runner: cluster:hardware-hcm
   precision: fp4
   framework: sglang
