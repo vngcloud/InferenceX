@@ -8226,3 +8226,10 @@
   description:
     - "SGLang DFLASH smoke, Gemma-4 31B FP8-block, image B, target --attention-backend fa4, z-lab/gemma-4-31B-it-DFlash (block 16), tau2 B serving config, high_entropy conc 8. dfa = draft attention fa4, dft = draft attention triton (control). Goal: find out whether fa4 draft attention loads."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-dflash-fa4
+- config-keys:
+    - gemma4sbdfalo-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang DFLASH, same as gemma4sbdfa (draft attention fa4) but low_entropy, to compare with MTP4 lo (accept 4.17, 685 tok/s at c8)."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-dflash-fa4
