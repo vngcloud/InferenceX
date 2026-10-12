@@ -1,4 +1,4 @@
-{"warmup_batches": 10, "update_interval": 5, "min_dwell_batches": 20,
- "1":  {"candidate_steps": [1, 2, 3, 4, 5]},
- "8":  {"candidate_steps": [1, 2, 3]},
+{"ema_alpha": 0.005, "warmup_batches": 200, "update_interval": 100, "min_dwell_batches": 2400,
+ "1": {"candidate_steps": [1, 2, 3, 4, 5], "down_hysteresis": -0.5, "up_hysteresis": 0.25},
+ "8": {"candidate_steps": [1, 2, 3], "down_hysteresis": -0.5, "up_hysteresis": 0.25},
  "24": {"candidate_steps": [1, 2]}}

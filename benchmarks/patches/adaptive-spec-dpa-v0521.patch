@@ -1,3 +1,104 @@
+diff --git a/python/sglang/srt/arg_groups/moe_hook.py b/python/sglang/srt/arg_groups/moe_hook.py
+index 4306ac25eb..cf2e39681b 100644
+--- a/python/sglang/srt/arg_groups/moe_hook.py
++++ b/python/sglang/srt/arg_groups/moe_hook.py
+@@ -600,6 +600,65 @@ def validate_deepep_v2_dispatch_token_budget(server_args: Any) -> None:
+         )
+ 
+ 
++def validate_adaptive_spec_deepep_dispatch_budget(server_args: Any) -> None:
++    """Adaptive spec under DP attention: every tier must fit the DeepEP low-latency buffer."""
++    view = resolved_view(server_args)
++    if not (
++        view.speculative_adaptive
++        and view.enable_dp_attention
++        and view.moe_a2a_backend == "deepep"
++        and view.deepep_mode in ("low_latency", "auto")
++        and view.disaggregation_mode != "prefill"
++    ):
++        return
++    from sglang.srt.speculative.adaptive_spec_params import (
++        adaptive_slot_candidate_steps,
++        peak_decode_dispatch_tokens,
++    )
++
++    decode_config = view.cuda_graph_config.decode
++    graph_enabled = decode_config.backend != Backend.DISABLED
++    capture_bs = None
++    if graph_enabled:
++        from sglang.srt.arg_groups.cuda_graph_hook import (
++            generate_decode_cuda_graph_batch_sizes,
++        )
++
++        capture_bs = decode_config.bs or generate_decode_cuda_graph_batch_sizes(
++            server_args, decode_config.max_bs
++        )
++    if view.max_running_requests is not None:
++        max_bs_per_rank = max(1, view.max_running_requests // view.dp_size)
++    elif capture_bs:
++        # A memory-derived pool leaves the eager range to the runtime DeepEP assert.
++        max_bs_per_rank = max(capture_bs)
++    else:
++        return
++
++    peak = peak_decode_dispatch_tokens(
++        slot_candidate_steps=adaptive_slot_candidate_steps(
++            view.speculative_adaptive_config
++        ),
++        # Same routing list as the DP consensus (_adaptive_decode_cuda_graph_bs).
++        routing_cuda_graph_bs=view.cuda_graph_bs_decode if graph_enabled else None,
++        capture_cuda_graph_bs=capture_bs,
++        max_bs_per_rank=max_bs_per_rank,
++    )
++    capacity = envs.SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK.get()
++    if peak.num_tokens > capacity:
++        raise ValueError(
++            "--speculative-adaptive with DP attention: the DeepEP low-latency "
++            f"decode dispatch needs {peak.num_tokens} tokens per rank "
++            f"(max per-rank bs {peak.max_decode_bs}, graph bs {peak.graph_bs}, "
++            f"slot {peak.slot_bs} steps={peak.num_steps}, "
++            f"{peak.num_steps + 1} tokens per request) but "
++            f"SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK={capacity}. Raise "
++            "SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK, remove the deep steps "
++            f"from slot {peak.slot_bs} in --speculative-adaptive-config, or lower "
++            "--max-running-requests / --cuda-graph-max-bs-decode."
++        )
++
++
+ def validate_deepep_v2_model_architecture(server_args: Any) -> None:
+     """Allow DeepEP v2 only for registered model architectures."""
+ 
+diff --git a/python/sglang/srt/arg_groups/pipeline.py b/python/sglang/srt/arg_groups/pipeline.py
+index 3963f548c1..6d157f7b45 100644
+--- a/python/sglang/srt/arg_groups/pipeline.py
++++ b/python/sglang/srt/arg_groups/pipeline.py
+@@ -268,6 +268,7 @@ def run_resolution_pipeline(server_args: Any) -> None:
+     from sglang.srt.arg_groups.moe_hook import (
+         handle_a2a_moe,
+         handle_moe_kernel_config,
++        validate_adaptive_spec_deepep_dispatch_budget,
+         validate_cutedsl_a2a_token_budget,
+         validate_deepep_v2_dispatch_token_budget,
+         validate_deepep_v2_speculative_draft,
+@@ -338,5 +339,6 @@ def run_resolution_pipeline(server_args: Any) -> None:
+     # Validate after all batch-size declarations are visible.
+     run_hook(validate_deepep_v2_speculative_draft, server_args)
+     run_hook(validate_deepep_v2_dispatch_token_budget, server_args)
++    run_hook(validate_adaptive_spec_deepep_dispatch_budget, server_args)
+ 
+     server_args._resolution_finished = True
+diff --git a/python/sglang/srt/arg_groups/resolution_hooks.py b/python/sglang/srt/arg_groups/resolution_hooks.py
+index 9422d8025e..88f2595cbe 100644
+--- a/python/sglang/srt/arg_groups/resolution_hooks.py
++++ b/python/sglang/srt/arg_groups/resolution_hooks.py
+@@ -93,6 +93,7 @@ _OVERRIDABLE_HOOKS: FrozenSet[str] = frozenset(
+         "handle_model_capability_adjustments",
+         "validate_deepep_v2_speculative_draft",
+         "validate_deepep_v2_dispatch_token_budget",
++        "validate_adaptive_spec_deepep_dispatch_budget",
+     }
+ )
+ 
 diff --git a/python/sglang/srt/arg_groups/speculative_hook.py b/python/sglang/srt/arg_groups/speculative_hook.py
 index 539188ba15..cf5f41de50 100644
 --- a/python/sglang/srt/arg_groups/speculative_hook.py
@@ -237,6 +338,52 @@ index ea64aea930..73ac789fb5 100644
          )
  
      def maybe_prepare_mlp_sync_batch(
+diff --git a/python/sglang/srt/managers/scheduler_components/metrics_reporter.py b/python/sglang/srt/managers/scheduler_components/metrics_reporter.py
+index 8203e705cd..795977af5e 100644
+--- a/python/sglang/srt/managers/scheduler_components/metrics_reporter.py
++++ b/python/sglang/srt/managers/scheduler_components/metrics_reporter.py
+@@ -36,6 +36,7 @@ from sglang.srt.runtime_context import (
+     get_spec,
+     logs_expert_balancedness_to_server_log,
+ )
++from sglang.srt.speculative.base_spec_worker import BaseSpecWorker
+ from sglang.srt.utils.device_timer import DeviceTimer
+ from sglang.srt.utils.scheduler_status_logger import SchedulerStatusLogger
+ 
+@@ -44,6 +45,7 @@ if TYPE_CHECKING:
+     from sglang.srt.managers.schedule_policy import PrefillAdder
+     from sglang.srt.managers.scheduler import Scheduler
+     from sglang.srt.managers.utils import EmbeddingBatchResult
++    from sglang.srt.speculative.dp_adaptive_consensus import DPAdaptiveConsensus
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -463,6 +465,12 @@ class SchedulerMetricsReporter:
+             var_decode_kv_tokens=decode_q.variance(),
+         )
+ 
++    def _dp_adaptive_consensus(self) -> Optional[DPAdaptiveConsensus]:
++        draft_worker = self.scheduler.draft_worker
++        if not isinstance(draft_worker, BaseSpecWorker):
++            return None
++        return draft_worker.dp_adaptive_consensus
++
+     def _active_spec_config_snapshot(self) -> dict[str, int]:
+         """Read the currently active speculative decoding configuration."""
+         draft_worker = self.scheduler.draft_worker
+@@ -1052,6 +1060,12 @@ class SchedulerMetricsReporter:
+             self.stats.spec_block_accept_length = spec_block_accept_length
+             self.stats.spec_num_steps = spec_num_steps
+             self.stats.spec_num_draft_tokens = spec_num_draft_tokens
++            consensus = self._dp_adaptive_consensus()
++            if consensus is not None:
++                self.stats.spec_adaptive_switch_ct = consensus.switch_ct
++                self.stats.spec_adaptive_correct_drafts_ema = (
++                    consensus.correct_drafts_ema
++                )
+ 
+             # Retract
+             self.stats.num_retracted_reqs = self.num_retracted_reqs
 diff --git a/python/sglang/srt/managers/tp_worker.py b/python/sglang/srt/managers/tp_worker.py
 index 6adfbe0437..468caed15c 100644
 --- a/python/sglang/srt/managers/tp_worker.py
@@ -253,8 +400,104 @@ index 6adfbe0437..468caed15c 100644
      ) -> None:
          """No-op mirror of BaseSpecWorker's hook: PP+spec non-last stages
          process relayed spec results through a plain worker."""
+diff --git a/python/sglang/srt/observability/metrics_collector.py b/python/sglang/srt/observability/metrics_collector.py
+index bab9530251..a08a491f01 100644
+--- a/python/sglang/srt/observability/metrics_collector.py
++++ b/python/sglang/srt/observability/metrics_collector.py
+@@ -37,6 +37,7 @@ from sglang.srt.runtime_context import (
+     get_parallel,
+     get_schedule,
+     get_serving,
++    get_spec,
+ )
+ from sglang.srt.server_args import ServerArgs
+ from sglang.srt.utils import get_bool_env_var
+@@ -125,6 +126,10 @@ class SchedulerStats:
+     # Adaptive speculative decoding (currently active tier).
+     spec_num_steps: int = 0
+     spec_num_draft_tokens: int = 0
++    # Adaptive spec under DP attention: cumulative committed tier switches and
++    # the pooled EMA of correct drafts per verified request.
++    spec_adaptive_switch_ct: int = 0
++    spec_adaptive_correct_drafts_ema: float = 0.0
+ 
+     # Retract
+     num_retracted_reqs: int = 0
+@@ -256,6 +261,7 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
+         enable_lora: bool = False,
+         enable_hierarchical_cache: bool = False,
+         enable_streaming_session: bool = False,
++        enable_dp_adaptive_spec: bool = False,
+     ) -> None:
+         # We need to import prometheus_client after setting the env variable `PROMETHEUS_MULTIPROC_DIR`
+         from prometheus_client import Counter as _PromCounter
+@@ -272,6 +278,7 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
+         self.enable_lora = enable_lora
+         self.enable_hierarchical_cache = enable_hierarchical_cache
+         self.enable_streaming_session = enable_streaming_session
++        self.enable_dp_adaptive_spec = enable_dp_adaptive_spec
+         self.last_log_time = time.perf_counter()
+         self._known_priorities: Set[int] = set()
+ 
+@@ -461,6 +468,19 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
+             labelnames=labels.keys(),
+             multiprocess_mode="mostrecent",
+         )
++        if self.enable_dp_adaptive_spec:
++            self._last_spec_adaptive_switch_ct = 0
++            self.spec_adaptive_switches_total = Counter(
++                name="sglang:spec_adaptive_switches_total",
++                documentation="Committed adaptive speculative tier switches agreed by the DP-attention consensus.",
++                labelnames=labels.keys(),
++            )
++            self.spec_adaptive_correct_drafts_ema = Gauge(
++                name="sglang:spec_adaptive_correct_drafts_ema",
++                documentation="EMA of correct drafts (no bonus token) per verified request, pooled over all DP ranks, of the last updated adaptive slot.",
++                labelnames=labels.keys(),
++                multiprocess_mode="mostrecent",
++            )
+ 
+         # =================================================================
+         # Retract
+@@ -1161,6 +1181,9 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
+                 enable_lora=enable_lora,
+                 enable_hierarchical_cache=enable_hierarchical_cache,
+                 enable_streaming_session=get_serving().enable_streaming_session,
++                enable_dp_adaptive_spec=(
++                    get_spec().speculative_adaptive and parallel.enable_dp_attention
++                ),
+                 server_args=server_args,
+             )
+         return SchedulerMetricsCollectorContext(
+@@ -1261,6 +1284,17 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
+             actual_execution=str(actual_execution).lower(),
+         ).inc(1)
+ 
++    def _log_spec_adaptive(self, stats: SchedulerStats) -> None:
++        # stats carries the cumulative count; the Prometheus counter takes deltas.
++        delta = stats.spec_adaptive_switch_ct - self._last_spec_adaptive_switch_ct
++        if delta > 0:
++            self.spec_adaptive_switches_total.labels(**self.labels).inc(delta)
++        self._last_spec_adaptive_switch_ct = stats.spec_adaptive_switch_ct
++        self._log_gauge(
++            self.spec_adaptive_correct_drafts_ema,
++            stats.spec_adaptive_correct_drafts_ema,
++        )
++
+     def increment_retracted_reqs(
+         self,
+         num_retracted_reqs: int,
+@@ -1410,6 +1444,8 @@ class SchedulerMetricsCollector(_StatLoggerDIMixin):
+         self._log_gauge(self.spec_block_accept_length, stats.spec_block_accept_length)
+         self._log_gauge(self.spec_num_steps, stats.spec_num_steps)
+         self._log_gauge(self.spec_num_draft_tokens, stats.spec_num_draft_tokens)
++        if self.enable_dp_adaptive_spec:
++            self._log_spec_adaptive(stats)
+ 
+         # Retract
+         self._log_gauge(self.num_retracted_reqs, stats.num_retracted_reqs)
 diff --git a/python/sglang/srt/speculative/adaptive_runtime_state.py b/python/sglang/srt/speculative/adaptive_runtime_state.py
-index d28e324061..d8709d3783 100644
+index d28e324061..f64f64bca4 100644
 --- a/python/sglang/srt/speculative/adaptive_runtime_state.py
 +++ b/python/sglang/srt/speculative/adaptive_runtime_state.py
 @@ -2,6 +2,8 @@ from dataclasses import dataclass
@@ -279,7 +522,38 @@ index d28e324061..d8709d3783 100644
  
  class AdaptiveSpecWorker(Protocol):
      """Protocol that a worker must implement to use AdaptiveController."""
-@@ -120,9 +128,12 @@ class AdaptiveController:
+@@ -100,15 +108,27 @@ class AdaptiveController:
+         key = steps if steps is not None else state.speculative_num_steps
+         self._states[key] = state
+ 
+-    def init_states(self, cuda_graph_bs: list[int] | None = None) -> None:
+-        """Build and register runtime states for all candidate steps."""
++    def init_states(
++        self,
++        cuda_graph_bs: list[int] | None = None,
++        *,
++        prune_cuda_graph_bs: bool = True,
++    ) -> None:
++        """Build and register runtime states for all candidate steps.
++
++        Without pruning every state captures the full ``cuda_graph_bs`` list.
++        """
+         self.params.set_cuda_graph_bs(cuda_graph_bs)
+ 
+         for steps in self.candidate_steps:
+             if steps in self._states:
+                 continue
+ 
+-            pruned_bs = self.params.cuda_graph_bs_for_step(steps)
++            pruned_bs = (
++                self.params.cuda_graph_bs_for_step(steps)
++                if prune_cuda_graph_bs
++                else None
++            )
+             state = self.worker.build_adaptive_runtime_state(
+                 speculative_num_steps=steps,
+                 speculative_num_draft_tokens=steps + 1,
+@@ -120,9 +140,12 @@ class AdaptiveController:
          self._activate(self.worker.speculative_num_steps)
  
      def activate_step_by_batch(self, batch_size: int) -> None:
@@ -296,10 +570,16 @@ index d28e324061..d8709d3783 100644
      def on_verify_complete(
          self, num_correct_drafts_per_req: list[int], batch_size: int
 diff --git a/python/sglang/srt/speculative/adaptive_spec_params.py b/python/sglang/srt/speculative/adaptive_spec_params.py
-index 6d33534996..7881d6af3b 100644
+index 6d33534996..7c413df7f7 100644
 --- a/python/sglang/srt/speculative/adaptive_spec_params.py
 +++ b/python/sglang/srt/speculative/adaptive_spec_params.py
-@@ -16,6 +16,7 @@ from sglang.srt.arg_groups.overrides import (
+@@ -12,10 +12,13 @@ import math
+ from functools import cached_property
+ from typing import TYPE_CHECKING
+ 
++import msgspec
++
+ from sglang.srt.arg_groups.overrides import (
      resolved_view,
      resolving_view,
  )
@@ -307,7 +587,7 @@ index 6d33534996..7881d6af3b 100644
  from sglang.srt.utils import log_info_on_rank0
  
  if TYPE_CHECKING:
-@@ -67,10 +68,9 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
+@@ -67,10 +70,9 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
              "(only topk=1 is supported)"
          )
      if resolved_view(server_args).enable_dp_attention:
@@ -321,7 +601,7 @@ index 6d33534996..7881d6af3b 100644
      if resolved_view(server_args).enable_multi_layer_eagle:
          return (
              "enable_multi_layer_eagle=True is not supported "
-@@ -89,6 +89,27 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
+@@ -89,6 +91,37 @@ def adaptive_unsupported_reason(server_args: ServerArgs) -> str | None:
      return None
  
  
@@ -343,13 +623,23 @@ index 6d33534996..7881d6af3b 100644
 +            f"pp_size={cfg.pp_size} with enable_dp_attention is not supported "
 +            "(the PP scheduler does not carry the agreed tier)"
 +        )
++    if envs.SGLANG_SPEC_SKIP_ZERO_STEP_DRAFT_EXTEND.get() and (
++        0 in resolve_candidate_steps_from_config(cfg.speculative_adaptive_config)
++    ):
++        return (
++            "a zero-step candidate with SGLANG_SPEC_SKIP_ZERO_STEP_DRAFT_EXTEND and "
++            "enable_dp_attention is not supported (the skipped draft extend forces "
++            "a rank-local eager draft on DSA models); unset "
++            "SGLANG_SPEC_SKIP_ZERO_STEP_DRAFT_EXTEND or remove 0 from every "
++            "candidate_steps in --speculative-adaptive-config"
++        )
 +    return None
 +
 +
  def _load_adaptive_config(
      cfg_path: str | None,
  ) -> tuple[dict, dict[int, dict]]:
-@@ -171,7 +192,7 @@ class AdaptiveStepSlot:
+@@ -171,7 +204,7 @@ class AdaptiveStepSlot:
  
          # Initialize EMA at current steps - 1 (neutral starting point)
          self.ema_accept_len = float(self.current_steps - 1)
@@ -358,7 +648,7 @@ index 6d33534996..7881d6af3b 100644
  
      def update(self, num_correct_drafts_per_req: list[int]) -> bool:
          """Update EMA with observed accept lengths. Returns True if params changed.
-@@ -181,20 +202,22 @@ class AdaptiveStepSlot:
+@@ -181,20 +214,22 @@ class AdaptiveStepSlot:
          """
          if not num_correct_drafts_per_req:
              return False
@@ -387,7 +677,7 @@ index 6d33534996..7881d6af3b 100644
              return False
  
          return self._recompute_params()
-@@ -250,13 +273,9 @@ class AdaptiveStepSlot:
+@@ -250,13 +285,9 @@ class AdaptiveStepSlot:
          return self._apply_target_steps(old_steps, target)
  
      def _apply_target_steps(self, old_steps: int, target: int) -> bool:
@@ -402,7 +692,7 @@ index 6d33534996..7881d6af3b 100644
              return True
          return False
  
-@@ -310,7 +329,14 @@ class AdaptiveSpeculativeParams:
+@@ -310,7 +341,14 @@ class AdaptiveSpeculativeParams:
          Returns the new step if a switch is warranted, else ``None``.
          """
          params = self._route(batch_size)
@@ -417,7 +707,7 @@ index 6d33534996..7881d6af3b 100644
              return params.current_steps
          return None
  
-@@ -335,13 +361,23 @@ class AdaptiveSpeculativeParams:
+@@ -335,13 +373,74 @@ class AdaptiveSpeculativeParams:
          ]
  
      def _pad_to_cuda_graph_bs(self, batch_size: int) -> int:
@@ -448,6 +738,57 @@ index 6d33534996..7881d6af3b 100644
 +    """Largest slot bs <= *target*, or the smallest slot when none is."""
 +    idx = bisect.bisect_right(slot_bs, target) - 1
 +    return slot_bs[max(0, idx)]
++
++
++class DecodeDispatchPeak(msgspec.Struct, frozen=True, kw_only=True):
++    """Largest per-rank decode MoE dispatch an adaptive DP config can produce."""
++
++    num_tokens: int
++    max_decode_bs: int
++    graph_bs: int
++    slot_bs: int
++    num_steps: int
++
++
++def peak_decode_dispatch_tokens(
++    *,
++    slot_candidate_steps: dict[int, list[int]],
++    routing_cuda_graph_bs: list[int] | None,
++    capture_cuda_graph_bs: list[int] | None,
++    max_bs_per_rank: int,
++) -> DecodeDispatchPeak:
++    """Scan every max per-rank decode bs a DP gather can carry, up to *max_bs_per_rank*."""
++    slot_bs = sorted(slot_candidate_steps)
++    routing_bs = sorted(routing_cuda_graph_bs) if routing_cuda_graph_bs else None
++    capture_bs = sorted(capture_cuda_graph_bs) if capture_cuda_graph_bs else None
++    peak = None
++    for max_decode_bs in range(1, max_bs_per_rank + 1):
++        slot = find_closest_slot_bs(
++            target=pad_to_cuda_graph_bs(
++                batch_size=max_decode_bs, cuda_graph_bs=routing_bs
++            ),
++            slot_bs=slot_bs,
++        )
++        num_steps = max(slot_candidate_steps[slot])
++        # tokens/rank = pad_graph(max per-rank bs, eager: unpadded) x (slot's max step + 1)
++        graph_bs = pad_to_cuda_graph_bs(
++            batch_size=max_decode_bs, cuda_graph_bs=capture_bs
++        )
++        num_tokens = graph_bs * (num_steps + 1)
++        if peak is None or num_tokens > peak.num_tokens:
++            peak = DecodeDispatchPeak(
++                num_tokens=num_tokens,
++                max_decode_bs=max_decode_bs,
++                graph_bs=graph_bs,
++                slot_bs=slot,
++                num_steps=num_steps,
++            )
++    return peak
++
++
++def adaptive_slot_candidate_steps(cfg_path: str | None) -> dict[int, list[int]]:
++    _, bs_entries = _load_adaptive_config(cfg_path)
++    return {bs: entry["candidate_steps"] for bs, entry in bs_entries.items()}
 diff --git a/python/sglang/srt/speculative/base_spec_worker.py b/python/sglang/srt/speculative/base_spec_worker.py
 index d8bab5c428..4b5afc5fa5 100644
 --- a/python/sglang/srt/speculative/base_spec_worker.py
@@ -480,10 +821,10 @@ index d8bab5c428..4b5afc5fa5 100644
  
 diff --git a/python/sglang/srt/speculative/dp_adaptive_consensus.py b/python/sglang/srt/speculative/dp_adaptive_consensus.py
 new file mode 100644
-index 0000000000..c8cf7e0a63
+index 0000000000..833c88af51
 --- /dev/null
 +++ b/python/sglang/srt/speculative/dp_adaptive_consensus.py
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,338 @@
 +"""DP-attention consensus for adaptive speculative decoding.
 +
 +Every DP rank feeds the same all-gathered per-rank signals into
@@ -649,6 +990,10 @@ index 0000000000..c8cf7e0a63
 +            initial_steps=initial_steps, num_ranks=num_ranks
 +        )
 +        self.local_counters = SpecCounters()
++        # Scheduler metrics: committed tier switches, and the pooled EMA of
++        # correct drafts per verified request of the last fed slot (0 until fed).
++        self.switch_ct = 0
++        self.correct_drafts_ema = 0.0
 +
 +    @classmethod
 +    def from_config(
@@ -685,12 +1030,22 @@ index 0000000000..c8cf7e0a63
 +                f"Adaptive spec DP consensus expects {num_ranks} gathered rows, "
 +                f"got {len(signals)}"
 +            )
-+        prev_steps = self._state.steps
++        prev_state = self._state
++        prev_steps = prev_state.steps
 +        steps, self._state = resolve_consensus_steps(
 +            signals=signals, state=self._state, policy=self._policy
 +        )
++        self.correct_drafts_ema = next(
++            (
++                new.ema_accept_len
++                for old, new in zip(prev_state.slots, self._state.slots)
++                if new.batch_count != old.batch_count
++            ),
++            self.correct_drafts_ema,
++        )
 +        # Mixed iterations may return a temporary width; log committed switches only.
 +        if self._state.steps != prev_steps:
++            self.switch_ct += 1
 +            ema = [round(s.ema_accept_len, 2) for s in self._state.slots]
 +            log_info_on_rank0(
 +                logger,
@@ -809,7 +1164,7 @@ index 0000000000..c8cf7e0a63
 +        batch_count=slot.batch_count,
 +    )
 diff --git a/python/sglang/srt/speculative/eagle_worker_v2.py b/python/sglang/srt/speculative/eagle_worker_v2.py
-index 993b53f637..22c0a6d91c 100644
+index 993b53f637..f51b7596ef 100644
 --- a/python/sglang/srt/speculative/eagle_worker_v2.py
 +++ b/python/sglang/srt/speculative/eagle_worker_v2.py
 @@ -73,6 +73,7 @@ from sglang.srt.speculative.adaptive_runtime_state import (
@@ -855,7 +1210,7 @@ index 993b53f637..22c0a6d91c 100644
  
          # Some dummy tensors
          self.num_new_pages_per_topk = torch.empty(
-@@ -1300,16 +1315,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1300,16 +1315,21 @@ class EAGLEWorkerV2(BaseSpecWorker):
                          target_graph_runner=self._target_worker.model_runner.decode_cuda_graph_runner,
                          draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
                          cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
@@ -870,6 +1225,9 @@ index 993b53f637..22c0a6d91c 100644
 -                        else get_exec().graph.cuda_graph_bs_decode
 -                    ),
 +                    cuda_graph_bs=_adaptive_decode_cuda_graph_bs(),
++                    # The DP consensus routes by the gathered max bs, not the TP
++                    # router the per-step pruning mirrors; capture every bs per tier.
++                    prune_cuda_graph_bs=self._dp_adaptive_consensus is None,
                  )
  
 +    @property
@@ -879,7 +1237,7 @@ index 993b53f637..22c0a6d91c 100644
      def forward_batch_generation(
          self,
          batch: ScheduleBatch,
-@@ -1317,6 +1334,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1317,6 +1337,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
          grammar_barrier=None,
          pp_proxy_tensors: Optional[PPProxyTensors] = None,
      ):
@@ -890,7 +1248,7 @@ index 993b53f637..22c0a6d91c 100644
          if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
              if not (
                  batch.is_extend_in_batch and self.enable_dp_spec_prefill_coordination
-@@ -1339,7 +1360,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1339,7 +1363,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
                          batch, plan, on_publish, grammar_barrier, pp_proxy_tensors
                      )
          else:
@@ -900,7 +1258,7 @@ index 993b53f637..22c0a6d91c 100644
  
              if batch.spec_info is None:
                  capture_mode = (
-@@ -1671,9 +1693,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1671,9 +1696,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
              )
  
      def on_verify_complete_cpu(
@@ -921,7 +1279,7 @@ index 993b53f637..22c0a6d91c 100644
              self.adaptive_controller.on_verify_complete(
                  num_correct_drafts_per_req, batch_size=batch_size
              )
-@@ -1750,6 +1781,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1750,6 +1784,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  target_graph_runner=target_graph_runner,
                  draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
                  cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
@@ -932,7 +1290,29 @@ index 993b53f637..22c0a6d91c 100644
              )
  
          after_mem = get_available_gpu_memory(self.device, self.gpu_id)
-@@ -1794,7 +1829,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1767,13 +1805,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+         if self.speculative_num_steps == state.speculative_num_steps:
+             return
+ 
+-        log_info_on_rank0(
+-            logger,
++        msg = (
+             "Switch adaptive runtime state: "
+             f"steps {self.speculative_num_steps} -> {state.speculative_num_steps}, "
+             f"draft_tokens {self.speculative_num_draft_tokens} -> "
+-            f"{state.speculative_num_draft_tokens}",
++            f"{state.speculative_num_draft_tokens}"
+         )
++        if self._dp_adaptive_consensus is None:
++            log_info_on_rank0(logger, msg)
++        else:
++            # The consensus logs committed switches; from tier 0 every mixed
++            # iteration swaps to a positive width and back.
++            logger.debug(msg)
+ 
+         # Top-level
+         self.speculative_num_steps = state.speculative_num_steps
+@@ -1794,7 +1837,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
          if state.draft_extend_attn_backend is not None:
              dw.draft_runner.attn_backend = state.draft_extend_attn_backend
          dw.cuda_graph_runner_for_draft_extend = state.cuda_graph_runner_for_draft_extend
@@ -944,7 +1324,7 @@ index 993b53f637..22c0a6d91c 100644
  
          # Target side
          self._target_worker.model_runner.attn_backend = state.target_attn_backend
-@@ -1833,6 +1871,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1833,6 +1879,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
              get_spec().speculative_num_draft_tokens,
              get_exec().graph.cuda_graph_bs_decode,
              get_exec().graph.disable_cuda_graph,
@@ -953,7 +1333,7 @@ index 993b53f637..22c0a6d91c 100644
          )
  
          self.speculative_num_steps = speculative_num_steps
-@@ -1854,6 +1894,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1854,6 +1902,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  cuda_graph_bs_decode=cuda_graph_bs,
                  **({"disable_cuda_graph": True} if not cuda_graph_bs else {}),
              )
@@ -961,7 +1341,7 @@ index 993b53f637..22c0a6d91c 100644
          dw._rebuild_topk1_chain_buffers()
  
          try:
-@@ -1878,7 +1919,12 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1878,7 +1927,12 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  cuda_graph_bs_decode=backup[12],
                  disable_cuda_graph=backup[13],
              )
