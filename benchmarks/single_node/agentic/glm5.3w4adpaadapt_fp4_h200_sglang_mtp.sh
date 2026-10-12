@@ -18,7 +18,7 @@ else
   exit 1
 fi
 popd >/dev/null
-# Largest ladder tier is 5 (6 tokens/req); graphs capture up to ~32 reqs/rank.
-export SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK=256
+# DeepEP cap stays at the default 128: each tier captures only the graph bs the
+# DP consensus can replay (peak 96 tokens/rank, checked at startup).
 SPEC_NUM_STEPS=3 SPEC_EXTRA_ARGS="--speculative-adaptive --speculative-adaptive-config $ADAPTIVE_CFG" \
   exec "$(dirname "$0")/glm5.3w4adpa_fp4_h200_sglang_mtp.sh"

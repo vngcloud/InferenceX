@@ -497,11 +497,13 @@ index bab9530251..a08a491f01 100644
          # Retract
          self._log_gauge(self.num_retracted_reqs, stats.num_retracted_reqs)
 diff --git a/python/sglang/srt/speculative/adaptive_runtime_state.py b/python/sglang/srt/speculative/adaptive_runtime_state.py
-index d28e324061..f64f64bca4 100644
+index d28e324061..4f87b980ac 100644
 --- a/python/sglang/srt/speculative/adaptive_runtime_state.py
 +++ b/python/sglang/srt/speculative/adaptive_runtime_state.py
-@@ -2,6 +2,8 @@ from dataclasses import dataclass
- from typing import TYPE_CHECKING, Protocol
+@@ -1,7 +1,9 @@
+ from dataclasses import dataclass
+-from typing import TYPE_CHECKING, Protocol
++from typing import TYPE_CHECKING, Callable, Protocol
  
  if TYPE_CHECKING:
 +    import torch
@@ -532,11 +534,11 @@ index d28e324061..f64f64bca4 100644
 +        self,
 +        cuda_graph_bs: list[int] | None = None,
 +        *,
-+        prune_cuda_graph_bs: bool = True,
++        capture_bs_for_step: Callable[[int], list[int] | None] | None = None,
 +    ) -> None:
 +        """Build and register runtime states for all candidate steps.
 +
-+        Without pruning every state captures the full ``cuda_graph_bs`` list.
++        ``capture_bs_for_step`` replaces the TP router's per-step pruning.
 +        """
          self.params.set_cuda_graph_bs(cuda_graph_bs)
  
@@ -547,8 +549,8 @@ index d28e324061..f64f64bca4 100644
 -            pruned_bs = self.params.cuda_graph_bs_for_step(steps)
 +            pruned_bs = (
 +                self.params.cuda_graph_bs_for_step(steps)
-+                if prune_cuda_graph_bs
-+                else None
++                if capture_bs_for_step is None
++                else capture_bs_for_step(steps)
 +            )
              state = self.worker.build_adaptive_runtime_state(
                  speculative_num_steps=steps,
@@ -570,7 +572,7 @@ index d28e324061..f64f64bca4 100644
      def on_verify_complete(
          self, num_correct_drafts_per_req: list[int], batch_size: int
 diff --git a/python/sglang/srt/speculative/adaptive_spec_params.py b/python/sglang/srt/speculative/adaptive_spec_params.py
-index 6d33534996..7c413df7f7 100644
+index 6d33534996..632e7df80e 100644
 --- a/python/sglang/srt/speculative/adaptive_spec_params.py
 +++ b/python/sglang/srt/speculative/adaptive_spec_params.py
 @@ -12,10 +12,13 @@ import math
@@ -707,7 +709,7 @@ index 6d33534996..7c413df7f7 100644
              return params.current_steps
          return None
  
-@@ -335,13 +373,74 @@ class AdaptiveSpeculativeParams:
+@@ -335,13 +373,108 @@ class AdaptiveSpeculativeParams:
          ]
  
      def _pad_to_cuda_graph_bs(self, batch_size: int) -> int:
@@ -738,6 +740,40 @@ index 6d33534996..7c413df7f7 100644
 +    """Largest slot bs <= *target*, or the smallest slot when none is."""
 +    idx = bisect.bisect_right(slot_bs, target) - 1
 +    return slot_bs[max(0, idx)]
++
++
++def dp_consensus_capture_bs(
++    *,
++    num_steps: int,
++    slot_candidate_steps: dict[int, list[int]],
++    routing_cuda_graph_bs: list[int] | None,
++    capture_cuda_graph_bs: list[int],
++) -> list[int]:
++    """Graph bs one tier needs when the DP consensus routes by the gathered max bs.
++
++    DP ranks replay the graph padded to the max per-rank bs, so a tier needs every
++    captured bs up to the padded largest max bs that routes to a slot holding it.
++    """
++    slot_bs = sorted(slot_candidate_steps)
++    routing_bs = sorted(routing_cuda_graph_bs) if routing_cuda_graph_bs else None
++    capture_bs = sorted(capture_cuda_graph_bs)
++    reachable = [
++        max_decode_bs
++        for max_decode_bs in range(1, capture_bs[-1] + 1)
++        if num_steps
++        in slot_candidate_steps[
++            find_closest_slot_bs(
++                target=pad_to_cuda_graph_bs(
++                    batch_size=max_decode_bs, cuda_graph_bs=routing_bs
++                ),
++                slot_bs=slot_bs,
++            )
++        ]
++    ]
++    if not reachable:
++        return []
++    largest = pad_to_cuda_graph_bs(batch_size=reachable[-1], cuda_graph_bs=capture_bs)
++    return [bs for bs in capture_bs if bs <= largest]
 +
 +
 +class DecodeDispatchPeak(msgspec.Struct, frozen=True, kw_only=True):
@@ -821,10 +857,10 @@ index d8bab5c428..4b5afc5fa5 100644
  
 diff --git a/python/sglang/srt/speculative/dp_adaptive_consensus.py b/python/sglang/srt/speculative/dp_adaptive_consensus.py
 new file mode 100644
-index 0000000000..833c88af51
+index 0000000000..6b16d0ee22
 --- /dev/null
 +++ b/python/sglang/srt/speculative/dp_adaptive_consensus.py
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,357 @@
 +"""DP-attention consensus for adaptive speculative decoding.
 +
 +Every DP rank feeds the same all-gathered per-rank signals into
@@ -842,6 +878,7 @@ index 0000000000..833c88af51
 +from sglang.srt.speculative.adaptive_spec_params import (
 +    AdaptiveStepSlot,
 +    _load_adaptive_config,
++    dp_consensus_capture_bs,
 +    find_closest_slot_bs,
 +    pad_to_cuda_graph_bs,
 +)
@@ -955,9 +992,10 @@ index 0000000000..833c88af51
 +        policy=policy, max_decode_bs=max(s.decode_bs for s in signals)
 +    )
 +    if any(s.is_extend for s in signals):
-+        return _mixed_iteration_steps(
-+            state=state, policy=policy, slot_idx=slot_idx
-+        ), state
++        return (
++            _mixed_iteration_steps(state=state, policy=policy, slot_idx=slot_idx),
++            state,
++        )
 +    if all(s.decode_bs == 0 for s in signals):
 +        return state.steps, state
 +
@@ -1015,6 +1053,23 @@ index 0000000000..833c88af51
 +        )
 +        return cls(policy=policy, initial_steps=initial_steps, num_ranks=num_ranks)
 +
++    def capture_bs_for_step(
++        self, steps: int, *, capture_cuda_graph_bs: list[int]
++    ) -> list[int]:
++        return dp_consensus_capture_bs(
++            num_steps=steps,
++            slot_candidate_steps={
++                bs: cfg["candidate_steps"]
++                for bs, cfg in zip(self._policy.slot_bs, self._policy.slot_cfgs)
++            },
++            routing_cuda_graph_bs=(
++                None
++                if self._policy.cuda_graph_bs is None
++                else list(self._policy.cuda_graph_bs)
++            ),
++            capture_cuda_graph_bs=capture_cuda_graph_bs,
++        )
++
 +    def record_verify(
 +        self, *, num_correct_drafts_per_req: Sequence[int], num_steps: int
 +    ) -> None:
@@ -1067,9 +1122,9 @@ index 0000000000..833c88af51
 +def _route_slot(*, policy: ConsensusPolicy, max_decode_bs: int) -> int:
 +    padded = pad_to_cuda_graph_bs(
 +        batch_size=max_decode_bs,
-+        cuda_graph_bs=None
-+        if policy.cuda_graph_bs is None
-+        else list(policy.cuda_graph_bs),
++        cuda_graph_bs=(
++            None if policy.cuda_graph_bs is None else list(policy.cuda_graph_bs)
++        ),
 +    )
 +    return policy.slot_bs.index(
 +        find_closest_slot_bs(target=padded, slot_bs=list(policy.slot_bs))
@@ -1164,10 +1219,20 @@ index 0000000000..833c88af51
 +        batch_count=slot.batch_count,
 +    )
 diff --git a/python/sglang/srt/speculative/eagle_worker_v2.py b/python/sglang/srt/speculative/eagle_worker_v2.py
-index 993b53f637..f51b7596ef 100644
+index 993b53f637..224583f434 100644
 --- a/python/sglang/srt/speculative/eagle_worker_v2.py
 +++ b/python/sglang/srt/speculative/eagle_worker_v2.py
-@@ -73,6 +73,7 @@ from sglang.srt.speculative.adaptive_runtime_state import (
+@@ -1,7 +1,8 @@
+ import contextlib
++import functools
+ import logging
+ import time
+-from typing import List, Optional
++from typing import Callable, List, Optional
+ 
+ import torch
+ 
+@@ -73,6 +74,7 @@ from sglang.srt.speculative.adaptive_runtime_state import (
  )
  from sglang.srt.speculative.adaptive_spec_params import AdaptiveSpeculativeParams
  from sglang.srt.speculative.base_spec_worker import BaseSpecWorker, EagleDraftWorkerBase
@@ -1175,7 +1240,7 @@ index 993b53f637..f51b7596ef 100644
  from sglang.srt.speculative.dp_spec_prefill_coordination import (
      DPSpecPrefillCoordinationPlan,
  )
-@@ -1196,6 +1197,12 @@ class EagleDraftWorker(EagleDraftWorkerBase):
+@@ -1196,6 +1198,12 @@ class EagleDraftWorker(EagleDraftWorkerBase):
          )
  
  
@@ -1188,7 +1253,7 @@ index 993b53f637..f51b7596ef 100644
  class EAGLEWorkerV2(BaseSpecWorker):
      def __init__(
          self,
-@@ -1239,6 +1246,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1239,6 +1247,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
  
          # Adaptive speculative
          self.adaptive_controller: Optional[AdaptiveController] = None
@@ -1196,7 +1261,7 @@ index 993b53f637..f51b7596ef 100644
          if get_spec().speculative_adaptive and self._hosts_draft:
              self.adaptive_controller = AdaptiveController(
                  self,
-@@ -1247,6 +1255,13 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1247,6 +1256,13 @@ class EAGLEWorkerV2(BaseSpecWorker):
                      cfg_path=get_spec().speculative_adaptive_config,
                  ),
              )
@@ -1210,7 +1275,7 @@ index 993b53f637..f51b7596ef 100644
  
          # Some dummy tensors
          self.num_new_pages_per_topk = torch.empty(
-@@ -1300,16 +1315,21 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1300,16 +1316,30 @@ class EAGLEWorkerV2(BaseSpecWorker):
                          target_graph_runner=self._target_worker.model_runner.decode_cuda_graph_runner,
                          draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
                          cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
@@ -1225,11 +1290,20 @@ index 993b53f637..f51b7596ef 100644
 -                        else get_exec().graph.cuda_graph_bs_decode
 -                    ),
 +                    cuda_graph_bs=_adaptive_decode_cuda_graph_bs(),
-+                    # The DP consensus routes by the gathered max bs, not the TP
-+                    # router the per-step pruning mirrors; capture every bs per tier.
-+                    prune_cuda_graph_bs=self._dp_adaptive_consensus is None,
++                    capture_bs_for_step=self._dp_capture_bs_for_step(),
                  )
  
++    def _dp_capture_bs_for_step(self) -> Optional[Callable[[int], list[int]]]:
++        # The DP consensus routes by the gathered max bs, not the TP router the
++        # per-step pruning mirrors; each tier captures only bs it can replay.
++        graph_runner = self._target_worker.model_runner.decode_cuda_graph_runner
++        if self._dp_adaptive_consensus is None or graph_runner is None:
++            return None
++        return functools.partial(
++            self._dp_adaptive_consensus.capture_bs_for_step,
++            capture_cuda_graph_bs=list(graph_runner.capture_bs),
++        )
++
 +    @property
 +    def dp_adaptive_consensus(self) -> Optional[DPAdaptiveConsensus]:
 +        return self._dp_adaptive_consensus
@@ -1237,7 +1311,7 @@ index 993b53f637..f51b7596ef 100644
      def forward_batch_generation(
          self,
          batch: ScheduleBatch,
-@@ -1317,6 +1337,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1317,6 +1347,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
          grammar_barrier=None,
          pp_proxy_tensors: Optional[PPProxyTensors] = None,
      ):
@@ -1248,7 +1322,7 @@ index 993b53f637..f51b7596ef 100644
          if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
              if not (
                  batch.is_extend_in_batch and self.enable_dp_spec_prefill_coordination
-@@ -1339,7 +1363,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1339,7 +1373,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
                          batch, plan, on_publish, grammar_barrier, pp_proxy_tensors
                      )
          else:
@@ -1258,7 +1332,7 @@ index 993b53f637..f51b7596ef 100644
  
              if batch.spec_info is None:
                  capture_mode = (
-@@ -1671,9 +1696,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1671,9 +1706,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
              )
  
      def on_verify_complete_cpu(
@@ -1279,7 +1353,7 @@ index 993b53f637..f51b7596ef 100644
              self.adaptive_controller.on_verify_complete(
                  num_correct_drafts_per_req, batch_size=batch_size
              )
-@@ -1750,6 +1784,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1750,6 +1794,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  target_graph_runner=target_graph_runner,
                  draft_extend_attn_backend=self._draft_worker.draft_extend_attn_backend,
                  cuda_graph_runner_for_draft_extend=self._draft_worker.cuda_graph_runner_for_draft_extend,
@@ -1290,7 +1364,7 @@ index 993b53f637..f51b7596ef 100644
              )
  
          after_mem = get_available_gpu_memory(self.device, self.gpu_id)
-@@ -1767,13 +1805,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1767,13 +1815,18 @@ class EAGLEWorkerV2(BaseSpecWorker):
          if self.speculative_num_steps == state.speculative_num_steps:
              return
  
@@ -1312,7 +1386,7 @@ index 993b53f637..f51b7596ef 100644
  
          # Top-level
          self.speculative_num_steps = state.speculative_num_steps
-@@ -1794,7 +1837,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1794,7 +1847,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
          if state.draft_extend_attn_backend is not None:
              dw.draft_runner.attn_backend = state.draft_extend_attn_backend
          dw.cuda_graph_runner_for_draft_extend = state.cuda_graph_runner_for_draft_extend
@@ -1324,7 +1398,7 @@ index 993b53f637..f51b7596ef 100644
  
          # Target side
          self._target_worker.model_runner.attn_backend = state.target_attn_backend
-@@ -1833,6 +1879,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1833,6 +1889,8 @@ class EAGLEWorkerV2(BaseSpecWorker):
              get_spec().speculative_num_draft_tokens,
              get_exec().graph.cuda_graph_bs_decode,
              get_exec().graph.disable_cuda_graph,
@@ -1333,7 +1407,7 @@ index 993b53f637..f51b7596ef 100644
          )
  
          self.speculative_num_steps = speculative_num_steps
-@@ -1854,6 +1902,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1854,6 +1912,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  cuda_graph_bs_decode=cuda_graph_bs,
                  **({"disable_cuda_graph": True} if not cuda_graph_bs else {}),
              )
@@ -1341,7 +1415,7 @@ index 993b53f637..f51b7596ef 100644
          dw._rebuild_topk1_chain_buffers()
  
          try:
-@@ -1878,7 +1927,12 @@ class EAGLEWorkerV2(BaseSpecWorker):
+@@ -1878,7 +1937,12 @@ class EAGLEWorkerV2(BaseSpecWorker):
                  cuda_graph_bs_decode=backup[12],
                  disable_cuda_graph=backup[13],
              )
