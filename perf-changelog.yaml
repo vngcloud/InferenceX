@@ -8240,3 +8240,10 @@
   description:
     - "SGLang DFLASH, same as gemma4sbdfalo but --speculative-num-draft-tokens 8 (draft block_size 16), low_entropy c8/c32."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-dflash-fa4
+- config-keys:
+    - gemma4sbdf8hi-fp8block-gnslurm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang DFLASH draft 8 (fa4 draft attention), high_entropy c8/c32, to compare with MTP4 hi (479 tok/s at c8, 772.9 at c32)."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-dflash-fa4
