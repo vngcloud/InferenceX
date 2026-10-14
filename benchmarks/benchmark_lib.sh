@@ -654,6 +654,54 @@ wait_for_server_ready() {
     INFERENCEX_SERVER_PID="$server_pid"
 }
 
+# Serving-YAML router path: the Dynamo engine has no HTTP port, so readiness is the
+# frontend on $port listing <model> (it only does once the engine registered). Fails
+# fast when the engine process exits or the launcher wrote <router-exited> (router step ended).
+wait_for_frontend_model() {
+    local port="" model="" server_log="" server_pid="" router_exited="" sleep_interval=5
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --port) port="$2"; shift 2 ;;
+            --model) model="$2"; shift 2 ;;
+            --server-log) server_log="$2"; shift 2 ;;
+            --server-pid) server_pid="$2"; shift 2 ;;
+            --router-exited) router_exited="$2"; shift 2 ;;
+            --sleep-interval) sleep_interval="$2"; shift 2 ;;
+            *) echo "Unknown parameter: $1" >&2; return 1 ;;
+        esac
+    done
+    if [[ -z "$port" || -z "$model" || -z "$server_log" || -z "$server_pid" || -z "$router_exited" ]]; then
+        echo "Error: --port, --model, --server-log, --server-pid and --router-exited are required" >&2
+        return 1
+    fi
+    while true; do
+        if ! kill -0 "$server_pid" 2>/dev/null; then
+            echo "ERROR: engine exited before the frontend listed $model; last lines of $server_log:" >&2
+            tail -n 50 "$server_log" >&2
+            return 1
+        fi
+        if [[ -f "$router_exited" ]]; then
+            echo "ERROR: router step exited ($(cat "$router_exited")) before it listed $model; see results/router.log" >&2
+            return 1
+        fi
+        if python3 - "$port" "$model" <<'PY' 2>/dev/null
+import json, sys, urllib.request
+port, model = sys.argv[1], sys.argv[2]
+with urllib.request.urlopen(f"http://localhost:{port}/v1/models", timeout=5) as response:
+    ids = [entry.get("id") for entry in json.load(response).get("data", [])]
+sys.exit(0 if model in ids else 1)
+PY
+        then
+            break
+        fi
+        sleep "$sleep_interval"
+    done
+    INFERENCEX_SERVER_STATE=$(mktemp /tmp/inferencex-server-state.XXXXXX) || return 1
+    PYTHONPATH="$INFERENCEX_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -m infx.bench_serving.server_watch capture --pid "$server_pid" \
+        > "$INFERENCEX_SERVER_STATE" || return 1
+    INFERENCEX_SERVER_PID="$server_pid"
+}
+
 # Keep client process groups separate; on confirmed server/worker death only
 # this client's descendants are stopped. There is no elapsed-time cutoff.
 run_server_client() {
@@ -2983,7 +3031,11 @@ AIPERF_VENV="${AIPERF_RUNTIME_DIR}/venv"
 AIPERF_UV_INSTALL_DIR="${AIPERF_RUNTIME_DIR}/uv/bin"
 AIPERF_UV_CACHE_DIR="${AIPERF_RUNTIME_DIR}/uv-cache"
 AIPERF_PYTHON="${AIPERF_VENV}/bin/python"
-AIPERF_CLI="${AIPERF_VENV}/bin/aiperf"
+# Caller-preserving: the serving-YAML path's golden check and unit tests export
+# AIPERF_CLI before sourcing this library so the emitted REPLAY_CMD is a
+# deterministic string; recipes never set it and get the venv binary, and
+# install_agentic_deps still verifies whatever it resolves to.
+AIPERF_CLI="${AIPERF_CLI:-${AIPERF_VENV}/bin/aiperf}"
 AIPERF_HF_CLI="${AIPERF_VENV}/bin/hf"
 AIPERF_DEPS_READY=0
 AIPERF_FAILED_REQUEST_THRESHOLD="${AIPERF_FAILED_REQUEST_THRESHOLD:-0.10}"
@@ -3140,8 +3192,9 @@ resolve_trace_source() {
     TRACE_SOURCE_FLAG="--public-dataset $loader"
     echo "Loading traces via aiperf public-dataset: $loader ($dataset) [MODEL_PREFIX=${MODEL_PREFIX:-unset}]"
     # Pre-download into the shared HF_HUB_CACHE so later jobs hit cache.
+    # the user's env may set HF_HUB_OFFLINE=1 for the engine; the pre-download must reach the Hub (later offline reads hit the cache)
     ensure_hf_cli
-    "$AIPERF_HF_CLI" download --repo-type dataset "$dataset"
+    HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= "$AIPERF_HF_CLI" download --repo-type dataset "$dataset"
 }
 
 # Shared pre-flight for *-remote-bench.sh recipes: normalize the target URL,
@@ -3461,6 +3514,67 @@ build_replay_cmd() {
         REPLAY_CMD+=" --unsafe-override"
     fi
     REPLAY_CMD+=" $TRACE_SOURCE_FLAG"
+}
+
+# Serving-YAML path (docs/superpowers/specs/2026-10-12-serving-yaml-dispatch-design.md):
+# the workload lives in scenarios/$SERVING_SCENARIO.yaml (native aiperf YAML);
+# only per-run values are flags here. utils/serving/check_scenario_golden.py
+# proves YAML + these flags resolve to the same config as build_replay_cmd.
+build_replay_cmd_yaml() {
+    check_env_vars INFMAX_CONTAINER_WORKSPACE MODEL PORT CONC SERVING_SCENARIO AIPERF_CLI
+    local result_dir="$1"
+    local scenario_file="$INFMAX_CONTAINER_WORKSPACE/scenarios/${SERVING_SCENARIO}.yaml"
+    if [ ! -f "$scenario_file" ]; then
+        echo "ERROR: scenario file not found: scenarios/${SERVING_SCENARIO}.yaml" >&2
+        return 1
+    fi
+    # Same timeouts/UI env as build_replay_cmd (dataset configuration on H200).
+    export AIPERF_DATASET_CONFIGURATION_TIMEOUT=1800
+    export AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT=1800
+    export AIPERF_UI_REALTIME_METRICS_ENABLED=true
+    REPLAY_CMD="$AIPERF_CLI profile --config $scenario_file"
+    REPLAY_CMD+=" --url http://localhost:$PORT"
+    REPLAY_CMD+=" --model ${SERVED_MODEL_NAME:-$MODEL}"
+    REPLAY_CMD+=" --tokenizer $MODEL"
+    REPLAY_CMD+=" --concurrency $CONC"
+    if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
+        REPLAY_CMD+=" --gpu-telemetry $AIPERF_GPU_TELEMETRY_URL"
+        if [ -n "${AIPERF_GPU_TELEMETRY_METRICS_CSV:-}" ]; then
+            REPLAY_CMD+=" $AIPERF_GPU_TELEMETRY_METRICS_CSV"
+        fi
+    else
+        REPLAY_CMD+=" --no-gpu-telemetry"
+    fi
+    if [ -n "${AIPERF_SERVER_METRICS_URLS:-}" ]; then
+        REPLAY_CMD+=" --server-metrics ${AIPERF_SERVER_METRICS_URLS//,/ }"
+    fi
+    REPLAY_CMD+=" --output-artifact-dir $result_dir/aiperf_artifacts"
+}
+
+# Exit 0 when <name> is a lock-pinned file dataset (scenarios/datasets/lock.yaml),
+# 1 when it is not, 2 when the lock cannot be read.
+is_custom_dataset() {
+    check_env_vars INFMAX_CONTAINER_WORKSPACE AIPERF_PYTHON
+    "$AIPERF_PYTHON" "$INFMAX_CONTAINER_WORKSPACE/utils/serving/fetch_custom_dataset.py" --check "$1"
+}
+
+# Download + sha256-verify a lock-pinned file dataset and export
+# IX_CUSTOM_DATASET_FILE (the scenario YAML's dataset path). GREENLAB_HF_TOKEN
+# is read only inside the Python helper; xtrace is paused so nothing
+# token-shaped can reach the log, and restored afterwards.
+fetch_custom_dataset() {
+    check_env_vars INFMAX_CONTAINER_WORKSPACE AIPERF_PYTHON
+    local name="$1" path restore=""
+    [[ $- == *x* ]] && restore=1
+    { set +x; } 2>/dev/null
+    if ! path=$("$AIPERF_PYTHON" "$INFMAX_CONTAINER_WORKSPACE/utils/serving/fetch_custom_dataset.py" "$name"); then
+        [[ -n "$restore" ]] && set -x
+        return 1
+    fi
+    export IX_CUSTOM_DATASET_FILE="$path"
+    echo "dataset $name: $IX_CUSTOM_DATASET_FILE"
+    [[ -n "$restore" ]] && set -x
+    return 0
 }
 
 write_agentic_result_json() {

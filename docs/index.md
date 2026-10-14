@@ -19,6 +19,7 @@ This is the mandatory low-context router for InferenceX work. Pick the one page 
 | [`configuration-procedures.md`](./configuration-procedures.md) / [`configuration-procedures_zh.md`](./configuration-procedures_zh.md) | Config, runner, image, recipe, llm-d, srt-slurm, and MTP changes |
 | [`ci-procedures.md`](./ci-procedures.md) / [`ci-procedures_zh.md`](./ci-procedures_zh.md) | Matrix generation, validation, dispatch, PR sweeps, reuse, staging, and artifact downloads |
 | [`eval-agentx-procedures.md`](./eval-agentx-procedures.md) / [`eval-agentx-procedures_zh.md`](./eval-agentx-procedures_zh.md) | Eval and AgentX selection, execution, scoring, evidence, and live-run diagnosis |
+| [`serving-yaml-procedures.md`](./serving-yaml-procedures.md) / [`serving-yaml-procedures_zh.md`](./serving-yaml-procedures_zh.md) | Benchmarking your own serving config from one YAML on a VNG runner: prerequisites, runner-provided image/model access, dispatch, escalation |
 | [`results-and-ingestion.md`](./results-and-ingestion.md) / [`results-and-ingestion_zh.md`](./results-and-ingestion_zh.md) | Published-result lookup, artifact identities and schemas, app ingestion, dedupe, and provenance |
 | [`recovery-results-procedures.md`](./recovery-results-procedures.md) / [`recovery-results-procedures_zh.md`](./recovery-results-procedures_zh.md) | Result processing, ingest verification and recovery, runner cleanup, and failure classification |
 | [`testing.md`](./testing.md) / [`testing_zh.md`](./testing_zh.md) | Local checks, smoke runs, evidence standards, and review gates |

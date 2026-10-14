@@ -24,17 +24,25 @@ SLURM_ACCOUNT="greennode"
 # Pin salloc to the runner's own node: one runner per node, one GPU per node.
 # (hoanq3-h200-1x-han-3 lacked nvidia-container-cli until 2026-10-08, which
 # is why this was hardcoded to its sibling; both nodes work now.)
-case "$(hostname -s)" in
-  hoanq3-h200-1x-han-3) SLURM_NODELIST="hoanq3-h200-1x-han-3" ;;
-  hoanq3-h200-1x-han-3-1) SLURM_NODELIST="hoanq3-h200-1x-han-3-1" ;;
-  *)
-    echo "ERROR: unrecognized 1xH200 host $(hostname -s), add it to the map in $0" >&2
-    exit 1
-    ;;
-esac
+# A runner's .env may set IX_SLURM_NODELIST; otherwise map the hostname.
+if [[ -n "${IX_SLURM_NODELIST:-}" ]]; then
+  SLURM_NODELIST="$IX_SLURM_NODELIST"
+else
+  case "$(hostname -s)" in
+    hoanq3-h200-1x-han-3) SLURM_NODELIST="hoanq3-h200-1x-han-3" ;;
+    hoanq3-h200-1x-han-3-1) SLURM_NODELIST="hoanq3-h200-1x-han-3-1" ;;
+    *)
+      echo "ERROR: unrecognized 1xH200 host $(hostname -s), add it to the map in $0 or set IX_SLURM_NODELIST in the runner's .env" >&2
+      exit 1
+      ;;
+  esac
+fi
 # Per-uid scratch on /data (984G): the node's / is <3G free. World-writable,
 # so any runner user (stackops daemon or a sbatch-held runner) can create it.
-NODE_ROOT="/data/inferencex-$(id -u)"
+NODE_ROOT="${IX_SCRATCH_ROOT:-/data/inferencex}-$(id -u)"
+# Host dir mounted as the container's HF cache. A runner's .env can point it
+# at a cache shared by every runner uid (e.g. /data/hf-cache, mode 2777 + default ACL).
+HF_CACHE_HOST="${IX_HF_CACHE_HOST:-$NODE_ROOT/hf}"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-/mnt/hf_hub_cache}"
 export AIPERF_UV_CACHE_DIR="${AIPERF_UV_CACHE_DIR:-/mnt/uv-cache}"
 # One GPU per node -> one job per node, so fixed ports cannot collide.
@@ -113,13 +121,18 @@ BENCH_SCRIPT="${BENCH_BASE}${SPEC_SUFFIX}.sh"
 if [[ ! -f "$BENCH_SCRIPT" ]]; then
   BENCH_SCRIPT="${BENCH_BASE}.sh"
 fi
+# Serving-YAML path: one generic recipe; the arm lives in SERVE_CMD & co.
+if [[ -n "${SERVE_CMD:-}" ]]; then
+  BENCH_SCRIPT="benchmarks/single_node/agentic/serve_generic.sh"
+fi
 GPU_METRICS_CSV="${BENCH_SCRIPT%.sh}.gpu_metrics.csv"
 DCGM_EXTRA_ARGS=""
 DCGM_CSV_MOUNT=""
 if [[ -f "$GPU_METRICS_CSV" ]]; then
     DCGM_EXTRA_ARGS="-f /etc/dcgm-exporter/custom.csv"
     DCGM_CSV_MOUNT="-m $NODE_ROOT/ws-$JOB_ID/$GPU_METRICS_CSV:/etc/dcgm-exporter/custom.csv"
-    export AIPERF_GPU_TELEMETRY_METRICS_CSV="/etc/dcgm-exporter/custom.csv"
+    # aiperf runs in the bench container, which sees the repo at /workspace, not the DCGM mount.
+    export AIPERF_GPU_TELEMETRY_METRICS_CSV="/workspace/$GPU_METRICS_CSV"
 fi
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:${DCGM_PORT}/metrics"
 
@@ -127,15 +140,18 @@ export AIPERF_GPU_TELEMETRY_URL="http://localhost:${DCGM_PORT}/metrics"
 # its own PATH, CUDA and library settings. Holds HF_TOKEN -> 0600, removed by the trap.
 ENV_FILE="$(mktemp)"
 chmod 600 "$ENV_FILE"
+# Runner .env keys (e.g. GREENLAB_HF_TOKEN for lock-pinned private datasets) are in
+# the job env and travel to the container through this file (mode 600, deleted after
+# `source`). Never echo it; it is not a GitHub secret, so Actions would not mask it.
 export -p | grep -vE '^declare -x (PATH|HOME|PWD|OLDPWD|SHLVL|HOSTNAME|USER|LOGNAME|SHELL|TMPDIR|TERM|MAIL|_|LD_[A-Z_]*|CUDA_[A-Z_]*|NVIDIA_[A-Z_]*|SLURM_[A-Z_]*|ENROOT_[A-Z_]*|XDG_[A-Z_]*|DBUS_[A-Z_]*)=' > "$ENV_FILE"
 echo "export INFMAX_CONTAINER_WORKSPACE=/workspace RESULT_DIR=/workspace/results HOME=/ixhome" >> "$ENV_FILE"
 
-srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=2 bash -c "umask 077; mkdir -p $WS $NODE_ROOT/hf $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
+srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=2 bash -c "umask 077; mkdir -p $WS $HF_CACHE_HOST $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
     < <(tar -cz -C "$GITHUB_WORKSPACE" --exclude=.git --exclude=./results .)
 srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=1 bash -c "cat > $WS/.ix_env" < "$ENV_FILE"
 rm -f "$ENV_FILE"
 
-MOUNTS="-m $WS:/workspace -m $NODE_ROOT/hf:$HF_HUB_CACHE -m $NODE_ROOT/uv:$AIPERF_UV_CACHE_DIR -m $NODE_ROOT/home:/ixhome"
+MOUNTS="-m $WS:/workspace -m $HF_CACHE_HOST:$HF_HUB_CACHE -m $NODE_ROOT/uv:$AIPERF_UV_CACHE_DIR -m $NODE_ROOT/home:/ixhome"
 START="$ENROOT_ENV; enroot start --rw -e NVIDIA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES"
 
 srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=2 --mem=4G bash -c "$START $DCGM_CSV_MOUNT $DCGM_CT dcgm-exporter -a :$DCGM_PORT $DCGM_EXTRA_ARGS" &

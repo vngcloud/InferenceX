@@ -149,6 +149,11 @@ on:
         required: false
         type: string
         default: ""
+      serving:
+        description: "Rendered serving object from infx.serving.to_matrix (serving-yaml path only). Empty for every other job."
+        required: false
+        type: string
+        default: ""
 env:
   PORT: '8888'
   INFMAX_CONTAINER_WORKSPACE: '/workspace'
@@ -213,6 +218,18 @@ env:
   REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}
   REMOTE_INSECURE_TLS: ${{ inputs.remote-insecure-tls }}
   WEKA_LOADER_OVERRIDE: ${{ inputs.weka-loader-override }}
+  # Serving-YAML path (infx.serving). Empty unless e2e-tests got a serving input;
+  # runners/launch_h200-greennode-slurm-1x.sh switches to serve_generic.sh on SERVE_CMD.
+  SERVE_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).serve-cmd || '' }}
+  SERVE_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).serve-env || '' }}
+  SERVED_MODEL_NAME: ${{ inputs.serving != '' && fromJSON(inputs.serving).served-model-name || '' }}
+  SERVING_SCENARIO: ${{ inputs.serving != '' && fromJSON(inputs.serving).scenario || '' }}
+  SERVING_LOADER: ${{ inputs.serving != '' && fromJSON(inputs.serving).loader || '' }}
+  SERVING_YAML: ${{ inputs.serving != '' && fromJSON(inputs.serving).yaml || '' }}
+  # Router sidecar (Dynamo frontend); only runners/launch_hardware-hcm.sh reads these.
+  ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}
+  ROUTER_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-cmd || '' }}
+  ROUTER_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-env || '' }}
   # Bearer token for authenticated remote targets. Empty for every other
   # recipe, which leaves build_replay_cmd's --api-key branch inert.
   REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}

@@ -25,6 +25,10 @@ set -x
 # workarounds in launch_h200-greennode-slurm-1x.sh (no passwd entry for the
 # runner user, workspace shipped over srun stdin, etc, plus that script's
 # hardcoded --nodelist for its own 1x node) apply here.
+#
+# The serving-YAML path (SERVE_CMD, optional ROUTER_* for a Dynamo router
+# sidecar) lives here too:
+# docs/superpowers/specs/2026-10-13-serving-router-dynamo-design.md §4.
 SLURM_PARTITION="hardware-hcm"
 SLURM_ACCOUNT="dev"
 # Pin the allocation to this box's own Slurm node name. Without --nodelist,
@@ -58,6 +62,18 @@ free_tcp_port() {
     python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()'
 }
 export PORT="$(free_tcp_port)"
+# Dynamo parses DYN_SYSTEM_PORT as i16 (<= 32767); ephemeral ports (32768+) crash it.
+free_tcp_port_below_32768() {
+    python3 -c 'import random, socket
+for p in random.sample(range(20000, 32768), 2000):
+    s = socket.socket()
+    try:
+        s.bind(("", p)); print(p); break
+    except OSError:
+        pass
+    finally:
+        s.close()'
+}
 
 # enroot needs `docker://registry#path` for a non-default registry; auto-detect
 # by whether the first path component looks like a host (has a dot/colon, or
@@ -77,11 +93,9 @@ enroot_uri_for_image() {
 }
 
 # Local disk, not /shared (NFS) -- much faster for large image imports.
-SQUASH_CACHE_DIR="/mnt/containers"
+# A runner's .env may set IX_SQUASH_DIR (tests point it at a temp dir).
+SQUASH_CACHE_DIR="${IX_SQUASH_DIR:-/mnt/containers}"
 mkdir -p "$SQUASH_CACHE_DIR"
-SQUASH_FILE="${SQUASH_CACHE_DIR}/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
-DOCKER_IMAGE_URI="$(enroot_uri_for_image "$IMAGE")"
-LOCK_FILE="${SQUASH_FILE}.lock"
 
 # GH Actions cancel can SIGKILL us before EXIT traps run, leaking the
 # allocation; clear any stale job from this runner name before requesting a new one.
@@ -102,20 +116,32 @@ if [[ -z "$JOB_ID" ]]; then
 fi
 trap 'rc=$?; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
-srun --jobid="$JOB_ID" bash -c "
-    export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
-    mkdir -p \$ENROOT_CACHE_PATH
-    export TMPDIR=/mnt/tmp
-    mkdir -p \$TMPDIR
-    exec 9>\"$LOCK_FILE\"
-    flock -w 600 9 || { echo 'Failed to acquire lock for $SQUASH_FILE'; exit 1; }
-    if unsquashfs -l \"$SQUASH_FILE\" > /dev/null 2>&1; then
-        echo 'Squash file already exists and is valid, skipping import'
-    else
-        rm -f \"$SQUASH_FILE\"
-        enroot import -o \"$SQUASH_FILE\" $DOCKER_IMAGE_URI
-    fi
-"
+squash_path() {
+    echo "${SQUASH_CACHE_DIR}/$(echo "$1" | sed 's/[\/:@#]/_/g').sqsh"
+}
+# Import <image> into the shared squash cache once per box (flock: concurrent jobs).
+# Private registries (vcr.vngcloud.vn) authenticate through the runner user's
+# ~/.config/enroot/.credentials (spec 2026-10-13 §6); nothing here names an account.
+import_squash() {
+    local image="$1" squash
+    squash="$(squash_path "$image")"
+    srun --jobid="$JOB_ID" bash -c "
+        export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
+        mkdir -p \$ENROOT_CACHE_PATH
+        export TMPDIR=/mnt/tmp
+        mkdir -p \$TMPDIR
+        exec 9>\"${squash}.lock\"
+        flock -w 600 9 || { echo 'Failed to acquire lock for $squash'; exit 1; }
+        if unsquashfs -l \"$squash\" > /dev/null 2>&1; then
+            echo 'Squash file already exists and is valid, skipping import'
+        else
+            rm -f \"$squash\"
+            enroot import -o \"$squash\" $(enroot_uri_for_image "$image")
+        fi
+    " >&2
+}
+SQUASH_FILE="$(squash_path "$IMAGE")"
+import_squash "$IMAGE"
 
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
 case "$SPEC_DECODING" in
@@ -129,27 +155,17 @@ if [[ ! -f "$BENCH_SCRIPT" ]]; then
   BENCH_SCRIPT="${BENCH_BASE}.sh"
 fi
 
+# Serving-YAML path: one generic recipe; the arm lives in SERVE_CMD & co.
+if [[ -n "${SERVE_CMD:-}" ]]; then
+  BENCH_SCRIPT="benchmarks/single_node/agentic/serve_generic.sh"
+fi
+
 # DCGM sidecar via srun --overlap in the same allocation (docker launcher
 # uses a second `docker run -d` instead). Own port, same reason as above.
 DCGM_PORT="$(free_tcp_port)"
 DCGM_IMAGE="nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04"
-DCGM_IMAGE_URI="$(enroot_uri_for_image "$DCGM_IMAGE")"
-DCGM_SQUASH="${SQUASH_CACHE_DIR}/$(echo "$DCGM_IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
-DCGM_LOCK_FILE="${DCGM_SQUASH}.lock"
-srun --jobid="$JOB_ID" bash -c "
-    export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
-    mkdir -p \$ENROOT_CACHE_PATH
-    export TMPDIR=/mnt/tmp
-    mkdir -p \$TMPDIR
-    exec 9>\"$DCGM_LOCK_FILE\"
-    flock -w 600 9 || { echo 'Failed to acquire lock for $DCGM_SQUASH'; exit 1; }
-    if unsquashfs -l \"$DCGM_SQUASH\" > /dev/null 2>&1; then
-        echo 'DCGM squash file already exists and is valid, skipping import'
-    else
-        rm -f \"$DCGM_SQUASH\"
-        enroot import -o \"$DCGM_SQUASH\" $DCGM_IMAGE_URI
-    fi
-"
+DCGM_SQUASH="$(squash_path "$DCGM_IMAGE")"
+import_squash "$DCGM_IMAGE"
 
 GPU_METRICS_CSV="${BENCH_SCRIPT%.sh}.gpu_metrics.csv"
 DCGM_MOUNT_ARG=""
@@ -167,11 +183,44 @@ srun --jobid="$JOB_ID" --overlap \
     --no-container-entrypoint \
     dcgm-exporter -a ":$DCGM_PORT" $DCGM_EXTRA_ARGS &
 DCGM_SRUN_PID=$!
-trap 'rc=$?; kill "$DCGM_SRUN_PID" 2>/dev/null || true; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
+
+# Router sidecar (serving YAML with a router: block, spec 2026-10-13 §4): a Dynamo
+# frontend in its own image on $PORT. Frontend and engine find each other through
+# Dynamo's file discovery in the shared workspace; pyxis shares the host netns.
+ROUTER_SRUN_PID=""
+if [[ -n "${ROUTER_CMD:-}" ]]; then
+    export DYN_DISCOVERY_BACKEND=file DYN_FILE_KV=/workspace/results/.dynkv DYN_SYSTEM_ENABLED=true
+    # engine/bench only: exported after the router srun forks so the frontend does not inherit it
+    DYN_SYSTEM_PORT="$(free_tcp_port_below_32768)"
+    mkdir -p "$GITHUB_WORKSPACE/results"
+    # A previous run's registrations would show up as ghost workers.
+    rm -rf "$GITHUB_WORKSPACE/results/.dynkv" "$GITHUB_WORKSPACE/results/.router_exited"
+    ROUTER_SQUASH="$(squash_path "$ROUTER_IMAGE")"
+    import_squash "$ROUTER_IMAGE"
+    (
+        rc=0
+        srun --jobid="$JOB_ID" --overlap \
+            --container-image="$ROUTER_SQUASH" \
+            --container-mounts="$GITHUB_WORKSPACE:/workspace,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
+            --no-container-mount-home \
+            --container-remap-root \
+            --container-writable \
+            --container-workdir=/workspace/ \
+            --no-container-entrypoint --export=ALL,PORT="$PORT" \
+            bash benchmarks/single_node/agentic/serve_router.sh \
+            > "$GITHUB_WORKSPACE/results/router.log" 2>&1 || rc=$?
+        # serve_generic.sh's readiness wait fails fast on this marker.
+        echo "exit $rc" > "$GITHUB_WORKSPACE/results/.router_exited"
+    ) &
+    ROUTER_SRUN_PID=$!
+    export DYN_SYSTEM_PORT
+fi
+trap 'rc=$?; kill "$DCGM_SRUN_PID" $ROUTER_SRUN_PID 2>/dev/null || true; rm -rf "$GITHUB_WORKSPACE/results/.dynkv"; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:${DCGM_PORT}/metrics"
 if [[ -n "$DCGM_EXTRA_ARGS" ]]; then
-    export AIPERF_GPU_TELEMETRY_METRICS_CSV="/etc/dcgm-exporter/custom.csv"
+    # aiperf runs in the bench container (only $GITHUB_WORKSPACE:/workspace mounted), not the DCGM sidecar: /etc/dcgm-exporter/custom.csv does not exist there.
+    export AIPERF_GPU_TELEMETRY_METRICS_CSV="/workspace/$GPU_METRICS_CSV"
 fi
 
 # --container-writable: enroot's squashfs mount is read-only by default,
@@ -188,5 +237,10 @@ srun --jobid="$JOB_ID" \
     --no-container-entrypoint --export=ALL,PORT="$PORT",AIPERF_GPU_TELEMETRY_URL,AIPERF_GPU_TELEMETRY_METRICS_CSV \
     bash "$BENCH_SCRIPT"
 
+# scancel ends the router step, so the subshell writes its .router_exited
+# marker; killing it here would race (and lose) that write. The EXIT trap's
+# kill still covers abrupt exits, where nobody reads the marker.
 kill "$DCGM_SRUN_PID" 2>/dev/null || true
 scancel "$JOB_ID"
+wait 2>/dev/null || true
+rm -rf "$GITHUB_WORKSPACE/results/.dynkv"

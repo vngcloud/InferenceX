@@ -1,0 +1,219 @@
+import textwrap
+
+import pytest
+
+from infx.serving.schema import ServingError, available_scenarios, load_serving
+
+GOOD = textwrap.dedent("""\
+    name: qwen38-bf16-tp1
+    runner: h200-greennode-slurm-1x_01
+    image: vllm/vllm-openai:v0.29.0
+    model: Qwen/Qwen3.8-27B
+    gpus: 1
+    serve: vllm serve Qwen/Qwen3.8-27B --max-model-len 262144
+    scenario: agentx-cc-062126-smoke
+    conc: [4, 8]
+""")
+
+
+def with_line(old: str, new: str) -> str:
+    assert old in GOOD, old
+    return GOOD.replace(old, new)
+
+
+def errors(text: str) -> str:
+    with pytest.raises(ServingError) as info:
+        load_serving(text)
+    return str(info.value)
+
+
+def test_good_yaml_loads_with_defaults():
+    spec = load_serving(GOOD)
+    assert spec.name == "qwen38-bf16-tp1"
+    assert spec.precision == "bf16"
+    assert spec.env == {}
+    assert spec.conc == [4, 8]
+
+
+def test_available_scenarios_lists_both():
+    assert {"agentx-cc-062126", "agentx-cc-062126-smoke"} <= set(available_scenarios())
+
+
+ROUTER = textwrap.dedent("""\
+    router:
+      image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1
+      serve: python3 -m dynamo.frontend --http-port=8888 --router-mode=kv
+""")
+
+
+def dynamo(text: str = GOOD) -> str:
+    return (text.replace("runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-8x_02")
+                .replace("gpus: 1", "gpus: 8")
+                .replace("serve: vllm serve Qwen/Qwen3.8-27B --max-model-len 262144",
+                         "serve: python3 -m dynamo.sglang --model-path=Qwen/Qwen3.8-27B --tp=8")
+              + ROUTER)
+
+
+def test_router_block_loads():
+    spec = load_serving(dynamo())
+    assert spec.router.image.endswith(":1.5.0-kvoverlap1")
+    assert spec.router.env == {}
+
+
+def test_router_unknown_key_rejected():
+    assert "router.port: unknown key" in errors(dynamo() + "  port: 1\n")
+
+
+def test_router_needs_hardware_hcm_runner():
+    text = dynamo().replace("runner: hardware-hcm-8x_02", "runner: h200-greennode-slurm-1x_01").replace("gpus: 8", "gpus: 1")
+    assert "router: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the router)" in errors(text)
+
+
+@pytest.mark.parametrize("field, text", [
+    ("serve", GOOD.replace("--max-model-len 262144", "--max-model-len 262144 --numa-node 0 0 1 1")),
+    ("router.serve", dynamo().replace("--router-mode=kv", "--router-mode=kv --numa-node 0")),
+])
+def test_numa_node_rejected(field, text):
+    assert f"{field}: drop --numa-node (benchmark convention)" in errors(text)
+
+
+def test_router_serve_gets_v1_command_checks():
+    text = dynamo().replace("--router-mode=kv", "--router-mode=kv --model-path=/models/x --x=$Y")
+    out = errors(text)
+    assert "router.serve: local path containing '/models/'" in out
+    assert "router.serve: shell variables ($...) are not expanded" in out
+
+
+def test_router_env_rules():
+    text = dynamo() + "  env: {DYN_FILE_KV: /x, 'bad-name': '1'}\n"
+    out = errors(text)
+    assert "router.env.DYN_FILE_KV: reserved, the benchmark recipe sets it; remove it from env" in out
+    assert "router.env.bad-name: not a valid environment variable name" in out
+
+
+def test_router_image_pattern():
+    assert "router.image: only letters, digits and ._/:@- are allowed" in errors(dynamo().replace("1.5.0-kvoverlap1", "x;rm"))
+
+
+def test_duration_rejected_with_hint():
+    assert "the scenario fixes the duration" in errors(GOOD + "duration: 90\n")
+
+
+def test_unknown_key_names_allowed_keys():
+    message = errors(GOOD + "imagee: x\n")
+    assert message.startswith("imagee: unknown key")
+    assert "image" in message
+
+
+def test_missing_image_is_reported():
+    assert "image: Field required" in errors(with_line("image: vllm/vllm-openai:v0.29.0\n", ""))
+
+
+def test_name_with_underscore_rejected():
+    assert errors(with_line("name: qwen38-bf16-tp1", "name: qwen38_bf16")).startswith("name:")
+
+
+def test_local_model_path_rejected():
+    assert "model: use the HF repo id" in errors(with_line("model: Qwen/Qwen3.8-27B", "model: /models/Qwen3.8-27B"))
+
+
+def test_local_path_in_serve_rejected():
+    text = with_line("serve: vllm serve Qwen/Qwen3.8-27B", "serve: vllm serve /models/PhalaCloud/GLM")
+    assert "serve: local path containing '/models/'" in errors(text)
+
+
+def test_shell_variable_in_serve_rejected():
+    assert "serve: shell variables" in errors(with_line("--max-model-len 262144", "--port $PORT"))
+
+
+@pytest.fixture
+def repo(tmp_path):
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs/runners.yaml").write_text(textwrap.dedent("""\
+        labels:
+          cluster:h200-greennode-slurm: [h200-greennode-slurm-1x_01, h200-greennode-slurm-1x_02]
+          cluster:hardware-hcm: [hardware-hcm-8x_01, hardware-hcm-4x_01]
+        hardware:
+          cluster:h200-greennode-slurm: {gpus-per-node: 1}
+          cluster:hardware-hcm: {gpus-per-node: 8}
+    """))
+    (tmp_path / "scenarios").mkdir()
+    (tmp_path / "scenarios/agentx-cc-062126-smoke.yaml").write_text("{}\n")
+    return tmp_path
+
+
+@pytest.mark.parametrize("runner", ["hardware-hcm-4x_01", "nope"])
+def test_runner_outside_serving_pool_rejected(repo, runner):
+    text = with_line("runner: h200-greennode-slurm-1x_01", f"runner: {runner}").replace("gpus: 1", "gpus: 8")
+    with pytest.raises(ServingError) as info:
+        load_serving(text, repo)
+    assert str(info.value) == (
+        f"runner: {runner} cannot run a serving YAML; use one of: "
+        "h200-greennode-slurm-1x_01, h200-greennode-slurm-1x_02, hardware-hcm-8x_01"
+    )
+
+
+def test_hardware_hcm_8x_accepts_8_gpus(repo):
+    text = with_line("runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-8x_01").replace("gpus: 1", "gpus: 8")
+    assert load_serving(text, repo).gpus == 8
+
+
+def test_too_many_gpus_for_runner():
+    assert "gpus: 8 > 1 GPUs per node" in errors(with_line("gpus: 1", "gpus: 8"))
+
+
+def test_missing_scenario_lists_available():
+    message = errors(with_line("scenario: agentx-cc-062126-smoke", "scenario: nope"))
+    assert "scenario: no scenarios/nope.yaml; available:" in message
+    assert "agentx-cc-062126-smoke" in message
+
+
+def test_scenario_suffix_and_scalar_conc():
+    text = with_line("scenario: agentx-cc-062126-smoke", "scenario: scenarios/agentx-cc-062126-smoke.yaml")
+    text = text.replace("conc: [4, 8]", "conc: 8")
+    spec = load_serving(text)
+    assert spec.scenario == "agentx-cc-062126-smoke"
+    assert spec.conc == [8]
+
+
+def test_duplicate_conc_rejected():
+    assert "conc: duplicate values" in errors(with_line("conc: [4, 8]", "conc: [8, 8]"))
+
+
+def test_env_numbers_become_strings():
+    spec = load_serving(GOOD + "env:\n  SGLANG_DP_USE_GATHERV: 1\n  NCCL_TIMEOUT: 1.5\n  NCCL_P2P_LEVEL: NVL\n")
+    assert spec.env == {"SGLANG_DP_USE_GATHERV": "1", "NCCL_TIMEOUT": "1.5", "NCCL_P2P_LEVEL": "NVL"}
+
+
+def test_env_bool_rejected():
+    assert "quote boolean values" in errors(GOOD + "env:\n  HF_HUB_OFFLINE: true\n")
+
+
+def test_env_bad_name_rejected():
+    assert "env.BAD-NAME: not a valid environment variable name" in errors(GOOD + "env:\n  BAD-NAME: x\n")
+
+
+@pytest.mark.parametrize("old, new, message", [
+    ("image: vllm/vllm-openai:v0.29.0", "image: 'a;$(id)'", "image: only letters, digits and ._/:@- are allowed"),
+    ("model: Qwen/Qwen3.8-27B", "model: 'm m'", "model: must be an HF repo id <org>/<name>"),
+])
+def test_image_and_model_patterns(old, new, message):
+    assert errors(with_line(old, new)).startswith(message)
+
+
+def test_env_reserved_name_rejected():
+    message = errors(GOOD + "env:\n  PORT: '9000'\n  HF_HUB_CACHE: /x\n  NCCL_P2P_LEVEL: NVL\n")
+    assert message.splitlines() == [
+        "env.PORT: reserved, the benchmark recipe sets it; remove it from env",
+        "env.HF_HUB_CACHE: reserved, the benchmark recipe sets it; remove it from env",
+    ]
+
+
+def test_not_a_mapping():
+    assert errors("- a\n- b\n") == "serving: the top level must be a mapping of keys"
+
+
+def test_multiple_problems_one_line_each():
+    text = with_line("model: Qwen/Qwen3.8-27B", "model: /models/x").replace("gpus: 1", "gpus: 8")
+    lines = errors(text).splitlines()
+    assert len(lines) == 2

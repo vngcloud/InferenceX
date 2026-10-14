@@ -1,0 +1,26 @@
+# Qwen3.8-27B BF16, TP1, on one H200 — the arm of the green smoke run 37733664587,
+# expressed as a serving YAML. Dispatch: utils/serving/dispatch.sh serving/qwen38-bf16-tp1.yaml
+name: qwen38-bf16-tp1
+runner: h200-greennode-slurm-1x_01
+image: vllm/vllm-openai:v0.29.0
+model: Qwen/Qwen3.8-27B
+gpus: 1
+precision: bf16
+serve: |
+  vllm serve Qwen/Qwen3.8-27B
+  --served-model-name Qwen/Qwen3.8-27B
+  --trust-remote-code
+  --kv-cache-dtype fp8
+  --tensor-parallel-size 1
+  --max-model-len 262144
+  --gpu-memory-utilization 0.90
+  --enable-auto-tool-choice
+  --enable-prefix-caching
+  --tool-call-parser qwen3_xml
+  --reasoning-parser qwen3
+  --max-num-batched-tokens 32768
+  --attention-backend FLASHINFER
+  --async-scheduling
+  --default-chat-template-kwargs '{"enable_thinking": true}'
+scenario: agentx-cc-062126-smoke
+conc: [8]

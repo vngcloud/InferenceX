@@ -1,0 +1,8 @@
+# File datasets for scenarios/*.yaml, keyed by the scenario's datasets[0].name.
+# Each entry pins one file at one HF commit; utils/serving/fetch_custom_dataset.py
+# downloads it (token: GREENLAB_HF_TOKEN if set) and verifies sha256.
+tau2-cs:
+  repo: Green-Lab/customer-service-agent-traces
+  revision: 2c793380d8ba45bfde79f9a5c7b5991ed40ab2ea
+  file: trace.tau2.jsonl
+  sha256: 598ab95c793326182175d56599c743dc84d8c6d46623359327813099df05c47e

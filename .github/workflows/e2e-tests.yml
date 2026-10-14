@@ -13,6 +13,11 @@ on: # zizmor: ignore[concurrency-limits]
                 required: false
                 type: string
                 default: ""
+            serving:
+                description: "Serving YAML (serving-yaml path, see .agents/skills/serving-bench). When set, replaces generate-cli-command; duration comes from the scenario."
+                required: false
+                type: string
+                default: ""
             klaud-run:
                 description: "Run Klaud Cold benchmarks at background priority"
                 required: false
@@ -119,6 +124,11 @@ on: # zizmor: ignore[concurrency-limits]
                 required: false
                 type: string
                 default: ""
+            serving:
+                description: "Serving YAML (serving-yaml path, see .agents/skills/serving-bench). When set, replaces generate-cli-command; duration comes from the scenario."
+                required: false
+                type: string
+                default: ""
             klaud-run:
                 description: "Run Klaud Cold benchmarks at background priority"
                 required: false
@@ -221,6 +231,7 @@ jobs:
             agentic-eval-config: ${{ steps.get-jobs.outputs.agentic-eval-config }}
             multi-node-agentic-config: ${{ steps.get-jobs.outputs.multi-node-agentic-config }}
             multi-node-agentic-eval-config: ${{ steps.get-jobs.outputs.multi-node-agentic-eval-config }}
+            serving: ${{ steps.get-jobs.outputs.serving }}
         steps:
             - name: Checkout code (ref)
               if: ${{ inputs.ref && inputs.ref != '' }}
@@ -254,12 +265,32 @@ jobs:
                   TRIM_CONC: ${{ inputs.trim-conc }}
                   ALL_EVALS: ${{ inputs.all-evals }}
                   EVALS_ONLY: ${{ inputs.evals-only }}
+                  SERVING_YAML: ${{ inputs.serving }}
+                  DURATION_OVERRIDE: ${{ inputs.duration-override }}
+                  AGENTX_FAST: ${{ inputs.agentx-fast }}
               run: |
                   PRIORITY_ROOT="${GITHUB_WORKSPACE}"
                   if [ -d "${GITHUB_WORKSPACE}/.ci-priority" ]; then
                     PRIORITY_ROOT="${GITHUB_WORKSPACE}/.ci-priority"
                   fi
-                  if [ -n "$CHANGELOG_BASE_REF" ] || [ -n "$CHANGELOG_HEAD_REF" ]; then
+                  SERVING_JSON=""
+                  if [ -n "$SERVING_YAML" ]; then
+                    if [ -n "$DURATION_OVERRIDE" ]; then
+                      echo "duration-override cannot be combined with serving: the scenario fixes the duration" >&2
+                      exit 1
+                    fi
+                    if [ "$AGENTX_FAST" = "true" ]; then
+                      echo "agentx-fast cannot be combined with serving: the scenario fixes the duration" >&2
+                      exit 1
+                    fi
+                    SERVING_FILE="${RUNNER_TEMP}/serving.yaml"
+                    printf '%s\n' "$SERVING_YAML" > "$SERVING_FILE"
+                    SERVING_OUT=$(env PYTHONPATH="$GITHUB_WORKSPACE" \
+                      uv run --no-project --exclude-newer PT12H --python 3.12 --with pydantic --with pyyaml \
+                      python -P -m infx.serving.to_matrix "$SERVING_FILE")
+                    CONFIG_JSON=$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["matrix"]))' <<<"$SERVING_OUT")
+                    SERVING_JSON=$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["serving"]))' <<<"$SERVING_OUT")
+                  elif [ -n "$CHANGELOG_BASE_REF" ] || [ -n "$CHANGELOG_HEAD_REF" ]; then
                     if [ -z "$CHANGELOG_BASE_REF" ] || [ -z "$CHANGELOG_HEAD_REF" ]; then
                       echo "Both changelog-base-ref and changelog-head-ref are required" >&2
                       exit 1
@@ -331,6 +362,7 @@ jobs:
                     echo "multi-node-config=$MULTI"
                     echo "eval-config=$EVALS"
                     echo "multi-node-eval-config=$MULTI_EVAL"
+                    echo "serving=${SERVING_JSON:-}"
                   } >> "$GITHUB_OUTPUT"
 
     test-sweep-multi-node:
@@ -408,6 +440,7 @@ jobs:
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
+            serving: ${{ needs.get-jobs.outputs.serving }}
             klaud-run: ${{ inputs.klaud-run }}
             runner: ${{ matrix.config.runner }}
             priority: ${{ matrix.config.priority }}
