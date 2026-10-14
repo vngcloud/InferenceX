@@ -4,7 +4,7 @@ serve-cmd is shlex-quoted so `eval "set -- $SERVE_CMD"` in bash restores the
 exact argv; --host/--port are removed here and appended by the recipe, which
 owns the port. With a router block (V2), router-cmd carries the Dynamo frontend
 argv the same way: it loses --http-host/--http-port here and serve_router.sh
-appends them.
+appends them. Any other router is the "generic" profile: its command is kept whole, {{router_port}} / {{engine_url}} / {{engine_port}} are expanded at runtime by serve_router.sh.
 """
 
 from __future__ import annotations
@@ -106,18 +106,35 @@ def _render_router(spec: ServingSpec, engine_argv: list[str]) -> dict[str, str]:
                 "router: required for python3 -m dynamo.sglang (a Dynamo engine has no HTTP port); "
                 "add a router block running python3 -m dynamo.frontend"
             )
-        return {"router-image": "", "router-cmd": "", "router-env": ""}
-    if not is_dynamo_engine:
-        raise ServingError("serve: with a router block the engine must be python3 -m dynamo.sglang")
+        return {
+            "router-image": "", "router-cmd": "", "router-env": "",
+            "router-profile": "", "router-metrics-port": "",
+        }
     prefix_env, argv = _pop_env_prefix(split_serve(spec.router.serve, "router.serve"))
-    if _python_module(argv) != "dynamo.frontend":
-        raise ServingError("router.serve: only python3 -m dynamo.frontend is supported")
+    if not argv:
+        raise ServingError("router.serve: empty command")
+    is_dynamo_router = _python_module(argv) == "dynamo.frontend"
+    if is_dynamo_router and not is_dynamo_engine:
+        raise ServingError("serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine")
+    if is_dynamo_engine and not is_dynamo_router:
+        raise ServingError(
+            "router.serve: a python3 -m dynamo.sglang engine needs python3 -m dynamo.frontend as its router"
+        )
     _check_json_values("router.serve", argv)
+    if is_dynamo_router:
+        if spec.router.metrics_port is not None:
+            raise ServingError(
+                "router.metrics_port: not used with python3 -m dynamo.frontend "
+                "(metrics come from the frontend port and the Dynamo system port); remove it"
+            )
+        argv = _strip_flags(argv, _ROUTER_OWNED_FLAGS)
     env = {**prefix_env, **spec.router.env}
     return {
         "router-image": spec.router.image,
-        "router-cmd": shlex.join(_strip_flags(argv, _ROUTER_OWNED_FLAGS)),
+        "router-cmd": shlex.join(argv),
         "router-env": "\n".join(f"{key}={value}" for key, value in env.items()),
+        "router-profile": "dynamo" if is_dynamo_router else "generic",
+        "router-metrics-port": "" if spec.router.metrics_port is None else str(spec.router.metrics_port),
     }
 
 

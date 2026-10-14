@@ -65,7 +65,52 @@ def test_serving_object():
         "router-image": "",
         "router-cmd": "",
         "router-env": "",
+        "router-profile": "",
+        "router-metrics-port": "",
     }
+
+
+GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
+NEW_SERVING_FIELDS = ("router-profile", "router-metrics-port")
+
+
+@pytest.mark.parametrize("name", sorted(json.loads(GOLDEN.read_text())))
+def test_dynamo_yamls_render_as_before(name):
+    result = build((REPO / "serving" / f"{name}.yaml").read_text())
+    assert result["serving"]["router-profile"] == "dynamo"
+    assert result["serving"]["router-metrics-port"] == ""
+    for key in NEW_SERVING_FIELDS:
+        del result["serving"][key]
+    assert result == json.loads(GOLDEN.read_text())[name]
+
+
+SGLANG_ROUTER = textwrap.dedent("""\
+    name: glm53-sglr
+    runner: hardware-hcm-8x_02
+    image: lmsysorg/sglang:v0.5.18
+    model: PhalaCloud/GLM-5.3-W4AFP8
+    gpus: 8
+    precision: w4afp8
+    serve: python3 -m sglang.launch_server --model-path PhalaCloud/GLM-5.3-W4AFP8 --served-model-name zai-org/GLM-5.3 --tp 8 --dp 4 --ep 8 --enable-metrics
+    router:
+      image: sglang-router-patched:v0.5.18-slim-noargcanon
+      metrics_port: 18888
+      serve: python3 -m sglang_router.launch_router --port={{router_port}} --prometheus-port=18888 --worker-urls={{engine_url}}
+    scenario: agentx-cc-062126
+    conc: [8, 24, 32, 48]
+""")
+
+
+def test_generic_router_serving_object_and_rows():
+    result = build(SGLANG_ROUTER)
+    serving = result["serving"]
+    assert serving["router-profile"] == "generic"
+    assert serving["router-metrics-port"] == "18888"
+    assert "{{engine_url}}" in serving["router-cmd"] and "{{router_port}}" in serving["router-cmd"]
+    assert "--port" not in serving["serve-cmd"].split()
+    validate_matrix(result["matrix"])
+    assert [row["conc"] for row in result["matrix"]] == [8, 24, 32, 48]
+    assert {row["framework"] for row in result["matrix"]} == {"sglang"}
 
 
 DYNAMO = textwrap.dedent("""\

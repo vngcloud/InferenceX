@@ -133,6 +133,8 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
             "router-image": rendered["router-image"],
             "router-cmd": rendered["router-cmd"],
             "router-env": rendered["router-env"],
+            "router-profile": rendered["router-profile"],
+            "router-metrics-port": rendered["router-metrics-port"],
         },
         "title": (
             f"serving {spec.name} {spec.scenario} ({duration}s) "

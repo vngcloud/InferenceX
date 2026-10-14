@@ -1,10 +1,10 @@
 """Serving YAML (V1+V2): the one file an agent writes to dispatch an AgentX benchmark.
 
 V1 is an engine-only YAML (`vllm serve` / `python3 -m sglang.launch_server`, ServingSpec);
-V2 adds an optional `router:` block (a Dynamo frontend in front of a `python3 -m
-dynamo.sglang` engine, RouterSpec).
+V2 adds an optional `router:` block (RouterSpec); V3 lets it be any router (placeholders, metrics_port).
 Specs: docs/superpowers/specs/2026-10-12-serving-yaml-dispatch-design.md (V1) and
-docs/superpowers/specs/2026-10-13-serving-router-dynamo-design.md (V2).
+docs/superpowers/specs/2026-10-13-serving-router-dynamo-design.md (V2);
+docs/superpowers/specs/2026-10-14-serving-router-generic-design.md (V3).
 Every error is one line "<field>: <problem and fix>" so an agent can act on it.
 """
 
@@ -52,6 +52,9 @@ RESERVED_ENV = (
     "ROUTER_IMAGE",
     "ROUTER_CMD",
     "ROUTER_ENV",
+    "ROUTER_PROFILE",
+    "ROUTER_METRICS_PORT",
+    "ENGINE_PORT",
 )
 # Pools whose launcher runs serve_generic.sh on SERVE_CMD, and which runner names in
 # each pool do (hardware-hcm: only the full-node 8x identities; smaller tiers share the box).
@@ -61,6 +64,9 @@ SERVING_RUNNERS = {
 }
 # Only launch_hardware-hcm.sh starts the router sidecar.
 ROUTER_RUNNER_PREFIX = "hardware-hcm-"
+# {{name}} (lowercase, no spaces) in router.serve / router.env; {{ x }} is inline Jinja and stays literal.
+ROUTER_PLACEHOLDERS = ("router_port", "engine_url", "engine_port")
+PLACEHOLDER = re.compile(r"\{\{([a-z_]+)\}\}")
 
 
 class ServingError(ValueError):
@@ -79,13 +85,14 @@ def _coerce_env(value: Any) -> Any:
 
 
 class RouterSpec(BaseModel):
-    """Dynamo frontend in front of a dynamo.sglang engine (spec 2026-10-13 §1)."""
+    """A router sidecar in front of the engine (spec 2026-10-14 §1)."""
 
     model_config = ConfigDict(extra="forbid")
 
     image: str = Field(min_length=1)
     serve: str = Field(min_length=1)
     env: dict[str, str] = Field(default_factory=dict)
+    metrics_port: int | None = Field(default=None, ge=1, le=65535)
 
     @field_validator("env", mode="before")
     @classmethod
@@ -236,6 +243,16 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             problems.append(
                 "router: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the router)"
             )
+        texts = [("router.serve", spec.router.serve)] + [
+            (f"router.env.{key}", value) for key, value in spec.router.env.items()
+        ]
+        for field, text in texts:
+            for name in PLACEHOLDER.findall(text):
+                if name not in ROUTER_PLACEHOLDERS:
+                    problems.append(
+                        f"{field}: unknown placeholder {{{{{name}}}}}; "
+                        f"allowed: {', '.join(ROUTER_PLACEHOLDERS)}"
+                    )
     if len(set(spec.conc)) != len(spec.conc):
         problems.append("conc: duplicate values")
     try:

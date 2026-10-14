@@ -95,6 +95,45 @@ def test_router_image_pattern():
     assert "router.image: only letters, digits and ._/:@- are allowed" in errors(dynamo().replace("1.5.0-kvoverlap1", "x;rm"))
 
 
+GENERIC_ROUTER_YAML = textwrap.dedent("""\
+    router:
+      image: sglang-router-patched:v0.5.18-slim-noargcanon
+      metrics_port: 18888
+      serve: python3 -m sglang_router.launch_router --port={{router_port}} --worker-urls={{engine_url}}
+""")
+
+
+def generic(serve_line: str | None = None) -> str:
+    text = dynamo().removesuffix(ROUTER) + GENERIC_ROUTER_YAML
+    return text.replace("--worker-urls={{engine_url}}", serve_line) if serve_line else text
+
+
+def test_generic_router_block_loads():
+    spec = load_serving(generic())
+    assert spec.router.metrics_port == 18888
+    assert "{{engine_url}}" in spec.router.serve
+
+
+def test_router_unknown_placeholder_rejected():
+    out = errors(generic("--worker-urls={{foo}}"))
+    assert "router.serve: unknown placeholder {{foo}}; allowed: router_port, engine_url, engine_port" in out
+    out = errors(generic() + "  env:\n    X: '{{bar}}'\n")
+    assert "router.env.X: unknown placeholder {{bar}}" in out
+
+
+def test_router_inline_jinja_is_not_a_placeholder():
+    load_serving(generic("--chat-template '{{ messages }}'"))
+
+
+def test_router_metrics_port_range():
+    assert "router.metrics_port:" in errors(generic().replace("18888", "70000"))
+
+
+def test_engine_port_reserved_env():
+    out = errors(generic() + "  env:\n    ENGINE_PORT: '1'\n")
+    assert "router.env.ENGINE_PORT: reserved, the benchmark recipe sets it; remove it from env" in out
+
+
 def test_duration_rejected_with_hint():
     assert "the scenario fixes the duration" in errors(GOOD + "duration: 90\n")
 

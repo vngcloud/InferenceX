@@ -103,3 +103,12 @@ Replaces three rules:
 ## Out of scope
 
 Multiple engines behind one router, PD-disaggregated serving, routers on non-HCM runners, per-router metrics adapters.
+
+## Amendments (implementation plan, 2026-10-14)
+
+- **`router-profile`** (`dynamo` | `generic` | `''`) is a second new serving-object field next to `router-metrics-port`. Profile `dynamo` = engine `python3 -m dynamo.sglang` with router `python3 -m dynamo.frontend`; the pairing is enforced (a Dynamo router needs a Dynamo engine and the reverse). Every other router is `generic`. This replaces the spec's "engine is dynamo.* **or** router is dynamo.frontend".
+- **Golden:** the existing Dynamo YAMLs keep every existing field byte-identical; the two new fields are added (`utils/testdata/serving_dynamo_build_golden.json`).
+- **Placeholder grammar:** exactly `{{` + `[a-z_]+` + `}}`. `{{ x }}` with spaces is inline Jinja and stays literal. `shlex.join` quotes a placeholder token, e.g. `'--port={{router_port}}'`; substitution happens before the launcher's `eval`.
+- **Readiness:** generic routers use the existing `wait_for_frontend_model` (router `/v1/models` lists the served model). The separate engine `/health` wait from §3 is dropped: the router listing the model already implies a healthy engine, and the guards for engine-exited / router-exited stay.
+- **Metrics:** no dedupe needed; router metrics port (or router port) and `ENGINE_PORT` never coincide.
+- `metrics_port` with a Dynamo router is an error (it would be ignored).

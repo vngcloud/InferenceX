@@ -88,11 +88,14 @@ def test_dynamo_pair_renders_router_fields():
     assert out["router-image"] == "img-r"
     assert shlex.split(out["router-cmd"]) == ["python3", "-m", "dynamo.frontend", "--router-mode=kv"]
     assert out["router-env"].splitlines() == ["FOO=1", "BAR=2"]
+    assert out["router-profile"] == "dynamo"
+    assert out["router-metrics-port"] == ""
 
 
 def test_engine_only_has_empty_router_fields():
     out = render(spec("vllm serve Qwen/Qwen3.8-27B"))
     assert (out["router-image"], out["router-cmd"], out["router-env"]) == ("", "", "")
+    assert (out["router-profile"], out["router-metrics-port"]) == ("", "")
 
 
 def test_dynamo_engine_without_router_rejected():
@@ -100,14 +103,45 @@ def test_dynamo_engine_without_router_rejected():
         render(spec("python3 -m dynamo.sglang --model-path=Qwen/Qwen3.8-27B"))
 
 
-def test_router_with_plain_engine_rejected():
-    with pytest.raises(ServingError, match=r"^serve: with a router block the engine must be python3 -m dynamo.sglang"):
+def test_dynamo_router_with_plain_engine_rejected():
+    with pytest.raises(ServingError, match=r"^serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine"):
         render(dyn(engine="python3 -m sglang.launch_server --model-path Qwen/Qwen3.8-27B"))
 
 
-def test_router_must_be_dynamo_frontend():
-    with pytest.raises(ServingError, match=r"^router.serve: only python3 -m dynamo.frontend is supported"):
-        render(dyn(router="smg launch --port 8888"))
+def test_dynamo_engine_with_other_router_rejected():
+    with pytest.raises(ServingError, match=r"^router.serve: a python3 -m dynamo.sglang engine needs python3 -m dynamo.frontend as its router"):
+        render(dyn(router="python3 -m sglang_router.launch_router --port={{router_port}}"))
+
+
+def test_dynamo_router_rejects_metrics_port():
+    with pytest.raises(ServingError, match=r"^router.metrics_port: not used with python3 -m dynamo.frontend"):
+        render(dyn(metrics_port=18888))
+
+
+GENERIC_ROUTER = (
+    "python3 -m sglang_router.launch_router --host=0.0.0.0 --port={{router_port}} "
+    "--prometheus-port=18888 --worker-urls={{engine_url}} --dp-aware --policy=cache_aware"
+)
+
+
+def sgl_router(router: str = GENERIC_ROUTER, **router_extra) -> ServingSpec:
+    return spec("python3 -m sglang.launch_server --model-path Qwen/Qwen3.8-27B --tp 8 --port 30000",
+                runner="hardware-hcm-8x_02", gpus=8,
+                router=RouterSpec(image="img-r", serve=router, **router_extra))
+
+
+def test_generic_router_keeps_command_and_placeholders():
+    out = render(sgl_router(metrics_port=18888, env={"A": "{{engine_url}}"}))
+    assert out["framework"] == "sglang"
+    assert out["router-profile"] == "generic"
+    assert out["router-metrics-port"] == "18888"
+    assert shlex.split(out["router-cmd"]) == shlex.split(GENERIC_ROUTER)
+    assert out["router-env"] == "A={{engine_url}}"
+    assert "--port" not in shlex.split(out["serve-cmd"])
+
+
+def test_generic_router_without_metrics_port():
+    assert render(sgl_router())["router-metrics-port"] == ""
 
 
 def test_unquoted_json_flag_from_the_paste_rejected():
