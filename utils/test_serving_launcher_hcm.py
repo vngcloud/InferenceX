@@ -13,7 +13,7 @@ def run_launcher(tmp_path: Path, extra_env: dict[str, str]) -> tuple[list[list[s
     log, envlog = tmp_path / "calls", tmp_path / "srun_env"
     stubs = {
         "hostname": "echo hgx-h200-02", "squeue": "echo 4711", "salloc": "", "scancel": "",
-        "srun": f'echo "${{DYN_DISCOVERY_BACKEND:-none}} ${{DYN_FILE_KV:-none}} ${{DYN_SYSTEM_PORT:-none}} ${{AIPERF_GPU_TELEMETRY_METRICS_CSV:-none}} $(case "$*" in *serve_router.sh*) echo router;; *) echo other;; esac)" >> {envlog}',
+        "srun": f'echo "${{DYN_DISCOVERY_BACKEND:-none}} ${{DYN_FILE_KV:-none}} ${{DYN_SYSTEM_PORT:-none}} ${{AIPERF_GPU_TELEMETRY_METRICS_CSV:-none}} $(case "$*" in *serve_router.sh*) echo router;; *) echo other;; esac) ${{ENGINE_PORT:-none}}" >> {envlog}',
     }
     for name, body in stubs.items():
         (bin_dir / name).write_text(
@@ -45,7 +45,7 @@ def container_steps(calls):
 def test_serving_path(tmp_path, router):
     extra = {"SERVE_CMD": "python3 -m dynamo.sglang --model-path=PhalaCloud/GLM-5.3-W4AFP8"}
     if router:
-        extra |= {"ROUTER_IMAGE": ROUTER_IMAGE, "ROUTER_CMD": "python3 -m dynamo.frontend"}
+        extra |= {"ROUTER_IMAGE": ROUTER_IMAGE, "ROUTER_CMD": "python3 -m dynamo.frontend", "ROUTER_PROFILE": "dynamo"}
     calls, envlog = run_launcher(tmp_path, extra)
     steps = container_steps(calls)
     # The router step runs in a background subshell, so call order is not fixed: match by script.
@@ -72,7 +72,7 @@ def test_serving_path(tmp_path, router):
 def test_dyn_system_port_fits_i16(tmp_path):
     """Dynamo parses DYN_SYSTEM_PORT as i16: an ephemeral port like 50997 crashes it."""
     extra = {"SERVE_CMD": "python3 -m dynamo.sglang --model-path=m", "ROUTER_IMAGE": ROUTER_IMAGE,
-             "ROUTER_CMD": "python3 -m dynamo.frontend"}
+             "ROUTER_CMD": "python3 -m dynamo.frontend", "ROUTER_PROFILE": "dynamo"}
     _, envlog = run_launcher(tmp_path, extra)
     ports = {int(line.split()[2]) for line in envlog.splitlines() if line.split()[0] == "file" and line.split()[2] != "none"}
     assert ports and all(0 < p <= 32767 for p in ports)
@@ -92,10 +92,25 @@ def test_aiperf_telemetry_csv_is_a_workspace_path(tmp_path):
 def test_dyn_system_port_not_passed_to_router_step(tmp_path):
     """The router container must not inherit the engine's DYN_SYSTEM_PORT; the bench step still gets it."""
     extra = {"SERVE_CMD": "python3 -m dynamo.sglang --model-path=m", "ROUTER_IMAGE": ROUTER_IMAGE,
-             "ROUTER_CMD": "python3 -m dynamo.frontend"}
+             "ROUTER_CMD": "python3 -m dynamo.frontend", "ROUTER_PROFILE": "dynamo"}
     _, envlog = run_launcher(tmp_path, extra)
     rows = [line.split() for line in envlog.splitlines() if line.split()[0] == "file"]
     router = [r for r in rows if r[4] == "router"]
     bench = [r for r in rows if r[4] == "other" and r[2] != "none"]
     assert router and all(r[2] == "none" for r in router), rows
     assert bench, rows
+    assert all(r[5] == "none" for r in rows), rows   # Dynamo profile never gets ENGINE_PORT
+
+
+def test_generic_router_gets_engine_port_and_no_dynamo_env(tmp_path):
+    extra = {"SERVE_CMD": "python3 -m sglang.launch_server --model-path=m", "ROUTER_IMAGE": ROUTER_IMAGE,
+             "ROUTER_CMD": "python3 -m sglang_router.launch_router", "ROUTER_PROFILE": "generic"}
+    calls, envlog = run_launcher(tmp_path, extra)
+    rows = [line.split() for line in envlog.splitlines()]
+    assert rows and all(r[0] == "none" and r[1] == "none" and r[2] == "none" for r in rows), rows
+    router = [r for r in rows if r[4] == "router"]
+    other = [r for r in rows if r[4] == "other"]
+    assert len(router) == 1 and router[0][5] != "none", rows
+    assert other[-1][5] == router[0][5], rows       # the bench step sees the same ENGINE_PORT
+    assert 0 < int(router[0][5]) < 65536
+    assert (tmp_path / "ws/results/.router_exited").read_text().startswith("exit ")

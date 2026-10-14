@@ -226,10 +226,12 @@ env:
   SERVING_SCENARIO: ${{ inputs.serving != '' && fromJSON(inputs.serving).scenario || '' }}
   SERVING_LOADER: ${{ inputs.serving != '' && fromJSON(inputs.serving).loader || '' }}
   SERVING_YAML: ${{ inputs.serving != '' && fromJSON(inputs.serving).yaml || '' }}
-  # Router sidecar (Dynamo frontend); only runners/launch_hardware-hcm.sh reads these.
+  # Router sidecar (any router, spec 2026-10-14); only runners/launch_hardware-hcm.sh reads these.
   ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}
   ROUTER_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-cmd || '' }}
   ROUTER_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-env || '' }}
+  ROUTER_PROFILE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-profile || '' }}
+  ROUTER_METRICS_PORT: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-metrics-port || '' }}
   # Bearer token for authenticated remote targets. Empty for every other
   # recipe, which leaves build_replay_cmd's --api-key branch inert.
   REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}

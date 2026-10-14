@@ -19,5 +19,8 @@ def test_no_ingest_in_e2e_tests():
 
 def test_benchmark_tmpl_maps_router_fields():
     env = load("benchmark-tmpl.yml")["env"]
-    for var, key in [("ROUTER_IMAGE", "router-image"), ("ROUTER_CMD", "router-cmd"), ("ROUTER_ENV", "router-env")]:
+    for var, key in [
+        ("ROUTER_IMAGE", "router-image"), ("ROUTER_CMD", "router-cmd"), ("ROUTER_ENV", "router-env"),
+        ("ROUTER_PROFILE", "router-profile"), ("ROUTER_METRICS_PORT", "router-metrics-port"),
+    ]:
         assert env[var] == f"${{{{ inputs.serving != '' && fromJSON(inputs.serving).{key} || '' }}}}"

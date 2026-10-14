@@ -184,14 +184,21 @@ srun --jobid="$JOB_ID" --overlap \
     dcgm-exporter -a ":$DCGM_PORT" $DCGM_EXTRA_ARGS &
 DCGM_SRUN_PID=$!
 
-# Router sidecar (serving YAML with a router: block, spec 2026-10-13 §4): a Dynamo
-# frontend in its own image on $PORT. Frontend and engine find each other through
-# Dynamo's file discovery in the shared workspace; pyxis shares the host netns.
+# Router sidecar (serving YAML with a router: block, spec 2026-10-13 §4, 2026-10-14 §3).
+#   dynamo profile: a Dynamo frontend on $PORT; frontend and engine find each other through
+#   Dynamo's file discovery in the shared workspace.
+#   generic profile: any router on $PORT; the engine listens on $ENGINE_PORT and the router
+#   command reaches it as {{engine_url}} (expanded by serve_router.sh).
+# pyxis shares the host netns, so everything talks over localhost.
 ROUTER_SRUN_PID=""
 if [[ -n "${ROUTER_CMD:-}" ]]; then
-    export DYN_DISCOVERY_BACKEND=file DYN_FILE_KV=/workspace/results/.dynkv DYN_SYSTEM_ENABLED=true
-    # engine/bench only: exported after the router srun forks so the frontend does not inherit it
-    DYN_SYSTEM_PORT="$(free_tcp_port_below_32768)"
+    if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
+        export DYN_DISCOVERY_BACKEND=file DYN_FILE_KV=/workspace/results/.dynkv DYN_SYSTEM_ENABLED=true
+        # engine/bench only: exported after the router srun forks so the frontend does not inherit it
+        DYN_SYSTEM_PORT="$(free_tcp_port_below_32768)"
+    else
+        export ENGINE_PORT="$(free_tcp_port)"
+    fi
     mkdir -p "$GITHUB_WORKSPACE/results"
     # A previous run's registrations would show up as ghost workers.
     rm -rf "$GITHUB_WORKSPACE/results/.dynkv" "$GITHUB_WORKSPACE/results/.router_exited"
@@ -213,7 +220,9 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
         echo "exit $rc" > "$GITHUB_WORKSPACE/results/.router_exited"
     ) &
     ROUTER_SRUN_PID=$!
-    export DYN_SYSTEM_PORT
+    if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
+        export DYN_SYSTEM_PORT
+    fi
 fi
 trap 'rc=$?; kill "$DCGM_SRUN_PID" $ROUTER_SRUN_PID 2>/dev/null || true; rm -rf "$GITHUB_WORKSPACE/results/.dynkv"; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
