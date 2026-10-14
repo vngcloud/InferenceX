@@ -49,7 +49,7 @@
 
 ## 编写并派发 serving YAML
 
-1. 创建 `serving/<name>.yaml`。字段说明与转换规则（模型路径 → HF ID、环境变量、Router 拆分、上下文长度）见 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md)。可用示例：[`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml)（仅引擎）与 [`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml)（Dynamo Router + 引擎）。
+1. 创建 `serving/<name>.yaml`。字段说明与转换规则（模型路径 → HF ID、环境变量、Router 拆分、上下文长度）见 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md)。可用示例：[`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml)（仅引擎）、[`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml)（Dynamo Router + 引擎）与 [`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml)（sglang-router + SGLang 引擎）。
 2. 从 `scenarios/` 中选择场景（`agentx-cc-062126`、`agentx-cc-062126-smoke`、`custom-agentic-tau2`、`custom-agentic-tau2-smoke`）。新配置先用 `-smoke` 场景。
 3. 校验并派发：
 

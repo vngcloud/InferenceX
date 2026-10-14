@@ -49,7 +49,7 @@ The first run of a large model spends extra time downloading it and uses node di
 
 ## Write and dispatch a serving YAML
 
-1. Create `serving/<name>.yaml`. Field reference and translation rules (model path → HF id, env vars, router split, context length) are in [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md). Working examples: [`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml) (engine only) and [`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml) (Dynamo router + engine).
+1. Create `serving/<name>.yaml`. Field reference and translation rules (model path → HF id, env vars, router split, context length) are in [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md). Working examples: [`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml) (engine only), [`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml) (Dynamo router + engine) and [`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml) (sglang-router + SGLang engine).
 2. Pick a scenario from `scenarios/` (`agentx-cc-062126`, `agentx-cc-062126-smoke`, `custom-agentic-tau2`, `custom-agentic-tau2-smoke`). Start with a `-smoke` scenario for a new config.
 3. Validate and dispatch:
 
