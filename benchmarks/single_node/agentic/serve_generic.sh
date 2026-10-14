@@ -15,7 +15,10 @@ umask 0000
 #   SERVING_SCENARIO   scenarios/<name>.yaml (aiperf workload, incl. duration)
 #   SERVING_LOADER     dataset of that scenario: public loader alias or scenarios/datasets/lock.yaml key
 #   SERVING_YAML       the user's serving YAML, saved next to the results
-#   ROUTER_CMD         set on the Dynamo router path: the frontend runs in a sidecar (serve_router.sh), the engine has no HTTP port
+#   ROUTER_CMD         set on the router path: the router runs in a sidecar (serve_router.sh); with ROUTER_PROFILE=dynamo the engine has no HTTP port, otherwise it listens on ENGINE_PORT
+#   ROUTER_PROFILE     dynamo | generic (launcher)
+#   ROUTER_METRICS_PORT generic router: its /metrics port, empty = the router port
+#   ENGINE_PORT        generic router: the engine's HTTP port (launcher)
 #   DYN_SYSTEM_PORT    Dynamo engine metrics/health port (launcher)
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
@@ -58,9 +61,15 @@ esac
 HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= "$AIPERF_HF_CLI" download "$MODEL"
 
 if [[ -n "${ROUTER_CMD:-}" ]]; then
-    check_env_vars DYN_SYSTEM_PORT
-    # Frontend (dynamo_frontend_*) + engine (sglang:* via the Dynamo system port).
-    export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics,http://localhost:${DYN_SYSTEM_PORT}/metrics"
+    if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
+        check_env_vars DYN_SYSTEM_PORT
+        # Frontend (dynamo_frontend_*) + engine (sglang:* via the Dynamo system port).
+        export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics,http://localhost:${DYN_SYSTEM_PORT}/metrics"
+    else
+        check_env_vars ENGINE_PORT
+        # Router (its own metrics port, else the router port) + the engine's own /metrics.
+        export AIPERF_SERVER_METRICS_URLS="http://localhost:${ROUTER_METRICS_PORT:-$PORT}/metrics,http://localhost:${ENGINE_PORT}/metrics"
+    fi
 else
     export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics"
 fi
@@ -72,8 +81,10 @@ esac
 
 SERVER_LOG="$RESULT_DIR/server.log"
 eval "set -- $SERVE_CMD"
-if [[ -n "${ROUTER_CMD:-}" ]]; then
+if [[ -n "${ROUTER_CMD:-}" && "${ROUTER_PROFILE:-}" == dynamo ]]; then
     SERVER_CMD=("$@")
+elif [[ -n "${ROUTER_CMD:-}" ]]; then
+    SERVER_CMD=("$@" --host 0.0.0.0 --port "$ENGINE_PORT")
 else
     SERVER_CMD=("$@" --host 0.0.0.0 --port "$PORT")
 fi

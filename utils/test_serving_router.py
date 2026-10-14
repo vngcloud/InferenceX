@@ -13,7 +13,7 @@ ROUTER = REPO / "benchmarks/single_node/agentic/serve_router.sh"
 def test_serve_router_exports_env_appends_port_and_records_command(tmp_path):
     cmd = "python3 -c 'import os,sys; print(os.environ[\"FOO\"], *sys.argv[1:])' --router-mode=kv"
     out = subprocess.run(["bash", str(ROUTER)], cwd=REPO, capture_output=True, text=True, env={
-        "PATH": "/usr/bin:/bin", "ROUTER_CMD": cmd, "ROUTER_ENV": "FOO=bar\n", "PORT": "9999",
+        "PATH": "/usr/bin:/bin", "ROUTER_CMD": cmd, "ROUTER_PROFILE": "dynamo", "ROUTER_ENV": "FOO=bar\n", "PORT": "9999",
         "RESULT_DIR": str(tmp_path), "DYN_DISCOVERY_BACKEND": "file", "DYN_FILE_KV": str(tmp_path / ".dynkv"),
         # benchmark_lib.sh's agentic guard fires on the script's */agentic/* path; the
         # launcher's job env (benchmark-tmpl.yml) always carries KV_OFFLOADING.
@@ -92,8 +92,34 @@ run_agentic_replay_and_write_outputs() { :; }
 '''
 
 
-@pytest.mark.parametrize("router", [True, False], ids=["dynamo", "engine-only"])
-def test_serve_generic_branches(tmp_path, router):
+def run_generic_router(tmp_path, **extra):
+    cmd = ("python3 -c 'import os,sys; print(os.environ[\"FOO\"], *sys.argv[1:])' "
+           "--port={{router_port}} --worker-urls={{engine_url}} --tmpl '{{ keep }}'")
+    env = {
+        "PATH": "/usr/bin:/bin", "ROUTER_CMD": cmd, "ROUTER_ENV": "FOO=w{{engine_port}}\n",
+        "ROUTER_PROFILE": "generic", "PORT": "9999", "ENGINE_PORT": "9200",
+        "RESULT_DIR": str(tmp_path), "KV_OFFLOADING": "none",
+    } | extra
+    env = {key: value for key, value in env.items() if value is not None}
+    return subprocess.run(["bash", str(ROUTER)], cwd=REPO, capture_output=True, text=True, env=env)
+
+
+def test_serve_router_generic_expands_placeholders_and_appends_nothing(tmp_path):
+    out = run_generic_router(tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.splitlines()[-1] == "w9200 --port=9999 --worker-urls=http://127.0.0.1:9200 --tmpl {{ keep }}"
+    assert "--http-port" not in (tmp_path / "router_command.txt").read_text()
+    assert "--port=9999" in (tmp_path / "router_command.txt").read_text()
+
+
+def test_serve_router_generic_needs_engine_port(tmp_path):
+    out = run_generic_router(tmp_path, ENGINE_PORT=None)
+    assert out.returncode != 0
+    assert "ENGINE_PORT" in out.stdout + out.stderr
+
+
+@pytest.mark.parametrize("mode", ["dynamo", "generic", "generic-default-metrics", "engine-only"])
+def test_serve_generic_branches(tmp_path, mode):
     lib = tmp_path / "benchmarks"
     (lib / "single_node/agentic").mkdir(parents=True)
     (lib / "benchmark_lib.sh").write_text(STUB_LIB)
@@ -109,17 +135,26 @@ def test_serve_generic_branches(tmp_path, router):
         "SERVING_LOADER": "l", "AIPERF_HF_CLI": "true", "SERVED_MODEL_NAME": "zai-org/GLM-5.3",
         "SERVE_CMD": "sleep 30",
     }
-    if router:
-        env |= {"ROUTER_CMD": "python3 -m dynamo.frontend", "DYN_SYSTEM_PORT": "9100"}
+    if mode == "dynamo":
+        env |= {"ROUTER_CMD": "python3 -m dynamo.frontend", "ROUTER_PROFILE": "dynamo", "DYN_SYSTEM_PORT": "9100"}
+    elif mode.startswith("generic"):
+        env |= {"ROUTER_CMD": "python3 -m sglang_router.launch_router", "ROUTER_PROFILE": "generic", "ENGINE_PORT": "9200"}
+        if mode == "generic":
+            env["ROUTER_METRICS_PORT"] = "18888"
     out = subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env, timeout=60)
     assert out.returncode == 0, out.stderr
     calls = (tmp_path / "results/calls").read_text()
     command = (tmp_path / "results/server_command.txt").read_text()
-    if router:
+    if mode == "dynamo":
         assert "WAIT frontend --port 8888 --model zai-org/GLM-5.3" in calls
         assert f"--router-exited {tmp_path}/results/.router_exited" in calls
         assert "METRICS http://localhost:8888/metrics,http://localhost:9100/metrics" in calls
         assert "--port" not in command
+    elif mode.startswith("generic"):
+        assert "WAIT frontend --port 8888 --model zai-org/GLM-5.3" in calls
+        metrics = "18888" if mode == "generic" else "8888"
+        assert f"METRICS http://localhost:{metrics}/metrics,http://localhost:9200/metrics" in calls
+        assert command.strip().endswith("--host 0.0.0.0 --port 9200")
     else:
         assert "WAIT health --port 8888" in calls
         assert "METRICS http://localhost:8888/metrics" in calls
@@ -205,7 +240,7 @@ def test_serve_generic_offline_env_scoped_to_engine(tmp_path):
 def test_serve_router_never_prints_router_env_values(tmp_path):
     cmd = "python3 -c 'print(1)'"
     out = subprocess.run(["bash", str(ROUTER)], cwd=REPO, capture_output=True, text=True, env={
-        "PATH": "/usr/bin:/bin", "ROUTER_CMD": cmd, "ROUTER_ENV": "FOO=s3cr3t-value\n", "PORT": "9999",
+        "PATH": "/usr/bin:/bin", "ROUTER_CMD": cmd, "ROUTER_PROFILE": "dynamo", "ROUTER_ENV": "FOO=s3cr3t-value\n", "PORT": "9999",
         "RESULT_DIR": str(tmp_path), "DYN_DISCOVERY_BACKEND": "file", "DYN_FILE_KV": str(tmp_path / ".dynkv"),
         "KV_OFFLOADING": "none",
     })

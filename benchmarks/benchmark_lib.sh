@@ -702,6 +702,17 @@ PY
     INFERENCEX_SERVER_PID="$server_pid"
 }
 
+# Serving-YAML generic router: fill {{router_port}}, {{engine_port}}, {{engine_url}} in $1
+# from $PORT and $ENGINE_PORT. Plain string replacement; nothing is evaluated, and any
+# other {{...}} (inline Jinja) is left as it is.
+expand_router_placeholders() {
+    local text="$1"
+    text="${text//\{\{router_port\}\}/$PORT}"
+    text="${text//\{\{engine_port\}\}/$ENGINE_PORT}"
+    text="${text//\{\{engine_url\}\}/http://127.0.0.1:$ENGINE_PORT}"
+    printf '%s' "$text"
+}
+
 # Keep client process groups separate; on confirmed server/worker death only
 # this client's descendants are stopped. There is no elapsed-time cutoff.
 run_server_client() {
