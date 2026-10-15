@@ -66,8 +66,10 @@ storage:
     --eviction_high_watermark_ratio=0.95
 router:
   image: vcr.vngcloud.vn/60108-backend-worker/portal-external/dev/sglang-router-patched:v0.5.18-slim-noargcanon
+  metrics_port: 18888
   serve: |
-    /work/target/release/smg
+    /work/target/release/smg launch
+    --host=0.0.0.0 --port={{router_port}} --prometheus-port=18888
     --policy=cache_aware --dp-aware
     --worker-urls={{engine_url}}
     --cache-threshold=0.3
@@ -77,6 +79,5 @@ router:
     --health-check-interval-secs=15 --health-check-timeout-secs=10
     --health-failure-threshold=5
     --request-timeout-secs=900 --retry-max-retries=2
-  metrics_port: 18888
 scenario: agentx-cc-062126-256k
 conc: [8]
