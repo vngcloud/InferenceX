@@ -1,0 +1,26 @@
+name: sgl-n684-fa3fa4-p64
+engine: sglang
+image: lmsysorg/sglang:nightly-dev-20261014-684fea8a
+# patches/apply_patches.sh adds, in both arms: PR 43542 runner-level fix + sglang PR 44399 @ e536b10bca (fa3_fa4)
+patches: [runner-fix.patch, hybrid.patch]
+model: RedHatAI/gemma-4-31B-it-FP8-block
+served_model_name: google/gemma-4-31b-it
+spec:
+  kind: mtp
+  draft: google/gemma-4-31B-it-assistant
+  depth: 4
+args:
+  - --mem-fraction-static=0.92
+  - --swa-full-tokens-ratio=0.2
+  - --chunked-prefill-size=8192
+  - --schedule-policy=hrrn
+  - --attention-backend=fa3_fa4
+  - --page-size=64
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  # same Python TreeCore as the p64 baseline (sgl-b-tau2cfg-p64), so radix matching is identical
+  SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND: "python"
+context_length: 262144
+max_running: 32
+baseline: sgl-b-tau2cfg-p64
+notes: "fa4 vs fa3_fa4 A/B (both on nightly 684fea8a + runnerfix + hybrid patch), page 64, MTP4, 2026-10-15"
