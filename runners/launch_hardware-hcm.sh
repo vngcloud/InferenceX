@@ -184,6 +184,68 @@ srun --jobid="$JOB_ID" --overlap \
     dcgm-exporter -a ":$DCGM_PORT" $DCGM_EXTRA_ARGS &
 DCGM_SRUN_PID=$!
 
+# Storage sidecar (serving YAML with a storage: block; Mooncake master for HiCache L3).
+# Non-GPU process: NVIDIA_VISIBLE_DEVICES=void skips the nvidia hook. Starts BEFORE the
+# router / engine because the engine's HiCache backend connects to it at init. The engine
+# env references its ports via {{storage_master_port}} / {{storage_meta_port}}
+# (expanded by expand_storage_placeholders in benchmark_lib.sh).
+STORAGE_SRUN_PID=""
+if [[ -n "${STORAGE_CMD:-}" ]]; then
+    export STORAGE_MASTER_PORT="$(free_tcp_port)"
+    export STORAGE_META_PORT="$(free_tcp_port)"
+    mkdir -p "$GITHUB_WORKSPACE/results"
+    rm -f "$GITHUB_WORKSPACE/results/.storage_exited"
+    STORAGE_SQUASH="$(squash_path "$STORAGE_IMAGE")"
+    import_squash "$STORAGE_IMAGE"
+    STORAGE_EXPANDED_CMD="${STORAGE_CMD//\{\{storage_master_port\}\}/$STORAGE_MASTER_PORT}"
+    STORAGE_EXPANDED_CMD="${STORAGE_EXPANDED_CMD//\{\{storage_meta_port\}\}/$STORAGE_META_PORT}"
+    (
+        rc=0
+        srun --jobid="$JOB_ID" --overlap \
+            --container-image="$STORAGE_SQUASH" \
+            --container-mounts="$GITHUB_WORKSPACE:/workspace" \
+            --no-container-mount-home \
+            --container-remap-root \
+            --container-writable \
+            --container-workdir=/workspace/ \
+            --no-container-entrypoint \
+            --export=ALL,NVIDIA_VISIBLE_DEVICES=void,STORAGE_MASTER_PORT,STORAGE_META_PORT,STORAGE_ENV \
+            bash -c "
+                set -eo pipefail
+                if [[ -n \"\${STORAGE_ENV:-}\" ]]; then
+                    while IFS= read -r assignment; do
+                        [[ -z \"\$assignment\" ]] && continue
+                        assignment=\"\${assignment//\\{\\{storage_master_port\\}\\}/\$STORAGE_MASTER_PORT}\"
+                        assignment=\"\${assignment//\\{\\{storage_meta_port\\}\\}/\$STORAGE_META_PORT}\"
+                        export \"\$assignment\"
+                    done <<< \"\$STORAGE_ENV\"
+                fi
+                exec $STORAGE_EXPANDED_CMD
+            " \
+            > "$GITHUB_WORKSPACE/results/storage.log" 2>&1 || rc=$?
+        echo "exit $rc" > "$GITHUB_WORKSPACE/results/.storage_exited"
+    ) &
+    STORAGE_SRUN_PID=$!
+    # Wait for the master's TCP port to open before releasing the engine. Fail fast if
+    # the sidecar dies before readiness, otherwise the engine comes up without an L3
+    # backend and the whole bench measures the wrong thing. Bash /dev/tcp opens from the
+    # launcher's host netns (pyxis shares netns with the srun step, same localhost).
+    SECONDS=0
+    until (exec 9<>/dev/tcp/127.0.0.1/"$STORAGE_MASTER_PORT") 2>/dev/null; do
+        exec 9>&- || true
+        if [[ -f "$GITHUB_WORKSPACE/results/.storage_exited" ]]; then
+            echo "ERROR: storage sidecar exited before readiness; see results/storage.log" >&2
+            exit 1
+        fi
+        if (( SECONDS > 300 )); then
+            echo "ERROR: storage sidecar did not open port $STORAGE_MASTER_PORT within 300s" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+    exec 9>&- || true
+fi
+
 # Router sidecar (serving YAML with a router: block, spec 2026-10-13 §4, 2026-10-14 §3).
 #   dynamo profile: a Dynamo frontend on $PORT; frontend and engine find each other through
 #   Dynamo's file discovery in the shared workspace.
@@ -224,7 +286,7 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
         export DYN_SYSTEM_PORT
     fi
 fi
-trap 'rc=$?; kill "$DCGM_SRUN_PID" $ROUTER_SRUN_PID 2>/dev/null || true; rm -rf "$GITHUB_WORKSPACE/results/.dynkv"; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
+trap 'rc=$?; kill "$DCGM_SRUN_PID" $ROUTER_SRUN_PID $STORAGE_SRUN_PID 2>/dev/null || true; rm -rf "$GITHUB_WORKSPACE/results/.dynkv"; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 export AIPERF_GPU_TELEMETRY_URL="http://localhost:${DCGM_PORT}/metrics"
 if [[ -n "$DCGM_EXTRA_ARGS" ]]; then
@@ -243,7 +305,7 @@ srun --jobid="$JOB_ID" \
     --container-remap-root \
     --container-writable \
     --container-workdir=/workspace/ \
-    --no-container-entrypoint --export=ALL,PORT="$PORT",AIPERF_GPU_TELEMETRY_URL,AIPERF_GPU_TELEMETRY_METRICS_CSV \
+    --no-container-entrypoint --export=ALL,PORT="$PORT",AIPERF_GPU_TELEMETRY_URL,AIPERF_GPU_TELEMETRY_METRICS_CSV,STORAGE_MASTER_PORT,STORAGE_META_PORT \
     bash "$BENCH_SCRIPT"
 
 # scancel ends the router step, so the subshell writes its .router_exited

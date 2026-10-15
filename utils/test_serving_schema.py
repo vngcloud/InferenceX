@@ -256,3 +256,64 @@ def test_multiple_problems_one_line_each():
     text = with_line("model: Qwen/Qwen3.8-27B", "model: /models/x").replace("gpus: 1", "gpus: 8")
     lines = errors(text).splitlines()
     assert len(lines) == 2
+
+
+STORAGE = textwrap.dedent("""\
+    storage:
+      image: lmsysorg/sglang:v0.5.21
+      serve: mooncake_master --port={{storage_master_port}} --http_metadata_server_port={{storage_meta_port}}
+""")
+
+
+def with_storage(text: str = GOOD) -> str:
+    """GOOD + storage block, pinned to a hardware-hcm runner."""
+    return (text.replace("runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-8x_01")
+                .replace("gpus: 1", "gpus: 8")) + STORAGE
+
+
+def test_storage_block_loads():
+    spec = load_serving(with_storage())
+    assert spec.storage is not None
+    assert spec.storage.image == "lmsysorg/sglang:v0.5.21"
+    assert "{{storage_master_port}}" in spec.storage.serve
+
+
+def test_storage_unknown_key_rejected():
+    text = with_storage().replace("image: lmsysorg/sglang:v0.5.21", "image: lmsysorg/sglang:v0.5.21\n  bogus: 1")
+    assert "storage.bogus: unknown key" in errors(text)
+
+
+def test_storage_needs_hardware_hcm_runner():
+    text = GOOD + STORAGE  # h200-greennode runner, not hardware-hcm
+    assert "storage: needs a hardware-hcm-8x_* runner" in errors(text)
+
+
+def test_storage_unknown_placeholder_rejected():
+    text = with_storage().replace("{{storage_master_port}}", "{{router_port}}")
+    assert "storage.serve: unknown placeholder {{router_port}}" in errors(text)
+
+
+def test_env_may_reference_storage_ports_only_with_storage_block():
+    # with storage block: {{storage_master_port}} is fine in top-level env
+    text = with_storage().replace(
+        "gpus: 8",
+        "gpus: 8\nenv:\n  MOONCAKE_MASTER: '127.0.0.1:{{storage_master_port}}'",
+    )
+    spec = load_serving(text)
+    assert spec.env["MOONCAKE_MASTER"] == "127.0.0.1:{{storage_master_port}}"
+
+
+def test_env_placeholder_rejected_without_storage_block():
+    text = GOOD.replace(
+        "gpus: 1",
+        "gpus: 1\nenv:\n  MOONCAKE_MASTER: '127.0.0.1:{{storage_master_port}}'",
+    )
+    assert "env.MOONCAKE_MASTER: unknown placeholder {{storage_master_port}}" in errors(text)
+
+
+def test_env_rejects_router_placeholders_even_with_storage():
+    text = with_storage().replace(
+        "gpus: 8",
+        "gpus: 8\nenv:\n  X: '{{engine_port}}'",
+    )
+    assert "env.X: unknown placeholder {{engine_port}}" in errors(text)

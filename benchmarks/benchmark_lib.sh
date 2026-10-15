@@ -710,6 +710,22 @@ expand_router_placeholders() {
     text="${text//\{\{router_port\}\}/$PORT}"
     text="${text//\{\{engine_port\}\}/$ENGINE_PORT}"
     text="${text//\{\{engine_url\}\}/http://127.0.0.1:$ENGINE_PORT}"
+    text="$(expand_storage_placeholders "$text")"
+    printf '%s' "$text"
+}
+
+# Serving-YAML storage sidecar (schema.STORAGE_PLACEHOLDERS): fill {{storage_master_port}} and
+# {{storage_meta_port}} in $1 from $STORAGE_MASTER_PORT / $STORAGE_META_PORT. Only applies when
+# a storage block is present; otherwise the vars are empty and the placeholder is left as-is
+# (no serving YAML without a storage block is allowed to reference them, see schema.py).
+expand_storage_placeholders() {
+    local text="$1"
+    if [[ -n "${STORAGE_MASTER_PORT:-}" ]]; then
+        text="${text//\{\{storage_master_port\}\}/$STORAGE_MASTER_PORT}"
+    fi
+    if [[ -n "${STORAGE_META_PORT:-}" ]]; then
+        text="${text//\{\{storage_meta_port\}\}/$STORAGE_META_PORT}"
+    fi
     printf '%s' "$text"
 }
 

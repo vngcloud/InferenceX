@@ -33,6 +33,10 @@ printf '%s' "${SERVING_YAML:-}" > "$RESULT_DIR/serving.yaml"
 if [[ -n "${SERVE_ENV:-}" ]]; then
     while IFS= read -r assignment; do
         if [[ -n "$assignment" ]]; then
+            # Storage sidecar placeholders ({{storage_master_port}}, {{storage_meta_port}})
+            # expand here so the engine env can reference ports the launcher only allocates
+            # at runtime (e.g. MOONCAKE_MASTER=127.0.0.1:{{storage_master_port}}).
+            assignment="$(expand_storage_placeholders "$assignment")"
             export "$assignment"
             echo "serve env: ${assignment%%=*}"
         fi

@@ -55,6 +55,12 @@ RESERVED_ENV = (
     "ROUTER_PROFILE",
     "ROUTER_METRICS_PORT",
     "ENGINE_PORT",
+    # Storage sidecar (Mooncake master etc.): set by runners/launch_hardware-hcm.sh.
+    "STORAGE_IMAGE",
+    "STORAGE_CMD",
+    "STORAGE_ENV",
+    "STORAGE_MASTER_PORT",
+    "STORAGE_META_PORT",
 )
 # Pools whose launcher runs serve_generic.sh on SERVE_CMD, and which runner names in
 # each pool do (hardware-hcm: only the full-node 8x identities; smaller tiers share the box).
@@ -62,10 +68,23 @@ SERVING_RUNNERS = {
     "cluster:h200-greennode-slurm": re.compile(r"h200-greennode-slurm-1x_\d+"),
     "cluster:hardware-hcm": re.compile(r"hardware-hcm-8x_\d+"),
 }
-# Only launch_hardware-hcm.sh starts the router sidecar.
+# Only launch_hardware-hcm.sh starts the router / storage sidecars.
 ROUTER_RUNNER_PREFIX = "hardware-hcm-"
-# {{name}} (lowercase, no spaces) in router.serve / router.env; {{ x }} is inline Jinja and stays literal.
-ROUTER_PLACEHOLDERS = ("router_port", "engine_url", "engine_port")
+STORAGE_RUNNER_PREFIX = "hardware-hcm-"
+# {{name}} (lowercase, no spaces) placeholders expanded at runtime by benchmarks/benchmark_lib.sh.
+# {{ x }} (with spaces) is inline Jinja and stays literal.
+# router.* can reference the router/engine ports and either storage port if the router
+# needs to talk to the storage sidecar (e.g. a health check).
+ROUTER_PLACEHOLDERS = (
+    "router_port", "engine_url", "engine_port",
+    "storage_master_port", "storage_meta_port",
+)
+# env: (engine) can reference the storage ports — the engine connects to the Mooncake
+# master through them. {{router_port}}/{{engine_port}} don't belong here (the engine
+# does not know its own HTTP port before the recipe appends --port).
+ENV_PLACEHOLDERS = ("storage_master_port", "storage_meta_port")
+# storage.serve can reference its own ports (it binds them).
+STORAGE_PLACEHOLDERS = ("storage_master_port", "storage_meta_port")
 PLACEHOLDER = re.compile(r"\{\{([a-z_]+)\}\}")
 
 
@@ -100,6 +119,24 @@ class RouterSpec(BaseModel):
         return _coerce_env(value)
 
 
+class StorageSpec(BaseModel):
+    """A storage sidecar launched before the engine (e.g. Mooncake master for HiCache L3).
+    Non-GPU process; the launcher gives it STORAGE_MASTER_PORT / STORAGE_META_PORT and the
+    engine reaches it over 127.0.0.1 (pyxis shares the host netns).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    image: str = Field(min_length=1)
+    serve: str = Field(min_length=1)
+    env: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("env", mode="before")
+    @classmethod
+    def _env_strings(cls, value: Any) -> Any:
+        return _coerce_env(value)
+
+
 class ServingSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -112,6 +149,7 @@ class ServingSpec(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     serve: str = Field(min_length=1)
     router: RouterSpec | None = None
+    storage: StorageSpec | None = None
     scenario: str = Field(pattern=NAME_PATTERN)
     conc: list[Annotated[int, Field(gt=0)]] = Field(min_length=1)
 
@@ -147,7 +185,12 @@ def _format_validation_error(error: ValidationError) -> str:
         location = ".".join(str(part) for part in item["loc"]) or "serving"
         message = item["msg"]
         if item["type"] == "extra_forbidden":
-            model = RouterSpec if item["loc"][:1] == ("router",) else ServingSpec
+            if item["loc"][:1] == ("router",):
+                model = RouterSpec
+            elif item["loc"][:1] == ("storage",):
+                model = StorageSpec
+            else:
+                model = ServingSpec
             message = "unknown key (allowed: " + ", ".join(model.model_fields) + ")"
         lines.append(f"{location}: {message}")
     return "\n".join(lines)
@@ -211,6 +254,8 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
         )
     commands = [("serve", spec.serve)] + (
         [("router.serve", spec.router.serve)] if spec.router else []
+    ) + (
+        [("storage.serve", spec.storage.serve)] if spec.storage else []
     )
     for field, command in commands:
         for marker in LOCAL_PATH_MARKERS:
@@ -225,7 +270,11 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             )
         if "--numa-node" in command:
             problems.append(f"{field}: drop --numa-node (benchmark convention)")
-    envs = [("env", spec.env)] + ([("router.env", spec.router.env)] if spec.router else [])
+    envs = (
+        [("env", spec.env)]
+        + ([("router.env", spec.router.env)] if spec.router else [])
+        + ([("storage.env", spec.storage.env)] if spec.storage else [])
+    )
     for prefix, env in envs:
         for key, value in env.items():
             if not ENV_NAME.fullmatch(key):
@@ -253,6 +302,37 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
                         f"{field}: unknown placeholder {{{{{name}}}}}; "
                         f"allowed: {', '.join(ROUTER_PLACEHOLDERS)}"
                     )
+    if spec.storage:
+        if not IMAGE_PATTERN.fullmatch(spec.storage.image):
+            problems.append("storage.image: only letters, digits and ._/:@- are allowed")
+        if not spec.runner.startswith(STORAGE_RUNNER_PREFIX):
+            problems.append(
+                "storage: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the storage sidecar)"
+            )
+        texts = [("storage.serve", spec.storage.serve)] + [
+            (f"storage.env.{key}", value) for key, value in spec.storage.env.items()
+        ]
+        for field, text in texts:
+            for name in PLACEHOLDER.findall(text):
+                if name not in STORAGE_PLACEHOLDERS:
+                    problems.append(
+                        f"{field}: unknown placeholder {{{{{name}}}}}; "
+                        f"allowed: {', '.join(STORAGE_PLACEHOLDERS)}"
+                    )
+    # Top-level env: only storage-port placeholders are available (router/engine ports are
+    # recipe-owned; engine does not know its own port at env-expansion time).
+    allowed_env_placeholders = ENV_PLACEHOLDERS if spec.storage else ()
+    for key, value in spec.env.items():
+        for name in PLACEHOLDER.findall(value):
+            if name not in allowed_env_placeholders:
+                hint = (
+                    f"allowed: {', '.join(ENV_PLACEHOLDERS)}"
+                    if spec.storage
+                    else "no placeholders are allowed in env: without a storage block"
+                )
+                problems.append(
+                    f"env.{key}: unknown placeholder {{{{{name}}}}}; {hint}"
+                )
     if len(set(spec.conc)) != len(spec.conc):
         problems.append("conc: duplicate values")
     try:

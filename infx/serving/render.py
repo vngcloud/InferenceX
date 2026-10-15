@@ -138,6 +138,21 @@ def _render_router(spec: ServingSpec, engine_argv: list[str]) -> dict[str, str]:
     }
 
 
+def _render_storage(spec: ServingSpec) -> dict[str, str]:
+    if spec.storage is None:
+        return {"storage-image": "", "storage-cmd": "", "storage-env": ""}
+    prefix_env, argv = _pop_env_prefix(split_serve(spec.storage.serve, "storage.serve"))
+    if not argv:
+        raise ServingError("storage.serve: empty command")
+    _check_json_values("storage.serve", argv)
+    env = {**prefix_env, **spec.storage.env}
+    return {
+        "storage-image": spec.storage.image,
+        "storage-cmd": shlex.join(argv),
+        "storage-env": "\n".join(f"{key}={value}" for key, value in env.items()),
+    }
+
+
 def _flag_value(argv: list[str], flag: str) -> str | None:
     for index, arg in enumerate(argv):
         if arg == flag and index + 1 < len(argv):
@@ -156,6 +171,7 @@ def render(spec: ServingSpec) -> dict[str, str]:
     if framework == "vllm" and "--disable-log-stats" in argv:
         raise ServingError("serve: drop --disable-log-stats; the benchmark scrapes vLLM metrics")
     router = _render_router(spec, argv)
+    storage = _render_storage(spec)
     argv = _strip_flags(argv, _OWNED_FLAGS)
     # A dynamo.sglang engine must bring its own --enable-metrics (spec 2026-10-13 §1);
     # the V1 append rule stays for the V1 sglang engines.
@@ -173,4 +189,5 @@ def render(spec: ServingSpec) -> dict[str, str]:
         "serve-env": "\n".join(f"{key}={value}" for key, value in env.items()),
         "served-model-name": _flag_value(argv, "--served-model-name") or "",
         **router,
+        **storage,
     }

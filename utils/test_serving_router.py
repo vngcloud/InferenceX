@@ -89,6 +89,12 @@ wait_for_server_ready() { echo "WAIT health $*" >> "$RESULT_DIR/calls"; }
 wait_for_frontend_model() { echo "WAIT frontend $*" >> "$RESULT_DIR/calls"; }
 build_replay_cmd_yaml() { echo "METRICS $AIPERF_SERVER_METRICS_URLS" >> "$RESULT_DIR/calls"; }
 run_agentic_replay_and_write_outputs() { :; }
+expand_storage_placeholders() {
+    local t="$1"
+    [[ -n "${STORAGE_MASTER_PORT:-}" ]] && t="${t//\{\{storage_master_port\}\}/$STORAGE_MASTER_PORT}"
+    [[ -n "${STORAGE_META_PORT:-}" ]] && t="${t//\{\{storage_meta_port\}\}/$STORAGE_META_PORT}"
+    printf '%s' "$t"
+}
 '''
 
 

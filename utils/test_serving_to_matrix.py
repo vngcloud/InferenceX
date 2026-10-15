@@ -67,11 +67,17 @@ def test_serving_object():
         "router-env": "",
         "router-profile": "",
         "router-metrics-port": "",
+        "storage-image": "",
+        "storage-cmd": "",
+        "storage-env": "",
     }
 
 
 GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
-NEW_SERVING_FIELDS = ("router-profile", "router-metrics-port")
+NEW_SERVING_FIELDS = (
+    "router-profile", "router-metrics-port",
+    "storage-image", "storage-cmd", "storage-env",
+)
 
 
 @pytest.mark.parametrize("name", sorted(json.loads(GOLDEN.read_text())))
