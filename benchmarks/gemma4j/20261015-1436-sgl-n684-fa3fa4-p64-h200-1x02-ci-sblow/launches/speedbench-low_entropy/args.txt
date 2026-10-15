@@ -1,0 +1,6 @@
+--mem-fraction-static=0.92
+--swa-full-tokens-ratio=0.2
+--chunked-prefill-size=8192
+--schedule-policy=hrrn
+--attention-backend=fa3_fa4
+--page-size=64
