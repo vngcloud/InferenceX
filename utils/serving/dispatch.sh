@@ -17,6 +17,13 @@ if [[ $# -lt 1 ]]; then
 fi
 yaml_file="$(realpath "$1")"
 shift
+# The workflow input is the file content, not HEAD: surface working-tree divergence
+# so a run cannot silently differ from the committed config (run 38527925937 case).
+if ! git -C "$REPO_ROOT" diff --quiet -- "$yaml_file" \
+    || ! git -C "$REPO_ROOT" diff --cached --quiet -- "$yaml_file" \
+    || [ -n "$(git -C "$REPO_ROOT" status --porcelain -- "$yaml_file")" ]; then
+    echo "WARNING: $yaml_file differs from HEAD; the run dispatches the working-tree content." >&2
+fi
 ref=""
 while [[ $# -gt 0 ]]; do
     case "$1" in

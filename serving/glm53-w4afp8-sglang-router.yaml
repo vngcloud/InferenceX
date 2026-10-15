@@ -6,7 +6,8 @@
 # Prod's SGLANG_TORCH_PROFILER_DIR / SGLANG_PROFILE_WITH_STACK are left out (profiling is off).
 # router.image is the prod image (VCR, han deploy 2026-10-02); it is slim and has no python3:
 # the router is the compiled smg binary, run as in the prod deployment (/work/target/release/smg).
-# Format reference only: do not dispatch it or copy its values for another request.
+# Format reference only: do not copy its values for another request. Dispatched as-is
+# for run 38527925937 (2026-10-14, CCU 8/24/32/48) with --dp 8; engine booted dp_size=8.
 name: glm53-w4afp8-sglang-router
 runner: hardware-hcm-8x_02
 image: lmsysorg/sglang:v0.5.18
@@ -24,7 +25,7 @@ serve: |
   python3 -m sglang.launch_server
   --model-path PhalaCloud/GLM-5.3-W4AFP8
   --quantization w4afp8
-  --tp 8 --dp 4 --ep 8
+  --tp 8 --dp 8 --ep 8
   --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
   --tokenizer-worker-num 8
   --dist-init-addr 127.0.0.1:10888
