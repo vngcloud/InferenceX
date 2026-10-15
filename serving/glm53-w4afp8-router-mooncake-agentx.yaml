@@ -6,6 +6,8 @@
 # (profiling off), empty MOONCAKE_DEVICE (tcp), local model mounts (HF id instead).
 # NVSHMEM_REMOTE_TRANSPORT=none / IBGDA=0: single-node DeepEP over NVLink only (non-mlx5 RoCE NICs segfault IBGDA).
 # Runner _01 = hgx-h200-01 (hgx-h200-02 DRAIN when the sbatch was written).
+# L2 is buffer_only (staging only), so --hicache-size is 48 GB per rank (~926k tokens at ~51.8 KB/token, about 3x the
+# 300k context) instead of the sbatch's 128 GB. The DRAM that frees up goes to Mooncake L3 (see MOONCAKE_GLOBAL_SEGMENT_SIZE).
 name: glm53-w4afp8-router-mooncake-agentx
 runner: hardware-hcm-8x_01
 image: lmsysorg/sglang:v0.5.21
@@ -22,7 +24,9 @@ env:
   NVSHMEM_IB_ENABLE_IBGDA: "0"
   MOONCAKE_MASTER: "127.0.0.1:{{storage_master_port}}"
   MOONCAKE_TE_META_DATA_SERVER: "http://127.0.0.1:{{storage_meta_port}}/metadata"
-  MOONCAKE_GLOBAL_SEGMENT_SIZE: "68719476736"   # 64 GiB per TP rank (MOONCAKE_SEG_GB=64)
+  # sglang divides this by attn_tp_size*pp_size (tp8/dp4 -> 2): 192 GiB -> 96 GiB mounted per rank, 768 GiB total.
+  # (Old 64 GiB gave 32 GiB/rank, 256 GiB total.)
+  MOONCAKE_GLOBAL_SEGMENT_SIZE: "206158430208"
   MOONCAKE_PROTOCOL: tcp
   MOONCAKE_LOCAL_HOSTNAME: 127.0.0.1
 serve: |
@@ -41,11 +45,11 @@ serve: |
   --allow-auto-truncate
   --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
   --enable-hierarchical-cache
-  --hicache-size 128 --hicache-io-backend direct --hicache-write-policy write_through
+  --hicache-size 48 --hicache-io-backend direct --hicache-write-policy write_through
   --hicache-host-memory-mode buffer_only
   --hicache-storage-backend mooncake
   --speculative-algorithm EAGLE --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
-  --schedule-policy dfs-weight --enable-prefill-delayer
+  --schedule-policy dfs-weight --schedule-conservativeness 3.33 --enable-prefill-delayer
   --served-model-name zai-org/GLM-5.3
 storage:
   image: lmsysorg/sglang:v0.5.21
