@@ -8261,3 +8261,11 @@
   description:
     - "SGLang DFLASH draft 4 (fa4 draft attention), high_entropy c8/c32, to compare with MTP4 B and DFlash draft 8/16."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4-dflash-fa4
+
+- config-keys:
+    - gemma4jhybp64t2-sglang
+  scenario-type:
+    - agentic-coding
+  description:
+    - "gemma4-bench run 20261015-1436-sgl-n684-fa3fa4-p64-h200-1x02-ci-tau2 (cell sgl-n684-fa3fa4-p64): attention fa3_fa4, page 64, MTP4; fa4 vs fa3_fa4 A/B on sglang PR 44399"
+  pr-link: N/A (refs/bench)

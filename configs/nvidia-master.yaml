@@ -9888,3 +9888,19 @@ gemma4sbdf4hi-fp8block-gnslurm-sglang:
       search-space:
       - { tp: 1, spec-decoding: draft_model, conc-list: [8, 32] }
 
+
+gemma4jhybp64t2-sglang:
+  image: lmsysorg/sglang:nightly-dev-20261014-684fea8a
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4jhybp64t2
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    agentic-coding:
+    - search-space:
+      - tp: 1
+        conc-list: [1, 8, 16, 32]
+        spec-decoding: mtp
+        kv-offloading: none
