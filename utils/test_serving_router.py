@@ -1,6 +1,7 @@
 import json
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -252,6 +253,53 @@ def test_serve_router_expands_engine_urls(tmp_path, ports, urls):
     out = run_generic_router(tmp_path, ROUTER_CMD=cmd, ENGINE_PORTS=ports)
     assert out.returncode == 0, out.stderr
     assert out.stdout.splitlines()[-1] == f"--worker-urls {urls}"
+
+
+def run_generic_replicas(tmp_path, **extra):
+    lib = tmp_path / "benchmarks"
+    (lib / "single_node/agentic").mkdir(parents=True)
+    (lib / "benchmark_lib.sh").write_text(STUB_LIB)
+    script = lib / "single_node/agentic/serve_generic.sh"
+    script.write_text(GENERIC.read_text())
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in {"nvidia-smi": "", "engine": f'echo "$CUDA_VISIBLE_DEVICES $*" >> {tmp_path}/engines\nsleep 30\n'}.items():
+        (bin_dir / name).write_text("#!/bin/sh\n" + body)
+        (bin_dir / name).chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin", "MODEL": "RedHatAI/gemma-4-31B-it-FP8-block", "CONC": "8",
+        "PORT": "8888", "RESULT_DIR": str(tmp_path / "results"), "FRAMEWORK": "vllm", "SERVING_SCENARIO": "s",
+        "SERVING_LOADER": "l", "AIPERF_HF_CLI": "true", "SERVED_MODEL_NAME": "RedHatAI/gemma-4-31B-it-FP8-block",
+        "SERVE_CMD": "engine --tensor-parallel-size 2", "ROUTER_CMD": "vllm-router", "ROUTER_PROFILE": "generic",
+        "ENGINE_PORT": "9200", "ENGINE_PORTS": "9200 9201", "REPLICAS": "2", "CUDA_VISIBLE_DEVICES": "4,5,6,7",
+    } | extra
+    return subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env, timeout=60)
+
+
+def test_serve_generic_replicas_split_gpus_ports_and_logs(tmp_path):
+    out = run_generic_replicas(tmp_path)
+    assert out.returncode == 0, out.stderr
+    engines = tmp_path / "engines"
+    for _ in range(100):
+        if engines.exists() and len(engines.read_text().splitlines()) == 2:
+            break
+        time.sleep(0.05)
+    assert sorted(engines.read_text().splitlines()) == [
+        "4,5 --tensor-parallel-size 2 --host 0.0.0.0 --port 9200",
+        "6,7 --tensor-parallel-size 2 --host 0.0.0.0 --port 9201",
+    ]
+    calls = (tmp_path / "results/calls").read_text()
+    assert f"WAIT health --port 9200 --server-log {tmp_path}/results/server.log" in calls
+    assert f"WAIT health --port 9201 --server-log {tmp_path}/results/server.1.log" in calls
+    assert "WAIT frontend --port 8888 --model RedHatAI/gemma-4-31B-it-FP8-block" in calls
+    assert "METRICS http://localhost:8888/metrics,http://localhost:9200/metrics,http://localhost:9201/metrics" in calls
+    assert (tmp_path / "results/server_command.1.txt").read_text().strip().endswith("--port 9201")
+
+
+def test_serve_generic_replicas_need_one_port_each(tmp_path):
+    out = run_generic_replicas(tmp_path, ENGINE_PORTS="9200")
+    assert out.returncode == 1
+    assert "replicas 2 needs 2 ports in ENGINE_PORTS" in out.stderr
 
 
 def test_serve_router_never_prints_router_env_values(tmp_path):
