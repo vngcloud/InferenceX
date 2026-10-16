@@ -2,7 +2,11 @@
 # RDMA instead of TCP, on the 180 s smoke scenario at one CCU. Checks that RDMA comes up (no
 # "RDMA context setup failed", segments mount, "prefetch fill committed" lines) before a full TCP-vs-RDMA A/B.
 # Run 38841462012 c40 logs: Mooncake found 9 active RoCE HCAs (rocep*s0f0) but hit "fork compatibility: Invalid
-# argument" at RDMA context setup (harmless on tcp); RDMAV_FORK_SAFE=1 is the first attempt at that.
+# argument" at RDMA context setup (harmless on tcp); RDMAV_FORK_SAFE=1 cleared it in run 38889746624.
+# Run 38889746624 then failed on ibv_reg_mr "Cannot allocate memory" for Mooncake's first 16 MB buffer: the
+# container memlock limit. serve now starts the engine under `prlimit --memlock=unlimited:` (raises the soft
+# limit only, which needs no privilege when the hard limit is unlimited). If the hard limit is finite, prlimit
+# fails with "failed to set the MEMLOCK resource limit" in server.log and the fix is on the Slurm/node side.
 # GLM-5.3 W4AFP8 on 8×H200, AgentX ladder (CCU 8/24/32/48): layout of serving/glm53-w4afp8-dynamo-agentx.yaml,
 # values from the user's sbatch glm53_hicache_mooncake_8.sbatch (UbuntuWiki cloud/ai/llm/slum).
 # Start order as in the sbatch: storage (Mooncake master + HTTP metadata server) first, the launcher waits for
@@ -36,12 +40,13 @@ env:
   # run 38705612370 c40 crashed with "Prefill out of memory" with every radix node locked (evictable 0).
   SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP: "0.2"
   MOONCAKE_PROTOCOL: rdma
-  # Empty = Mooncake auto-selects HCAs by topology; pin per rank later as JSON {"0":"rocep..",...}.
-  MOONCAKE_DEVICE: ""
+  # The 8 compute RoCE NICs (10.200.{1..8}.1 in run 38889746624). Auto-select also picked rocep41s0f1, the
+  # bond0 NIC on the public IP, and registered every buffer on all of them.
+  MOONCAKE_DEVICE: "rocep24s0f0,rocep58s0f0,rocep41s0f0,rocep92s0f0,rocep154s0f0,rocep170s0f0,rocep186s0f0,rocep218s0f0"
   RDMAV_FORK_SAFE: "1"
   MOONCAKE_LOCAL_HOSTNAME: 127.0.0.1
 serve: |
-  python3 -m sglang.launch_server
+  prlimit --memlock=unlimited: python3 -m sglang.launch_server
   --model-path PhalaCloud/GLM-5.3-W4AFP8
   --quantization w4afp8
   --tp 8 --dp 8 --ep 8
