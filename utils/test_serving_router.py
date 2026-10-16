@@ -243,6 +243,17 @@ def test_serve_generic_offline_env_scoped_to_engine(tmp_path):
     assert "REPLAY HF_HUB_OFFLINE=unset TRANSFORMERS_OFFLINE=unset HF_DATASETS_OFFLINE=unset" in calls
 
 
+@pytest.mark.parametrize("ports, urls", [
+    ("9200 9201", "http://127.0.0.1:9200 http://127.0.0.1:9201"),
+    (None, "http://127.0.0.1:9200"),
+], ids=["replicas", "single-engine"])
+def test_serve_router_expands_engine_urls(tmp_path, ports, urls):
+    cmd = "python3 -c 'import sys; print(*sys.argv[1:])' --worker-urls {{engine_urls}}"
+    out = run_generic_router(tmp_path, ROUTER_CMD=cmd, ENGINE_PORTS=ports)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.splitlines()[-1] == f"--worker-urls {urls}"
+
+
 def test_serve_router_never_prints_router_env_values(tmp_path):
     cmd = "python3 -c 'print(1)'"
     out = subprocess.run(["bash", str(ROUTER)], cwd=REPO, capture_output=True, text=True, env={
