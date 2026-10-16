@@ -2,6 +2,7 @@
 
 V1 is an engine-only YAML (`vllm serve` / `python3 -m sglang.launch_server`, ServingSpec);
 V2 adds an optional `router:` block (RouterSpec); V3 lets it be any router (placeholders, metrics_port).
+V4 adds replicas: N engines behind the router (spec 2026-10-16).
 Specs: docs/superpowers/specs/2026-10-12-serving-yaml-dispatch-design.md (V1) and
 docs/superpowers/specs/2026-10-13-serving-router-dynamo-design.md (V2);
 docs/superpowers/specs/2026-10-14-serving-router-generic-design.md (V3).
@@ -55,6 +56,8 @@ RESERVED_ENV = (
     "ROUTER_PROFILE",
     "ROUTER_METRICS_PORT",
     "ENGINE_PORT",
+    "ENGINE_PORTS",
+    "REPLICAS",
     # Storage sidecar (Mooncake master etc.): set by runners/launch_hardware-hcm.sh.
     "STORAGE_IMAGE",
     "STORAGE_CMD",
@@ -76,9 +79,11 @@ STORAGE_RUNNER_PREFIX = "hardware-hcm-"
 # router.* can reference the router/engine ports and either storage port if the router
 # needs to talk to the storage sidecar (e.g. a health check).
 ROUTER_PLACEHOLDERS = (
-    "router_port", "engine_url", "engine_port",
+    "router_port", "engine_url", "engine_port", "engine_urls",
     "storage_master_port", "storage_meta_port",
 )
+# engine_urls = every replica's URL (http://127.0.0.1:<port>, space-separated);
+# engine_url stays the first engine's (back-compat, spec 2026-10-16).
 # env: (engine) can reference the storage ports — the engine connects to the Mooncake
 # master through them. {{router_port}}/{{engine_port}} don't belong here (the engine
 # does not know its own HTTP port before the recipe appends --port).
@@ -145,6 +150,7 @@ class ServingSpec(BaseModel):
     image: str = Field(min_length=1)
     model: str = Field(min_length=1)
     gpus: int = Field(gt=0)
+    replicas: int = Field(default=1, ge=1)
     precision: str = Field(default="bf16", pattern=r"^[a-z0-9]+$")
     env: dict[str, str] = Field(default_factory=dict)
     serve: str = Field(min_length=1)
@@ -335,6 +341,20 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
                 )
     if len(set(spec.conc)) != len(spec.conc):
         problems.append("conc: duplicate values")
+    if spec.gpus % spec.replicas:
+        problems.append(
+            f"replicas: gpus {spec.gpus} is not a multiple of replicas {spec.replicas}; "
+            "each replica gets gpus/replicas GPUs"
+        )
+    if spec.replicas > 1:
+        if spec.router is None:
+            problems.append(
+                "replicas: more than 1 replica needs a router: block whose serve lists {{engine_urls}}"
+            )
+        elif "dynamo.frontend" in spec.router.serve:
+            problems.append(
+                "replicas: the Dynamo frontend discovers its engines itself; use replicas: 1"
+            )
     try:
         gpus_per_node = _gpus_per_node(spec.runner, repo)
         if spec.gpus > gpus_per_node:
