@@ -135,6 +135,7 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
             "router-env": rendered["router-env"],
             "router-profile": rendered["router-profile"],
             "router-metrics-port": rendered["router-metrics-port"],
+            "replicas": str(spec.replicas),
             "storage-image": rendered["storage-image"],
             "storage-cmd": rendered["storage-cmd"],
             "storage-env": rendered["storage-env"],

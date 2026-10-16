@@ -232,6 +232,7 @@ env:
   ROUTER_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-env || '' }}
   ROUTER_PROFILE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-profile || '' }}
   ROUTER_METRICS_PORT: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-metrics-port || '' }}
+  REPLICAS: ${{ inputs.serving != '' && fromJSON(inputs.serving).replicas || '' }}
   # Storage sidecar (Mooncake master for HiCache L3 etc.); only launch_hardware-hcm.sh reads these.
   STORAGE_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).storage-image || '' }}
   STORAGE_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).storage-cmd || '' }}
