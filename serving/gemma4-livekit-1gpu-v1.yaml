@@ -1,7 +1,7 @@
 # Gemma-4-31B FP8-block, prod flags (HCM gemma4 audit 2026-10-15) minus MTP, 1 GPU, no router.
 # LiveKit 111868 sizing ladder, V1 = append-ideal (spec 2026-10-16).
 name: gemma4-livekit-1gpu-v1
-runner: hardware-hcm-8x_01
+runner: hardware-hcm-8x_02
 image: vllm/vllm-openai:v0.25.1
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 1
