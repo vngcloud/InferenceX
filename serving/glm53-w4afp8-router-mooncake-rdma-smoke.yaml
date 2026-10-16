@@ -7,6 +7,8 @@
 # container memlock limit. serve now starts the engine under `prlimit --memlock=unlimited:` (raises the soft
 # limit only, which needs no privilege when the hard limit is unlimited). If the hard limit is finite, prlimit
 # fails with "failed to set the MEMLOCK resource limit" in server.log and the fix is on the Slurm/node side.
+# Run 38929403615: prlimit worked (16 MB buffer registered, RDMA transport up) but registering the 96 GiB
+# segment failed with ENOMEM on 7 of 64 rank x NIC registrations -> segment cut to 16 GiB/rank (see below).
 # GLM-5.3 W4AFP8 on 8×H200, AgentX ladder (CCU 8/24/32/48): layout of serving/glm53-w4afp8-dynamo-agentx.yaml,
 # values from the user's sbatch glm53_hicache_mooncake_8.sbatch (UbuntuWiki cloud/ai/llm/slum).
 # Start order as in the sbatch: storage (Mooncake master + HTTP metadata server) first, the launcher waits for
@@ -33,9 +35,10 @@ env:
   NVSHMEM_IB_ENABLE_IBGDA: "0"
   MOONCAKE_MASTER: "127.0.0.1:{{storage_master_port}}"
   MOONCAKE_TE_META_DATA_SERVER: "http://127.0.0.1:{{storage_meta_port}}/metadata"
-  # sglang divides this by attn_tp_size*pp_size (tp8/dp8 -> 1): 96 GiB mounted per rank, 768 GiB total.
-  # (At dp4 the divisor was 2, so 192 GiB gave the same 96 GiB/rank.)
-  MOONCAKE_GLOBAL_SEGMENT_SIZE: "103079215104"
+  # sglang divides this by attn_tp_size*pp_size (tp8/dp8 -> 1). 16 GiB per rank, 128 GiB total, for the smoke only:
+  # run 38929403615 failed ibv_reg_mr (ENOMEM) on the 96 GiB segment. Every rank registers its segment on every
+  # listed NIC, so each NIC held 8 x 96 GiB. Scale back up once this size registers.
+  MOONCAKE_GLOBAL_SEGMENT_SIZE: "17179869184"
   # Buffer-mode anchor locks may pin up to this fraction of the L1 pool (default 0.5). Run 38765755189 c32 and
   # run 38705612370 c40 crashed with "Prefill out of memory" with every radix node locked (evictable 0).
   SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP: "0.2"
