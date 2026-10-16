@@ -3,7 +3,7 @@
 # (sticky per session: aiperf's X-Correlation-ID).
 # LiveKit 111868 sizing ladder, v2 (spec 2026-10-16).
 name: gemma4-livekit-2rep-chash-v2
-runner: hardware-hcm-8x_01
+runner: hardware-hcm-8x_02
 image: vllm/vllm-openai:v0.25.1
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 2
