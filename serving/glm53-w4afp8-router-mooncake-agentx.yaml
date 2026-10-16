@@ -27,6 +27,9 @@ env:
   # sglang divides this by attn_tp_size*pp_size (tp8/dp4 -> 2): 192 GiB -> 96 GiB mounted per rank, 768 GiB total.
   # (Old 64 GiB gave 32 GiB/rank, 256 GiB total.)
   MOONCAKE_GLOBAL_SEGMENT_SIZE: "206158430208"
+  # Buffer-mode anchor locks may pin up to this fraction of the L1 pool (default 0.5). Run 38765755189 c32 and
+  # run 38705612370 c40 crashed with "Prefill out of memory" with every radix node locked (evictable 0).
+  SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP: "0.2"
   MOONCAKE_PROTOCOL: tcp
   MOONCAKE_LOCAL_HOSTNAME: 127.0.0.1
 serve: |
@@ -73,4 +76,4 @@ router:
     --health-check-interval-secs=15 --health-check-timeout-secs=10 --health-failure-threshold=5
     --request-timeout-secs=900 --retry-max-retries=2
 scenario: agentx-cc-062126
-conc: [8, 16, 32, 40]
+conc: [16, 32, 40]
