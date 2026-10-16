@@ -9981,3 +9981,21 @@ gemma4sbat2s64m97mtplo-fp8block-gnslurm-sglang:
       osl: 1024
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [64] }
+
+# TP8 smoke of SGLang config B on SpeedBench throughput_16k (high entropy, MTP4, c8).
+# Same image and serving flags as gemma4sbat2mtphi; runs on 8xH200 hgx-h200-01/02.
+# Pin with --runner-node-filter hardware-hcm-8x_01 (or _02).
+gemma4sbatp8mtphi-fp8block-hardware-hcm-sglang:
+  image: ghcr.io/noridom1/sglang:v0.5.21-gemma4-fa4-swapool-3a7d5ad
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4sbatp8mtphi
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: sglang
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 16384
+      osl: 1024
+      search-space:
+      - { tp: 8, spec-decoding: mtp, conc-list: [1, 8, 32, 64] }

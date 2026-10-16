@@ -8255,3 +8255,11 @@
   description:
     - "SGLang MTP4 c64 with 64 running slots and --mem-fraction-static 0.97 (was 0.92), Gemma-4 31B FP8-block, image B, tau2 serving config with ratio 0.2: s64 (194b67d8) left ~20 GiB free after the pool and ran only 39 of 64 slots with retracts; checks whether a bigger pool helps."
   pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-mtp-s64m97
+
+- config-keys:
+    - gemma4sbatp8mtphi-fp8block-hardware-hcm-sglang
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "SGLang MTP4 TP8 on 8xH200, SpeedBench throughput_16k high entropy, Gemma-4 31B FP8-block, image B, config B serving flags (ratio 0.2, chunk 8192, hrrn, evict 32, max-running min(CONC,32)): smoke at c8 to check TP8 + FROZEN_KV_MTP + FA4 start."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/vng-benchmark...refs/bench/gemma4sba-sgl-tp8-16k
