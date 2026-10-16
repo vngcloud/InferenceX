@@ -260,6 +260,14 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
         DYN_SYSTEM_PORT="$(free_tcp_port_below_32768)"
     else
         export ENGINE_PORT="$(free_tcp_port)"
+        # Serving-YAML replicas (spec 2026-10-16): one engine port per replica; the first is ENGINE_PORT.
+        # ponytail: free ports are picked one by one (bind+close); a clash is possible but has not happened
+        # with the single-port path either. Reserve them together if it ever does.
+        ENGINE_PORTS="$ENGINE_PORT"
+        for ((replica = 1; replica < ${REPLICAS:-1}; replica++)); do
+            ENGINE_PORTS+=" $(free_tcp_port)"
+        done
+        export ENGINE_PORTS
     fi
     mkdir -p "$GITHUB_WORKSPACE/results"
     # A previous run's registrations would show up as ghost workers.
