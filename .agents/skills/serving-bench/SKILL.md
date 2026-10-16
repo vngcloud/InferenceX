@@ -15,6 +15,7 @@ runner: h200-greennode-slurm-1x_01  # see "Runner" below
 image: vllm/vllm-openai:v0.29.0     # required
 model: Qwen/Qwen3.8-27B             # HF repo id, never a local path
 gpus: 1                             # GPUs the command needs
+replicas: 1                         # optional: N engine copies, gpus/N GPUs each; N > 1 needs router: with {{engine_urls}}
 precision: bf16                     # optional (bf16 default), naming only
 env:                                # optional, the engine's env vars; quote booleans
   PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -38,6 +39,7 @@ Translation rules:
 - **Model path → HF id.** `--model-path /models/<org>/<model>` becomes `--model-path <org>/<model>` and `model: <org>/<model>`. If you cannot tell the HF id from the path, ask.
 - **Host/port:** leave them or drop them; they are replaced by the benchmark's own.
 - **Router:** a router part goes under `router:` with its own `image`; the engine stays in `serve`. Engine env → `env:`, router env → `router.env:`.
+  - **Replicas** (several copies of one engine, e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.
   - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang`): as before. Leave out discovery settings (`DYN_*`, `ETCD_ENDPOINTS`, NATS) and `--http-host/--http-port`: the benchmark wires them.
   - **Any other router** (sglang-router and others): keep the user's flags verbatim except the wiring. Listen host/port flags → `--host=0.0.0.0 --port={{router_port}}`. A worker/backend URL (k8s service, hostname) → `{{engine_url}}` (or `{{engine_port}}` where only a port fits). A literal metrics/prometheus port flag → also `router.metrics_port: <port>`. The engine's own `--host/--port` are dropped, as for any engine.
   - **Router command missing** (only flags + image): infer it from the flag family and say so in the reply so the user can correct it. `--worker-urls`, `--policy=cache_aware`, `--dp-aware`, `--prometheus-port` → `python3 -m sglang_router.launch_router`. Unknown family → ask. The command must match the image: slim/compiled images (no python3) run a binary path (e.g. `/work/target/release/smg launch`), not `python3 -m …`.

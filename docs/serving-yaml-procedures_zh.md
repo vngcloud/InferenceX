@@ -60,6 +60,24 @@
    脚本执行与 CI 相同的校验。出现 `ERROR <field>: <fix>` 时不会派发任何任务：修改 YAML 后重新运行。成功时会输出运行 URL。使用 `--ref <branch>` 可派发当前分支以外的分支。
 4. 如果脚本提示运行未出现，不要重复派发；先执行 `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` 检查。
 
+### 副本（replicas）
+
+「**副本（replicas）**」：同一引擎的多个副本（如 2×TP1）。设置 `replicas: N`，`gpus` = N × 每个引擎的 GPU 数；路由命令用 `{{engine_urls}}`（空格分隔的 URL）列出全部引擎。不支持 Dynamo frontend。
+
+```yaml
+gpus: 2
+replicas: 2
+router:
+  image: vllm/vllm-openai:v0.25.1
+  metrics_port: 29000
+  serve: >-
+    bash -c "python3 -m pip install -q vllm-router==0.1.14
+    && exec vllm-router --host 0.0.0.0 --port {{router_port}}
+    --worker-urls {{engine_urls}} --policy cache_aware
+    --prometheus-host 127.0.0.1 --prometheus-port 29000
+    --request-timeout-secs 14400 --disable-retries"
+```
+
 ## 查看结果与失败
 
 - 状态：`gh run view <run-id> --repo vngcloud/InferenceX`。每个 `conc` 值对应一个任务。除场景时长外，镜像拉取、模型加载与预热约需 20 分钟。
