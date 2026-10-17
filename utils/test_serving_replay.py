@@ -152,3 +152,14 @@ def test_non_search_mode_unchanged():
         printf '%s' "$REPLAY_CMD"
     ''')
     assert " --concurrency 8" in out.stdout
+
+
+def test_empty_serving_search_is_rejected_like_unset():
+    # benchmark-tmpl.yml must export SERVING_SEARCH as '0', never '': check_env_vars
+    # rejects empty values, which would abort every non-sweep serving run.
+    out = run(r'''
+        export SERVING_SEARCH=
+        build_replay_cmd_yaml /tmp/r
+    ''')
+    assert out.returncode != 0
+    assert "SERVING_SEARCH" in out.stdout + out.stderr

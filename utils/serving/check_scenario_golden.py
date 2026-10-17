@@ -100,7 +100,7 @@ def yaml_argv(scenario: str, artifact_dir: str) -> list[str]:
         "set -e\n"
         "export IS_AGENTIC=1 KV_OFFLOADING=none PORT=8888 CONC=8 DURATION=0\n"
         f"export INFMAX_CONTAINER_WORKSPACE={shlex.quote(str(REPO))}\n"
-        f"export AIPERF_CLI=aiperf MODEL={MODEL} FRAMEWORK=vllm SERVING_SCENARIO={scenario}\n"
+        f"export AIPERF_CLI=aiperf MODEL={MODEL} FRAMEWORK=vllm SERVING_SCENARIO={scenario} SERVING_SEARCH=0\n"
         "export AIPERF_GPU_TELEMETRY_URL=http://localhost:9400/metrics\n"
         "export AIPERF_SERVER_METRICS_URLS=http://localhost:8888/metrics\n"
         "source benchmarks/benchmark_lib.sh\n"
