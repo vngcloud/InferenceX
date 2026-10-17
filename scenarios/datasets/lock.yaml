@@ -6,3 +6,9 @@ tau2-cs:
   revision: 2c793380d8ba45bfde79f9a5c7b5991ed40ab2ea
   file: trace.tau2.jsonl
   sha256: 598ab95c793326182175d56599c743dc84d8c6d46623359327813099df05c47e
+# E2 shared-prefix trace (utils/serving/gen_shared_prefix_trace.py, default args): HiCache L2 vs Mooncake L3 A/B.
+shared-prefix-e2:
+  repo: Green-Lab/shared-prefix-e2
+  revision: 02692baf2e3e93baae625a1ee093b7a1679f0952
+  file: trace.shared-prefix-e2.jsonl
+  sha256: e4dbb42007fd6349530b6f16a26e39d2f1465f8bb76691b32db0591567c50c7e
