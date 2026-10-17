@@ -65,7 +65,8 @@ def reference_argv(duration: int, artifact_dir: str) -> list[str]:
 
 
 def tau2_reference_argv(duration: int, artifact_dir: str, dataset_file: str, entries: int = 1576,
-                        request_count: int | None = 16798, idle_cap: float = 300.0) -> list[str]:
+                        request_count: int | None = 16798, idle_cap: float = 300.0,
+                        sampling: str | None = None) -> list[str]:
     """The tau2 command of run 37920508184 (gemma4tau2, c16), model/conc normalized like the Weka one."""
     argv = (
         "--scenario inferencex-agentx-mvp --url http://localhost:8888 "
@@ -83,6 +84,8 @@ def tau2_reference_argv(duration: int, artifact_dir: str, dataset_file: str, ent
     )
     if request_count is not None:
         argv += f" --request-count {request_count}"
+    if sampling is not None:
+        argv += f" --dataset-sampling-strategy {sampling}"
     return shlex.split(argv)
 
 
@@ -159,7 +162,8 @@ def main() -> int:
             elif kind == "livekit":
                 reference = tau2_reference_argv(duration, tmp, str(dataset_file), entries=1217,
                                                 request_count=None,
-                                                idle_cap=LIVEKIT_IDLE_CAP.get(scenario, 300.0))
+                                                idle_cap=LIVEKIT_IDLE_CAP.get(scenario, 300.0),
+                                                sampling="shuffle")
             else:
                 reference = tau2_reference_argv(duration, tmp, str(dataset_file))
             found = differences(kind, reference, scenario, tmp)

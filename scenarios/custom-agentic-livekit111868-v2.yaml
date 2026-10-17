@@ -20,6 +20,10 @@ benchmark:
     entries: 1217
     randomSeed: 42
     traceIdleGapCapSeconds: 300.0
+    # mooncake_trace defaults to sequential: lanes would replay room-0001, -0002, ... in file
+    # (chronological) order and a run covers only the first ~150 rooms. Shuffle = seeded random
+    # permutation of all 1217 rooms per pass.
+    sampling: shuffle
   phases:
   - name: profiling
     kind: profiling
