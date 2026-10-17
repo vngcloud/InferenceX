@@ -55,4 +55,4 @@ router:
     --health-check-interval-secs=15 --health-check-timeout-secs=10 --health-failure-threshold=5
     --request-timeout-secs=900 --retry-max-retries=2
 scenario: agentx-hidden-prefix-e3
-conc: [24, 32]
+conc: [16, 24, 40]

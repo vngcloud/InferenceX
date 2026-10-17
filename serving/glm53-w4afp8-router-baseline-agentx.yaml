@@ -52,4 +52,4 @@ router:
     --health-check-interval-secs=15 --health-check-timeout-secs=10 --health-failure-threshold=5
     --request-timeout-secs=900 --retry-max-retries=2
 scenario: agentx-cc-062126
-conc: [8, 24, 32, 48]
+conc: [16, 40]
