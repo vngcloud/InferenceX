@@ -160,6 +160,19 @@ Fixtures therefore capture `search_history.json` + the winning probe's
 Verified by: `find <A> -name '*.json' | sort` after the full run (output
 recorded above) and by reading `_multi_run.py` / `_sweep_aggregate.py`.
 
+Cheap config-validation entrypoint (Task 3, used for all 24 sweep files):
+`aiperf validate` only handles mooncake-trace artifacts, so instead resolve the
+config with pydantic from `utils/aiperf`:
+
+```bash
+cd utils/aiperf
+uv run python -c "import glob, yaml; from aiperf.config.config import AIPerfConfig; \
+  [AIPerfConfig.model_validate({**yaml.safe_load(open(f)), 'benchmark': {**yaml.safe_load(open(f))['benchmark'], 'models': ['Qwen/Qwen3.8-27B'], 'endpoint': {**yaml.safe_load(open(f))['benchmark']['endpoint'], 'urls': ['http://localhost:8877']}}}) for f in sorted(glob.glob('../../scenarios/sweep-*.yaml'))]"
+```
+
+Injecting `benchmark.models` / `endpoint.urls` emulates the Task 1 CLI
+overrides (`--url`, `--model`) — the YAML intentionally leaves those to the CLI.
+
 ## ENDPOINT
 
 **Answer: chat.** `benchmark.endpoint.type: chat`, `path:
