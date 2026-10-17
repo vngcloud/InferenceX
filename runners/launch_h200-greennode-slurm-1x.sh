@@ -144,7 +144,9 @@ chmod 600 "$ENV_FILE"
 # the job env and travel to the container through this file (mode 600, deleted after
 # `source`). Never echo it; it is not a GitHub secret, so Actions would not mask it.
 export -p | grep -vE '^declare -x (PATH|HOME|PWD|OLDPWD|SHLVL|HOSTNAME|USER|LOGNAME|SHELL|TMPDIR|TERM|MAIL|_|LD_[A-Z_]*|CUDA_[A-Z_]*|NVIDIA_[A-Z_]*|SLURM_[A-Z_]*|ENROOT_[A-Z_]*|XDG_[A-Z_]*|DBUS_[A-Z_]*)=' > "$ENV_FILE"
-echo "export INFMAX_CONTAINER_WORKSPACE=/workspace RESULT_DIR=/workspace/results HOME=/ixhome" >> "$ENV_FILE"
+# uid has no passwd entry in the image: torch (vLLM >=0.25) calls getpass.getuser() at
+# import, which reads USER/LOGNAME before falling back to pwd (KeyError uid not found).
+echo "export INFMAX_CONTAINER_WORKSPACE=/workspace RESULT_DIR=/workspace/results HOME=/ixhome USER=ix LOGNAME=ix" >> "$ENV_FILE"
 
 srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=2 bash -c "umask 077; mkdir -p $WS $HF_CACHE_HOST $NODE_ROOT/uv $NODE_ROOT/home && tar -xz -C $WS" \
     < <(tar -cz -C "$GITHUB_WORKSPACE" --exclude=.git --exclude=./results .)
