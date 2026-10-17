@@ -10,6 +10,7 @@ import yaml
 
 from utils.serving.gen_sweep_scenarios import (
     GRID_CACHE,
+    _scenario_text,
     build_scenario,
     grid,
     scenario_name,
@@ -93,3 +94,9 @@ def test_isl_accounting_across_grid() -> None:
             dataset["isl"] + dataset.get("prefix_prompts", {}).get("shared_system_length", 0) == isl
         )
         assert dataset["osl"] == osl
+
+
+def test_rendered_template_matches_dict_builder_for_all_24_points() -> None:
+    """main() writes from _scenario_text(), not build_scenario(); guard against drift."""
+    for il, isl, ol, osl, cache in grid():
+        assert yaml.safe_load(_scenario_text(isl, osl, cache)) == build_scenario(isl, osl, cache)
