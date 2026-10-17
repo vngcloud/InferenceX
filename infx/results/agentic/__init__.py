@@ -138,6 +138,46 @@ def _gpu_shape(env: Mapping[str, str]) -> tuple[dict[str, Any], int, int, int, s
     return fields, num_gpus, tp, ep, dp_attention
 
 
+def identity_fields(env: Mapping[str, str]) -> dict[str, Any]:
+    """Env-derived identity block shared by agentic and sweep results.
+
+    Excludes the kv-offload fields (validated separately by
+    :func:`_validate_kv_offload_env`, which requires KV_OFFLOADING and is
+    therefore optional for serving-sweep runs) and the per-run request
+    counters, which only an aggregate over records can fill in.
+    """
+    multinode_fields, num_gpus, tp, ep, dp_attention = _gpu_shape(env)
+    fields: dict[str, Any] = {
+        "hw": env.get("RUNNER_TYPE", ""),
+        "conc": int(env.get("CONC", "0")),
+        "image": env.get("IMAGE", ""),
+        "recipe_fingerprint": env.get("RECIPE_FINGERPRINT", ""),
+        "model": env.get("MODEL", ""),
+        "infmax_model_prefix": env.get("MODEL_PREFIX", ""),
+        "framework": env.get("FRAMEWORK", ""),
+        "precision": env.get("PRECISION", ""),
+        "spec_decoding": env.get("SPEC_DECODING", "none"),
+        "disagg": _env_bool(env, "DISAGG"),
+        "scenario_type": "agentic-coding",
+        "is_multinode": _env_bool(env, "IS_MULTINODE"),
+        "num_gpus": num_gpus,
+        "tp": tp,
+        "ep": ep,
+        "dp_attention": dp_attention,
+        "allocated_cpu_dram_gb": _env_int(env, "TOTAL_CPU_DRAM_GB"),
+    }
+    fields.update(multinode_fields)
+
+    router = _optional_component_metadata(env, "ROUTER_METADATA")
+    if router is not None:
+        fields["router"] = router
+
+    kv_p2p_transfer = env.get("KV_P2P_TRANSFER")
+    if kv_p2p_transfer:
+        fields["kv_p2p_transfer"] = kv_p2p_transfer
+    return fields
+
+
 def build_result(
     records: list[dict[str, Any]],
     aggregate: dict[str, Any],
@@ -158,7 +198,6 @@ def build_result(
     required metadata. The caller owns serialization and output rounding.
     """
     kv_offloading, kv_offload_backend = _validate_kv_offload_env(env)
-    multinode_fields, num_gpus, tp, ep, dp_attention = _gpu_shape(env)
     framework = env.get("FRAMEWORK", "")
     request_accounting = request_accounting or {
         "records_total": len(records),
@@ -169,39 +208,13 @@ def build_result(
         "error_categories": {},
     }
 
-    agg: dict[str, Any] = {
-        "hw": env.get("RUNNER_TYPE", ""),
-        "conc": int(env.get("CONC", "0")),
-        "image": env.get("IMAGE", ""),
-        "recipe_fingerprint": env.get("RECIPE_FINGERPRINT", ""),
-        "model": env.get("MODEL", ""),
-        "infmax_model_prefix": env.get("MODEL_PREFIX", ""),
-        "framework": framework,
-        "precision": env.get("PRECISION", ""),
-        "spec_decoding": env.get("SPEC_DECODING", "none"),
-        "disagg": _env_bool(env, "DISAGG"),
-        "scenario_type": "agentic-coding",
-        "is_multinode": _env_bool(env, "IS_MULTINODE"),
-        "num_gpus": num_gpus,
-        "tp": tp,
-        "ep": ep,
-        "dp_attention": dp_attention,
-        "kv_offloading": kv_offloading,
-        "kv_offload_backend": kv_offload_backend,
-        "allocated_cpu_dram_gb": _env_int(env, "TOTAL_CPU_DRAM_GB"),
-        "num_requests_total": request_accounting["records_total"],
-        "num_requests_successful": len(records),
-        "request_accounting": request_accounting,
-    }
-    agg.update(multinode_fields)
-
-    router = _optional_component_metadata(env, "ROUTER_METADATA")
-    if router is not None:
-        agg["router"] = router
-
-    kv_p2p_transfer = env.get("KV_P2P_TRANSFER")
-    if kv_p2p_transfer:
-        agg["kv_p2p_transfer"] = kv_p2p_transfer
+    agg: dict[str, Any] = identity_fields(env)
+    agg["kv_offloading"] = kv_offloading
+    agg["kv_offload_backend"] = kv_offload_backend
+    agg["num_requests_total"] = request_accounting["records_total"]
+    agg["num_requests_successful"] = len(records)
+    agg["request_accounting"] = request_accounting
+    num_gpus = agg["num_gpus"]
 
     metadata = aggregate.get("metadata")
     if isinstance(metadata, dict):

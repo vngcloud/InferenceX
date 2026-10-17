@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -163,3 +164,44 @@ def test_empty_serving_search_is_rejected_like_unset():
     ''')
     assert out.returncode != 0
     assert "SERVING_SEARCH" in out.stdout + out.stderr
+
+
+def test_search_replay_writes_sweep_result_json(tmp_path):
+    # End-to-end hook check: a stub aiperf on PATH fakes the adaptive-search
+    # artifact layout (search_history.json + the winning probe's export per
+    # the spike's ARTIFACT_LAYOUT) and exits 0; the replay runner must then
+    # route through infx.results.sweep instead of the per-request validators.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fix = REPO / "utils" / "fixtures" / "sweep"
+    stub = bin_dir / "aiperf"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'out=""\nprev=""\n'
+        'for a in "$@"; do\n'
+        '  [ "$prev" = "--output-artifact-dir" ] && out="$a"\n'
+        '  prev="$a"\n'
+        "done\n"
+        '[ -n "$out" ] || exit 2\n'
+        f'mkdir -p "$out/search_iter_0008/profile_runs/run_0001"\n'
+        f'cp {fix}/search_history.json "$out/search_history.json"\n'
+        f'cp {fix}/profile_export_aiperf_probe_concurrency256.json '
+        '"$out/search_iter_0008/profile_runs/run_0001/profile_export_aiperf.json"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    run_dir = tmp_path / "r"
+    out_dir = tmp_path / "agg"
+    out = run(f'''
+        export SERVING_SEARCH=1 AIPERF_PYTHON={sys.executable}
+        export ENABLE_AGENTX_POWER=0 IS_MULTINODE=false REQUIRE_POWER=0
+        export PATH={bin_dir}:$PATH
+        mkdir -p {run_dir}
+        build_replay_cmd_yaml {run_dir}
+        RESULT_FILENAME=sweep_test AGENTIC_OUTPUT_DIR={out_dir} \
+            run_agentic_replay_and_write_outputs {run_dir}
+    ''')
+    assert out.returncode == 0, out.stderr
+    result = json.loads((out_dir / "sweep_test.json").read_text())
+    assert result["state"] == "ok"
+    assert result["max_conc"] == 256

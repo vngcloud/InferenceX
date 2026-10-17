@@ -3632,6 +3632,19 @@ write_agentic_result_json() {
     # Writes $AGENTIC_OUTPUT_DIR/$RESULT_FILENAME.json; the workflow checks that
     # file exists, and the caller separately rejects high error rates.
     local result_dir="$1"
+    if [ "${SERVING_SEARCH:-0}" = "1" ]; then
+        # Adaptive-search run: no per-request profile_export.jsonl and no single
+        # concurrency, so process_agentic_result cannot run. The sweep writer
+        # consumes search_history.json + the winning probe's export instead
+        # (infx/results/sweep.py). The failed-request gate stays inside the
+        # search itself via the scenario's SLA filters.
+        (
+            cd "$INFMAX_CONTAINER_WORKSPACE"
+            RESULT_DIR="$result_dir" AGENTIC_OUTPUT_DIR="${AGENTIC_OUTPUT_DIR:-$INFMAX_CONTAINER_WORKSPACE}" \
+                "$AIPERF_PYTHON" -m infx.results.sweep
+        )
+        return 0
+    fi
     (
         cd "$INFMAX_CONTAINER_WORKSPACE"
         RESULT_DIR="$result_dir" AGENTIC_OUTPUT_DIR="${AGENTIC_OUTPUT_DIR:-$INFMAX_CONTAINER_WORKSPACE}" \
@@ -3940,14 +3953,16 @@ run_agentic_replay_and_write_outputs() (
 
     write_agentic_result_json "$result_dir"
 
-    if [ "$agentx_multinode_power_enabled" = "1" ] && [ "$replay_rc" -eq 0 ]; then
+    if [ "$agentx_multinode_power_enabled" = "1" ] && [ "$replay_rc" -eq 0 ] && [ "${SERVING_SEARCH:-0}" != "1" ]; then
+        # Search runs have no single CONC, so a multinode power window cannot be
+        # written for one; per-probe power windows are out of scope.
         set +e
         _write_agentx_multinode_window completed
         power_rc=$?
         set -e
     fi
 
-    if [ "$agentx_power_enabled" = "1" ] || [ "$agentx_multinode_contract_missing" = "1" ]; then
+    if [ "${SERVING_SEARCH:-0}" != "1" ] && { [ "$agentx_power_enabled" = "1" ] || [ "$agentx_multinode_contract_missing" = "1" ]; }; then
         local expected_num_gpus
         local -a power_args
         power_args=(
@@ -3973,18 +3988,25 @@ run_agentic_replay_and_write_outputs() (
         set -e
     fi
 
-    PYTHONPATH="$INFMAX_CONTAINER_WORKSPACE${PYTHONPATH:+:$PYTHONPATH}" "$AIPERF_PYTHON" -m infx.results.agentic.analyze_benchmark_distributions \
-        "$result_dir/aiperf_artifacts" -o "$result_dir" 2>&1 || true
+    if [ "${SERVING_SEARCH:-0}" != "1" ]; then
+        # Search-only skips: analyze_benchmark_distributions and
+        # validate_agentic_result assume one concurrency and a top-level
+        # profile_export.jsonl, neither of which an adaptive-search artifact
+        # layout has; the failed-request gate lives in the search's SLA
+        # filters instead.
+        PYTHONPATH="$INFMAX_CONTAINER_WORKSPACE${PYTHONPATH:+:$PYTHONPATH}" "$AIPERF_PYTHON" -m infx.results.agentic.analyze_benchmark_distributions \
+            "$result_dir/aiperf_artifacts" -o "$result_dir" 2>&1 || true
 
-    set +e
-    (
-        cd "$INFMAX_CONTAINER_WORKSPACE"
-        "$AIPERF_PYTHON" -m infx.results.agentic.validate_agentic_result \
-            "$result_dir/aiperf_artifacts" \
-            --failed-request-threshold "$AIPERF_FAILED_REQUEST_THRESHOLD"
-    )
-    validation_rc=$?
-    set -e
+        set +e
+        (
+            cd "$INFMAX_CONTAINER_WORKSPACE"
+            "$AIPERF_PYTHON" -m infx.results.agentic.validate_agentic_result \
+                "$result_dir/aiperf_artifacts" \
+                --failed-request-threshold "$AIPERF_FAILED_REQUEST_THRESHOLD"
+        )
+        validation_rc=$?
+        set -e
+    fi
 
     if [ "$replay_rc" -ne 0 ]; then
         echo "ERROR: agentic trace replay exited with code $replay_rc after writing available results" >&2
