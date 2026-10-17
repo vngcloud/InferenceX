@@ -8,9 +8,9 @@ tau2-cs:
   sha256: 598ab95c793326182175d56599c743dc84d8c6d46623359327813099df05c47e
 livekit-111868-v1:
   repo: Green-Lab/2026-10-16-111868-agentic-traces
-  revision: 7e36287967360851a1b05ba05730ff1d256b60c7
+  revision: 002c982432295d1603dcaafd68a09cdf5c37e4ac
   file: trace.v1-append-ideal.jsonl
-  sha256: 4cb0ea8c79172c26b50574ded29bb59fb81992a0fd01e3ba1833b1ba6b5a44cf
+  sha256: 684dc5cb9e845b5e5a01b7e925aabf715869ea7c3f77c97850438f3066dca8f5
 livekit-111868-v2:
   repo: Green-Lab/2026-10-16-111868-agentic-traces
   revision: 7e36287967360851a1b05ba05730ff1d256b60c7
