@@ -355,6 +355,13 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             problems.append(
                 "replicas: the Dynamo frontend discovers its engines itself; use replicas: 1"
             )
+    from infx.serving.to_matrix import is_sweep  # local import: to_matrix imports this module
+
+    if is_sweep(spec.scenario, repo) and spec.conc != [1]:
+        problems.append(
+            f"conc: sweep scenario {spec.scenario} searches the concurrency itself; "
+            f"set conc: 1 (got {spec.conc})"
+        )
     try:
         gpus_per_node = _gpus_per_node(spec.runner, repo)
         if spec.gpus > gpus_per_node:

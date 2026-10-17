@@ -90,10 +90,24 @@ def scenario_facts(scenario: str, repo: Path = REPO_ROOT) -> tuple[int, str]:
                 f"scenario: {where} dataset '{name}' is not in scenarios/datasets/lock.yaml"
             )
         return duration, name
-    raise ServingError(f"scenario: {where} dataset type must be public or file, got {kind!r}")
+    if kind == "synthetic":
+        return duration, "synthetic"
+    raise ServingError(
+        f"scenario: {where} dataset type must be public, file or synthetic, got {kind!r}"
+    )
 
 
-def _row(spec: ServingSpec, framework: str, conc: int, duration: int) -> dict:
+def is_sweep(scenario: str, repo: Path = REPO_ROOT) -> bool:
+    """True when scenarios/<scenario>.yaml carries an adaptive_search sweep (top-level `sweep:`)."""
+    try:
+        doc = yaml.safe_load((repo / f"scenarios/{scenario}.yaml").read_text())
+    except (OSError, yaml.YAMLError):
+        return False
+    sweep = doc.get("sweep") if isinstance(doc, dict) else None
+    return isinstance(sweep, dict) and sweep.get("type") == "adaptive_search"
+
+
+def _row(spec: ServingSpec, framework: str, conc: int, duration: int, sweep: bool) -> dict:
     return {
         "image": spec.image,
         "model": spec.model,
@@ -112,7 +126,7 @@ def _row(spec: ServingSpec, framework: str, conc: int, duration: int) -> dict:
         "kv-offloading": "none",
         "total-cpu-dram-gb": 0,
         "duration": duration,
-        "exp-name": f"{spec.name}_c{conc}",
+        "exp-name": f"{spec.name}_search" if sweep else f"{spec.name}_c{conc}",
         "scenario-type": "agentic-coding",
     }
 
@@ -121,8 +135,9 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
     spec = load_serving(text, repo)
     rendered = render(spec)
     duration, loader = scenario_facts(spec.scenario, repo)
+    sweep = is_sweep(spec.scenario, repo)
     return {
-        "matrix": [_row(spec, rendered["framework"], conc, duration) for conc in spec.conc],
+        "matrix": [_row(spec, rendered["framework"], conc, duration, sweep) for conc in spec.conc],
         "serving": {
             "serve-cmd": rendered["serve-cmd"],
             "serve-env": rendered["serve-env"],

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from infx.serving.schema import ServingError, available_scenarios
-from infx.serving.to_matrix import build, scenario_facts
+from infx.serving.to_matrix import build, is_sweep, scenario_facts
 from infx.workflows.benchmark_schema import validate_matrix
 
 REPO = Path(__file__).resolve().parents[1]
@@ -238,6 +238,61 @@ def test_malformed_lock_is_one_error(tmp_path, lock_text, error):
 
 def test_lock_is_not_a_scenario(tmp_path):
     assert available_scenarios(_scenario_repo(tmp_path, FILE_SCENARIO)) == ["s"]
+
+
+SWEEP_SCENARIO = "sweep-isl8k-osl512-cache50"
+
+
+@pytest.fixture
+def tmp_repo_with_sweep_scenario(tmp_path):
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs/runners.yaml").write_text(textwrap.dedent("""\
+        labels:
+          cluster:h200-greennode-slurm: [h200-greennode-slurm-1x_01]
+        hardware:
+          cluster:h200-greennode-slurm: {gpus-per-node: 1}
+    """))
+    scenarios = tmp_path / "scenarios"
+    (scenarios / "datasets").mkdir(parents=True)
+    for name in (SWEEP_SCENARIO, "agentx-cc-062126-smoke"):
+        (scenarios / f"{name}.yaml").write_text((REPO / f"scenarios/{name}.yaml").read_text())
+    (scenarios / "datasets" / "lock.yaml").write_text("")
+    return tmp_path
+
+
+def test_synthetic_scenario_loader_is_synthetic(tmp_repo_with_sweep_scenario):
+    assert scenario_facts(SWEEP_SCENARIO, tmp_repo_with_sweep_scenario) == (300, "synthetic")
+
+
+def test_is_sweep_distinguishes_scenarios(tmp_repo_with_sweep_scenario):
+    assert is_sweep(SWEEP_SCENARIO, tmp_repo_with_sweep_scenario) is True
+    assert is_sweep("agentx-cc-062126-smoke", tmp_repo_with_sweep_scenario) is False
+    assert is_sweep("nope", tmp_repo_with_sweep_scenario) is False
+
+
+SWEEP_YAML = textwrap.dedent("""\
+    name: demo
+    runner: h200-greennode-slurm-1x_01
+    image: vllm/vllm-openai:v0.29.0
+    model: Qwen/Qwen3.8-27B
+    gpus: 1
+    serve: vllm serve Qwen/Qwen3.8-27B --port 8000 --served-model-name q38
+    scenario: sweep-isl8k-osl512-cache50
+    conc: [1]
+""")
+
+
+@pytest.fixture
+def sweep_serving_yaml():
+    return SWEEP_YAML
+
+
+def test_sweep_matrix_row_uses_search_exp_name_and_conc_one(sweep_serving_yaml, tmp_repo_with_sweep_scenario):
+    result = build(sweep_serving_yaml, tmp_repo_with_sweep_scenario)
+    assert [row["conc"] for row in result["matrix"]] == [1]
+    assert result["matrix"][0]["exp-name"] == "demo_search"
+    assert result["serving"]["loader"] == "synthetic"
+    assert result["matrix"][0]["duration"] == 300
 
 
 @pytest.mark.parametrize("text", ["benchmark: {}\n", "{{not yaml\n", "benchmark:\n  phases: 3\n  datasets: []\n", "[]\n"])

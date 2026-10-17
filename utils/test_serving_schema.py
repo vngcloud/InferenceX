@@ -2,7 +2,9 @@ import textwrap
 
 import pytest
 
-from infx.serving.schema import ServingError, available_scenarios, load_serving
+from infx.serving.schema import REPO_ROOT, ServingError, available_scenarios, load_serving
+
+SWEEP_SCENARIO = "sweep-isl8k-osl512-cache50"
 
 GOOD = textwrap.dedent("""\
     name: qwen38-bf16-tp1
@@ -21,9 +23,9 @@ def with_line(old: str, new: str) -> str:
     return GOOD.replace(old, new)
 
 
-def errors(text: str) -> str:
+def errors(text: str, repo=REPO_ROOT) -> str:
     with pytest.raises(ServingError) as info:
-        load_serving(text)
+        load_serving(text, repo)
     return str(info.value)
 
 
@@ -350,3 +352,23 @@ def test_env_rejects_router_placeholders_even_with_storage():
         "gpus: 8\nenv:\n  X: '{{engine_port}}'",
     )
     assert "env.X: unknown placeholder {{engine_port}}" in errors(text)
+
+
+@pytest.fixture
+def sweep_repo(repo):
+    (repo / f"scenarios/{SWEEP_SCENARIO}.yaml").write_text((REPO_ROOT / f"scenarios/{SWEEP_SCENARIO}.yaml").read_text())
+    return repo
+
+
+def test_sweep_scenario_requires_conc_one(sweep_repo):
+    text = with_line("scenario: agentx-cc-062126-smoke", f"scenario: {SWEEP_SCENARIO}").replace("conc: [4, 8]", "conc: [8]")
+    message = errors(text, sweep_repo)
+    assert message.startswith("conc:")
+    assert "sweep" in message
+    assert load_serving(text.replace("conc: [8]", "conc: 1"), sweep_repo).conc == [1]
+
+
+def test_non_sweep_scenario_keeps_conc_rule_unchanged(sweep_repo):
+    text = with_line("conc: [4, 8]", "conc: [8, 16]")
+    spec = load_serving(text, sweep_repo)
+    assert spec.conc == [8, 16]
