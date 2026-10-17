@@ -144,6 +144,7 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
             "served-model-name": rendered["served-model-name"],
             "scenario": spec.scenario,
             "loader": loader,
+            "search": sweep,
             "yaml": text,
             "router-image": rendered["router-image"],
             "router-cmd": rendered["router-cmd"],

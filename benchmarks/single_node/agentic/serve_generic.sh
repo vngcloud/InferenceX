@@ -13,7 +13,8 @@ umask 0000
 #   SERVE_ENV          KEY=VALUE lines exported before the engine starts
 #   SERVED_MODEL_NAME  --served-model-name from the command, if any
 #   SERVING_SCENARIO   scenarios/<name>.yaml (aiperf workload, incl. duration)
-#   SERVING_LOADER     dataset of that scenario: public loader alias or scenarios/datasets/lock.yaml key
+#   SERVING_LOADER     dataset of that scenario: public loader alias, scenarios/datasets/lock.yaml key, or synthetic
+#   SERVING_SEARCH     1 for sweep scenarios (adaptive_search): the scenario YAML's sweep: block drives concurrency
 #   SERVING_YAML       the user's serving YAML, saved next to the results
 #   ROUTER_CMD         set on the router path: the router runs in a sidecar (serve_router.sh); with ROUTER_PROFILE=dynamo the engine has no HTTP port, otherwise it listens on ENGINE_PORT
 #   ROUTER_PROFILE     dynamo | generic (launcher)
@@ -23,7 +24,7 @@ umask 0000
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
-check_env_vars MODEL CONC PORT RESULT_DIR FRAMEWORK SERVE_CMD SERVING_SCENARIO SERVING_LOADER
+check_env_vars MODEL CONC PORT RESULT_DIR FRAMEWORK SERVE_CMD SERVING_SCENARIO SERVING_LOADER SERVING_SEARCH
 
 mkdir -p "$RESULT_DIR"
 # xtrace off here: SERVING_YAML and SERVE_ENV may hold tokens (env: values);
@@ -48,19 +49,23 @@ nvidia-smi
 
 install_agentic_deps
 # Scenario dataset: a lock-pinned file (custom-agentic-*: download, sha256 check,
-# IX_CUSTOM_DATASET_FILE for the YAML) or a public Weka loader (resolve_trace_source
+# IX_CUSTOM_DATASET_FILE for the YAML), a public Weka loader (resolve_trace_source
 # validates and pre-downloads it; the --public-dataset flag it builds is unused,
-# the scenario YAML names the dataset).
-custom_rc=0
-is_custom_dataset "$SERVING_LOADER" || custom_rc=$?
-case "$custom_rc" in
-    # the YAML env's offline flags are for the engine; the dataset fetch must reach the Hub
-    # (a prefix assignment on a function call is temporary in bash non-posix mode)
-    0) HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= fetch_custom_dataset "$SERVING_LOADER" ;;
-    1) export WEKA_LOADER_OVERRIDE="$SERVING_LOADER"
-       resolve_trace_source ;;
-    *) echo "ERROR: cannot tell whether $SERVING_LOADER is a lock-pinned dataset (exit $custom_rc)" >&2; exit 1 ;;
-esac
+# the scenario YAML names the dataset), or synthetic (nothing to fetch).
+if [[ "$SERVING_LOADER" == synthetic ]]; then
+    echo "scenario dataset: synthetic, nothing to fetch"
+else
+    custom_rc=0
+    is_custom_dataset "$SERVING_LOADER" || custom_rc=$?
+    case "$custom_rc" in
+        # the YAML env's offline flags are for the engine; the dataset fetch must reach the Hub
+        # (a prefix assignment on a function call is temporary in bash non-posix mode)
+        0) HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= fetch_custom_dataset "$SERVING_LOADER" ;;
+        1) export WEKA_LOADER_OVERRIDE="$SERVING_LOADER"
+           resolve_trace_source ;;
+        *) echo "ERROR: cannot tell whether $SERVING_LOADER is a lock-pinned dataset (exit $custom_rc)" >&2; exit 1 ;;
+    esac
+fi
 # the user's env may set HF_HUB_OFFLINE=1 for the engine; the pre-download must reach the Hub
 HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= "$AIPERF_HF_CLI" download "$MODEL"
 

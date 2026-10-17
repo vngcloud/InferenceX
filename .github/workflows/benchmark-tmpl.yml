@@ -225,6 +225,9 @@ env:
   SERVED_MODEL_NAME: ${{ inputs.serving != '' && fromJSON(inputs.serving).served-model-name || '' }}
   SERVING_SCENARIO: ${{ inputs.serving != '' && fromJSON(inputs.serving).scenario || '' }}
   SERVING_LOADER: ${{ inputs.serving != '' && fromJSON(inputs.serving).loader || '' }}
+  # '1' only for sweep scenarios (adaptive_search): serve_generic/build_replay_cmd_yaml then
+  # omit --concurrency and let the scenario YAML's sweep: block search it.
+  SERVING_SEARCH: ${{ inputs.serving != '' && fromJSON(inputs.serving).search && '1' || '' }}
   SERVING_YAML: ${{ inputs.serving != '' && fromJSON(inputs.serving).yaml || '' }}
   # Router sidecar (any router, spec 2026-10-14); only runners/launch_hardware-hcm.sh reads these.
   ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}

@@ -61,6 +61,7 @@ def test_serving_object():
         "served-model-name": "q38",
         "scenario": "agentx-cc-062126-smoke",
         "loader": "semianalysis_cc_traces_weka_062126",
+        "search": False,
         "yaml": YAML,
         "router-image": "",
         "router-cmd": "",
@@ -78,6 +79,7 @@ GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
 NEW_SERVING_FIELDS = (
     "router-profile", "router-metrics-port", "replicas",
     "storage-image", "storage-cmd", "storage-env",
+    "search",  # sweep scenarios; the goldens predate it
 )
 
 
@@ -293,6 +295,11 @@ def test_sweep_matrix_row_uses_search_exp_name_and_conc_one(sweep_serving_yaml, 
     assert result["matrix"][0]["exp-name"] == "demo_search"
     assert result["serving"]["loader"] == "synthetic"
     assert result["matrix"][0]["duration"] == 300
+
+
+def test_serving_search_flag_follows_scenario_sweep(sweep_serving_yaml, tmp_repo_with_sweep_scenario):
+    assert build(sweep_serving_yaml, tmp_repo_with_sweep_scenario)["serving"]["search"] is True
+    assert build(YAML)["serving"]["search"] is False
 
 
 @pytest.mark.parametrize("text", ["benchmark: {}\n", "{{not yaml\n", "benchmark:\n  phases: 3\n  datasets: []\n", "[]\n"])

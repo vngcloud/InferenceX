@@ -3554,12 +3554,24 @@ build_replay_cmd() {
 # only per-run values are flags here. utils/serving/check_scenario_golden.py
 # proves YAML + these flags resolve to the same config as build_replay_cmd.
 build_replay_cmd_yaml() {
-    check_env_vars INFMAX_CONTAINER_WORKSPACE MODEL PORT CONC SERVING_SCENARIO AIPERF_CLI
+    check_env_vars INFMAX_CONTAINER_WORKSPACE MODEL PORT SERVING_SCENARIO AIPERF_CLI SERVING_SEARCH
     local result_dir="$1"
     local scenario_file="$INFMAX_CONTAINER_WORKSPACE/scenarios/${SERVING_SCENARIO}.yaml"
     if [ ! -f "$scenario_file" ]; then
         echo "ERROR: scenario file not found: scenarios/${SERVING_SCENARIO}.yaml" >&2
         return 1
+    fi
+    if [ "$SERVING_SEARCH" = "1" ] && [ -n "${IX_SLO:-}" ]; then
+        # AIPerf silently ignores CLI --search-sla when the config YAML carries a
+        # `sweep:` block (spike notes SLO_OVERRIDE), so an IX_SLO override must be
+        # written into a copy of the scenario YAML in the run dir. Parse and abort
+        # here, before the engine or aiperf ever runs.
+        check_env_vars AIPERF_PYTHON
+        local slo_tuples slo_config
+        slo_tuples="$(cd "$INFMAX_CONTAINER_WORKSPACE" && "$AIPERF_PYTHON" -m infx.serving.slo "$IX_SLO")" || return 1
+        slo_config="$result_dir/scenario_slo_override.yaml"
+        (cd "$INFMAX_CONTAINER_WORKSPACE" && "$AIPERF_PYTHON" -m infx.serving.slo_override "$scenario_file" "$slo_config" "$slo_tuples") || return 1
+        scenario_file="$slo_config"
     fi
     # Same timeouts/UI env as build_replay_cmd (dataset configuration on H200).
     export AIPERF_DATASET_CONFIGURATION_TIMEOUT=1800
@@ -3569,7 +3581,12 @@ build_replay_cmd_yaml() {
     REPLAY_CMD+=" --url http://localhost:$PORT"
     REPLAY_CMD+=" --model ${SERVED_MODEL_NAME:-$MODEL}"
     REPLAY_CMD+=" --tokenizer $MODEL"
-    REPLAY_CMD+=" --concurrency $CONC"
+    if [ "$SERVING_SEARCH" != "1" ]; then
+        check_env_vars CONC
+        REPLAY_CMD+=" --concurrency $CONC"
+    fi
+    # else: adaptive_search sweeps the concurrency itself (scenario YAML's sweep:
+    # block; SLOs come from sweep.sla_filters, optionally overridden above).
     if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
         REPLAY_CMD+=" --gpu-telemetry $AIPERF_GPU_TELEMETRY_URL"
         if [ -n "${AIPERF_GPU_TELEMETRY_METRICS_CSV:-}" ]; then

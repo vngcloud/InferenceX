@@ -1,12 +1,15 @@
 import subprocess
+import sys
 from pathlib import Path
+
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 ENV = r'''
     export IS_AGENTIC=1 KV_OFFLOADING=none PORT=8888 CONC=8 DURATION=180
     export INFMAX_CONTAINER_WORKSPACE="$PWD"
     export AIPERF_CLI=aiperf MODEL=Qwen/Qwen3.8-27B FRAMEWORK=vllm
-    export SERVING_SCENARIO=agentx-cc-062126-smoke
+    export SERVING_SCENARIO=agentx-cc-062126-smoke SERVING_SEARCH=0
 '''
 
 
@@ -72,6 +75,7 @@ def test_serve_generic_exports_env_without_tracing_values(tmp_path):
         "PATH": f"{bin_dir}:/usr/bin:/bin", "MODEL": "Qwen/Qwen3.8-27B", "CONC": "8", "PORT": "8888",
         "RESULT_DIR": str(tmp_path / "r"), "FRAMEWORK": "vllm", "SERVE_CMD": "vllm serve Qwen/Qwen3.8-27B",
         "SERVING_SCENARIO": "agentx-cc-062126-smoke", "SERVING_LOADER": "x", "KV_OFFLOADING": "none",
+        "SERVING_SEARCH": "0",
         "SERVING_YAML": "env:\n  HF_TOKEN: hf_secret123", "SERVE_ENV": "HF_TOKEN=hf_secret123\nFOO=a b",
     }
     out = subprocess.run(["bash", str(REPO / "benchmarks/single_node/agentic/serve_generic.sh")],
@@ -81,3 +85,70 @@ def test_serve_generic_exports_env_without_tracing_values(tmp_path):
     assert (tmp_path / "r/serving.yaml").read_text() == "env:\n  HF_TOKEN: hf_secret123"
     assert "hf_secret123" not in out.stdout + out.stderr
     assert out.stdout.splitlines()[:2] == ["serve env: HF_TOKEN", "serve env: FOO"]
+
+
+def test_search_mode_drops_concurrency_and_writes_slo_override_copy(tmp_path):
+    # AIPerf silently ignores CLI --search-sla when the config YAML carries a
+    # sweep: block (spike notes SLO_OVERRIDE), so the IX_SLO override must be
+    # written into a YAML copy in the run dir that --config points at.
+    run_dir = tmp_path / "r"
+    out = run(f'''
+        export SERVING_SEARCH=1 AIPERF_PYTHON={sys.executable}
+        export SERVING_SCENARIO=sweep-isl8k-osl512-cache50
+        export IX_SLO="time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"
+        mkdir -p {run_dir}
+        build_replay_cmd_yaml {run_dir}
+        printf '%s' "$REPLAY_CMD"
+    ''')
+    assert out.returncode == 0, out.stderr
+    config_copy = run_dir / "scenario_slo_override.yaml"
+    assert f" --config {config_copy} " in out.stdout
+    assert " --concurrency " not in out.stdout
+    assert "--search-sla" not in out.stdout
+    doc = yaml.safe_load(config_copy.read_text())
+    assert doc["sweep"]["sla_filters"] == [
+        {"metric_tag": "time_to_first_token", "stat": "avg", "op": "lt", "threshold": 8000.0},
+        {"metric_tag": "inter_token_latency", "stat": "p90", "op": "lt", "threshold": 50.0},
+    ]
+
+
+def test_search_mode_without_slo_override_keeps_scenario_config():
+    out = run(r'''
+        export SERVING_SEARCH=1
+        build_replay_cmd_yaml /tmp/r
+        printf '%s' "$REPLAY_CMD"
+    ''')
+    assert out.returncode == 0, out.stderr
+    assert f" --config {REPO}/scenarios/agentx-cc-062126-smoke.yaml " in out.stdout
+    assert "--search-sla" not in out.stdout
+    assert " --concurrency " not in out.stdout
+
+
+def test_search_mode_rejects_malformed_slo_before_any_run():
+    out = run(f'''
+        export SERVING_SEARCH=1 AIPERF_PYTHON={sys.executable}
+        export IX_SLO="time_to_first_token:avg:lt"
+        build_replay_cmd_yaml /tmp/r
+    ''')
+    assert out.returncode != 0
+    assert "metric:stat:op:threshold" in out.stderr
+
+
+def test_search_mode_unsets_conc_and_still_succeeds():
+    out = run(r'''
+        export SERVING_SEARCH=1
+        unset CONC
+        build_replay_cmd_yaml /tmp/r
+        printf '%s' "$REPLAY_CMD"
+    ''')
+    assert out.returncode == 0, out.stderr
+    assert " --concurrency " not in out.stdout
+
+
+def test_non_search_mode_unchanged():
+    out = run(r'''
+        export SERVING_SEARCH=0
+        build_replay_cmd_yaml /tmp/r
+        printf '%s' "$REPLAY_CMD"
+    ''')
+    assert " --concurrency 8" in out.stdout
