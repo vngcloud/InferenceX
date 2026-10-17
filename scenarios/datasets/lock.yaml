@@ -12,3 +12,10 @@ shared-prefix-e2:
   revision: 02692baf2e3e93baae625a1ee093b7a1679f0952
   file: trace.shared-prefix-e2.jsonl
   sha256: e4dbb42007fd6349530b6f16a26e39d2f1465f8bb76691b32db0591567c50c7e
+# E3 hidden-prefix trace (utils/serving/gen_hidden_prefix_trace.py, default args): shared tool catalogs
+# the router cannot see, for the HiCache L2 vs Mooncake L3 A/B.
+hidden-prefix-e3:
+  repo: Green-Lab/hidden-prefix-e3
+  revision: 479ae539a2307ec831a05a416987bd94fdd7f20e
+  file: trace.hidden-prefix-e3.jsonl
+  sha256: e902b741fc20b9396f628431fd4aa9982ce16caa23516ca151f0030616da1cc1
