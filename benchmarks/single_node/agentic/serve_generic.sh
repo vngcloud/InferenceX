@@ -71,8 +71,12 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
         export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics,http://localhost:${DYN_SYSTEM_PORT}/metrics"
     else
         check_env_vars ENGINE_PORT
-        # Router (its own metrics port, else the router port) + the engine's own /metrics.
-        export AIPERF_SERVER_METRICS_URLS="http://localhost:${ROUTER_METRICS_PORT:-$PORT}/metrics,http://localhost:${ENGINE_PORT}/metrics"
+        # Router (its own metrics port, else the router port) + every engine's own /metrics.
+        metrics_urls="http://localhost:${ROUTER_METRICS_PORT:-$PORT}/metrics"
+        for engine_port in ${ENGINE_PORTS:-$ENGINE_PORT}; do
+            metrics_urls+=",http://localhost:${engine_port}/metrics"
+        done
+        export AIPERF_SERVER_METRICS_URLS="$metrics_urls"
     fi
 else
     export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics"
@@ -85,16 +89,52 @@ esac
 
 SERVER_LOG="$RESULT_DIR/server.log"
 eval "set -- $SERVE_CMD"
-if [[ -n "${ROUTER_CMD:-}" && "${ROUTER_PROFILE:-}" == dynamo ]]; then
-    SERVER_CMD=("$@")
-elif [[ -n "${ROUTER_CMD:-}" ]]; then
-    SERVER_CMD=("$@" --host 0.0.0.0 --port "$ENGINE_PORT")
+if [[ "${REPLICAS:-1}" -gt 1 ]]; then
+    # Serving-YAML replicas (spec 2026-10-16): N copies of SERVE_CMD, each on its own GPU slice and
+    # ENGINE_PORTS entry. Replica 0 keeps server.log / server_command.txt: the vLLM server-metrics
+    # adapter reads "GPU KV cache size" from server.log (replicas are identical).
+    read -r -a replica_ports <<< "${ENGINE_PORTS:-}"
+    if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+        IFS=, read -r -a replica_gpus <<< "$CUDA_VISIBLE_DEVICES"
+    else
+        mapfile -t replica_gpus < <(nvidia-smi --query-gpu=index --format=csv,noheader)
+    fi
+    if (( ${#replica_ports[@]} != REPLICAS || ${#replica_gpus[@]} == 0 || ${#replica_gpus[@]} % REPLICAS )); then
+        echo "ERROR: replicas $REPLICAS needs $REPLICAS ports in ENGINE_PORTS (got '${ENGINE_PORTS:-}') and a GPU count divisible by $REPLICAS (got ${#replica_gpus[@]})" >&2
+        exit 1
+    fi
+    gpus_per_replica=$(( ${#replica_gpus[@]} / REPLICAS ))
+    replica_pids=()
+    for ((replica = 0; replica < REPLICAS; replica++)); do
+        suffix=""
+        (( replica == 0 )) || suffix=".$replica"
+        replica_cmd=("$@" --host 0.0.0.0 --port "${replica_ports[replica]}")
+        write_command "$RESULT_DIR/server_command${suffix}.txt" "${replica_cmd[@]}"
+        CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${replica_gpus[*]:replica*gpus_per_replica:gpus_per_replica}")" \
+            "${replica_cmd[@]}" > "$RESULT_DIR/server${suffix}.log" 2>&1 &
+        replica_pids+=("$!")
+    done
+    for ((replica = 0; replica < REPLICAS; replica++)); do
+        suffix=""
+        (( replica == 0 )) || suffix=".$replica"
+        wait_for_server_ready --port "${replica_ports[replica]}" --server-log "$RESULT_DIR/server${suffix}.log" \
+            --server-pid "${replica_pids[replica]}"
+    done
+    # ponytail: the server watch follows replica 0 only; another replica dying shows up as failed
+    # requests (failed-request threshold 0.1 stops the run). Watch every PID if that proves too slow.
+    SERVER_PID="${replica_pids[0]}"
 else
-    SERVER_CMD=("$@" --host 0.0.0.0 --port "$PORT")
+    if [[ -n "${ROUTER_CMD:-}" && "${ROUTER_PROFILE:-}" == dynamo ]]; then
+        SERVER_CMD=("$@")
+    elif [[ -n "${ROUTER_CMD:-}" ]]; then
+        SERVER_CMD=("$@" --host 0.0.0.0 --port "$ENGINE_PORT")
+    else
+        SERVER_CMD=("$@" --host 0.0.0.0 --port "$PORT")
+    fi
+    write_command "$RESULT_DIR/server_command.txt" "${SERVER_CMD[@]}"
+    "${SERVER_CMD[@]}" > "$SERVER_LOG" 2>&1 &
+    SERVER_PID=$!
 fi
-write_command "$RESULT_DIR/server_command.txt" "${SERVER_CMD[@]}"
-"${SERVER_CMD[@]}" > "$SERVER_LOG" 2>&1 &
-SERVER_PID=$!
 
 if [[ -n "${ROUTER_CMD:-}" ]]; then
     wait_for_frontend_model --port "$PORT" --model "${SERVED_MODEL_NAME:-$MODEL}" \

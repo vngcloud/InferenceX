@@ -67,6 +67,7 @@ def test_serving_object():
         "router-env": "",
         "router-profile": "",
         "router-metrics-port": "",
+        "replicas": "1",
         "storage-image": "",
         "storage-cmd": "",
         "storage-env": "",
@@ -75,7 +76,7 @@ def test_serving_object():
 
 GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
 NEW_SERVING_FIELDS = (
-    "router-profile", "router-metrics-port",
+    "router-profile", "router-metrics-port", "replicas",
     "storage-image", "storage-cmd", "storage-env",
 )
 
@@ -149,6 +150,17 @@ def test_dynamo_serving_object_and_rows():
 @pytest.mark.parametrize("path", sorted((REPO / "serving").glob("*.yaml")), ids=lambda p: p.name)
 def test_every_checked_in_serving_yaml_builds(path):
     build(path.read_text())
+
+
+def test_replicas_travel_in_serving_and_tp_stays_total():
+    text = (YAML.replace("runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-8x_01")
+                .replace("gpus: 1", "gpus: 2\nreplicas: 2")
+            + "router:\n  image: vllm/vllm-openai:v0.25.1\n"
+              "  serve: vllm-router --port {{router_port}} --worker-urls {{engine_urls}}\n")
+    result = build(text)
+    assert result["serving"]["replicas"] == "2"
+    assert {row["tp"] for row in result["matrix"]} == {2}
+    assert "{{engine_urls}}" in result["serving"]["router-cmd"]
 
 
 def test_title():

@@ -311,6 +311,39 @@ def test_env_placeholder_rejected_without_storage_block():
     assert "env.MOONCAKE_MASTER: unknown placeholder {{storage_master_port}}" in errors(text)
 
 
+REPLICAS_YAML = textwrap.dedent("""\
+    name: gemma4-2rep
+    runner: hardware-hcm-8x_01
+    image: vllm/vllm-openai:v0.25.1
+    model: RedHatAI/gemma-4-31B-it-FP8-block
+    gpus: 2
+    replicas: 2
+    serve: vllm serve RedHatAI/gemma-4-31B-it-FP8-block --tensor-parallel-size 1
+    router:
+      image: vllm/vllm-openai:v0.25.1
+      serve: vllm-router --port {{router_port}} --worker-urls {{engine_urls}} --policy consistent_hash
+    scenario: agentx-cc-062126-smoke
+    conc: [8]
+""")
+
+
+def test_replicas_default_one_and_router_yaml_loads():
+    assert load_serving(GOOD).replicas == 1
+    assert load_serving(REPLICAS_YAML).replicas == 2
+
+
+@pytest.mark.parametrize("text, error", [
+    (REPLICAS_YAML.replace("gpus: 2", "gpus: 3"), "replicas: gpus 3 is not a multiple of replicas 2"),
+    (REPLICAS_YAML.split("router:")[0] + "scenario: agentx-cc-062126-smoke\nconc: [8]\n",
+     "replicas: more than 1 replica needs a router: block"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2"), "replicas: the Dynamo frontend discovers its engines itself"),
+    (REPLICAS_YAML.replace("replicas: 2", "replicas: 0"), "replicas: Input should be greater than or equal to 1"),
+    (REPLICAS_YAML.replace("gpus: 2\n", "gpus: 2\nenv: {ENGINE_PORTS: x}\n"), "env.ENGINE_PORTS: reserved"),
+], ids=["indivisible", "no-router", "dynamo", "zero", "reserved-env"])
+def test_replicas_errors(text, error):
+    assert error in errors(text)
+
+
 def test_env_rejects_router_placeholders_even_with_storage():
     text = with_storage().replace(
         "gpus: 8",

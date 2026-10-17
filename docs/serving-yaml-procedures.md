@@ -60,6 +60,24 @@ The first run of a large model spends extra time downloading it and uses node di
    The script runs the same validation CI runs. On `ERROR <field>: <fix>` lines nothing was dispatched: fix the YAML and rerun. On success it prints the run URL. Use `--ref <branch>` to dispatch a branch other than the current one.
 4. Do not redispatch if the script reports that the run did not show up; check `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` first.
 
+### Replicas
+
+Several copies of one engine (e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.
+
+```yaml
+gpus: 2
+replicas: 2
+router:
+  image: vllm/vllm-openai:v0.25.1
+  metrics_port: 29000
+  serve: >-
+    bash -c "python3 -m pip install -q vllm-router==0.1.14
+    && exec vllm-router --host 0.0.0.0 --port {{router_port}}
+    --worker-urls {{engine_urls}} --policy cache_aware
+    --prometheus-host 127.0.0.1 --prometheus-port 29000
+    --request-timeout-secs 14400 --disable-retries"
+```
+
 ## Read results and failures
 
 - Status: `gh run view <run-id> --repo vngcloud/InferenceX`. One job per `conc` value. Expect about 20 minutes of image pull, model load and warmup on top of the scenario duration.

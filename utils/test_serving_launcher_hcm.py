@@ -13,7 +13,7 @@ def run_launcher(tmp_path: Path, extra_env: dict[str, str]) -> tuple[list[list[s
     log, envlog = tmp_path / "calls", tmp_path / "srun_env"
     stubs = {
         "hostname": "echo hgx-h200-02", "squeue": "echo 4711", "salloc": "", "scancel": "",
-        "srun": f'echo "${{DYN_DISCOVERY_BACKEND:-none}} ${{DYN_FILE_KV:-none}} ${{DYN_SYSTEM_PORT:-none}} ${{AIPERF_GPU_TELEMETRY_METRICS_CSV:-none}} $(case "$*" in *serve_router.sh*) echo router;; *) echo other;; esac) ${{ENGINE_PORT:-none}}" >> {envlog}',
+        "srun": f'echo "${{DYN_DISCOVERY_BACKEND:-none}} ${{DYN_FILE_KV:-none}} ${{DYN_SYSTEM_PORT:-none}} ${{AIPERF_GPU_TELEMETRY_METRICS_CSV:-none}} $(case "$*" in *serve_router.sh*) echo router;; *) echo other;; esac) ${{ENGINE_PORT:-none}}" >> {envlog}\necho "${{ENGINE_PORTS:-none}}" >> {tmp_path}/ports',
     }
     for name, body in stubs.items():
         (bin_dir / name).write_text(
@@ -100,6 +100,18 @@ def test_dyn_system_port_not_passed_to_router_step(tmp_path):
     assert router and all(r[2] == "none" for r in router), rows
     assert bench, rows
     assert all(r[5] == "none" for r in rows), rows   # Dynamo profile never gets ENGINE_PORT
+
+
+def test_generic_router_replicas_get_distinct_engine_ports(tmp_path):
+    extra = {"SERVE_CMD": "vllm serve m", "ROUTER_IMAGE": "vllm/vllm-openai:v0.25.1",
+             "ROUTER_CMD": "vllm-router --worker-urls {{engine_urls}}", "ROUTER_PROFILE": "generic",
+             "REPLICAS": "2"}
+    _, envlog = run_launcher(tmp_path, extra)
+    seen = {line for line in (tmp_path / "ports").read_text().splitlines() if line != "none"}
+    assert len(seen) == 1
+    ports = seen.pop().split()
+    assert len(ports) == 2 and len(set(ports)) == 2
+    assert {line.split()[-1] for line in envlog.splitlines() if line.split()[-1] != "none"} == {ports[0]}
 
 
 def test_generic_router_gets_engine_port_and_no_dynamo_env(tmp_path):

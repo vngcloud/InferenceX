@@ -33,9 +33,16 @@ SCENARIOS = {
     "agentx-cc-062126-smoke": "weka",
     "custom-agentic-tau2": "tau2",
     "custom-agentic-tau2-smoke": "tau2",
+    "custom-agentic-livekit111868-v1": "livekit",
+    "custom-agentic-livekit111868-v2": "livekit",
+    "custom-agentic-livekit111868-v1-nothink": "livekit",
+    "custom-agentic-livekit111868-v2-nothink": "livekit",
+    "custom-agentic-livekit111868-smoke": "livekit",
 }
 # datasets[].name is a label (CLI always says "main"); for file datasets it is the lock key.
-ALLOWED = {"weka": set(), "tau2": {".benchmark.datasets[0].name"}}
+ALLOWED = {"weka": set(), "tau2": {".benchmark.datasets[0].name"}, "livekit": {".benchmark.datasets[0].name"}}
+# Think-time-off variants cap idle gaps at 0; every other livekit scenario keeps 300.
+LIVEKIT_IDLE_CAP = {"custom-agentic-livekit111868-v1-nothink": 0.0, "custom-agentic-livekit111868-v2-nothink": 0.0}
 MODEL = "Qwen/Qwen3.8-27B"
 
 
@@ -57,22 +64,29 @@ def reference_argv(duration: int, artifact_dir: str) -> list[str]:
     )
 
 
-def tau2_reference_argv(duration: int, artifact_dir: str, dataset_file: str, entries: int = 1576) -> list[str]:
+def tau2_reference_argv(duration: int, artifact_dir: str, dataset_file: str, entries: int = 1576,
+                        request_count: int | None = 16798, idle_cap: float = 300.0,
+                        sampling: str | None = None) -> list[str]:
     """The tau2 command of run 37920508184 (gemma4tau2, c16), model/conc normalized like the Weka one."""
-    return shlex.split(
+    argv = (
         "--scenario inferencex-agentx-mvp --url http://localhost:8888 "
         "--endpoint /v1/chat/completions --endpoint-type chat --streaming "
         f"--model {MODEL} --tokenizer {MODEL} --concurrency 8 "
         f"--benchmark-duration {duration} --stats-interval 30 --random-seed 42 "
         "--failed-request-threshold 0.10 --trajectory-start-min-ratio 0.25 "
         "--trajectory-start-max-ratio 0.75 --warmup-requests-per-lane 10 "
-        "--trace-idle-gap-cap-seconds 300 --warmup-grace-period 1800 "
+        f"--trace-idle-gap-cap-seconds {idle_cap:g} --warmup-grace-period 1800 "
         "--use-server-token-count --gpu-telemetry http://localhost:9400/metrics "
         f"--tokenizer-trust-remote-code --num-dataset-entries {entries} --slice-duration 1.0 "
         "--server-metrics http://localhost:8888/metrics "
         f"--output-artifact-dir {artifact_dir}/aiperf_artifacts --unsafe-override "
-        f"--custom-dataset-type mooncake_trace --input-file {dataset_file} --request-count 16798"
+        f"--custom-dataset-type mooncake_trace --input-file {dataset_file}"
     )
+    if request_count is not None:
+        argv += f" --request-count {request_count}"
+    if sampling is not None:
+        argv += f" --dataset-sampling-strategy {sampling}"
+    return shlex.split(argv)
 
 
 def differences(kind: str, reference: list[str], scenario: str, tmp: str) -> list[str]:
@@ -145,6 +159,11 @@ def main() -> int:
             duration = int(data["benchmark"]["phases"][0]["duration"])
             if kind == "weka":
                 reference = reference_argv(duration, tmp)
+            elif kind == "livekit":
+                reference = tau2_reference_argv(duration, tmp, str(dataset_file), entries=1217,
+                                                request_count=None,
+                                                idle_cap=LIVEKIT_IDLE_CAP.get(scenario, 300.0),
+                                                sampling="shuffle")
             else:
                 reference = tau2_reference_argv(duration, tmp, str(dataset_file))
             found = differences(kind, reference, scenario, tmp)
