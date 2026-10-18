@@ -172,6 +172,13 @@ labels:
     - rtx6000pro-lat_00
   rtx6000pro-lat:
     - rtx6000pro-lat_00
+  # On-node runner daemons on the two 2xRTX PRO 6000 Blackwell Max-Q nodes of
+  # the hcm-rtx6000pro partition (hoanq3-rtx6000x2-slurm-1/-2, research Slurm
+  # cluster). One runner per node, up to 2 GPUs per job. Routed to
+  # runners/launch_hcm-rtx6000pro.sh (salloc + pyxis/enroot, no Docker).
+  hcm-rtx6000pro:
+    - hcm-rtx6000pro_01
+    - hcm-rtx6000pro_02
   cluster:h100-cw:
     - h100-cw_00
     - h100-cw_01
@@ -350,6 +357,10 @@ labels:
     - gb300-nv_17
   cluster:rtx6000pro-lat:
     - rtx6000pro-lat_00
+  # See the hcm-rtx6000pro flavor entry above for the fleet description.
+  cluster:hcm-rtx6000pro:
+    - hcm-rtx6000pro_01
+    - hcm-rtx6000pro_02
   cluster:mi300x-amd:
     - mi300x-amd_00
     - mi300x-amd_01
@@ -449,6 +460,10 @@ hardware:
   cluster:rtx6000pro-lat:
     available-cpu-dram-mib: 1_500_000
     gpus-per-node: 8
+  # Measured idle free RAM on hoanq3-rtx6000x2-slurm-1/-2 (2026-10-18 probe).
+  cluster:hcm-rtx6000pro:
+    available-cpu-dram-mib: 239_000
+    gpus-per-node: 2
   cluster:mi300x-amd:
     available-cpu-dram-mib: 1_547_820
     gpus-per-node: 8
