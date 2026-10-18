@@ -100,13 +100,17 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # launch_h200-greennode-slurm-1x.sh, fix 3ecbd58dc). The main bench srun also
 # takes --overlap so it shares CPUs with the already-running sidecar steps
 # instead of queueing behind the CPUs they hold.
+# --time=490, not hardware-hcm's 180: a first run on a fresh node downloads the
+# model inside this allocation (gemma-4 FP8 ~33G at ~2MB/s measured on node 02;
+# run 39107314182 was SIGTERMed by the 180-min limit mid-download), and 490
+# stays under the workflow's 500-min job timeout so GitHub cancels first.
 sbatch --partition="$SLURM_PARTITION" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
     --cpus-per-task=$((GPU_COUNT * 23)) --mem=$((GPU_COUNT * 110))G \
-    --time=180 --job-name="$RUNNER_NAME" \
+    --time=490 --job-name="$RUNNER_NAME" \
     --output=/dev/null --error=/dev/null \
-    --wrap "sleep $((180 * 60))"
+    --wrap "sleep $((490 * 60))"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
     echo "ERROR: failed to resolve hcm-rtx6000pro Slurm allocation" >&2
