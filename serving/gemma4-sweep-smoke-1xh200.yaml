@@ -8,6 +8,9 @@ gpus: 1
 precision: fp8
 env:
   NCCL_P2P_LEVEL: NVL
+  # Smoke the IX_SLO override path too (replaces the scenario's default SLO):
+  # TPOT/ITL p90 < 20 ms per user request for this smoke run.
+  IX_SLO: "inter_token_latency:p90:lt:20"
 serve: |
   python3 -m sglang.launch_server
   --model-path RedHatAI/gemma-4-31B-it-FP8-block
