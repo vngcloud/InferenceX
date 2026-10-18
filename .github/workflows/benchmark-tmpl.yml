@@ -461,7 +461,9 @@ jobs:
               exit 1
             fi
 
-            if [ "${SCENARIO_TYPE}" = "agentic-coding" ]; then
+            # Search artifact layouts have no top-level profile_export_aiperf.json;
+            # the failed-request gate lives in the search's SLA filters instead.
+            if [ "${SCENARIO_TYPE}" = "agentic-coding" ] && [ "${SERVING_SEARCH:-0}" != "1" ]; then
               python3 -m utils.agentic.validation.validate_agentic_result \
                 results/aiperf_artifacts \
                 --failed-request-threshold "$AIPERF_FAILED_REQUEST_THRESHOLD"
