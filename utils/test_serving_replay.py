@@ -1,4 +1,5 @@
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -166,10 +167,33 @@ def test_empty_serving_search_is_rejected_like_unset():
     assert "SERVING_SEARCH" in out.stdout + out.stderr
 
 
-def _write_stub_aiperf(bin_dir: Path) -> None:
+# no_pass_in_range-shaped history: the SLA is physically unreachable, so the
+# search stops after one probe; aiperf still exits nonzero on this state.
+NO_PASS_HISTORY = json.dumps(
+    {
+        "boundary_summary": {
+            "swept_dim_path": "phases.profiling.concurrency",
+            "feasible_max": None,
+            "infeasible_min": {"value": 1, "iteration_idx": 0},
+        },
+        "convergence_reason": "smooth_isotonic_no_pass_in_range",
+        "iterations": [{}],
+    }
+)
+
+
+def _write_stub_aiperf(bin_dir: Path, rc: int = 0, history: str | None = "fixture") -> None:
     # Stub aiperf fakes the adaptive-search artifact layout (search_history.json
-    # + the winning probe's export per the spike's ARTIFACT_LAYOUT) and exits 0.
+    # + the winning probe's export per the spike's ARTIFACT_LAYOUT) and exits
+    # ``rc``. ``history``: "fixture" copies the committed fixture, other text is
+    # written as-is, None writes no history at all (crash simulation).
     fix = REPO / "utils" / "fixtures" / "sweep"
+    if history == "fixture":
+        write_history = f'cp {fix}/search_history.json "$out/search_history.json"\n'
+    elif history is not None:
+        write_history = f'printf %s {shlex.quote(history)} > "$out/search_history.json"\n'
+    else:
+        write_history = ""
     stub = bin_dir / "aiperf"
     stub.write_text(
         "#!/bin/sh\n"
@@ -180,18 +204,22 @@ def _write_stub_aiperf(bin_dir: Path) -> None:
         "done\n"
         '[ -n "$out" ] || exit 2\n'
         f'mkdir -p "$out/search_iter_0008/profile_runs/run_0001"\n'
-        f'cp {fix}/search_history.json "$out/search_history.json"\n'
-        f'cp {fix}/profile_export_aiperf_probe_concurrency256.json '
-        '"$out/search_iter_0008/profile_runs/run_0001/profile_export_aiperf.json"\n'
-        "exit 0\n"
+        + write_history
+        + (
+            f'cp {fix}/profile_export_aiperf_probe_concurrency256.json '
+            '"$out/search_iter_0008/profile_runs/run_0001/profile_export_aiperf.json"\n'
+            if history == "fixture"
+            else ""
+        )
+        + f"exit {rc}\n"
     )
     stub.chmod(0o755)
 
 
-def _run_search_replay(tmp_path: Path, extra_env: str = ""):
+def _run_search_replay(tmp_path: Path, extra_env: str = "", rc: int = 0, history: str | None = "fixture"):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    _write_stub_aiperf(bin_dir)
+    _write_stub_aiperf(bin_dir, rc=rc, history=history)
     run_dir = tmp_path / "r"
     out_dir = tmp_path / "agg"
     out = run(f'''
@@ -239,3 +267,24 @@ def test_server_metrics_gate_still_fires_without_search():
     ''')
     assert out.returncode != 0
     assert "required AIPerf server metrics artifacts" in out.stderr
+
+
+def test_search_replay_stays_green_on_terminal_no_pass_state(tmp_path):
+    # AIPerf exits nonzero when no probe passes the SLA, but that terminal
+    # state (no_pass_in_range) is a result field, never a failed job: the run
+    # must stay green because a parseable search_history.json exists.
+    out, out_dir = _run_search_replay(tmp_path, rc=1, history=NO_PASS_HISTORY)
+    assert out.returncode == 0, out.stderr
+    assert "[sweep] aiperf exited nonzero on a terminal search state" in out.stdout
+    result = json.loads((out_dir / "sweep_test.json").read_text())
+    assert result["state"] == "no_pass_in_range"
+    assert result["max_conc"] is None
+
+
+def test_search_replay_crash_without_history_still_fails(tmp_path):
+    # Genuine crash: nonzero aiperf exit AND no search_history.json -> the run
+    # fails with the existing replay error.
+    out, out_dir = _run_search_replay(tmp_path, rc=1, history=None)
+    assert out.returncode != 0
+    assert "exited with code 1" in out.stderr
+    assert not (out_dir / "sweep_test.json").exists()

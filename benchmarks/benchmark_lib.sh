@@ -3951,7 +3951,15 @@ run_agentic_replay_and_write_outputs() (
         trap - EXIT INT TERM
     fi
 
-    write_agentic_result_json "$result_dir"
+    if [ "${SERVING_SEARCH:-0}" = "1" ]; then
+        # In search mode the replay_rc check below is the single failure
+        # arbiter: the sweep writer exits 1 on missing/unparseable history
+        # (a genuine crash), and `|| true` keeps set -e from aborting before
+        # that check can report it with its own message.
+        write_agentic_result_json "$result_dir" || true
+    else
+        write_agentic_result_json "$result_dir"
+    fi
 
     if [ "$agentx_multinode_power_enabled" = "1" ] && [ "$replay_rc" -eq 0 ] && [ "${SERVING_SEARCH:-0}" != "1" ]; then
         # Search runs have no single CONC, so a multinode power window cannot be
@@ -4006,6 +4014,18 @@ run_agentic_replay_and_write_outputs() (
         )
         validation_rc=$?
         set -e
+    fi
+
+    if [ "$replay_rc" -ne 0 ] && [ "${SERVING_SEARCH:-0}" = "1" ]; then
+        # AIPerf exits nonzero when the search ends in a terminal state where
+        # no probe passes the SLA (no_pass_in_range etc.) -- that is a result
+        # field, never a failed job. Stay green iff the search recorded a
+        # parseable search_history.json; a genuine crash has none.
+        local history_file="$result_dir/aiperf_artifacts/search_history.json"
+        if [ -s "$history_file" ] && "$AIPERF_PYTHON" -c 'import json,sys; json.load(open(sys.argv[1]))' "$history_file" 2>/dev/null; then
+            echo "[sweep] aiperf exited nonzero on a terminal search state; result recorded"
+            replay_rc=0
+        fi
     fi
 
     if [ "$replay_rc" -ne 0 ]; then
