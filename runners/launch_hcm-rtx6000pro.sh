@@ -105,6 +105,23 @@ if [[ -z "$JOB_ID" ]]; then
     echo "ERROR: failed to resolve hcm-rtx6000pro Slurm allocation" >&2
     exit 1
 fi
+# sbatch returns as soon as the job is queued, unlike salloc which blocks until
+# the allocation is granted; srun --jobid needs the job RUNNING. Wait like
+# salloc would, and fail with the pending reason on timeout (e.g. another
+# user's job holding the GPUs this job asked for).
+SECONDS=0
+until [[ "$(squeue --jobs "$JOB_ID" -h -o %T 2>/dev/null)" == "RUNNING" ]]; do
+    if [[ -z "$(squeue --jobs "$JOB_ID" -h -o %T 2>/dev/null)" ]]; then
+        echo "ERROR: allocation $JOB_ID vanished before RUNNING" >&2
+        exit 1
+    fi
+    if (( SECONDS > 600 )); then
+        echo "ERROR: allocation $JOB_ID not RUNNING after 600s, reason: $(squeue --jobs "$JOB_ID" -h -o %r)" >&2
+        scancel "$JOB_ID" 2>/dev/null || true
+        exit 1
+    fi
+    sleep 5
+done
 trap 'rc=$?; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
 squash_path() {
