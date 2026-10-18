@@ -223,11 +223,15 @@ env:
   SERVE_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).serve-cmd || '' }}
   SERVE_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).serve-env || '' }}
   SERVED_MODEL_NAME: ${{ inputs.serving != '' && fromJSON(inputs.serving).served-model-name || '' }}
-  SERVING_SCENARIO: ${{ inputs.serving != '' && fromJSON(inputs.serving).scenario || '' }}
-  SERVING_LOADER: ${{ inputs.serving != '' && fromJSON(inputs.serving).loader || '' }}
+  # Per-row scenario (a serving YAML may list several scenarios: one job per
+  # scenario in one run). scenario-map is keyed by the row's exp-name; the flat
+  # serving.scenario is the single-scenario fallback, empty for scenario lists
+  # so a missing map entry fails loudly in serve_generic.sh (check_env_vars).
+  SERVING_SCENARIO: ${{ inputs.serving != '' && (fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].scenario || fromJSON(inputs.serving).scenario) || '' }}
+  SERVING_LOADER: ${{ inputs.serving != '' && (fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].loader || fromJSON(inputs.serving).loader) || '' }}
   # '1' for sweep scenarios (adaptive_search), '0' otherwise — never '': check_env_vars
   # rejects empty values, so '' would abort every non-sweep serving run in serve_generic.sh.
-  SERVING_SEARCH: ${{ inputs.serving != '' && fromJSON(inputs.serving).search && '1' || '0' }}
+  SERVING_SEARCH: ${{ inputs.serving != '' && ((fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].search || fromJSON(inputs.serving).search) && '1' || '0') }}
   SERVING_YAML: ${{ inputs.serving != '' && fromJSON(inputs.serving).yaml || '' }}
   # Router sidecar (any router, spec 2026-10-14); only runners/launch_hardware-hcm.sh reads these.
   ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}

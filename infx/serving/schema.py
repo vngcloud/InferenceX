@@ -161,7 +161,10 @@ class ServingSpec(BaseModel):
     serve: str = Field(min_length=1)
     router: RouterSpec | None = None
     storage: StorageSpec | None = None
-    scenario: str = Field(pattern=NAME_PATTERN)
+    scenario: str | list[Annotated[str, Field(pattern=NAME_PATTERN)]] = Field(
+        min_length=1,
+        description="One scenario name, or a list: one benchmark job per scenario in a single run"
+    )
     conc: list[Annotated[int, Field(gt=0)]] = Field(min_length=1)
 
     @field_validator("conc", mode="before")
@@ -174,10 +177,16 @@ class ServingSpec(BaseModel):
     @field_validator("scenario", mode="before")
     @classmethod
     def _scenario_name(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            value = value.removeprefix("scenarios/")
+        def strip(name: str) -> str:
+            name = name.removeprefix("scenarios/")
             for suffix in (".yaml", ".yml"):
-                value = value.removesuffix(suffix)
+                name = name.removesuffix(suffix)
+            return name
+
+        if isinstance(value, str):
+            return strip(value)
+        if isinstance(value, list):
+            return [strip(name) for name in value]
         return value
 
     @field_validator("env", mode="before")
@@ -362,11 +371,25 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             )
     from infx.serving.to_matrix import is_sweep  # local import: to_matrix imports this module
 
-    if is_sweep(spec.scenario, repo) and spec.conc != [1]:
-        problems.append(
-            f"conc: sweep scenario {spec.scenario} searches the concurrency itself; "
-            f"set conc: 1 (got {spec.conc})"
-        )
+    scenarios = [spec.scenario] if isinstance(spec.scenario, str) else list(spec.scenario)
+    if not isinstance(spec.scenario, str):
+        if len(set(spec.scenario)) != len(spec.scenario):
+            problems.append("scenario: duplicate values")
+        if len(spec.scenario) > 1 and len(spec.conc) > 1:
+            problems.append(
+                "scenario: a scenario list runs one job per scenario; set exactly one conc "
+                f"(got {len(spec.conc)})"
+            )
+    for scenario in scenarios:
+        if is_sweep(scenario, repo) and spec.conc != [1]:
+            problems.append(
+                f"conc: sweep scenario {scenario} searches the concurrency itself; "
+                f"set conc: 1 (got {spec.conc})"
+            )
+        if not (repo / "scenarios" / f"{scenario}.yaml").is_file():
+            problems.append(
+                f"scenario: no scenarios/{scenario}.yaml; available: {', '.join(available_scenarios(repo))}"
+            )
     try:
         gpus_per_node = _gpus_per_node(spec.runner, repo)
         if spec.gpus > gpus_per_node:
@@ -375,10 +398,6 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             )
     except ServingError as error:
         problems.append(str(error))
-    if not (repo / "scenarios" / f"{spec.scenario}.yaml").is_file():
-        problems.append(
-            f"scenario: no scenarios/{spec.scenario}.yaml; available: {', '.join(available_scenarios(repo))}"
-        )
     if problems:
         raise ServingError("\n".join(problems))
     return spec

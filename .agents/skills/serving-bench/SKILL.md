@@ -29,7 +29,7 @@ router:                             # optional: any router in front of the engin
   serve: |                          # {{router_port}} = the port the benchmark calls, {{engine_url}} = the engine
     python3 -m sglang_router.launch_router --host=0.0.0.0 --port={{router_port}}
     --worker-urls={{engine_url}} --policy=cache_aware
-scenario: agentx-cc-062126-smoke    # a file name in scenarios/ (without .yaml)
+scenario: agentx-cc-062126-smoke    # a file name in scenarios/ (without .yaml); or a list — one job per scenario in one run (needs exactly one conc)
 conc: [4, 8]                        # one benchmark job per value
 ```
 

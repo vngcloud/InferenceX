@@ -107,7 +107,7 @@ def is_sweep(scenario: str, repo: Path = REPO_ROOT) -> bool:
     return isinstance(sweep, dict) and sweep.get("type") == "adaptive_search"
 
 
-def _row(spec: ServingSpec, framework: str, conc: int, duration: int, sweep: bool) -> dict:
+def _row(spec: ServingSpec, framework: str, conc: int, duration: int, exp_name: str) -> dict:
     return {
         "image": spec.image,
         "model": spec.model,
@@ -126,7 +126,7 @@ def _row(spec: ServingSpec, framework: str, conc: int, duration: int, sweep: boo
         "kv-offloading": "none",
         "total-cpu-dram-gb": 0,
         "duration": duration,
-        "exp-name": f"{spec.name}_search" if sweep else f"{spec.name}_c{conc}",
+        "exp-name": exp_name,
         "scenario-type": "agentic-coding",
     }
 
@@ -134,17 +134,37 @@ def _row(spec: ServingSpec, framework: str, conc: int, duration: int, sweep: boo
 def build(text: str, repo: Path = REPO_ROOT) -> dict:
     spec = load_serving(text, repo)
     rendered = render(spec)
-    duration, loader = scenario_facts(spec.scenario, repo)
-    sweep = is_sweep(spec.scenario, repo)
+    scenarios = [spec.scenario] if isinstance(spec.scenario, str) else list(spec.scenario)
+    multi = len(scenarios) > 1
+    rows = []
+    # exp-name -> per-job scenario payload: benchmark-tmpl.yml resolves the row's
+    # scenario/loader/search from here; flat serving.scenario stays single-scenario only.
+    scenario_map: dict[str, dict] = {}
+    durations: set[int] = set()
+    for scenario in scenarios:
+        duration, loader = scenario_facts(scenario, repo)
+        durations.add(duration)
+        sweep = is_sweep(scenario, repo)
+        for conc in spec.conc:
+            exp_name = (
+                f"{spec.name}-{scenario}" if multi else (f"{spec.name}_search" if sweep else f"{spec.name}_c{conc}")
+            )
+            rows.append(_row(spec, rendered["framework"], conc, duration, exp_name))
+            scenario_map[exp_name] = {"scenario": scenario, "loader": loader, "search": sweep}
+    first = scenario_map[rows[0]["exp-name"]]
     return {
-        "matrix": [_row(spec, rendered["framework"], conc, duration, sweep) for conc in spec.conc],
+        "matrix": rows,
         "serving": {
             "serve-cmd": rendered["serve-cmd"],
             "serve-env": rendered["serve-env"],
             "served-model-name": rendered["served-model-name"],
-            "scenario": spec.scenario,
-            "loader": loader,
-            "search": sweep,
+            # A scenario list must not leak one scenario to every job: the flat
+            # fields go empty so a failed scenario-map lookup fails loudly in
+            # serve_generic.sh instead of running the wrong scenario 24 times.
+            "scenario": "" if multi else first["scenario"],
+            "loader": "" if multi else first["loader"],
+            "search": False if multi else first["search"],
+            "scenario-map": scenario_map,
             "yaml": text,
             "router-image": rendered["router-image"],
             "router-cmd": rendered["router-cmd"],
@@ -157,7 +177,9 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
             "storage-env": rendered["storage-env"],
         },
         "title": (
-            f"serving {spec.name} {spec.scenario} ({duration}s) "
+            f"serving {spec.name} "
+            f"{scenarios[0] if not multi else f'{len(scenarios)} scenarios'} "
+            f"({min(durations) if len(durations) == 1 else 'mixed'}s) "
             f"c{','.join(str(conc) for conc in spec.conc)} {spec.runner}"
         ),
     }

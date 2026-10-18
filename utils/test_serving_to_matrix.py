@@ -62,6 +62,14 @@ def test_serving_object():
         "scenario": "agentx-cc-062126-smoke",
         "loader": "semianalysis_cc_traces_weka_062126",
         "search": False,
+        "scenario-map": {
+            exp_name: {
+                "scenario": "agentx-cc-062126-smoke",
+                "loader": "semianalysis_cc_traces_weka_062126",
+                "search": False,
+            }
+            for exp_name in ("qwen38-bf16-tp1_c4", "qwen38-bf16-tp1_c8")
+        },
         "yaml": YAML,
         "router-image": "",
         "router-cmd": "",
@@ -80,6 +88,7 @@ NEW_SERVING_FIELDS = (
     "router-profile", "router-metrics-port", "replicas",
     "storage-image", "storage-cmd", "storage-env",
     "search",  # sweep scenarios; the goldens predate it
+    "scenario-map",  # per-row scenario payloads; the goldens predate it
 )
 
 
@@ -243,6 +252,7 @@ def test_lock_is_not_a_scenario(tmp_path):
 
 
 SWEEP_SCENARIO = "sweep-isl8k-osl512-cache50"
+SWEEP_SCENARIO_OTHER = "sweep-isl8k-osl512-cache90"
 
 
 @pytest.fixture
@@ -256,7 +266,7 @@ def tmp_repo_with_sweep_scenario(tmp_path):
     """))
     scenarios = tmp_path / "scenarios"
     (scenarios / "datasets").mkdir(parents=True)
-    for name in (SWEEP_SCENARIO, "agentx-cc-062126-smoke"):
+    for name in (SWEEP_SCENARIO, SWEEP_SCENARIO_OTHER, "agentx-cc-062126-smoke"):
         (scenarios / f"{name}.yaml").write_text((REPO / f"scenarios/{name}.yaml").read_text())
     (scenarios / "datasets" / "lock.yaml").write_text("")
     return tmp_path
@@ -300,6 +310,52 @@ def test_sweep_matrix_row_uses_search_exp_name_and_conc_one(sweep_serving_yaml, 
 def test_serving_search_flag_follows_scenario_sweep(sweep_serving_yaml, tmp_repo_with_sweep_scenario):
     assert build(sweep_serving_yaml, tmp_repo_with_sweep_scenario)["serving"]["search"] is True
     assert build(YAML)["serving"]["search"] is False
+
+
+SWEEP_LIST_YAML = SWEEP_YAML.replace(
+    "scenario: sweep-isl8k-osl512-cache50",
+    f"scenario: [{SWEEP_SCENARIO}, {SWEEP_SCENARIO_OTHER}]",
+)
+
+
+def test_scenario_list_runs_one_job_per_scenario(tmp_repo_with_sweep_scenario):
+    result = build(SWEEP_LIST_YAML, tmp_repo_with_sweep_scenario)
+    rows = result["matrix"]
+    assert len(rows) == 2
+    validate_matrix(rows)
+    assert [row["exp-name"] for row in rows] == [
+        f"demo-{SWEEP_SCENARIO}",
+        f"demo-{SWEEP_SCENARIO_OTHER}",
+    ]
+    assert [row["conc"] for row in rows] == [1, 1]
+    # The flat fields stay empty: one scenario must not leak to every job.
+    assert result["serving"]["scenario"] == ""
+    assert result["serving"]["loader"] == ""
+    assert result["serving"]["search"] is False
+    assert result["serving"]["scenario-map"] == {
+        f"demo-{SWEEP_SCENARIO}": {"scenario": SWEEP_SCENARIO, "loader": "synthetic", "search": True},
+        f"demo-{SWEEP_SCENARIO_OTHER}": {
+            "scenario": SWEEP_SCENARIO_OTHER,
+            "loader": "synthetic",
+            "search": True,
+        },
+    }
+    assert result["title"] == f"serving demo 2 scenarios (300s) c1 h200-greennode-slurm-1x_01"
+
+
+def test_scenario_list_rejects_multiple_conc(tmp_repo_with_sweep_scenario):
+    with pytest.raises(ServingError, match="exactly one conc"):
+        build(SWEEP_LIST_YAML.replace("conc: [1]", "conc: [1, 2]"), tmp_repo_with_sweep_scenario)
+
+
+def test_scenario_list_rejects_duplicates(tmp_repo_with_sweep_scenario):
+    with pytest.raises(ServingError, match="duplicate values"):
+        build(SWEEP_LIST_YAML.replace("[", f"[{SWEEP_SCENARIO}, ", 1), tmp_repo_with_sweep_scenario)
+
+
+def test_scenario_list_rejects_missing_scenario_file(tmp_repo_with_sweep_scenario):
+    with pytest.raises(ServingError, match="no scenarios/nope.yaml"):
+        build(SWEEP_LIST_YAML.replace(SWEEP_SCENARIO_OTHER, "nope"), tmp_repo_with_sweep_scenario)
 
 
 @pytest.mark.parametrize("text", ["benchmark: {}\n", "{{not yaml\n", "benchmark:\n  phases: 3\n  datasets: []\n", "[]\n"])

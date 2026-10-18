@@ -28,5 +28,29 @@ serve: |
   --enable-hierarchical-cache --hicache-size 24
   --reasoning-parser qwen3 --tool-call-parser qwen3_coder
   --enable-metrics --enable-cache-report
-scenario: sweep-isl8k-osl512-cache50
+scenario:
+- sweep-isl128k-osl1k-cache0
+- sweep-isl128k-osl1k-cache50
+- sweep-isl128k-osl1k-cache90
+- sweep-isl128k-osl512-cache0
+- sweep-isl128k-osl512-cache50
+- sweep-isl128k-osl512-cache90
+- sweep-isl32k-osl1k-cache0
+- sweep-isl32k-osl1k-cache50
+- sweep-isl32k-osl1k-cache90
+- sweep-isl32k-osl512-cache0
+- sweep-isl32k-osl512-cache50
+- sweep-isl32k-osl512-cache90
+- sweep-isl64k-osl1k-cache0
+- sweep-isl64k-osl1k-cache50
+- sweep-isl64k-osl1k-cache90
+- sweep-isl64k-osl512-cache0
+- sweep-isl64k-osl512-cache50
+- sweep-isl64k-osl512-cache90
+- sweep-isl8k-osl1k-cache0
+- sweep-isl8k-osl1k-cache50
+- sweep-isl8k-osl1k-cache90
+- sweep-isl8k-osl512-cache0
+- sweep-isl8k-osl512-cache50
+- sweep-isl8k-osl512-cache90
 conc: 1

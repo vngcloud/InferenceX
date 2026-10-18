@@ -92,6 +92,14 @@ router:
   ```
 
   脚本为每个场景写一份临时 YAML 副本（替换 `scenario:`、置 `conc: 1`、在 `name:` 后追加场景短名），再通过 [`utils/serving/dispatch.sh`](../utils/serving/dispatch.sh) 逐个派发。
+- 一个 run 而非 24 个：`scenario:` 也接受列表。列出多个场景的 serving YAML 会派发为**一个 workflow run，每个场景一个 job**（`conc:` 必须恰好一个值）；每个 job 的 `exp-name` 为 `<name>-<scenario>`，逐 job 的 scenario/loader/search 存放在以 `exp-name` 为键的 `scenario-map` 中（列表时扁平的 `serving.scenario` 保持为空，缺失条目会响亮失败，而不是把同一个场景跑 24 遍）：
+
+  ```yaml
+  scenario: [sweep-isl8k-osl512-cache0, sweep-isl8k-osl512-cache50]
+  conc: 1
+  ```
+
+  用普通的 [`utils/serving/dispatch.sh`](../utils/serving/dispatch.sh) 派发即可 —— 无需临时副本，只产生一个 run URL。
 - 读取结果：每个任务的产物包含 `search_history.json` 和一个结果 JSON，其 `state` 取以下之一：
   - `ok` —— 收敛；`max_conc` 满足 SLO，
   - `cliff` —— 可行最大值正好落在失败边界上，
