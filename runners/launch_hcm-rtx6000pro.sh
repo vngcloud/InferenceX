@@ -93,6 +93,13 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # These nodes ship a minimal Slurm client set (sbatch/srun/squeue/scancel/sinfo/sacct)
 # with no salloc, so the holding allocation is a sleeping batch job instead of
 # `salloc --no-shell`: srun --jobid steps attach to it exactly the same way.
+# Every srun --jobid below pins --ntasks=1 --cpus-per-task --mem: the launcher
+# runs inside the runner daemon's own sbatch allocation, and a bare srun
+# inherits the allocation's CPU count as its task count (one task per CPU,
+# each step-cgroup memory-capped small -> mksquashfs OOM; same trap as
+# launch_h200-greennode-slurm-1x.sh, fix 3ecbd58dc). The main bench srun also
+# takes --overlap so it shares CPUs with the already-running sidecar steps
+# instead of queueing behind the CPUs they hold.
 sbatch --partition="$SLURM_PARTITION" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
@@ -133,7 +140,7 @@ squash_path() {
 import_squash() {
     local image="$1" squash
     squash="$(squash_path "$image")"
-    srun --jobid="$JOB_ID" bash -c "
+    srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=16 --mem=32G bash -c "
         export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
         mkdir -p \$ENROOT_CACHE_PATH
         export TMPDIR=/data/thanglq5/tmp
@@ -183,7 +190,7 @@ if [[ -f "$GPU_METRICS_CSV" ]]; then
     DCGM_EXTRA_ARGS="-f /etc/dcgm-exporter/custom.csv"
 fi
 
-srun --jobid="$JOB_ID" --overlap \
+srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=2 --mem=2G \
     --container-image="$DCGM_SQUASH" \
     --container-mounts="$GITHUB_WORKSPACE:/workspace${DCGM_MOUNT_ARG}" \
     --no-container-mount-home \
@@ -209,7 +216,7 @@ if [[ -n "${STORAGE_CMD:-}" ]]; then
     STORAGE_EXPANDED_CMD="${STORAGE_EXPANDED_CMD//\{\{storage_meta_port\}\}/$STORAGE_META_PORT}"
     (
         rc=0
-        srun --jobid="$JOB_ID" --overlap \
+        srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=4 --mem=8G \
             --container-image="$STORAGE_SQUASH" \
             --container-mounts="$GITHUB_WORKSPACE:/workspace" \
             --no-container-mount-home \
@@ -284,7 +291,7 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
     import_squash "$ROUTER_IMAGE"
     (
         rc=0
-        srun --jobid="$JOB_ID" --overlap \
+        srun --jobid="$JOB_ID" --overlap --ntasks=1 --cpus-per-task=4 --mem=8G \
             --container-image="$ROUTER_SQUASH" \
             --container-mounts="$GITHUB_WORKSPACE:/workspace,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE" \
             --no-container-mount-home \
@@ -314,7 +321,8 @@ fi
 # unlike docker's writable-overlay default. Various tools baked into these
 # images write into their own rootfs at runtime with no override available
 # (triton -> /root/.triton, vllm -> /root/.cache/vllm/*, etc.).
-srun --jobid="$JOB_ID" \
+srun --jobid="$JOB_ID" --overlap --ntasks=1 \
+    --cpus-per-task=$((GPU_COUNT * 23 - 10)) --mem=$((GPU_COUNT * 90))G \
     --container-image="$SQUASH_FILE" \
     --container-mounts="$GITHUB_WORKSPACE:/workspace,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE,$AIPERF_UV_CACHE_DIR:$AIPERF_UV_CACHE_DIR" \
     --no-container-mount-home \
