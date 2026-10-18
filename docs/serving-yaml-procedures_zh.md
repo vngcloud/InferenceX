@@ -101,7 +101,7 @@ router:
   - `no_data` —— 搜索根本没有产生边界。
 
   所有状态都是结果字段，不是失败的任务。结果还包含 `max_conc`、`binding_constraint`、`rps`、`tpm`、`ttft_avg_ms` 与 `itl_p90_ms`。用 `python utils/serving/collect_sweep_table.py <artifact-dir>` 把 24 个结果汇成一张表。
-- 缓存命中校验：标称命中率来自场景名的 `cacheNN` 后缀。实测 GPU 缓存命中率为尽力而为：adaptive_search 运行目前没有每探测点的 `server_metrics_export.json`，因此 `measured_cache_hit` 与 `cache_mismatch` 保持 `null`。
+- 缓存命中校验：标称命中率来自场景名的 `cacheNN` 后缀。实测 GPU 缓存命中率为尽力而为：存在每探测点或整轮运行的 `server_metrics_export.json` 时 `measured_cache_hit` 会取到值，否则 `measured_cache_hit` 与 `cache_mismatch` 保持 `null`。
 - 指标命名：AIPerf 报告 `inter_token_latency`（ITL）；vLLM/SGLang 文档把同一量称为 time-per-output-token（TPOT）。同一测量，不同名称。
 
 ## 查看结果与失败
