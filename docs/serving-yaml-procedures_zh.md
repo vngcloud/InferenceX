@@ -15,6 +15,7 @@
 | [检查前置条件](#检查前置条件) | 首次运行 serving YAML |
 | [了解 Runner 提供的资源](#了解-runner-提供的资源) | 判断你的镜像和模型能否使用 |
 | [编写并派发 serving YAML](#编写并派发-serving-yaml) | 对某个配置进行基准测试 |
+| [Sweep 场景](#sweep-场景) | 在合成 ISL/OSL/缓存网格上进行基准测试 |
 | [查看结果与失败](#查看结果与失败) | 运行结束或失败 |
 | [升级给基础设施负责人](#升级给基础设施负责人) | 阻塞点在节点上，而不在你的 YAML 中 |
 
@@ -50,7 +51,7 @@
 ## 编写并派发 serving YAML
 
 1. 创建 `serving/<name>.yaml`。字段说明与转换规则（模型路径 → HF ID、环境变量、Router 拆分、上下文长度）见 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md)。可用示例：[`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml)（仅引擎）、[`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml)（Dynamo Router + 引擎）与 [`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml)（sglang-router + SGLang 引擎）。
-2. 从 `scenarios/` 中选择场景（`agentx-cc-062126`、`agentx-cc-062126-smoke`、`custom-agentic-tau2`、`custom-agentic-tau2-smoke`）。新配置先用 `-smoke` 场景。
+2. 从 `scenarios/` 中选择场景（`agentx-cc-062126`、`agentx-cc-062126-smoke`、`custom-agentic-tau2`、`custom-agentic-tau2-smoke`）。新配置先用 `-smoke` 场景。生成的 `sweep-isl<isl>-osl<osl>-cache<cache>.yaml` 系列会自适应地搜索并发，且始终以 `conc: 1` 运行——见 [Sweep 场景](#sweep-场景)。
 3. 校验并派发：
 
    ```bash
@@ -77,6 +78,31 @@ router:
     --prometheus-host 127.0.0.1 --prometheus-port 29000
     --request-timeout-secs 14400 --disable-retries"
 ```
+## Sweep 场景
+
+`scenarios/sweep-*.yaml` 系列（由 [`utils/serving/gen_sweep_scenarios.py`](../utils/serving/gen_sweep_scenarios.py) 生成，请勿手改）在合成的 ISL/OSL/缓存命中网格上对同一个 serving 配置进行基准测试：ISL {8k, 32k, 64k, 128k} × OSL {512, 1k} × 前缀缓存命中 {0, 50, 90}% —— 共 24 个场景，命名为 `sweep-isl<isl>-osl<osl>-cache<cache>`。每个场景带有 AIPerf `adaptive_search` sweep：没有固定的 `conc` 值，AIPerf 在任务内探测并发区间并搜索满足 SLO 的最高并发，因此 serving YAML 以 `conc: 1` 运行它们。
+
+- 默认 SLO（每个场景相同）：TTFT `avg < 8000 ms`，ITL `p90 < 50 ms`。
+- `IX_SLO` 覆盖：将该环境变量设为以 `;` 连接的 `metric:stat:op:threshold` 元组（stat 取 `avg`、`p50`、`p90`、`p95`、`p99`；op 取 `lt`、`le`、`gt`、`ge`），例如 `IX_SLO='time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50'`。它在该次运行中替换场景的默认 SLO；启动脚本通过 `python -m infx.serving.slo` 校验，格式错误时在引擎启动前直接中止。（CLI 的 `--search-sla` 参数在 `sweep:` 块旁边会被静默忽略，因此用环境变量。）
+- 用一个 serving YAML 派发整个网格（或其子集）：
+
+  ```bash
+  utils/serving/sweep_dispatch.sh serving/<name>.yaml                  # 全部 24 个
+  utils/serving/sweep_dispatch.sh serving/<name>.yaml --only 'sweep-isl8k-*'
+  ```
+
+  脚本为每个场景写一份临时 YAML 副本（替换 `scenario:`、置 `conc: 1`、在 `name:` 后追加场景短名），再通过 [`utils/serving/dispatch.sh`](../utils/serving/dispatch.sh) 逐个派发。
+- 读取结果：每个任务的产物包含 `search_history.json` 和一个结果 JSON，其 `state` 取以下之一：
+  - `ok` —— 收敛；`max_conc` 满足 SLO，
+  - `cliff` —— 可行最大值正好落在失败边界上，
+  - `no_pass_in_range` —— 没有任何探测并发满足 SLO，
+  - `no_failure_in_range` —— 所有探测并发都满足；应放宽搜索区间，
+  - `max_iterations` —— 迭代预算耗尽，未得到干净边界，
+  - `no_data` —— 搜索根本没有产生边界。
+
+  所有状态都是结果字段，不是失败的任务。结果还包含 `max_conc`、`binding_constraint`、`rps`、`tpm`、`ttft_avg_ms` 与 `itl_p90_ms`。用 `python utils/serving/collect_sweep_table.py <artifact-dir>` 把 24 个结果汇成一张表。
+- 缓存命中校验：标称命中率来自场景名的 `cacheNN` 后缀。实测 GPU 缓存命中率为尽力而为：adaptive_search 运行目前没有每探测点的 `server_metrics_export.json`，因此 `measured_cache_hit` 与 `cache_mismatch` 保持 `null`。
+- 指标命名：AIPerf 报告 `inter_token_latency`（ITL）；vLLM/SGLang 文档把同一量称为 time-per-output-token（TPOT）。同一测量，不同名称。
 
 ## 查看结果与失败
 
