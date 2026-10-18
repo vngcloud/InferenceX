@@ -3780,7 +3780,7 @@ run_agentic_replay_and_write_outputs() (
     check_env_vars ENABLE_AGENTX_POWER IS_MULTINODE REQUIRE_POWER
     local result_dir="$1"
     local replay_rc
-    local validation_rc
+    local validation_rc=0
     local power_rc=0
     local agentx_power_enabled=0
     local agentx_multinode_power_enabled=0
@@ -4023,5 +4023,9 @@ run_agentic_replay_and_write_outputs() (
         return "$power_rc"
     fi
 
-    validate_required_agentic_server_metrics "$result_dir"
+    # Search artifact layouts have no top-level server_metrics_export.json, so
+    # the opt-in server-metrics gate only applies to fixed-concurrency runs.
+    if [ "${SERVING_SEARCH:-0}" != "1" ]; then
+        validate_required_agentic_server_metrics "$result_dir"
+    fi
 )

@@ -166,13 +166,9 @@ def test_empty_serving_search_is_rejected_like_unset():
     assert "SERVING_SEARCH" in out.stdout + out.stderr
 
 
-def test_search_replay_writes_sweep_result_json(tmp_path):
-    # End-to-end hook check: a stub aiperf on PATH fakes the adaptive-search
-    # artifact layout (search_history.json + the winning probe's export per
-    # the spike's ARTIFACT_LAYOUT) and exits 0; the replay runner must then
-    # route through infx.results.sweep instead of the per-request validators.
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+def _write_stub_aiperf(bin_dir: Path) -> None:
+    # Stub aiperf fakes the adaptive-search artifact layout (search_history.json
+    # + the winning probe's export per the spike's ARTIFACT_LAYOUT) and exits 0.
     fix = REPO / "utils" / "fixtures" / "sweep"
     stub = bin_dir / "aiperf"
     stub.write_text(
@@ -190,18 +186,56 @@ def test_search_replay_writes_sweep_result_json(tmp_path):
         "exit 0\n"
     )
     stub.chmod(0o755)
+
+
+def _run_search_replay(tmp_path: Path, extra_env: str = ""):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    _write_stub_aiperf(bin_dir)
     run_dir = tmp_path / "r"
     out_dir = tmp_path / "agg"
     out = run(f'''
         export SERVING_SEARCH=1 AIPERF_PYTHON={sys.executable}
         export ENABLE_AGENTX_POWER=0 IS_MULTINODE=false REQUIRE_POWER=0
         export PATH={bin_dir}:$PATH
+        {extra_env}
         mkdir -p {run_dir}
         build_replay_cmd_yaml {run_dir}
         RESULT_FILENAME=sweep_test AGENTIC_OUTPUT_DIR={out_dir} \
             run_agentic_replay_and_write_outputs {run_dir}
     ''')
+    return out, out_dir
+
+
+def test_search_replay_writes_sweep_result_json(tmp_path):
+    # End-to-end hook check: the replay runner must route through
+    # infx.results.sweep instead of the per-request validators.
+    out, out_dir = _run_search_replay(tmp_path)
     assert out.returncode == 0, out.stderr
     result = json.loads((out_dir / "sweep_test.json").read_text())
     assert result["state"] == "ok"
     assert result["max_conc"] == 256
+
+
+def test_search_replay_skips_required_server_metrics_gate(tmp_path):
+    # serve_generic.sh exports AIPERF_REQUIRED_SERVER_METRIC_PREFIX=sglang: by
+    # framework, but an adaptive_search artifact layout has no top-level
+    # server_metrics_export.{json,csv} — the opt-in gate must not fire.
+    out, out_dir = _run_search_replay(
+        tmp_path, 'export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:"\n'
+    )
+    assert out.returncode == 0, out.stderr
+    assert "required AIPerf server metrics artifacts" not in out.stderr
+    assert (out_dir / "sweep_test.json").exists()
+
+
+def test_server_metrics_gate_still_fires_without_search():
+    # Pin the gate itself: non-search mode, prefix set, no server metrics
+    # artifacts -> nonzero with the gate's error (not neutered by the skip).
+    out = run(r'''
+        export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:"
+        mkdir -p /tmp/ix-gate-check/aiperf_artifacts
+        validate_required_agentic_server_metrics /tmp/ix-gate-check
+    ''')
+    assert out.returncode != 0
+    assert "required AIPerf server metrics artifacts" in out.stderr
