@@ -1,0 +1,32 @@
+# Qwen3.8-27B-FP8, production engine flags (HAN k8s deployment qwen38-27b-fp8): SGLang v0.5.19,
+# FP8 weights + fp8_e4m3 KV cache, EAGLE speculative decoding (3 steps, topk 1, 4 draft tokens),
+# hierarchical cache, dfs-weight scheduling. 1 GPU, no router.
+# Dispatch the full sweep ladder: utils/serving/sweep_dispatch.sh serving/qwen38-27b-fp8-eagle-sweep-1gpu.yaml
+name: qwen38-27b-fp8-eagle-sweep-1gpu
+runner: h200-greennode-slurm-1x_02
+image: lmsysorg/sglang:v0.5.19
+model: Qwen/Qwen3.8-27B-FP8
+gpus: 1
+precision: fp8
+env:
+  FLASHINFER_CUDA_ARCH_LIST: "12.0f"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path Qwen/Qwen3.8-27B-FP8
+  --trust-remote-code
+  --kv-cache-dtype fp8_e4m3
+  --mem-fraction-static 0.85
+  --attention-backend flashinfer
+  --chunked-prefill-size 8192
+  --max-prefill-tokens 16384
+  --context-length 262144
+  --speculative-algorithm EAGLE --speculative-num-steps 3
+  --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
+  --enable-linear-replayssm-spec
+  --mamba-full-memory-ratio 1.5
+  --schedule-policy dfs-weight
+  --enable-hierarchical-cache --hicache-size 24
+  --reasoning-parser qwen3 --tool-call-parser qwen3_coder
+  --enable-metrics --enable-cache-report
+scenario: sweep-isl8k-osl512-cache50
+conc: 1
