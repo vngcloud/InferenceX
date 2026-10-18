@@ -9,15 +9,15 @@ set -x
 # Slurm path for hcm-rtx6000pro_01/_02 (on-node runners for the
 # `hcm-rtx6000pro` partition: hoanq3-rtx6000x2-slurm-1/-2, 2x RTX PRO 6000
 # Blackwell Max-Q each, on the research Slurm cluster). Same shape as
-# runners/launch_hardware-hcm.sh (salloc + pyxis/enroot, no Docker on these
-# boxes), adapted for this fleet:
+# runners/launch_hardware-hcm.sh (holding allocation + pyxis/enroot, no
+# Docker on these boxes), adapted for this fleet:
 #   - partition hcm-rtx6000pro; jobs run under the default account `ai`
 #     (verified via sacct on probe jobs; no --account flag, unlike
 #     hardware-hcm's account `dev`).
 #   - No /mnt big disk here: squash cache, HF hub cache, and uv cache live
 #     under /data/thanglq5 (984G ext4 per node, world-writable, node-local --
 #     every mount below is local to the box the runner lives on, which is why
-#     the salloc below pins --nodelist).
+#     the allocation below pins --nodelist).
 #   - 48 CPUs / ~236G RAM over 2 GPUs -> 23 CPUs and 110G per GPU. 23, not 24:
 #     the runner daemon itself is a 1-CPU sbatch job on the same node (see
 #     docs/knowledge.md 1x-sbatch-runner-daemon), so a full 2-GPU job at
@@ -90,11 +90,16 @@ mkdir -p "$SQUASH_CACHE_DIR"
 # allocation; clear any stale job from this runner name before requesting a new one.
 scancel --name="$RUNNER_NAME" 2>/dev/null || true
 
-salloc --partition="$SLURM_PARTITION" \
+# These nodes ship a minimal Slurm client set (sbatch/srun/squeue/scancel/sinfo/sacct)
+# with no salloc, so the holding allocation is a sleeping batch job instead of
+# `salloc --no-shell`: srun --jobid steps attach to it exactly the same way.
+sbatch --partition="$SLURM_PARTITION" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
     --cpus-per-task=$((GPU_COUNT * 23)) --mem=$((GPU_COUNT * 110))G \
-    --time=180 --no-shell --job-name="$RUNNER_NAME"
+    --time=180 --job-name="$RUNNER_NAME" \
+    --output=/dev/null --error=/dev/null \
+    --wrap "sleep $((180 * 60))"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
     echo "ERROR: failed to resolve hcm-rtx6000pro Slurm allocation" >&2
