@@ -70,17 +70,22 @@ RESERVED_ENV = (
 SERVING_RUNNERS = {
     "cluster:h200-greennode-slurm": re.compile(r"h200-greennode-slurm-1x_\d+"),
     "cluster:hardware-hcm": re.compile(r"hardware-hcm-8x_\d+"),
+    "cluster:hcm-rtx6000pro": re.compile(r"hcm-rtx6000pro_\d+"),
 }
-# Only launch_hardware-hcm.sh starts the router / storage sidecars.
-ROUTER_RUNNER_PREFIX = "hardware-hcm-"
-STORAGE_RUNNER_PREFIX = "hardware-hcm-"
+# Only launch_hardware-hcm.sh and launch_hcm-rtx6000pro.sh start the router / storage sidecars.
+ROUTER_RUNNER_PREFIXES = ("hardware-hcm-", "hcm-rtx6000pro_")
+STORAGE_RUNNER_PREFIXES = ("hardware-hcm-", "hcm-rtx6000pro_")
 # {{name}} (lowercase, no spaces) placeholders expanded at runtime by benchmarks/benchmark_lib.sh.
 # {{ x }} (with spaces) is inline Jinja and stays literal.
 # router.* can reference the router/engine ports and either storage port if the router
 # needs to talk to the storage sidecar (e.g. a health check).
 ROUTER_PLACEHOLDERS = (
-    "router_port", "engine_url", "engine_port", "engine_urls",
-    "storage_master_port", "storage_meta_port",
+    "router_port",
+    "engine_url",
+    "engine_port",
+    "engine_urls",
+    "storage_master_port",
+    "storage_meta_port",
 )
 # engine_urls = every replica's URL (http://127.0.0.1:<port>, space-separated);
 # engine_url stays the first engine's (back-compat, spec 2026-10-16).
@@ -258,10 +263,10 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
         problems.append(
             "model: must be an HF repo id <org>/<name> using letters, digits and ._- (e.g. Qwen/Qwen3.8-27B)"
         )
-    commands = [("serve", spec.serve)] + (
-        [("router.serve", spec.router.serve)] if spec.router else []
-    ) + (
-        [("storage.serve", spec.storage.serve)] if spec.storage else []
+    commands = (
+        [("serve", spec.serve)]
+        + ([("router.serve", spec.router.serve)] if spec.router else [])
+        + ([("storage.serve", spec.storage.serve)] if spec.storage else [])
     )
     for field, command in commands:
         for marker in LOCAL_PATH_MARKERS:
@@ -294,37 +299,39 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
     if spec.router:
         if not IMAGE_PATTERN.fullmatch(spec.router.image):
             problems.append("router.image: only letters, digits and ._/:@- are allowed")
-        if not spec.runner.startswith(ROUTER_RUNNER_PREFIX):
+        if not spec.runner.startswith(ROUTER_RUNNER_PREFIXES):
             problems.append(
-                "router: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the router)"
+                "router: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "
+                "(only launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh start the router)"
             )
         texts = [("router.serve", spec.router.serve)] + [
             (f"router.env.{key}", value) for key, value in spec.router.env.items()
         ]
-        for field, text in texts:
-            for name in PLACEHOLDER.findall(text):
-                if name not in ROUTER_PLACEHOLDERS:
-                    problems.append(
-                        f"{field}: unknown placeholder {{{{{name}}}}}; "
-                        f"allowed: {', '.join(ROUTER_PLACEHOLDERS)}"
-                    )
+        for field, body in texts:
+            problems.extend(
+                f"{field}: unknown placeholder {{{{{name}}}}}; "
+                f"allowed: {', '.join(ROUTER_PLACEHOLDERS)}"
+                for name in PLACEHOLDER.findall(body)
+                if name not in ROUTER_PLACEHOLDERS
+            )
     if spec.storage:
         if not IMAGE_PATTERN.fullmatch(spec.storage.image):
             problems.append("storage.image: only letters, digits and ._/:@- are allowed")
-        if not spec.runner.startswith(STORAGE_RUNNER_PREFIX):
+        if not spec.runner.startswith(STORAGE_RUNNER_PREFIXES):
             problems.append(
-                "storage: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the storage sidecar)"
+                "storage: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "
+                "(only launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh start the storage sidecar)"
             )
         texts = [("storage.serve", spec.storage.serve)] + [
             (f"storage.env.{key}", value) for key, value in spec.storage.env.items()
         ]
-        for field, text in texts:
-            for name in PLACEHOLDER.findall(text):
-                if name not in STORAGE_PLACEHOLDERS:
-                    problems.append(
-                        f"{field}: unknown placeholder {{{{{name}}}}}; "
-                        f"allowed: {', '.join(STORAGE_PLACEHOLDERS)}"
-                    )
+        for field, body in texts:
+            problems.extend(
+                f"{field}: unknown placeholder {{{{{name}}}}}; "
+                f"allowed: {', '.join(STORAGE_PLACEHOLDERS)}"
+                for name in PLACEHOLDER.findall(body)
+                if name not in STORAGE_PLACEHOLDERS
+            )
     # Top-level env: only storage-port placeholders are available (router/engine ports are
     # recipe-owned; engine does not know its own port at env-expansion time).
     allowed_env_placeholders = ENV_PLACEHOLDERS if spec.storage else ()
@@ -336,9 +343,7 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
                     if spec.storage
                     else "no placeholders are allowed in env: without a storage block"
                 )
-                problems.append(
-                    f"env.{key}: unknown placeholder {{{{{name}}}}}; {hint}"
-                )
+                problems.append(f"env.{key}: unknown placeholder {{{{{name}}}}}; {hint}")
     if len(set(spec.conc)) != len(spec.conc):
         problems.append("conc: duplicate values")
     if spec.gpus % spec.replicas:
