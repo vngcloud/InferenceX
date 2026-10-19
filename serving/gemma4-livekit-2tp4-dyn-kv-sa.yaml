@@ -9,7 +9,7 @@
 # Slurm reference (rbench, same flags, c96 x3): TTFT p95 0.66 / 0.64 / 0.65 s, 0 errors.
 name: gemma4-livekit-2tp4-dyn-kv-sa
 runner: hardware-hcm-8x_02
-image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 8
 replicas: 2
@@ -32,7 +32,7 @@ serve: |
   --kv-cache-metrics
   --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
 router:
-  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
   env:
     DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
   serve: |

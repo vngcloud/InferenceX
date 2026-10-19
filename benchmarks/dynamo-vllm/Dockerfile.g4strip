@@ -1,0 +1,19 @@
+# The vllm-runtime image with a patched ai-dynamo-runtime: Gemma 4 keeps its reasoning parser on
+# with thinking off, so the empty `<|channel>thought\n<channel|>` the model opens after a tool
+# result leaves `content` (ai-dynamo/dynamo#16781; vLLM's gemma4 reasoning parser does the same).
+# Perf is unchanged; only the tool-result turn's content differs.
+#
+# The wheel is built from ai-dynamo main 3763cee608 plus the two-line gate change in
+# lib/llm/src/preprocessor.rs; it is not published, so it goes in the build context:
+#   cp ai_dynamo_runtime-1.6.0-cp310-abi3-linux_x86_64.whl <ctx>/
+#   docker build -f Dockerfile.g4strip -t <registry>/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip <ctx>
+ARG BASE_IMAGE=vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018
+FROM ${BASE_IMAGE}
+COPY ai_dynamo_runtime-1.6.0-cp310-abi3-linux_x86_64.whl /tmp/
+RUN pip install --no-cache-dir --no-deps --force-reinstall /tmp/ai_dynamo_runtime-1.6.0-cp310-abi3-linux_x86_64.whl \
+ && rm /tmp/ai_dynamo_runtime-*.whl \
+ && python3 - <<'PY'
+import vllm, dynamo.vllm, dynamo.frontend, dynamo._core
+assert vllm.__version__.startswith("0.31.0"), vllm.__version__
+print("vllm", vllm.__version__)
+PY
