@@ -25,7 +25,9 @@ set -x
 #     runner per node = at most one GH bench job at a time per box.
 # The serving-YAML path (SERVE_CMD, optional ROUTER_* for a router sidecar,
 # STORAGE_* for a storage sidecar) mirrors launch_hardware-hcm.sh.
-SLURM_PARTITION="hcm-rtx6000pro"
+# Partition renamed hcm-rtx6000pro -> rtx6000pro-hcm by cluster admin on
+# 2026-10-19 (02:13Z reconfig NODE_FAIL'd both nodes and killed in-flight jobs).
+SLURM_PARTITION="rtx6000pro-hcm"
 # Pin the allocation to this box's own Slurm node name (same rationale as
 # launch_hardware-hcm.sh: every --container-mounts path below is local to the
 # box the *runner* lives on). Hostname and Slurm NodeName are identical on
