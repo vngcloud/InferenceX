@@ -263,7 +263,8 @@ def run_generic_replicas(tmp_path, **extra):
     script.write_text(GENERIC.read_text())
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, body in {"nvidia-smi": "", "engine": f'echo "$CUDA_VISIBLE_DEVICES $*" >> {tmp_path}/engines\nsleep 30\n'}.items():
+    for name, body in {"nvidia-smi": "", "engine": f'echo "$CUDA_VISIBLE_DEVICES $*" >> {tmp_path}/engines\nsleep 30\n',
+                       "dynengine": f'echo "$CUDA_VISIBLE_DEVICES $DYN_SYSTEM_PORT $*" >> {tmp_path}/engines\nsleep 30\n'}.items():
         (bin_dir / name).write_text("#!/bin/sh\n" + body)
         (bin_dir / name).chmod(0o755)
     env = {
@@ -300,6 +301,37 @@ def test_serve_generic_replicas_need_one_port_each(tmp_path):
     out = run_generic_replicas(tmp_path, ENGINE_PORTS="9200")
     assert out.returncode == 1
     assert "replicas 2 needs 2 ports in ENGINE_PORTS" in out.stderr
+
+
+DYNAMO_REPLICAS = {"SERVE_CMD": "dynengine --tensor-parallel-size 2", "ROUTER_CMD": "python3 -m dynamo.frontend",
+                   "ROUTER_PROFILE": "dynamo", "DYN_SYSTEM_PORT": "9100", "DYN_SYSTEM_PORTS": "9100 9101",
+                   "DYN_KV_EVENT_PORTS": "40001 40002", "ENGINE_PORT": "", "ENGINE_PORTS": ""}
+
+
+def test_serve_generic_dynamo_replicas_get_own_gpus_system_and_kv_event_ports(tmp_path):
+    out = run_generic_replicas(tmp_path, **DYNAMO_REPLICAS)
+    assert out.returncode == 0, out.stderr
+    engines = tmp_path / "engines"
+    for _ in range(100):
+        if engines.exists() and len(engines.read_text().splitlines()) == 2:
+            break
+        time.sleep(0.05)
+    kv = '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:%d"}'
+    assert sorted(engines.read_text().splitlines()) == [
+        f"4,5 9100 --tensor-parallel-size 2 --kv-events-config {kv % 40001}",
+        f"6,7 9101 --tensor-parallel-size 2 --kv-events-config {kv % 40002}",
+    ]
+    calls = (tmp_path / "results/calls").read_text()
+    assert f"WAIT health --port 9100 --server-log {tmp_path}/results/server.log" in calls
+    assert f"WAIT health --port 9101 --server-log {tmp_path}/results/server.1.log" in calls
+    assert "METRICS http://localhost:8888/metrics,http://localhost:9100/metrics,http://localhost:9101/metrics" in calls
+    assert "--port" not in (tmp_path / "results/server_command.1.txt").read_text()
+
+
+def test_serve_generic_dynamo_replicas_need_one_kv_event_port_each(tmp_path):
+    out = run_generic_replicas(tmp_path, **DYNAMO_REPLICAS | {"DYN_KV_EVENT_PORTS": "40001"})
+    assert out.returncode == 1
+    assert "replicas 2 needs 2 ports in DYN_SYSTEM_PORTS/DYN_KV_EVENT_PORTS" in out.stderr
 
 
 def test_serve_router_never_prints_router_env_values(tmp_path):

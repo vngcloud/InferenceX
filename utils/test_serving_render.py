@@ -104,12 +104,12 @@ def test_dynamo_engine_without_router_rejected():
 
 
 def test_dynamo_router_with_plain_engine_rejected():
-    with pytest.raises(ServingError, match=r"^serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine"):
+    with pytest.raises(ServingError, match=r"^serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang or dynamo.vllm engine"):
         render(dyn(engine="python3 -m sglang.launch_server --model-path Qwen/Qwen3.8-27B"))
 
 
 def test_dynamo_engine_with_other_router_rejected():
-    with pytest.raises(ServingError, match=r"^router.serve: a python3 -m dynamo.sglang engine needs python3 -m dynamo.frontend as its router"):
+    with pytest.raises(ServingError, match=r"^router.serve: a python3 -m dynamo.sglang / dynamo.vllm engine needs python3 -m dynamo.frontend as its router"):
         render(dyn(router="python3 -m sglang_router.launch_router --port={{router_port}}"))
 
 

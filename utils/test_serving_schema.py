@@ -329,6 +329,15 @@ REPLICAS_YAML = textwrap.dedent("""\
 """)
 
 
+DYNAMO_VLLM_REPLICAS = dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2").replace(
+    "serve: python3 -m dynamo.sglang --model-path=Qwen/Qwen3.8-27B --tp=8",
+    "serve: python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4")
+
+
+def test_dynamo_vllm_replicas_load():
+    assert load_serving(DYNAMO_VLLM_REPLICAS).replicas == 2
+
+
 def test_replicas_default_one_and_router_yaml_loads():
     assert load_serving(GOOD).replicas == 1
     assert load_serving(REPLICAS_YAML).replicas == 2
@@ -338,10 +347,13 @@ def test_replicas_default_one_and_router_yaml_loads():
     (REPLICAS_YAML.replace("gpus: 2", "gpus: 3"), "replicas: gpus 3 is not a multiple of replicas 2"),
     (REPLICAS_YAML.split("router:")[0] + "scenario: agentx-cc-062126-smoke\nconc: [8]\n",
      "replicas: more than 1 replica needs a router: block"),
-    (dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2"), "replicas: the Dynamo frontend discovers its engines itself"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2"), "replicas: with the Dynamo frontend only python3 -m dynamo.vllm"),
+    (DYNAMO_VLLM_REPLICAS.replace("--tensor-parallel-size 4", "--tensor-parallel-size 4 --kv-events-config '{}'"),
+     "replicas: drop --kv-events-config"),
     (REPLICAS_YAML.replace("replicas: 2", "replicas: 0"), "replicas: Input should be greater than or equal to 1"),
     (REPLICAS_YAML.replace("gpus: 2\n", "gpus: 2\nenv: {ENGINE_PORTS: x}\n"), "env.ENGINE_PORTS: reserved"),
-], ids=["indivisible", "no-router", "dynamo", "zero", "reserved-env"])
+    (REPLICAS_YAML.replace("gpus: 2\n", "gpus: 2\nenv: {DYN_KV_EVENT_PORTS: x}\n"), "env.DYN_KV_EVENT_PORTS: reserved"),
+], ids=["indivisible", "no-router", "dynamo-sglang", "dynamo-kv-events", "zero", "reserved-env", "reserved-dyn-env"])
 def test_replicas_errors(text, error):
     assert error in errors(text)
 
