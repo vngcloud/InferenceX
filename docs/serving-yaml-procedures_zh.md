@@ -116,6 +116,7 @@ router:
 
 - 状态：`gh run view <run-id> --repo vngcloud/InferenceX`。每个 `conc` 值对应一个任务。除场景时长外，镜像拉取、模型加载与预热约需 20 分钟。
 - 产物（`gh run download <run-id> --repo vngcloud/InferenceX -n <artifact>`）以 `<name>_c<conc>` 开头；`results/` 包含 `serving.yaml`、`server.log`、`benchmark.log`、`router.log`（Router 路径）与 `aiperf_artifacts/`。
+- LiveKit 场景（`custom-agentic-livekit111868-*`）：`gh run download <run-id> --repo vngcloud/InferenceX -D <dir>`，然后 `python utils/serving/livekit_ttft.py <dir>` 按 conc 输出 TTFT，并区分房间首轮与后续轮次（p95 尾部由首轮决定）。脚本从锁文件（`<dataset>-plan`）获取 trace 的 plan CSV；`--plan <csv>` 使用本地副本。
 - 失败时先看 `server.log`，再看 `benchmark.log`。Router 路径下，若任务在 aiperf 启动前失败，先看 `router.log`。`gh run view <run-id> --repo vngcloud/InferenceX --log-failed | tail -100` 显示启动脚本侧（Slurm、enroot）的日志。
 - 引擎崩溃反映的是原样提交的配置。是否修改参数由配置所有者决定，而不是由基准测试决定。
 
