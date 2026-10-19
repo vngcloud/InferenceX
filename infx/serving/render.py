@@ -46,8 +46,11 @@ def _python_module(argv: list[str]) -> str | None:
     return None
 
 
+_DYNAMO_ENGINES = ("dynamo.sglang", "dynamo.vllm")
+
+
 def infer_framework(argv: list[str]) -> str:
-    if argv[:2] == ["vllm", "serve"]:
+    if argv[:2] == ["vllm", "serve"] or _python_module(argv) == "dynamo.vllm":
         return "vllm"
     if (
         argv[:2] == ["sglang", "serve"]
@@ -99,11 +102,11 @@ def _check_json_values(field: str, argv: list[str]) -> None:
 
 
 def _render_router(spec: ServingSpec, engine_argv: list[str]) -> dict[str, str]:
-    is_dynamo_engine = _python_module(engine_argv) == "dynamo.sglang"
+    is_dynamo_engine = _python_module(engine_argv) in _DYNAMO_ENGINES
     if spec.router is None:
         if is_dynamo_engine:
             raise ServingError(
-                "router: required for python3 -m dynamo.sglang (a Dynamo engine has no HTTP port); "
+                "router: required for python3 -m dynamo.sglang / dynamo.vllm (a Dynamo engine has no HTTP port); "
                 "add a router block running python3 -m dynamo.frontend"
             )
         return {
@@ -115,10 +118,12 @@ def _render_router(spec: ServingSpec, engine_argv: list[str]) -> dict[str, str]:
         raise ServingError("router.serve: empty command")
     is_dynamo_router = _python_module(argv) == "dynamo.frontend"
     if is_dynamo_router and not is_dynamo_engine:
-        raise ServingError("serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine")
+        raise ServingError(
+            "serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang or dynamo.vllm engine"
+        )
     if is_dynamo_engine and not is_dynamo_router:
         raise ServingError(
-            "router.serve: a python3 -m dynamo.sglang engine needs python3 -m dynamo.frontend as its router"
+            "router.serve: a python3 -m dynamo.sglang / dynamo.vllm engine needs python3 -m dynamo.frontend as its router"
         )
     _check_json_values("router.serve", argv)
     if is_dynamo_router:

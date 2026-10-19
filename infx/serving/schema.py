@@ -50,6 +50,8 @@ RESERVED_ENV = (
     "DYN_FILE_KV",
     "DYN_SYSTEM_ENABLED",
     "DYN_SYSTEM_PORT",
+    "DYN_SYSTEM_PORTS",
+    "DYN_KV_EVENT_PORTS",
     "ROUTER_IMAGE",
     "ROUTER_CMD",
     "ROUTER_ENV",
@@ -366,9 +368,18 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
                 "replicas: more than 1 replica needs a router: block whose serve lists {{engine_urls}}"
             )
         elif "dynamo.frontend" in spec.router.serve:
-            problems.append(
-                "replicas: the Dynamo frontend discovers its engines itself; use replicas: 1"
-            )
+            # The frontend discovers its engines itself; serve_generic.sh starts one dynamo.vllm
+            # engine per GPU slice and gives each its own system port and KV event port.
+            if "dynamo.vllm" not in spec.serve.split():
+                problems.append(
+                    "replicas: with the Dynamo frontend only python3 -m dynamo.vllm engines can be "
+                    "replicated; use replicas: 1 (dynamo.sglang: --dp)"
+                )
+            elif "--kv-events-config" in spec.serve:
+                problems.append(
+                    "replicas: drop --kv-events-config; each dynamo.vllm replica gets its own "
+                    "KV event port from the launcher"
+                )
     from infx.serving.to_matrix import is_sweep  # local import: to_matrix imports this module
 
     scenarios = [spec.scenario] if isinstance(spec.scenario, str) else list(spec.scenario)

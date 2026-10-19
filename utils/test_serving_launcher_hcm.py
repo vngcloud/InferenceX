@@ -13,7 +13,7 @@ def run_launcher(tmp_path: Path, extra_env: dict[str, str]) -> tuple[list[list[s
     log, envlog = tmp_path / "calls", tmp_path / "srun_env"
     stubs = {
         "hostname": "echo hgx-h200-02", "squeue": "echo 4711", "salloc": "", "scancel": "",
-        "srun": f'echo "${{DYN_DISCOVERY_BACKEND:-none}} ${{DYN_FILE_KV:-none}} ${{DYN_SYSTEM_PORT:-none}} ${{AIPERF_GPU_TELEMETRY_METRICS_CSV:-none}} $(case "$*" in *serve_router.sh*) echo router;; *) echo other;; esac) ${{ENGINE_PORT:-none}}" >> {envlog}\necho "${{ENGINE_PORTS:-none}}" >> {tmp_path}/ports',
+        "srun": f'echo "${{DYN_DISCOVERY_BACKEND:-none}} ${{DYN_FILE_KV:-none}} ${{DYN_SYSTEM_PORT:-none}} ${{AIPERF_GPU_TELEMETRY_METRICS_CSV:-none}} $(case "$*" in *serve_router.sh*) echo router;; *) echo other;; esac) ${{ENGINE_PORT:-none}}" >> {envlog}\necho "${{ENGINE_PORTS:-none}}" >> {tmp_path}/ports\necho "${{DYN_SYSTEM_PORTS:-none}}|${{DYN_KV_EVENT_PORTS:-none}}" >> {tmp_path}/dynports',
     }
     for name, body in stubs.items():
         (bin_dir / name).write_text(
@@ -126,3 +126,16 @@ def test_generic_router_gets_engine_port_and_no_dynamo_env(tmp_path):
     assert other[-1][5] == router[0][5], rows       # the bench step sees the same ENGINE_PORT
     assert 0 < int(router[0][5]) < 65536
     assert (tmp_path / "ws/results/.router_exited").read_text().startswith("exit ")
+
+
+def test_dynamo_replicas_get_distinct_system_and_kv_event_ports(tmp_path):
+    extra = {"SERVE_CMD": "python3 -m dynamo.vllm --model m", "ROUTER_IMAGE": ROUTER_IMAGE,
+             "ROUTER_CMD": "python3 -m dynamo.frontend", "ROUTER_PROFILE": "dynamo", "REPLICAS": "2"}
+    _, envlog = run_launcher(tmp_path, extra)
+    seen = {line for line in (tmp_path / "dynports").read_text().splitlines() if line != "none|none"}
+    assert len(seen) == 1, seen       # only the bench step gets them, not the router step
+    system, kv = (part.split() for part in seen.pop().split("|"))
+    assert len(system) == len(kv) == 2 and len(set(system + kv)) == 4
+    assert all(0 < int(p) <= 32767 for p in system)
+    bench = {line.split()[2] for line in envlog.splitlines() if line.split()[0] == "file" and line.split()[2] != "none"}
+    assert bench == {system[0]}
