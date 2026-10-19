@@ -66,10 +66,11 @@ RESERVED_ENV = (
     "STORAGE_META_PORT",
 )
 # Pools whose launcher runs serve_generic.sh on SERVE_CMD, and which runner names in
-# each pool do (hardware-hcm: only the full-node 8x identities; smaller tiers share the box).
+# each pool do (hardware-hcm: the full-node 8x identities plus the 4x identities, a second
+# runner process on the same box so two 4-GPU serving jobs can share it; Slurm gres splits GPUs).
 SERVING_RUNNERS = {
     "cluster:h200-greennode-slurm": re.compile(r"h200-greennode-slurm-1x_\d+"),
-    "cluster:hardware-hcm": re.compile(r"hardware-hcm-8x_\d+"),
+    "cluster:hardware-hcm": re.compile(r"hardware-hcm-(?:8x|4x)_\d+"),
     "cluster:hcm-rtx6000pro": re.compile(r"hcm-rtx6000pro_\d+"),
 }
 # Only launch_hardware-hcm.sh and launch_hcm-rtx6000pro.sh start the router / storage sidecars.
