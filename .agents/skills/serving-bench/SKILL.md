@@ -81,6 +81,7 @@ It validates first. On `ERROR <field>: <fix>` lines, fix the YAML and rerun; not
   - `agentic_<name>_c<conc>_…`: `results/` with `serving.yaml`, `router_command.txt`, `router.log`, `server_command.txt`, `server.log`, `benchmark_command.txt`, `benchmark.log`, `aiperf_artifacts/`
   - `bmk_agentic_<name>_c<conc>_…`: aggregate result JSON
   - `server_logs_<name>_c<conc>_…`: server logs
+- LiveKit scenarios (`custom-agentic-livekit111868-*`): download the whole run (`gh run download <run-id> --repo vngcloud/InferenceX -D <dir>`) and run `python utils/serving/livekit_ttft.py <dir>`. It prints TTFT per conc split by a room's first turn vs later turns; report both, since first turns set the p95 tail. It fetches the plan CSV from the lock (`<dataset>-plan`); `--plan <csv>` uses a local copy.
 - Dataset errors appear as `ERROR dataset <name>: …` lines in the job log (`gh run view <id> --repo vngcloud/InferenceX --log-failed`); the first tau2 run downloads ~1.1 GB.
 - A failed job: read `server.log` first (engine flags, OOM, parser errors), then `benchmark.log` (aiperf). Router path: read `router.log` first when the job fails before aiperf starts. `gh run view <run-id> --repo vngcloud/InferenceX --log-failed | tail -100` shows the launcher side (slurm, enroot).
 - If the engine crashes or the job fails, report the error and the config as given. Do not change flags or env, or redispatch a modified config, on your own: the config is the user's, a change is their decision.
