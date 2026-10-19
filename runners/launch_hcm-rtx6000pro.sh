@@ -27,6 +27,21 @@ set -x
 # STORAGE_* for a storage sidecar) mirrors launch_hardware-hcm.sh.
 # Partition renamed hcm-rtx6000pro -> rtx6000pro-hcm by cluster admin on
 # 2026-10-19 (02:13Z reconfig NODE_FAIL'd both nodes and killed in-flight jobs).
+#
+# Runner daemon resubmit (plain, no PATH pinning needed):
+#   sbatch --partition=rtx6000pro-hcm --nodelist=hoanq3-rtx6000x2-slurm-<n> \
+#     --cpus-per-task=1 --mem=4G --time=7-00:00:00 --job-name=gh-daemon-rtx0<n> \
+#     --output=/dev/null --error=/dev/null \
+#     --wrap "cd /data/thanglq5/runner-rtx0<n> && exec ./run.sh"
+# The nodes have NO system git and NO sudo, but actions/checkout needs git
+# >=2.18 (else it falls back to the REST API and dies on the submodules
+# input). The runner's own run.sh on each node exports
+# PATH=/data/thanglq5/gitroot/usr/bin (self-contained git 2.34.1 bundle) and
+# GIT_EXEC_PATH=/data/thanglq5/gitroot/usr/lib/git-core (without it git
+# looks for git-submodule in the compiled-in /usr/lib/git-core and fails).
+# Caveat: the runner self-update may overwrite run.sh — if checkout suddenly
+# fails with "submodules is not supported"/"'submodule' is not a git command",
+# re-add those two exports (see run.sh.bak-gitroot on the node).
 SLURM_PARTITION="rtx6000pro-hcm"
 # Pin the allocation to this box's own Slurm node name (same rationale as
 # launch_hardware-hcm.sh: every --container-mounts path below is local to the
