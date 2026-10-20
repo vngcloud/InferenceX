@@ -103,3 +103,24 @@ def test_dataset_without_a_plan_entry_fails_with_a_hint(world):
     out = run(world, world["artifacts"])
     assert out.returncode == 1
     assert "no tau2-cs-plan in scenarios/datasets/lock.yaml; pass --plan" in out.stderr
+
+
+def test_warm_up_rows_are_reported_apart(world):
+    # A -warm plan: room-1's dial warm-up is turn 0, so its first turn is turn 1.
+    world["plan"].write_text(textwrap.dedent("""\
+        session_id,i,parent,shared,isl,rendered_isl,lcp_parent,osl,delay_ms,timeout,warm
+        room-1,0,,0,11936,11936,,1,,5.0,1
+        room-1,1,,0,12000,12000,0,10,3000,5.0,
+        room-1,2,1,11990,12100,12100,11990,10,800,5.0,
+        room-2,0,,0,3000,3000,0,10,,5.0,
+    """))
+    export = world["artifacts"] / "agentic_x_c96/aiperf_artifacts/profile_export.jsonl"
+    rows = [record("room-1", 0, 700), record("room-1", 1, 120), record("room-1", 2, 100), record("room-2", 0, 1500)]
+    export.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = run(world, export, "--plan", world["plan"])
+    assert out.returncode == 0, out.stderr
+    lines = out.stdout.splitlines()
+    assert lines[1].startswith("all: n=3 ")
+    assert lines[2].startswith("  first: n=    2 p50=1.50 ")
+    assert lines[-1] == ("warm-ups (excluded above): n=1 p50=0.70 p90=0.70 p95=0.70 p99=0.70 max=0.70  "
+                         "done <=0.5s=0.0% <=1s=100.0% <=1.5s=100.0% <=2s=100.0%")

@@ -9,6 +9,9 @@ lock entry <name>-plan in scenarios/datasets/lock.yaml pins the plan CSV that sh
 
 First turns (no parent in the plan) carry the room's whole system prompt uncached, so they set the
 tail; "5s turns" are the requests whose logged client timeout is 5 s. Only the profiling phase counts.
+Dial warm-up rows (warm=1 in the plan of a -warm dataset: the first prompt minus the user's utterance,
+max_tokens 1, sent before the room's first turn) are left out of every view and get their own line:
+they are not on the user's path, but must finish before the first turn arrives.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ def load_plan(path: str | Path) -> dict[str, list[dict]]:
 
 
 def load_requests(profile_export: Path, plan: dict[str, list[dict]]) -> list[dict]:
-    """One dict per profiling request with a TTFT: ttft (s), first, timeout_5s, uncached (tokens)."""
+    """One dict per profiling request with a TTFT: ttft (s), first, timeout_5s, uncached (tokens), warm."""
     rows = []
     with open(profile_export) as f:
         for line in f:
@@ -53,6 +56,7 @@ def load_requests(profile_export: Path, plan: dict[str, list[dict]]) -> list[dic
                 "first": turn["parent"] == "",
                 "timeout_5s": float(turn["timeout"]) == 5.0,
                 "uncached": int(turn["isl"]) - int(turn["shared"]),
+                "warm": turn.get("warm") == "1",
             })
     return rows
 
@@ -75,7 +79,16 @@ def describe(name: str, rows: list[dict]) -> list[str]:
     return lines
 
 
+def describe_warm(rows: list[dict]) -> list[str]:
+    x = [r["ttft"] for r in rows]
+    return [(f"warm-ups (excluded above): n={len(x)} p50={quantile(x, .5):.2f} p90={quantile(x, .9):.2f} "
+             f"p95={quantile(x, .95):.2f} p99={quantile(x, .99):.2f} max={max(x):.2f}  done "
+             + " ".join(f"<={t:g}s={sum(v <= t for v in x) / len(x):.1%}" for t in (0.5, 1, 1.5, 2)))]
+
+
 def report(rows: list[dict]) -> str:
+    warm = [r for r in rows if r["warm"]]
+    rows = [r for r in rows if not r["warm"]]
     if not rows:
         return "no profiling requests with a TTFT"
     lines = describe("all", rows)
@@ -86,6 +99,7 @@ def report(rows: list[dict]) -> str:
         if x:
             lines.append(f"  first turns uncached {lo}-{hi or ''}: n={len(x)} p50={quantile(x, .5):.2f} "
                          f"p95={quantile(x, .95):.2f} >1s={sum(v > 1 for v in x) / len(x):.0%}")
+    lines += describe_warm(warm) if warm else []
     return "\n".join(lines)
 
 
