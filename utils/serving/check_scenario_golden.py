@@ -34,6 +34,7 @@ SCENARIOS = {
     "custom-agentic-tau2": "tau2",
     "custom-agentic-tau2-smoke": "tau2",
     "custom-agentic-livekit111868-v1": "livekit",
+    "custom-agentic-livekit111868-v1-warm": "livekit",
     "custom-agentic-livekit111868-v2": "livekit",
     "custom-agentic-livekit111868-v1-nothink": "livekit",
     "custom-agentic-livekit111868-v2-nothink": "livekit",
