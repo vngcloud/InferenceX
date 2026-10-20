@@ -139,3 +139,16 @@ def test_dynamo_replicas_get_distinct_system_and_kv_event_ports(tmp_path):
     assert all(0 < int(p) <= 32767 for p in system)
     bench = {line.split()[2] for line in envlog.splitlines() if line.split()[0] == "file" and line.split()[2] != "none"}
     assert bench == {system[0]}
+
+
+@pytest.mark.parametrize("serve_cmd,serve_env,mem", [
+    ("vllm serve m", "", "512G"),                                                     # 8 x 64G base
+    ("python3 -m sglang.launch_server --hicache-size 128", "", "1536G"),              # + 128G/rank
+    ("python3 -m sglang.launch_server --hicache-size=48", "A=1\nMOONCAKE_GLOBAL_SEGMENT_SIZE=103079215104", "1664G"),
+    ("python3 -m sglang.launch_server --hicache-size 128", "MOONCAKE_GLOBAL_SEGMENT_SIZE=68719476736", "1950G"),  # cap
+])
+def test_salloc_leaves_room_on_the_node(tmp_path, serve_cmd, serve_env, mem):
+    """8-GPU jobs must not take the whole node (192 CPU / ~2000G): size from GPUs + host KV pools."""
+    calls, _ = run_launcher(tmp_path, {"SERVE_CMD": serve_cmd, "SERVE_ENV": serve_env})
+    salloc = next(c for c in calls if c[0] == "salloc")
+    assert "--cpus-per-task=64" in salloc and f"--mem={mem}" in salloc, salloc
