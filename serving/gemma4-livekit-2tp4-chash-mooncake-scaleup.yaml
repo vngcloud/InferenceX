@@ -1,0 +1,61 @@
+# Scale-up under live traffic: Gemma-4-31B FP8-block, 2x TP4 vllm serve (v0.30.0) behind vllm-router
+# consistent_hash, LiveKit 111868 v2. Engine flags as gemma4-livekit-2tp4-chash-v1-ret1024-mbt16k-thr0
+# (run 39150401587) plus MooncakeStoreConnector on a same-node Mooncake master (storage: block);
+# scenario and conc as gemma4-livekit-tp8-v2-ret1024-mbt16k-thr0-fill (run 39150391324, 1x TP8).
+# Engine 2 loads with engine 1 but stays out of the router (scale_up); warm-up and the first 600 s of
+# profiling go to engine 1 alone, which writes every prefix to Mooncake. Then the router's
+# POST /add_worker adds engine 2: the hash ring rebuilds and ~half the live rooms (keyed on aiperf's
+# per-conversation x-correlation-id) move to it mid-conversation, cold on GPU but warm in Mooncake.
+# utils/serving/scale_up_ttft.py splits TTFT p95 around that moment.
+# Mooncake: embedded mode (each engine rank gives 32 GiB to the pool, 8 ranks = 256 GiB), TCP over
+# the node IP (these boxes' RoCE NICs are not mlx5; the glm53 Mooncake arms run tcp too).
+name: gemma4-livekit-2tp4-chash-mooncake-scaleup
+runner: hardware-hcm-8x_01
+image: vllm/vllm-openai:v0.30.0
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+  # no nvidia-peermem on these hosts; TCP does not register GPU memory anyway
+  WITH_NVIDIA_PEERMEM: "0"
+  IX_MOONCAKE_STORE_CONFIG: '{"mode": "embedded", "metadata_server": "P2PHANDSHAKE", "master_server_address": "127.0.0.1:{{storage_master_port}}", "protocol": "tcp", "device_name": "", "global_segment_size": 34359738368, "local_buffer_size": 4294967296}'
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 16384
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 0
+  --prefix-cache-retention-interval 1024
+  --kv-cache-metrics
+  --enable-prompt-tokens-details
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+  --kv-transfer-config '{"kv_connector": "MooncakeStoreConnector", "kv_role": "kv_both", "kv_load_failure_policy": "recompute"}'
+storage:
+  image: vllm/vllm-openai:v0.30.0
+  serve: |
+    mooncake_master
+    --port={{storage_master_port}}
+    --eviction_high_watermark_ratio=0.95
+router:
+  image: vllm/vllm-openai:v0.30.0
+  metrics_port: 29000
+  serve: >-
+    bash -c "python3 -m pip install -q vllm-router==0.1.14
+    && exec vllm-router --host 0.0.0.0 --port {{router_port}}
+    --worker-urls {{engine_urls}} --policy consistent_hash
+    --prometheus-host 127.0.0.1 --prometheus-port 29000
+    --request-timeout-secs 14400 --disable-retries"
+scale_up:
+  replicas: 1
+  after: 600
+scenario: custom-agentic-livekit111868-v2
+conc: [4, 8, 48]

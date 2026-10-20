@@ -78,6 +78,22 @@ router:
     --prometheus-host 127.0.0.1 --prometheus-port 29000
     --request-timeout-secs 14400 --disable-retries"
 ```
+
+### 负载下扩容（scale_up）
+
+`scale_up:` 让最后 N 个副本不进入 `{{engine_urls}}`。它们与其他副本一起加载并通过健康检查。aiperf profiling 阶段开始 `after` 秒后，通过路由的 `POST /add_worker` 加入；vllm-router 与 sglang-router 有该接口，Dynamo frontend 没有。结果中的 `scale_up.jsonl` 记录每个副本的加入时间。
+
+```yaml
+replicas: 2
+scale_up:
+  replicas: 1   # 晚加入的副本数
+  after: 600    # profiling 开始后的秒数；须在场景时长之内
+```
+
+用 `python3 utils/serving/scale_up_ttft.py <agentic_ 产物目录> [--slo-ms 1000]` 读取结果：按加入前后的时间窗输出 TTFT，并根据 consistent_hash 的 `router.log` 区分留下与迁移的请求。示例：`serving/gemma4-livekit-2tp4-chash-mooncake-scaleup.yaml`。
+
+vLLM 的 `MooncakeStoreConnector` 从文件读取存储配置。改为在 `env: IX_MOONCAKE_STORE_CONFIG` 中给出 JSON（可用 `{{storage_master_port}}`）。recipe 将其写入 `mooncake_store_config.json` 并设置 `MOONCAKE_CONFIG_PATH`。
+
 ## Sweep 场景
 
 `scenarios/sweep-*.yaml` 系列（由 [`utils/serving/gen_sweep_scenarios.py`](../utils/serving/gen_sweep_scenarios.py) 生成，请勿手改）在合成的 ISL/OSL/缓存命中网格上对同一个 serving 配置进行基准测试：ISL {8k, 32k, 64k, 128k} × OSL {512, 1k} × 前缀缓存命中 {0, 50, 90}% —— 共 24 个场景，命名为 `sweep-isl<isl>-osl<osl>-cache<cache>`。每个场景带有 AIPerf `adaptive_search` sweep：没有固定的 `conc` 值，AIPerf 在任务内探测并发区间并搜索满足 SLO 的最高并发，因此 serving YAML 以 `conc: 1` 运行它们。

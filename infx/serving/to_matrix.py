@@ -172,6 +172,8 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
             "router-profile": rendered["router-profile"],
             "router-metrics-port": rendered["router-metrics-port"],
             "replicas": str(spec.replicas),
+            "scale-up-replicas": str(spec.scale_up.replicas) if spec.scale_up else "",
+            "scale-up-after": f"{spec.scale_up.after:g}" if spec.scale_up else "",
             "storage-image": rendered["storage-image"],
             "storage-cmd": rendered["storage-cmd"],
             "storage-env": rendered["storage-env"],

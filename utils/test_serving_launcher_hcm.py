@@ -133,6 +133,8 @@ def test_generic_router_gets_engine_port_and_no_dynamo_env(tmp_path):
     ("python3 -m sglang.launch_server --hicache-size 128", "", "1536G"),              # + 128G/rank
     ("python3 -m sglang.launch_server --hicache-size=48", "A=1\nMOONCAKE_GLOBAL_SEGMENT_SIZE=103079215104", "1664G"),
     ("python3 -m sglang.launch_server --hicache-size 128", "MOONCAKE_GLOBAL_SEGMENT_SIZE=68719476736", "1950G"),  # cap
+    # vLLM MooncakeStoreConnector: segment size from the inline store config
+    ("vllm serve m", 'A=1\nIX_MOONCAKE_STORE_CONFIG={"mode": "embedded", "global_segment_size": 34359738368}', "768G"),
 ])
 def test_salloc_leaves_room_on_the_node(tmp_path, serve_cmd, serve_env, mem):
     """8-GPU jobs must not take the whole node (192 CPU / ~2000G): size from GPUs + host KV pools."""

@@ -346,6 +346,31 @@ def test_replicas_errors(text, error):
     assert error in errors(text)
 
 
+SCALE_UP_YAML = REPLICAS_YAML.replace("conc: [8]\n", "conc: [8]\nscale_up:\n  replicas: 1\n  after: 60\n")
+
+
+def test_scale_up_loads():
+    spec = load_serving(SCALE_UP_YAML)
+    assert (spec.scale_up.replicas, spec.scale_up.after) == (1, 60)
+
+
+@pytest.mark.parametrize("text, error", [
+    (SCALE_UP_YAML.replace("  replicas: 1\n", "  replicas: 2\n"), "scale_up.replicas: 2 must be below replicas 2"),
+    (SCALE_UP_YAML.replace("after: 60", "after: 180"), "scale_up.after: 180s is not inside scenario agentx-cc-062126-smoke's 180s"),
+    (SCALE_UP_YAML.replace("after: 60", "after: 0"), "scale_up.after: Input should be greater than 0"),
+    (SCALE_UP_YAML.replace("after: 60", "after: 60\n  at: 1"), "scale_up.at: unknown key (allowed: replicas, after)"),
+    (REPLICAS_YAML.split("router:")[0] + "scenario: agentx-cc-062126-smoke\nconc: [8]\nscale_up: {replicas: 1, after: 60}\n",
+     "scale_up: needs a router: block with an /add_worker endpoint"),
+], ids=["all-late", "after-past-end", "zero-after", "unknown-key", "no-router"])
+def test_scale_up_errors(text, error):
+    assert error in errors(text)
+
+
+def test_scale_up_needs_add_worker_router():
+    text = dynamo().replace("gpus: 8", "gpus: 8\nscale_up: {replicas: 1, after: 60}")
+    assert "scale_up: needs a router: block with an /add_worker endpoint" in errors(text)
+
+
 def test_env_rejects_router_placeholders_even_with_storage():
     text = with_storage().replace(
         "gpus: 8",

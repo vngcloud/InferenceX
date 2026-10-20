@@ -244,26 +244,29 @@ def test_serve_generic_offline_env_scoped_to_engine(tmp_path):
     assert "REPLAY HF_HUB_OFFLINE=unset TRANSFORMERS_OFFLINE=unset HF_DATASETS_OFFLINE=unset" in calls
 
 
-@pytest.mark.parametrize("ports, urls", [
-    ("9200 9201", "http://127.0.0.1:9200 http://127.0.0.1:9201"),
-    (None, "http://127.0.0.1:9200"),
-], ids=["replicas", "single-engine"])
-def test_serve_router_expands_engine_urls(tmp_path, ports, urls):
+@pytest.mark.parametrize("ports, late, urls", [
+    ("9200 9201", "", "http://127.0.0.1:9200 http://127.0.0.1:9201"),
+    (None, None, "http://127.0.0.1:9200"),
+    ("9200 9201 9202", "2", "http://127.0.0.1:9200"),
+], ids=["replicas", "single-engine", "scale-up-leaves-late-out"])
+def test_serve_router_expands_engine_urls(tmp_path, ports, late, urls):
     cmd = "python3 -c 'import sys; print(*sys.argv[1:])' --worker-urls {{engine_urls}}"
-    out = run_generic_router(tmp_path, ROUTER_CMD=cmd, ENGINE_PORTS=ports)
+    out = run_generic_router(tmp_path, ROUTER_CMD=cmd, ENGINE_PORTS=ports, SCALE_UP_REPLICAS=late)
     assert out.returncode == 0, out.stderr
     assert out.stdout.splitlines()[-1] == f"--worker-urls {urls}"
 
 
-def run_generic_replicas(tmp_path, **extra):
+def run_generic_replicas(tmp_path, stub_lib=STUB_LIB, **extra):
     lib = tmp_path / "benchmarks"
     (lib / "single_node/agentic").mkdir(parents=True)
-    (lib / "benchmark_lib.sh").write_text(STUB_LIB)
+    (lib / "benchmark_lib.sh").write_text(stub_lib)
     script = lib / "single_node/agentic/serve_generic.sh"
     script.write_text(GENERIC.read_text())
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, body in {"nvidia-smi": "", "engine": f'echo "$CUDA_VISIBLE_DEVICES $*" >> {tmp_path}/engines\nsleep 30\n'}.items():
+    engine = (f'echo "$CUDA_VISIBLE_DEVICES $*" >> {tmp_path}/engines\n'
+              f'echo "MOONCAKE_CONFIG_PATH=$MOONCAKE_CONFIG_PATH" > {tmp_path}/engine_env\nsleep 30\n')
+    for name, body in {"nvidia-smi": "", "engine": engine}.items():
         (bin_dir / name).write_text("#!/bin/sh\n" + body)
         (bin_dir / name).chmod(0o755)
     env = {
@@ -294,6 +297,50 @@ def test_serve_generic_replicas_split_gpus_ports_and_logs(tmp_path):
     assert "WAIT frontend --port 8888 --model RedHatAI/gemma-4-31B-it-FP8-block" in calls
     assert "METRICS http://localhost:8888/metrics,http://localhost:9200/metrics,http://localhost:9201/metrics" in calls
     assert (tmp_path / "results/server_command.1.txt").read_text().strip().endswith("--port 9201")
+
+
+@pytest.fixture
+def add_worker_router():
+    posts = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            posts.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Successfully added worker")
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"urls": []}')
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield server.server_address[1], posts
+    server.shutdown()
+
+
+def test_serve_generic_scale_up_adds_late_engine_after_profiling_starts(tmp_path, add_worker_router):
+    port, posts = add_worker_router
+    # the stub replay logs aiperf's profiling start, then outlives SCALE_UP_AFTER
+    replay = ('run_agentic_replay_and_write_outputs() { mkdir -p "$1/aiperf_artifacts/logs"; '
+              'echo "PhaseRunner - NOTICE - Phase profiling (profiling) started" > "$1/aiperf_artifacts/logs/aiperf.log"; sleep 3; }')
+    out = run_generic_replicas(
+        tmp_path, stub_lib=STUB_LIB.replace("run_agentic_replay_and_write_outputs() { :; }", replay),
+        PORT=str(port), SCALE_UP_REPLICAS="1", SCALE_UP_AFTER="0.5", STORAGE_MASTER_PORT="50051",
+        SERVE_ENV='IX_MOONCAKE_STORE_CONFIG={"master_server_address": "127.0.0.1:{{storage_master_port}}"}\n',
+    )
+    assert out.returncode == 0, out.stderr
+    assert posts == ["/add_worker?url=http://127.0.0.1:9201"]
+    joined = [json.loads(line) for line in (tmp_path / "results/scale_up.jsonl").read_text().splitlines()]
+    assert [j["url"] for j in joined] == ["http://127.0.0.1:9201"] and joined[0]["added_ns"] > 0
+    config = tmp_path / "results/mooncake_store_config.json"
+    assert json.loads(config.read_text()) == {"master_server_address": "127.0.0.1:50051"}
+    assert f"MOONCAKE_CONFIG_PATH={config}" in (tmp_path / "engine_env").read_text()
 
 
 def test_serve_generic_replicas_need_one_port_each(tmp_path):

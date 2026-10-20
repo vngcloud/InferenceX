@@ -21,6 +21,7 @@ umask 0000
 #   ROUTER_METRICS_PORT generic router: its /metrics port, empty = the router port
 #   ENGINE_PORT        generic router: the engine's HTTP port (launcher)
 #   DYN_SYSTEM_PORT    Dynamo engine metrics/health port (launcher)
+#   SCALE_UP_REPLICAS, SCALE_UP_AFTER  scale_up: the last N replicas join the router N seconds into profiling
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -42,6 +43,13 @@ if [[ -n "${SERVE_ENV:-}" ]]; then
             echo "serve env: ${assignment%%=*}"
         fi
     done <<< "$SERVE_ENV"
+fi
+# vLLM's MooncakeStoreConnector reads its store config from a file (MOONCAKE_CONFIG_PATH); a
+# serving YAML gives it inline as IX_MOONCAKE_STORE_CONFIG, storage ports already expanded above.
+if [[ -n "${IX_MOONCAKE_STORE_CONFIG:-}" ]]; then
+    printf '%s\n' "$IX_MOONCAKE_STORE_CONFIG" > "$RESULT_DIR/mooncake_store_config.json"
+    export MOONCAKE_CONFIG_PATH="$RESULT_DIR/mooncake_store_config.json"
+    echo "serve env: MOONCAKE_CONFIG_PATH (from IX_MOONCAKE_STORE_CONFIG)"
 fi
 set -x
 
@@ -146,6 +154,36 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
         --server-log "$SERVER_LOG" --server-pid "$SERVER_PID" --router-exited "$RESULT_DIR/.router_exited"
 else
     wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+fi
+
+# scale_up: the last SCALE_UP_REPLICAS engines are loaded and healthy (waited above) but left out
+# of the router's {{engine_urls}}. SCALE_UP_AFTER seconds after aiperf starts its profiling phase
+# they join through the router's POST /add_worker; scale_up.jsonl records when, for
+# utils/serving/scale_up_ttft.py.
+if (( ${SCALE_UP_REPLICAS:-0} > 0 )); then
+    check_env_vars SCALE_UP_AFTER
+    read -r -a engine_ports <<< "${ENGINE_PORTS:-}"
+    late_ports=("${engine_ports[@]: -$SCALE_UP_REPLICAS}")
+    rm -f "$RESULT_DIR/scale_up.jsonl"
+    (
+        aiperf_log="$RESULT_DIR/aiperf_artifacts/logs/aiperf.log"
+        until grep -q "Phase profiling (profiling) started" "$aiperf_log" 2>/dev/null; do
+            kill -0 $$ 2>/dev/null || exit 0   # the recipe ended before profiling started
+            sleep 1
+        done
+        echo "scale_up: profiling started; adding ${late_ports[*]} in ${SCALE_UP_AFTER}s"
+        sleep "$SCALE_UP_AFTER"
+        for late_port in "${late_ports[@]}"; do
+            url="http://127.0.0.1:$late_port"
+            added_ns="$(date +%s%N)"
+            response="$(curl -sS -X POST "http://127.0.0.1:$PORT/add_worker?url=$url" 2>&1)" || true
+            printf '{"url": "%s", "added_ns": %s, "response": %s}\n' "$url" "$added_ns" \
+                "$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
+                >> "$RESULT_DIR/scale_up.jsonl"
+            echo "scale_up: added $url: $response"
+        done
+        echo "scale_up: router workers: $(curl -sS "http://127.0.0.1:$PORT/list_workers" 2>&1)"
+    ) &
 fi
 
 # offline mode is for the engine (it already inherited it); the aiperf client must reach the Hub to load the trace dataset

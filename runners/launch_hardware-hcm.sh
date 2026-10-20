@@ -112,8 +112,11 @@ alloc_mem_gb() {
     { set +x; } 2>/dev/null   # SERVE_ENV may hold tokens
     local hicache=0 segment=0 total
     local hicache_re='--hicache-size[= ]+([0-9]+)' segment_re='MOONCAKE_GLOBAL_SEGMENT_SIZE=([0-9]+)'
+    # vLLM MooncakeStoreConnector: the segment size (bytes, per rank) is in the inline store config
+    local store_segment_re='IX_MOONCAKE_STORE_CONFIG=.*"global_segment_size": *"?([0-9]+)'
     [[ "${SERVE_CMD:-}" =~ $hicache_re ]] && hicache="${BASH_REMATCH[1]}"
     [[ "${SERVE_ENV:-}" =~ $segment_re ]] && segment=$(( BASH_REMATCH[1] / 1024 ** 3 ))
+    [[ "${SERVE_ENV:-}" =~ $store_segment_re ]] && segment=$(( BASH_REMATCH[1] / 1024 ** 3 ))
     # ponytail: one engine rank per GPU, overestimates pools sglang splits across attn-tp ranks; the cap absorbs it.
     total=$(( GPU_COUNT * (64 + hicache + segment) ))
     echo $(( total > 1950 ? 1950 : total ))

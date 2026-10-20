@@ -704,6 +704,8 @@ PY
 
 # Serving-YAML generic router: fill {{router_port}}, {{engine_port}}, {{engine_url}},
 # {{engine_urls}} (every replica's URL) in $1 from $PORT and $ENGINE_PORT / $ENGINE_PORTS.
+# With scale_up (SCALE_UP_REPLICAS) the last N replicas are left out of {{engine_urls}}:
+# serve_generic.sh adds them to the router later.
 # Plain string replacement; nothing is evaluated, and any other {{...}} (inline Jinja)
 # is left as it is.
 expand_router_placeholders() {
@@ -712,7 +714,9 @@ expand_router_placeholders() {
     text="${text//\{\{engine_port\}\}/$ENGINE_PORT}"
     text="${text//\{\{engine_url\}\}/http://127.0.0.1:$ENGINE_PORT}"
     local urls="" engine_port
-    for engine_port in ${ENGINE_PORTS:-$ENGINE_PORT}; do
+    local -a engine_ports
+    read -r -a engine_ports <<< "${ENGINE_PORTS:-$ENGINE_PORT}"
+    for engine_port in "${engine_ports[@]:0:${#engine_ports[@]}-${SCALE_UP_REPLICAS:-0}}"; do
         urls+="${urls:+ }http://127.0.0.1:$engine_port"
     done
     text="${text//\{\{engine_urls\}\}/$urls}"

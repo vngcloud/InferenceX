@@ -77,6 +77,8 @@ def test_serving_object():
         "router-profile": "",
         "router-metrics-port": "",
         "replicas": "1",
+        "scale-up-replicas": "",
+        "scale-up-after": "",
         "storage-image": "",
         "storage-cmd": "",
         "storage-env": "",
@@ -85,7 +87,7 @@ def test_serving_object():
 
 GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
 NEW_SERVING_FIELDS = (
-    "router-profile", "router-metrics-port", "replicas",
+    "router-profile", "router-metrics-port", "replicas", "scale-up-replicas", "scale-up-after",
     "storage-image", "storage-cmd", "storage-env",
     "search",  # sweep scenarios; the goldens predate it
     "scenario-map",  # per-row scenario payloads; the goldens predate it
@@ -172,6 +174,9 @@ def test_replicas_travel_in_serving_and_tp_stays_total():
     assert result["serving"]["replicas"] == "2"
     assert {row["tp"] for row in result["matrix"]} == {2}
     assert "{{engine_urls}}" in result["serving"]["router-cmd"]
+    assert (result["serving"]["scale-up-replicas"], result["serving"]["scale-up-after"]) == ("", "")
+    scaled = build(text + "scale_up:\n  replicas: 1\n  after: 90.5\n")["serving"]
+    assert (scaled["scale-up-replicas"], scaled["scale-up-after"]) == ("1", "90.5")
 
 
 def test_title():

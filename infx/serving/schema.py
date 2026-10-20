@@ -58,6 +58,8 @@ RESERVED_ENV = (
     "ENGINE_PORT",
     "ENGINE_PORTS",
     "REPLICAS",
+    "SCALE_UP_REPLICAS",
+    "SCALE_UP_AFTER",
     # Storage sidecar (Mooncake master etc.): set by runners/launch_hardware-hcm.sh.
     "STORAGE_IMAGE",
     "STORAGE_CMD",
@@ -147,6 +149,18 @@ class StorageSpec(BaseModel):
         return _coerce_env(value)
 
 
+class ScaleUpSpec(BaseModel):
+    """The last `replicas` engines start loaded but outside the router; `after` seconds into
+    aiperf's profiling phase serve_generic.sh adds them with the router's POST /add_worker
+    (vllm-router / sglang-router). Emulates a scale-up under live traffic.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    replicas: int = Field(ge=1)
+    after: float = Field(gt=0)
+
+
 class ServingSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -161,6 +175,7 @@ class ServingSpec(BaseModel):
     serve: str = Field(min_length=1)
     router: RouterSpec | None = None
     storage: StorageSpec | None = None
+    scale_up: ScaleUpSpec | None = None
     scenario: str | list[Annotated[str, Field(pattern=NAME_PATTERN)]] = Field(
         min_length=1,
         description="One scenario name, or a list: one benchmark job per scenario in a single run"
@@ -209,6 +224,8 @@ def _format_validation_error(error: ValidationError) -> str:
                 model = RouterSpec
             elif item["loc"][:1] == ("storage",):
                 model = StorageSpec
+            elif item["loc"][:1] == ("scale_up",):
+                model = ScaleUpSpec
             else:
                 model = ServingSpec
             message = "unknown key (allowed: " + ", ".join(model.model_fields) + ")"
@@ -369,9 +386,34 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             problems.append(
                 "replicas: the Dynamo frontend discovers its engines itself; use replicas: 1"
             )
-    from infx.serving.to_matrix import is_sweep  # local import: to_matrix imports this module
+    from infx.serving.to_matrix import is_sweep, scenario_facts  # local import: to_matrix imports this module
 
     scenarios = [spec.scenario] if isinstance(spec.scenario, str) else list(spec.scenario)
+    if spec.scale_up:
+        if spec.scale_up.replicas >= spec.replicas:
+            problems.append(
+                f"scale_up.replicas: {spec.scale_up.replicas} must be below replicas {spec.replicas}; "
+                "at least one engine serves from the start"
+            )
+        if spec.router is None or "dynamo.frontend" in spec.router.serve:
+            problems.append(
+                "scale_up: needs a router: block with an /add_worker endpoint (vllm-router, sglang-router)"
+            )
+        for scenario in scenarios:
+            if not (repo / "scenarios" / f"{scenario}.yaml").is_file():
+                continue
+            if is_sweep(scenario, repo):
+                problems.append(f"scale_up: not with sweep scenario {scenario}")
+                continue
+            try:
+                duration, _ = scenario_facts(scenario, repo)
+            except ServingError:
+                continue  # build() reports the malformed scenario
+            if spec.scale_up.after >= duration:
+                problems.append(
+                    f"scale_up.after: {spec.scale_up.after:g}s is not inside scenario {scenario}'s "
+                    f"{duration}s profiling phase"
+                )
     if not isinstance(spec.scenario, str):
         if len(set(spec.scenario)) != len(spec.scenario):
             problems.append("scenario: duplicate values")
