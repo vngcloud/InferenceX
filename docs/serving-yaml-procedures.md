@@ -61,6 +61,10 @@ The first run of a large model spends extra time downloading it and uses node di
    The script runs the same validation CI runs. On `ERROR <field>: <fix>` lines nothing was dispatched: fix the YAML and rerun. On success it prints the run URL. Use `--ref <branch>` to dispatch a branch other than the current one.
 4. Do not redispatch if the script reports that the run did not show up; check `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` first.
 
+### Host CPU / RAM (hardware-hcm)
+
+The `hardware-hcm-8x_*` launcher takes 8 CPUs + 64 GB RAM per GPU plus the engines' host KV pools (`--hicache-size`, `MOONCAKE_GLOBAL_SEGMENT_SIZE`), capped at 1950 GB. A YAML can override both with `host_cpus` / `host_mem_gb` (whole job: engines, router, sidecars, aiperf), e.g. 2× TP4 vLLM Gemma-4-31B at c96 peaks at ~70 GB: `host_cpus: 64`, `host_mem_gb: 192`. Slurm does not enforce `--mem` here, so asking for less than the peak oversubscribes the node.
+
 ### Replicas
 
 Several copies of one engine (e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.

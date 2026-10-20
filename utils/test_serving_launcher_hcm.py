@@ -152,3 +152,13 @@ def test_dynamo_replicas_get_distinct_system_and_kv_event_ports(tmp_path):
     assert all(0 < int(p) <= 32767 for p in system)
     bench = {line.split()[2] for line in envlog.splitlines() if line.split()[0] == "file" and line.split()[2] != "none"}
     assert bench == {system[0]}
+
+
+@pytest.mark.parametrize("extra, cpus, mem", [
+    ({}, "64", "512G"),
+    ({"HOST_CPUS": "48", "HOST_MEM_GB": "256"}, "48", "256G"),
+], ids=["measured-default", "yaml-sized"])
+def test_salloc_host_resources(tmp_path, extra, cpus, mem):
+    calls, _ = run_launcher(tmp_path, {"SERVE_CMD": "python3 -m dynamo.sglang --model-path=m", **extra})
+    salloc = next(c for c in calls if c[0] == "salloc")
+    assert f"--cpus-per-task={cpus}" in salloc and f"--mem={mem}" in salloc

@@ -77,6 +77,8 @@ def test_serving_object():
         "router-profile": "",
         "router-metrics-port": "",
         "replicas": "1",
+        "host-cpus": "",
+        "host-mem-gb": "",
         "storage-image": "",
         "storage-cmd": "",
         "storage-env": "",
@@ -85,7 +87,7 @@ def test_serving_object():
 
 GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
 NEW_SERVING_FIELDS = (
-    "router-profile", "router-metrics-port", "replicas",
+    "router-profile", "router-metrics-port", "replicas", "host-cpus", "host-mem-gb",
     "storage-image", "storage-cmd", "storage-env",
     "search",  # sweep scenarios; the goldens predate it
     "scenario-map",  # per-row scenario payloads; the goldens predate it

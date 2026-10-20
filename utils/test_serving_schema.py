@@ -384,3 +384,18 @@ def test_non_sweep_scenario_keeps_conc_rule_unchanged(sweep_repo):
     text = with_line("conc: [4, 8]", "conc: [8, 16]")
     spec = load_serving(text, sweep_repo)
     assert spec.conc == [8, 16]
+
+
+def test_host_resources_load_on_hardware_hcm():
+    spec = load_serving(DYNAMO_VLLM_REPLICAS.replace("replicas: 2", "replicas: 2\nhost_cpus: 64\nhost_mem_gb: 256"))
+    assert (spec.host_cpus, spec.host_mem_gb) == (64, 256)
+    assert load_serving(DYNAMO_VLLM_REPLICAS).host_cpus is None
+
+
+@pytest.mark.parametrize("text, error", [
+    (GOOD.replace("gpus: 1", "gpus: 1\nhost_cpus: 16"), "host_cpus/host_mem_gb: only the hardware-hcm-8x_* launcher"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nhost_cpus: 2"), "host_cpus: Input should be greater than or equal to 4"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nhost_mem_gb: 8"), "host_mem_gb: Input should be greater than or equal to 16"),
+], ids=["other-runner", "cpus-too-small", "mem-too-small"])
+def test_host_resources_errors(text, error):
+    assert error in errors(text)

@@ -61,6 +61,10 @@
    脚本执行与 CI 相同的校验。出现 `ERROR <field>: <fix>` 时不会派发任何任务：修改 YAML 后重新运行。成功时会输出运行 URL。使用 `--ref <branch>` 可派发当前分支以外的分支。
 4. 如果脚本提示运行未出现，不要重复派发；先执行 `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` 检查。
 
+### 主机 CPU / 内存（hardware-hcm）
+
+`hardware-hcm-8x_*` 启动器默认每块 GPU 申请 8 个 CPU + 64 GB 内存，再加上引擎的主机 KV 池（`--hicache-size`、`MOONCAKE_GLOBAL_SEGMENT_SIZE`），上限 1950 GB。YAML 可用 `host_cpus` / `host_mem_gb` 覆盖两者（整个作业：引擎、路由、sidecar、aiperf），例如 2× TP4 vLLM Gemma-4-31B c96 峰值约 70 GB：`host_cpus: 64`、`host_mem_gb: 192`。这里 Slurm 不强制 `--mem`，申请低于峰值会导致节点超分。
+
 ### 副本（replicas）
 
 「**副本（replicas）**」：同一引擎的多个副本（如 2×TP1）。设置 `replicas: N`，`gpus` = N × 每个引擎的 GPU 数；路由命令用 `{{engine_urls}}`（空格分隔的 URL）列出全部引擎。不支持 Dynamo frontend。
