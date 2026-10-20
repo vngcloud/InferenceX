@@ -160,3 +160,13 @@ def test_salloc_counts_vllm_kv_offload_per_replica(tmp_path):
                                        "SERVE_ENV": "", "REPLICAS": "2"})
     salloc = next(c for c in calls if c[0] == "salloc")
     assert "--mem=1536G" in salloc, salloc
+
+
+@pytest.mark.parametrize("extra, cpus, mem", [
+    ({}, "64", "512G"),
+    ({"HOST_CPUS": "48", "HOST_MEM_GB": "256"}, "48", "256G"),
+], ids=["measured-default", "yaml-sized"])
+def test_salloc_host_resources(tmp_path, extra, cpus, mem):
+    calls, _ = run_launcher(tmp_path, {"SERVE_CMD": "python3 -m dynamo.sglang --model-path=m", **extra})
+    salloc = next(c for c in calls if c[0] == "salloc")
+    assert f"--cpus-per-task={cpus}" in salloc and f"--mem={mem}" in salloc

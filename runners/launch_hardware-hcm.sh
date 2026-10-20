@@ -120,10 +120,11 @@ alloc_mem_gb() {
     total=$(( GPU_COUNT * (64 + hicache + segment) + offload * ${REPLICAS:-1} ))
     echo $(( total > 1950 ? 1950 : total ))
 }
+# A serving YAML's host_cpus / host_mem_gb (HOST_CPUS / HOST_MEM_GB) override both.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 8)) --mem="$(alloc_mem_gb)"G \
+    --cpus-per-task="${HOST_CPUS:-$((GPU_COUNT * 8))}" --mem="${HOST_MEM_GB:-$(alloc_mem_gb)}G" \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then

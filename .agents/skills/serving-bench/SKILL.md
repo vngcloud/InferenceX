@@ -16,6 +16,8 @@ image: vllm/vllm-openai:v0.29.0     # required
 model: Qwen/Qwen3.8-27B             # HF repo id, never a local path
 gpus: 1                             # GPUs the command needs
 replicas: 1                         # optional: N engine copies, gpus/N GPUs each; N > 1 needs router: with {{engine_urls}}
+host_cpus: 64                       # optional, hardware-hcm-8x_* only: job CPUs / RAM GB (default 24 CPU + 240 GB per GPU,
+host_mem_gb: 192                    #   a whole node at 8 GPUs); keep the default for HiCache/Mooncake host tiers
 precision: bf16                     # optional (bf16 default), naming only
 env:                                # optional, the engine's env vars; quote booleans
   PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
