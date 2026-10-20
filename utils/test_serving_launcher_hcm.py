@@ -152,3 +152,11 @@ def test_salloc_leaves_room_on_the_node(tmp_path, serve_cmd, serve_env, mem):
     calls, _ = run_launcher(tmp_path, {"SERVE_CMD": serve_cmd, "SERVE_ENV": serve_env})
     salloc = next(c for c in calls if c[0] == "salloc")
     assert "--cpus-per-task=64" in salloc and f"--mem={mem}" in salloc, salloc
+
+
+def test_salloc_counts_vllm_kv_offload_per_replica(tmp_path):
+    """--kv-offloading-size is GiB summed over one engine's TP ranks: 2 replicas x 512 + 8 x 64 base."""
+    calls, _ = run_launcher(tmp_path, {"SERVE_CMD": "python3 -m dynamo.vllm --kv-offloading-size 512",
+                                       "SERVE_ENV": "", "REPLICAS": "2"})
+    salloc = next(c for c in calls if c[0] == "salloc")
+    assert "--mem=1536G" in salloc, salloc

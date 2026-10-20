@@ -104,18 +104,20 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # hgx-h200-01/02: 192 CPUs / ~2000G RAM over 8 GPUs. Sized from measured use
 # (sacct, 276 jobs, 2026-10): <=2.8 cores and <=44G engine base per GPU, plus
 # the per-rank host KV pools (sglang --hicache-size GB, MOONCAKE_GLOBAL_SEGMENT_SIZE
-# bytes). The old 24 CPU/240G per GPU took the whole node on 8-GPU jobs, so any
+# bytes) and vLLM's --kv-offloading-size (GiB summed over the engine's TP ranks, one per replica). The old 24 CPU/240G per GPU took the whole node on 8-GPU jobs, so any
 # other user's 1-CPU `srun ls` blocked us and we blocked them.
 # Slurm here does not enforce --mem (ConstrainRAMSpace=no): under-asking means the
 # node gets oversubscribed and the kernel OOM-kills the engine, so this must cover peak.
 alloc_mem_gb() {
     { set +x; } 2>/dev/null   # SERVE_ENV may hold tokens
-    local hicache=0 segment=0 total
+    local hicache=0 segment=0 offload=0 total
     local hicache_re='--hicache-size[= ]+([0-9]+)' segment_re='MOONCAKE_GLOBAL_SEGMENT_SIZE=([0-9]+)'
+    local offload_re='--kv-offloading-size[= ]+([0-9]+)'
     [[ "${SERVE_CMD:-}" =~ $hicache_re ]] && hicache="${BASH_REMATCH[1]}"
+    [[ "${SERVE_CMD:-}" =~ $offload_re ]] && offload="${BASH_REMATCH[1]}"
     [[ "${SERVE_ENV:-}" =~ $segment_re ]] && segment=$(( BASH_REMATCH[1] / 1024 ** 3 ))
     # ponytail: one engine rank per GPU, overestimates pools sglang splits across attn-tp ranks; the cap absorbs it.
-    total=$(( GPU_COUNT * (64 + hicache + segment) ))
+    total=$(( GPU_COUNT * (64 + hicache + segment) + offload * ${REPLICAS:-1} ))
     echo $(( total > 1950 ? 1950 : total ))
 }
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \

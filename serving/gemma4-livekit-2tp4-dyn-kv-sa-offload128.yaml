@@ -1,0 +1,45 @@
+# Arm of gemma4-livekit-2tp4-dyn-kv-sa (+ native CPU KV offload, 128 GiB/GPU = 512 GiB per TP4 replica; size is the TP total).
+# Gemma-4-31B FP8-block, 2x TP4 dynamo.vllm workers (vLLM 0.31.0) behind the Dynamo frontend KV
+# router, LiveKit 111868 v1. Engine flags as the 2tp4 vllm-router arms; image: benchmarks/dynamo-vllm.
+# Router cost = prefill_load_scale x (queued + own uncached prefill) + KV tokens in use; scale 16 keeps
+# ~20k-token rooms on their worker. Hard session affinity pins every later turn of a room to the worker
+# its first turn went to (x-dynamo-session-id = aiperf's per-conversation X-Correlation-ID).
+# The frontend renders chat with its Rust preprocessor (no --dyn-chat-processor): the vLLM processor
+# drops the session id before the router and adds ~0.1 s per request; the gemma4 tool/reasoning
+# parsers go on the workers (--dyn-*-parser). Selector debug logs every decision's per-worker costs.
+# Slurm reference (rbench, same flags, c96 x3): TTFT p95 0.66 / 0.64 / 0.65 s, 0 errors.
+name: gemma4-livekit-2tp4-dyn-kv-sa-offload128
+runner: hardware-hcm-8x_02
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+serve: |
+  python3 -m dynamo.vllm
+  --model RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 16384
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 8192
+  --kv-cache-metrics
+  --kv-offloading-size 512
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+scenario: custom-agentic-livekit111868-v1
+conc: [96]
