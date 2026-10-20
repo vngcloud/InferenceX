@@ -104,10 +104,12 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # hgx-h200-01/02: 192 CPUs / ~2TB RAM over 8 GPUs (confirmed via
 # `sinfo -N -p hardware-hcm -o '%N %c %m %G'`) -- same 24 CPU/GPU ratio as
 # h200-greennode, sized proportionally so two allocations can share a node.
+# A serving YAML's host_cpus / host_mem_gb (HOST_CPUS / HOST_MEM_GB) ask for less, leaving
+# the rest of the node to other users' jobs.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 24)) --mem=$((GPU_COUNT * 240))G \
+    --cpus-per-task="${HOST_CPUS:-$((GPU_COUNT * 24))}" --mem="${HOST_MEM_GB:-$((GPU_COUNT * 240))}G" \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then

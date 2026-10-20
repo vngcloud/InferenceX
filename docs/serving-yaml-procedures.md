@@ -61,6 +61,10 @@ The first run of a large model spends extra time downloading it and uses node di
    The script runs the same validation CI runs. On `ERROR <field>: <fix>` lines nothing was dispatched: fix the YAML and rerun. On success it prints the run URL. Use `--ref <branch>` to dispatch a branch other than the current one.
 4. Do not redispatch if the script reports that the run did not show up; check `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` first.
 
+### Host CPU / RAM (hardware-hcm)
+
+The `hardware-hcm-8x_*` launcher takes 24 CPUs + 240 GB RAM per GPU unless the YAML sets `host_cpus` / `host_mem_gb` (whole job: engines, router, sidecars, aiperf). An 8-GPU job without them holds the whole hgx node; set them when the engine needs no host KV tier, leaving the rest to other users (e.g. 2× TP4 vLLM Gemma-4-31B at c96: `host_cpus: 64`, `host_mem_gb: 192`). Keep the default for HiCache / Mooncake host tiers.
+
 ### Replicas
 
 Several copies of one engine (e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.

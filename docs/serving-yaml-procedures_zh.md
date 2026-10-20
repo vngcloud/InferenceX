@@ -61,6 +61,10 @@
    脚本执行与 CI 相同的校验。出现 `ERROR <field>: <fix>` 时不会派发任何任务：修改 YAML 后重新运行。成功时会输出运行 URL。使用 `--ref <branch>` 可派发当前分支以外的分支。
 4. 如果脚本提示运行未出现，不要重复派发；先执行 `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` 检查。
 
+### 主机 CPU / 内存（hardware-hcm）
+
+`hardware-hcm-8x_*` 启动器默认每块 GPU 申请 24 个 CPU + 240 GB 内存，除非 YAML 设置了 `host_cpus` / `host_mem_gb`（整个作业：引擎、路由、sidecar、aiperf）。8 卡作业不设置时会占满整台 hgx 节点；引擎不需要主机 KV 层时请设置，把剩余资源留给其他用户（例如 2× TP4 vLLM Gemma-4-31B c96：`host_cpus: 64`、`host_mem_gb: 192`）。HiCache / Mooncake 主机层请保留默认值。
+
 ### 副本（replicas）
 
 「**副本（replicas）**」：同一引擎的多个副本（如 2×TP1）。设置 `replicas: N`，`gpus` = N × 每个引擎的 GPU 数；路由命令用 `{{engine_urls}}`（空格分隔的 URL）列出全部引擎。不支持 Dynamo frontend。
