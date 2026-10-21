@@ -5,7 +5,8 @@
 # PYTHONPATH) lets Gemma4TextModel.forward take the graph runner's input_embeds slot (capture crashed on
 # "exactly one of input_ids or inputs_embeds"). Slurm probe, 1 TP4 server at c1 (jobs 4843 / 4858):
 # later-turn TTFT p50 at 18k context 94.6 -> 22.4 ms, cold 64 tok 89.9 -> 17.7 ms; greedy outputs identical
-# to eager (incl. a 23k-token recall). Everything else as the base arm; scenario V1.1 warm at c150 and c200.
+# to eager (incl. a 23k-token recall). Everything else as the base arm; scenario V1.1 warm at c150 and c200 (run 39587349420);
+# max-CCU search c96-160 since (custom-agentic-livekit111868-v1.1-warm-search-c96-160).
 # Deployment of gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k-pr57613-v11 (run 39542730911, vLLM, c96 TTFT p95
 # 0.38 s by livekit_ttft.py) with the engine swapped for ngoctg2's SGLang stack (report 2026-10-21 "room pre-fill,
 # FP8 KV cache and TP4"; single-TP4 arm: serving/gemma4-livekit-sgl-tp4-fp8kv-v11.yaml).
@@ -27,6 +28,8 @@ host_cpus: 64
 host_mem_gb: 192
 precision: fp8
 env:
+  # Max-CCU SLA for every search scenario (overrides sweep.sla_filters; same values as the LiveKit search scenario).
+  IX_SLO: "time_to_first_token:p95:lt:500;inter_token_latency:p50:lt:50"
   SGLANG_SWA_EVICTION_INTERVAL: "32"
   NCCL_P2P_LEVEL: NVL
   AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
@@ -57,5 +60,5 @@ router:
     python3 -m dynamo.frontend
     --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
     --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
-scenario: custom-agentic-livekit111868-v1.1-warm
-conc: [150, 200]
+scenario: custom-agentic-livekit111868-v1.1-warm-search-c96-160
+conc: [1]
