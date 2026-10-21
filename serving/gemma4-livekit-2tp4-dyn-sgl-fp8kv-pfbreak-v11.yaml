@@ -1,0 +1,61 @@
+# Arm of gemma4-livekit-2tp4-dyn-sgl-fp8kv-v11 (runs 39567726329 c150, 39574126806 c200): + prefill CUDA graph.
+# SGLang v0.5.22 auto-disables the breakable prefill CUDA graph for multimodal archs not on its allowlist
+# (Gemma4 included), so every extend step runs eager: ~88 ms forward at TP4 even for a 22-token later turn.
+# --cuda-graph-backend-prefill breakable forces it on; runners/sglang_gemma4_bcg/sitecustomize.py (via
+# PYTHONPATH) lets Gemma4TextModel.forward take the graph runner's input_embeds slot (capture crashed on
+# "exactly one of input_ids or inputs_embeds"). Slurm probe, 1 TP4 server at c1 (jobs 4843 / 4858):
+# later-turn TTFT p50 at 18k context 94.6 -> 22.4 ms, cold 64 tok 89.9 -> 17.7 ms; greedy outputs identical
+# to eager (incl. a 23k-token recall). Everything else as the base arm; scenario V1.1 warm at c150 and c200.
+# Deployment of gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k-pr57613-v11 (run 39542730911, vLLM, c96 TTFT p95
+# 0.38 s by livekit_ttft.py) with the engine swapped for ngoctg2's SGLang stack (report 2026-10-21 "room pre-fill,
+# FP8 KV cache and TP4"; single-TP4 arm: serving/gemma4-livekit-sgl-tp4-fp8kv-v11.yaml).
+# Same as the vLLM arm: 2 separate TP4 Dynamo workers (GPUs 0-3 / 4-7), Dynamo frontend KV router with
+# prefill_load_scale 16, hard session affinity on aiperf's per-conversation X-Correlation-ID, Rust preprocessor
+# (no --dyn-chat-processor), gemma4 tool/reasoning parsers on the workers (--dyn-*-parser), selector debug log,
+# scenario custom-agentic-livekit111868-v1.1-warm at c96.
+# Engine flags = the report's SGLang launch line (fa3, page 64, FP8 e4m3 KV, chunk 4096, shortest-prefill-first,
+# SWA ratio 0.2, mem 0.92, max running 160 in the report, 256 here for c150); --port and --kv-events-config per replica come from serve_generic.sh.
+# Image (engine and frontend, ai-dynamo 1.6.0.dev20261015 inside): lmsysorg/sglang:v0.5.22 + #44399 per-layer
+# FA3/FA4 + FA4 SM90 FP8 KV for head_dim 512 + frozen-KV MTP runner fix; sha256 fdaeb87c..., node-local on both nodes.
+name: gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-v11
+runner: hardware-hcm-8x_02
+image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+host_cpus: 64
+host_mem_gb: 192
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+  PYTHONPATH: /workspace/runners/sglang_gemma4_bcg
+serve: |
+  python3 -m dynamo.sglang
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [150, 200]
