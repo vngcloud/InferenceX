@@ -1,0 +1,71 @@
+# Max-CCU search on custom-agentic-livekit111868-v1.1-warm: same dataset and profiling phase, plus an
+# AIPerf adaptive_search over concurrency. SLA = AIPerf summary metrics over all profiling requests
+# (dial warm-ups included): TTFT p95 < 500 ms and ITL p50 < 50 ms.
+# requests: 1000000 keeps each probe duration-bound (1200 s); unset, the planner injects 1000 requests
+# (sla_precision normal), about 1 min at this load. sla_warmup_seconds: 0 because the agentic per-lane
+# warmup already runs before every probe. One server for the whole search (cache carries over).
+# Narrow re-search for the vLLM arm: run 39583069057 found 64 feasible, 80 infeasible (TTFT p95 518 ms)
+# before Slurm --time=180 cut it; lo/hi/max_iterations sized so 6 probes x ~22 min fit in 180 min.
+# custom-agentic family: LiveKit Agents voice-agent traces of customer 111868 on Gemma-4-31B
+# (Green-Lab/2026-10-16-111868-agentic-traces, synthetic text with logged lengths/cache/timing;
+# vmonitor-gateway-datasets spec 0004). V1.1 = custom-agentic-livekit111868-v1-warm restricted to the
+# 671 rooms with >= 4 real requests (12,279 requests + 601 warm-ups): the 503 one-request rooms and the
+# 43 rooms with 2-3 requests are dropped, so concurrency counts real calls as the customer does.
+# Dial warm-up (trace.v1.1-append-ideal-warm.jsonl, rows copied from the V1 warm trace): before each room's
+# first request, the same prompt minus its last 64 tokens with max_tokens 1, same session; the real first
+# turn starts 3000 ms after the warm-up returns (70 rooms too short to warm). livekit_ttft.py drops the
+# warm-ups (warm=1 in livekit-111868-v1.1-warm-plan) from the TTFT views.
+# No request cap: lanes recycle rooms (fresh cache-bust marker per play) for the whole duration.
+# Spec: docs/superpowers/specs/2026-10-16-serving-replicas-livekit-design.md
+schemaVersion: "2.0"
+benchmark:
+  scenario: inferencex-agentx-mvp
+  unsafeOverride: true
+  endpoint:
+    type: chat
+    path: /v1/chat/completions
+    streaming: true
+    useServerTokenCount: true
+  datasets:
+  - name: livekit-111868-v1.1-warm
+    type: file
+    format: mooncake_trace
+    path: ${IX_CUSTOM_DATASET_FILE}
+    entries: 671
+    randomSeed: 42
+    traceIdleGapCapSeconds: 300.0
+    # mooncake_trace defaults to sequential: lanes would replay room-0001, -0002, ... in file
+    # (chronological) order and a run covers only the first ~150 rooms. Shuffle = seeded random
+    # permutation of all 671 rooms per pass.
+    sampling: shuffle
+  phases:
+  - name: profiling
+    kind: profiling
+    type: concurrency
+    duration: 1200.0
+    gracePeriod: 30.0
+    failedRequestThreshold: 0.1
+    requests: 1000000
+    trajectoryStartMinRatio: 0.25
+    trajectoryStartMaxRatio: 0.75
+    warmupRequestsPerLane: 10
+    agenticWarmupGracePeriod: 1800.0
+  artifacts:
+    sliceDuration: 1.0
+  tokenizer:
+    trustRemoteCode: true
+  runtime:
+    statsInterval: 30.0
+randomSeed: 42
+sweep:
+  type: adaptive_search
+  planner: smooth_isotonic
+  objectives:
+  - {metric: request_throughput, stat: avg, direction: maximize}
+  search_space:
+  - {path: phases.profiling.concurrency, lo: 64, hi: 80, kind: int}
+  sla_filters:
+  - {metric_tag: time_to_first_token, stat: p95, op: lt, threshold: 500.0}
+  - {metric_tag: inter_token_latency, stat: p50, op: lt, threshold: 50.0}
+  max_iterations: 6
+  sla_warmup_seconds: 0

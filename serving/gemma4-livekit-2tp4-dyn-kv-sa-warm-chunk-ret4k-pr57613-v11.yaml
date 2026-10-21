@@ -63,5 +63,5 @@ router:
     python3 -m dynamo.frontend
     --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
     --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
-scenario: custom-agentic-livekit111868-v1.1-warm-search
+scenario: custom-agentic-livekit111868-v1.1-warm-search-c64-80
 conc: [1]
