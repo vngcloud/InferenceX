@@ -19,6 +19,8 @@ host_cpus: 64
 host_mem_gb: 192
 precision: fp8
 env:
+  # Max-CCU SLA for every search scenario (overrides sweep.sla_filters; same values as the LiveKit search scenario).
+  IX_SLO: "time_to_first_token:p95:lt:500;inter_token_latency:p50:lt:50"
   SGLANG_SWA_EVICTION_INTERVAL: "32"
   NCCL_P2P_LEVEL: NVL
   AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
@@ -47,5 +49,5 @@ router:
     python3 -m dynamo.frontend
     --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
     --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
-scenario: custom-agentic-livekit111868-v1.1-warm
-conc: [200]
+scenario: custom-agentic-livekit111868-v1.1-warm-search
+conc: [1]
