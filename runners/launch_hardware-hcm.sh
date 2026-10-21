@@ -133,7 +133,9 @@ if [[ -z "$JOB_ID" ]]; then
 fi
 trap 'rc=$?; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM
 
+# An image given as /abs/path.sqsh is a prebuilt squash on the node's local disk: used as is, never imported.
 squash_path() {
+    [[ "$1" == /*.sqsh ]] && { echo "$1"; return; }
     echo "${SQUASH_CACHE_DIR}/$(echo "$1" | sed 's/[\/:@#]/_/g').sqsh"
 }
 # Import <image> into the shared squash cache once per box (flock: concurrent jobs).
@@ -142,6 +144,11 @@ squash_path() {
 import_squash() {
     local image="$1" squash
     squash="$(squash_path "$image")"
+    if [[ "$image" == /*.sqsh ]]; then
+        srun --jobid="$JOB_ID" unsquashfs -l "$squash" > /dev/null \
+            || { echo "ERROR: $squash missing or not a squashfs on $SLURM_NODELIST" >&2; exit 1; }
+        return
+    fi
     srun --jobid="$JOB_ID" bash -c "
         export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
         mkdir -p \$ENROOT_CACHE_PATH
@@ -157,15 +164,8 @@ import_squash() {
         fi
     " >&2
 }
-# image: /abs/path.sqsh = a prebuilt squash on the node's local disk, used as is (no import).
-if [[ "$IMAGE" == /*.sqsh ]]; then
-    SQUASH_FILE="$IMAGE"
-    srun --jobid="$JOB_ID" unsquashfs -l "$SQUASH_FILE" > /dev/null \
-        || { echo "ERROR: $SQUASH_FILE missing or not a squashfs on $SLURM_NODELIST" >&2; exit 1; }
-else
-    SQUASH_FILE="$(squash_path "$IMAGE")"
-    import_squash "$IMAGE"
-fi
+SQUASH_FILE="$(squash_path "$IMAGE")"
+import_squash "$IMAGE"
 
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
 case "$SPEC_DECODING" in

@@ -100,8 +100,8 @@ esac
 SERVER_LOG="$RESULT_DIR/server.log"
 eval "set -- $SERVE_CMD"
 if [[ "${REPLICAS:-1}" -gt 1 && "${ROUTER_PROFILE:-}" == dynamo ]]; then
-    # Dynamo replicas (schema: dynamo.vllm only): N engines, each on its own GPU slice, Dynamo
-    # system port (health + metrics, DYN_SYSTEM_PORTS) and vLLM KV event port (DYN_KV_EVENT_PORTS);
+    # Dynamo replicas (dynamo.vllm / dynamo.sglang): N engines, each on its own GPU slice, Dynamo
+    # system port (health + metrics, DYN_SYSTEM_PORTS) and KV event port (DYN_KV_EVENT_PORTS);
     # the frontend finds them through file discovery. Replica 0 keeps server.log, as below.
     read -r -a replica_ports <<< "${DYN_SYSTEM_PORTS:-}"
     read -r -a kv_ports <<< "${DYN_KV_EVENT_PORTS:-}"
@@ -119,7 +119,14 @@ if [[ "${REPLICAS:-1}" -gt 1 && "${ROUTER_PROFILE:-}" == dynamo ]]; then
     for ((replica = 0; replica < REPLICAS; replica++)); do
         suffix=""
         (( replica == 0 )) || suffix=".$replica"
-        replica_cmd=("$@" --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+        if [[ " $* " == *" dynamo.sglang "* ]]; then
+            # SGLang's KV event schema. --port is only the base SGLang draws its NCCL port from
+            # (port + 100..1000, no HTTP server here): 1000 apart keeps the replicas' ranges disjoint.
+            replica_cmd=("$@" --port "$((30000 + replica * 1000))"
+                --kv-events-config "{\"publisher\":\"zmq\",\"topic\":\"kv-events\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+        else
+            replica_cmd=("$@" --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+        fi
         write_command "$RESULT_DIR/server_command${suffix}.txt" "${replica_cmd[@]}"
         DYN_SYSTEM_PORT="${replica_ports[replica]}" \
         CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${replica_gpus[*]:replica*gpus_per_replica:gpus_per_replica}")" \

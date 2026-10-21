@@ -380,16 +380,17 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
                 "replicas: more than 1 replica needs a router: block whose serve lists {{engine_urls}}"
             )
         elif "dynamo.frontend" in spec.router.serve:
-            # The frontend discovers its engines itself; serve_generic.sh starts one dynamo.vllm
-            # engine per GPU slice and gives each its own system port and KV event port.
-            if "dynamo.vllm" not in spec.serve.split():
+            # The frontend discovers its engines itself; serve_generic.sh starts one dynamo.vllm /
+            # dynamo.sglang engine per GPU slice and gives each its own system port and KV event port.
+            words = spec.serve.split()
+            if "dynamo.vllm" not in words and "dynamo.sglang" not in words:
                 problems.append(
-                    "replicas: with the Dynamo frontend only python3 -m dynamo.vllm engines can be "
-                    "replicated; use replicas: 1 (dynamo.sglang: --dp)"
+                    "replicas: with the Dynamo frontend only python3 -m dynamo.vllm / dynamo.sglang "
+                    "engines can be replicated"
                 )
             elif "--kv-events-config" in spec.serve:
                 problems.append(
-                    "replicas: drop --kv-events-config; each dynamo.vllm replica gets its own "
+                    "replicas: drop --kv-events-config; each Dynamo replica gets its own "
                     "KV event port from the launcher"
                 )
     from infx.serving.to_matrix import is_sweep  # local import: to_matrix imports this module
