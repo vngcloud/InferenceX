@@ -46,7 +46,7 @@ serve: |
   --tensor-parallel-size 4
   --gpu-memory-utilization 0.92
   --max-model-len 262144
-  --max-num-seqs 64
+  --max-num-seqs 256
   --max-num-batched-tokens 8192
   --enable-chunked-prefill
   --long-prefill-token-threshold 2048

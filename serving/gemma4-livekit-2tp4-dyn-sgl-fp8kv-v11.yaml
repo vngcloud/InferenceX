@@ -6,7 +6,7 @@
 # (no --dyn-chat-processor), gemma4 tool/reasoning parsers on the workers (--dyn-*-parser), selector debug log,
 # scenario custom-agentic-livekit111868-v1.1-warm at c96.
 # Engine flags = the report's SGLang launch line (fa3, page 64, FP8 e4m3 KV, chunk 4096, shortest-prefill-first,
-# SWA ratio 0.2, mem 0.92, max running 160); --port and --kv-events-config per replica come from serve_generic.sh.
+# SWA ratio 0.2, mem 0.92, max running 160 in the report, 256 here for c150); --port and --kv-events-config per replica come from serve_generic.sh.
 # Image (engine and frontend, ai-dynamo 1.6.0.dev20261015 inside): lmsysorg/sglang:v0.5.22 + #44399 per-layer
 # FA3/FA4 + FA4 SM90 FP8 KV for head_dim 512 + frozen-KV MTP runner fix; sha256 fdaeb87c..., node-local on both nodes.
 name: gemma4-livekit-2tp4-dyn-sgl-fp8kv-v11
@@ -28,7 +28,7 @@ serve: |
   --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
   --tp 4
   --context-length 262144
-  --max-running-requests 160
+  --max-running-requests 256
   --attention-backend fa3
   --page-size 64
   --kv-cache-dtype fp8_e4m3
