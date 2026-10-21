@@ -36,6 +36,7 @@ SCENARIOS = {
     "custom-agentic-livekit111868-v1": "livekit",
     "custom-agentic-livekit111868-v1-warm": "livekit",
     "custom-agentic-livekit111868-v1.1-warm": "livekit",
+    "custom-agentic-livekit111868-v1.1-warm-cap1s": "livekit",
     "custom-agentic-livekit111868-v2": "livekit",
     "custom-agentic-livekit111868-v1-nothink": "livekit",
     "custom-agentic-livekit111868-v2-nothink": "livekit",
@@ -43,10 +44,11 @@ SCENARIOS = {
 }
 # datasets[].name is a label (CLI always says "main"); for file datasets it is the lock key.
 ALLOWED = {"weka": set(), "tau2": {".benchmark.datasets[0].name"}, "livekit": {".benchmark.datasets[0].name"}}
-# Think-time-off variants cap idle gaps at 0; every other livekit scenario keeps 300.
+# Think-time-off variants cap idle gaps at 0, the -cap1s stress variant at 1; every other livekit scenario keeps 300.
 # V1.1 keeps only the rooms with >= 4 real requests; every other livekit trace has all 1217.
-LIVEKIT_ENTRIES = {"custom-agentic-livekit111868-v1.1-warm": 671}
-LIVEKIT_IDLE_CAP = {"custom-agentic-livekit111868-v1-nothink": 0.0, "custom-agentic-livekit111868-v2-nothink": 0.0}
+LIVEKIT_ENTRIES = {"custom-agentic-livekit111868-v1.1-warm": 671, "custom-agentic-livekit111868-v1.1-warm-cap1s": 671}
+LIVEKIT_IDLE_CAP = {"custom-agentic-livekit111868-v1-nothink": 0.0, "custom-agentic-livekit111868-v2-nothink": 0.0,
+                    "custom-agentic-livekit111868-v1.1-warm-cap1s": 1.0}
 MODEL = "Qwen/Qwen3.8-27B"
 
 
