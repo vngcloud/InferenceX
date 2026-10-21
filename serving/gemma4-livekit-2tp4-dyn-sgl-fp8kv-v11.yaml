@@ -48,4 +48,4 @@ router:
     --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
     --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
 scenario: custom-agentic-livekit111868-v1.1-warm
-conc: [150]
+conc: [200]
