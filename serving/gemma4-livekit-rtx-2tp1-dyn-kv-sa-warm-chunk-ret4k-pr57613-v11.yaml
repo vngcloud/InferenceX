@@ -1,0 +1,43 @@
+# RTX PRO 6000 port of gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k-pr57613-v11 (8x H200, c96): same image
+# (vLLM 0.31.0 + Dynamo, g4strip), same PR #57613 import-time patch, same engine/router flags, same
+# V1.1 scenario; 2 replicas x TP1 on one 2-GPU box (no NVLink, so DP over TP).
+# Differences: model Green-Lab/Gemma-4-31B-IT-NVFP4 (RTX prod checkpoint, k/v_scale-stripped revision in the
+# node cache), --kv-cache-dtype fp8_e4m3 as RTX prod (bf16 KV would halve the ~640k-token pool per GPU),
+# MTP off as the H200 arm, conc 32 (KV holds ~25 rooms of 25k tokens per GPU). Runner _02: only that node
+# has VCR enroot credentials (node 1 has registry.vng.vn only, 2026-10-21).
+name: gemma4-livekit-rtx-2tp1-dyn-kv-sa-warm-chunk-ret4k-pr57613-v11
+runner: hcm-rtx6000pro_02
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
+model: Green-Lab/Gemma-4-31B-IT-NVFP4
+gpus: 2
+replicas: 2
+precision: nvfp4
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+  PYTHONPATH: /workspace/runners/vllm_pr57613
+serve: |
+  python3 -m dynamo.vllm
+  --model Green-Lab/Gemma-4-31B-IT-NVFP4
+  --served-model-name Green-Lab/Gemma-4-31B-IT-NVFP4
+  --tensor-parallel-size 1
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 8192
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 2048
+  --kv-cache-dtype fp8_e4m3
+  --kv-cache-metrics
+  --prefix-cache-retention-interval 4096
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [32]
