@@ -172,7 +172,7 @@ class ServingSpec(BaseModel):
     storage: StorageSpec | None = None
     scenario: str | list[Annotated[str, Field(pattern=NAME_PATTERN)]] = Field(
         min_length=1,
-        description="One scenario name, or a list: one benchmark job per scenario in a single run"
+        description="One scenario name, or a list: one benchmark job per scenario in a single run",
     )
     conc: list[Annotated[int, Field(gt=0)]] = Field(min_length=1)
 

@@ -327,9 +327,7 @@ class SingleNodeAgenticMatrixEntry(BaseModel):
     kv_offload_backend: KVOffloadBackendMetadata | None = Field(
         default=None, alias=Fields.KV_OFFLOAD_BACKEND.value
     )
-    hicache_ratio: float | None = Field(
-        default=None, alias=Fields.HICACHE_RATIO.value, gt=0
-    )
+    hicache_ratio: float | None = Field(default=None, alias=Fields.HICACHE_RATIO.value, gt=0)
     router: ComponentMetadata | None = None
     total_cpu_dram_gb: int = Field(alias=Fields.TOTAL_CPU_DRAM_GB.value, ge=0)
     duration: int = Field(alias=Fields.DURATION.value)
@@ -376,9 +374,7 @@ class MultiNodeAgenticMatrixEntry(BaseModel):
     kv_offload_backend: KVOffloadBackendMetadata | None = Field(
         default=None, alias=Fields.KV_OFFLOAD_BACKEND.value
     )
-    hicache_ratio: float | None = Field(
-        default=None, alias=Fields.HICACHE_RATIO.value, gt=0
-    )
+    hicache_ratio: float | None = Field(default=None, alias=Fields.HICACHE_RATIO.value, gt=0)
     router: ComponentMetadata | None = None
     kv_p2p_transfer: str | None = Field(
         default=None, alias=Fields.KV_P2P_TRANSFER.value, min_length=1
@@ -650,9 +646,7 @@ class AgenticCodingSearchSpaceEntry(BaseModel):
     kv_offload_backend: KVOffloadBackendMetadata | None = Field(
         default=None, alias=Fields.KV_OFFLOAD_BACKEND.value
     )
-    hicache_ratio: float | None = Field(
-        default=None, alias=Fields.HICACHE_RATIO.value, gt=0
-    )
+    hicache_ratio: float | None = Field(default=None, alias=Fields.HICACHE_RATIO.value, gt=0)
     router: ComponentMetadata | None = None
     kv_p2p_transfer: str | None = Field(
         default=None, alias=Fields.KV_P2P_TRANSFER.value, min_length=1

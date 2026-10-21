@@ -68,7 +68,7 @@ def test_router_unknown_key_rejected():
 
 def test_router_needs_hardware_hcm_runner():
     text = dynamo().replace("runner: hardware-hcm-8x_02", "runner: h200-greennode-slurm-1x_01").replace("gpus: 8", "gpus: 1")
-    assert "router: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the router)" in errors(text)
+    assert "router: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner" in errors(text)
 
 
 @pytest.mark.parametrize("field, text", [
@@ -287,7 +287,7 @@ def test_storage_unknown_key_rejected():
 
 def test_storage_needs_hardware_hcm_runner():
     text = GOOD + STORAGE  # h200-greennode runner, not hardware-hcm
-    assert "storage: needs a hardware-hcm-8x_* runner" in errors(text)
+    assert "storage: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner" in errors(text)
 
 
 def test_storage_unknown_placeholder_rejected():

@@ -58,11 +58,12 @@ class SglangBackend(ServerMetricsBackend):
         )
         device_hits = cached_by_source.get("device")
         host_hits = cached_by_source.get("host")
-        external_hits = sum(
-            value
-            for source, value in cached_by_source.items()
-            if source.startswith("storage_")
-        ) or None
+        external_hits = (
+            sum(
+                value for source, value in cached_by_source.items() if source.startswith("storage_")
+            )
+            or None
+        )
         total_cached = sum(cached_by_source.values()) if cached_by_source else None
 
         flat["server_gpu_cache_hit_rate"] = rate(device_hits, prompt_total)
