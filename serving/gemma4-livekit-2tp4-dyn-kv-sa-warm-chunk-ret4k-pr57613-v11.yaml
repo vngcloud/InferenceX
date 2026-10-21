@@ -1,6 +1,7 @@
 # Same stack as gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k-pr57613 (run 39517997638, c96 TTFT p95 0.42 s),
 # on V1.1: only rooms with >= 4 real requests (scenario custom-agentic-livekit111868-v1.1-warm).
-# Runner _01: node 02 held by other users on 2026-10-21; same 8x H200 box type as the _02 reference run.
+# Runner _02 since the c64-80 search: run 39612415000 failed on hgx-h200-01 (nvidia-container-cli driver rpc timeout),
+# then node 01 was held by other jobs. Runs up to 39612415000 used _01 (same 8x H200 box type).
 # Arm of gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k: + vLLM PR #57613 (one extra 32-token SWA block
 # below each reachable boundary), applied at import time by runners/vllm_pr57613/sitecustomize.py via
 # PYTHONPATH (the image sets none). Same code as a rebuilt image: in-image check (Slurm job 4611) found
@@ -24,7 +25,7 @@
 # p50 0.63 / p95 1.11 s, 0 errors. ~25% of first turns still miss the warm-up's cache: vLLM keeps the SWA
 # tail only at the last full 32-token block, so a warm-up of N tokens with N mod 32 in 1..8 is lost.
 name: gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k-pr57613-v11
-runner: hardware-hcm-8x_01
+runner: hardware-hcm-8x_02
 image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 8
