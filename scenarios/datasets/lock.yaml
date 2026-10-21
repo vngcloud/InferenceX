@@ -52,3 +52,14 @@ livekit-111868-v1-warm-plan:
   revision: b2b84e6c2fe2c8210aea96e685f80f3d27fd8cdb
   file: plan.v1-append-ideal-warm.csv
   sha256: 8da2f45b5a0b83035fea3fc7ebba53f1b5bbb83a2100d19498cdbc60b87d65dd
+# V1.1 = V1-warm restricted to the 671 rooms with >= 4 real requests (rows copied whole; HF README).
+livekit-111868-v1.1-warm:
+  repo: Green-Lab/2026-10-16-111868-agentic-traces
+  revision: 6e0934c957565a42d52cafac096ec758a4302355
+  file: trace.v1.1-append-ideal-warm.jsonl
+  sha256: e26542392a202764849c05018f2f8ea3f9574277ffa3400615f0b4df23b0eb2f
+livekit-111868-v1.1-warm-plan:
+  repo: Green-Lab/2026-10-16-111868-agentic-traces
+  revision: 6e0934c957565a42d52cafac096ec758a4302355
+  file: plan.v1.1-append-ideal-warm.csv
+  sha256: fc5f69bc810a483905adc7d0bcd40258cf78bae869465ee9f19d3261217dc391
