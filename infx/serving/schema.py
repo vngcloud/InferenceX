@@ -24,8 +24,9 @@ NAME_PATTERN = r"^[a-z0-9][a-z0-9.-]*$"
 LOCAL_PATH_MARKERS = ("/models/", "/mnt/", "/data/")
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # image is spliced into `bash -c` strings on the GPU node; model is word-split
-# into the replay command. Keep both to plain registry refs / HF repo ids.
-IMAGE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*")
+# into the replay command. Keep both to plain registry refs / HF repo ids,
+# or (image only) an absolute path to a prebuilt .sqsh on the GPU node.
+IMAGE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*|/[A-Za-z0-9._/-]+\.sqsh")
 MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+")
 # Variables serve_generic.sh (and the helpers it calls) reads or sets itself;
 # exporting them from env: would change the recipe, not the engine.

@@ -157,8 +157,15 @@ import_squash() {
         fi
     " >&2
 }
-SQUASH_FILE="$(squash_path "$IMAGE")"
-import_squash "$IMAGE"
+# image: /abs/path.sqsh = a prebuilt squash on the node's local disk, used as is (no import).
+if [[ "$IMAGE" == /*.sqsh ]]; then
+    SQUASH_FILE="$IMAGE"
+    srun --jobid="$JOB_ID" unsquashfs -l "$SQUASH_FILE" > /dev/null \
+        || { echo "ERROR: $SQUASH_FILE missing or not a squashfs on $SLURM_NODELIST" >&2; exit 1; }
+else
+    SQUASH_FILE="$(squash_path "$IMAGE")"
+    import_squash "$IMAGE"
+fi
 
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
 case "$SPEC_DECODING" in

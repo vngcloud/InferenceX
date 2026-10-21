@@ -1,0 +1,37 @@
+# ngoctg2's best SGLang stack for LiveKit 111868 (report 2026-10-21 "room pre-fill, FP8 KV cache and TP4":
+# V1 c96 TTFT p95 507 ms, c64 451 ms on one TP4 server), on the same workload as the vLLM V1.1 run
+# 39542730911 (2x TP4 Dynamo, c96, p95 0.38 s by livekit_ttft.py): scenario custom-agentic-livekit111868-v1.1-warm.
+# One TP4 server, no router: c96 here is 96 calls on 4 GPUs (39542730911 had 48 per TP4 replica).
+# Image: lmsysorg/sglang:v0.5.22 (baa9befa) + 3 patches baked in by ngoctg2 (/etc/sglang-patch-info):
+#   sgl-project/sglang#44399 per-layer FA3/FA4 routing for Gemma-4 (c0a2c448c9);
+#   FA4 SM90 FP8 e4m3 KV for head_dim 512 + hd512 decode overlap default (feat/gemma4-fa4-fp8-kv-sm90, 88921562e0);
+#   frozen-KV MTP draft runner adopts target token_to_kv_pool (#43542 runner-level fix; MTP is off here).
+# sqsh sha256 fdaeb87c6e6d9d41..., node-local copy on hgx-h200-01 and -02; source + patch in /shared/ngoctg2-bench/images/.
+# Flags = the report's launch line minus --host/--port (launcher) and --served-model-name (harness uses the model id).
+name: gemma4-livekit-sgl-tp4-fp8kv-v11
+runner: hardware-hcm-8x_02
+image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 160
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [96]
