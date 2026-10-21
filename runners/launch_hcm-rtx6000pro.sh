@@ -157,11 +157,13 @@ squash_path() {
 }
 # Import <image> into the shared squash cache once per box (flock: concurrent jobs).
 # Private registries (vcr.vngcloud.vn) authenticate through the runner user's
-# ~/.config/enroot/.credentials (HOME=/data/thanglq5 on this fleet).
+# /data/thanglq5/.config/enroot/.credentials. HOME is pinned: the daemon resubmitted on 2026-10-19
+# inherits the passwd home /home/thanglq5, which does not exist on these nodes (enroot import fails).
 import_squash() {
     local image="$1" squash
     squash="$(squash_path "$image")"
     srun --jobid="$JOB_ID" --ntasks=1 --cpus-per-task=16 --mem=32G bash -c "
+        export HOME=/data/thanglq5
         export ENROOT_CACHE_PATH=\$HOME/.cache/enroot
         mkdir -p \$ENROOT_CACHE_PATH
         export TMPDIR=/data/thanglq5/tmp
