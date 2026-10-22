@@ -199,7 +199,9 @@ srun --jobid="$JOB_ID" --overlap \
 DCGM_SRUN_PID=$!
 
 # Storage sidecar (serving YAML with a storage: block; Mooncake master for HiCache L3).
-# Non-GPU process: NVIDIA_VISIBLE_DEVICES=void skips the nvidia hook. Starts BEFORE the
+# No GPU for it, but the driver libraries: NVIDIA_VISIBLE_DEVICES=none runs the nvidia hook without binding a
+# device, so libcuda.so is mounted (mooncake.mooncake_store_service imports the cuda13 wheel, which links libcuda;
+# with =void the store services died on ImportError, run 39719195763). Starts BEFORE the
 # router / engine because the engine's HiCache backend connects to it at init. The engine
 # env references its ports via {{storage_master_port}} / {{storage_meta_port}}
 # (expanded by expand_storage_placeholders in benchmark_lib.sh).
@@ -215,7 +217,7 @@ if [[ -n "${STORAGE_CMD:-}" ]]; then
     STORAGE_EXPANDED_CMD="${STORAGE_EXPANDED_CMD//\{\{storage_meta_port\}\}/$STORAGE_META_PORT}"
     (
         rc=0
-        srun --jobid="$JOB_ID" --overlap \
+        NVIDIA_DRIVER_CAPABILITIES=compute,utility srun --jobid="$JOB_ID" --overlap \
             --container-image="$STORAGE_SQUASH" \
             --container-mounts="$GITHUB_WORKSPACE:/workspace" \
             --no-container-mount-home \
@@ -223,7 +225,7 @@ if [[ -n "${STORAGE_CMD:-}" ]]; then
             --container-writable \
             --container-workdir=/workspace/ \
             --no-container-entrypoint \
-            --export=ALL,NVIDIA_VISIBLE_DEVICES=void,STORAGE_MASTER_PORT,STORAGE_META_PORT,STORAGE_ENV \
+            --export=ALL,NVIDIA_VISIBLE_DEVICES=none,STORAGE_MASTER_PORT,STORAGE_META_PORT,STORAGE_ENV \
             bash -c "
                 set -eo pipefail
                 if [[ -n \"\${STORAGE_ENV:-}\" ]]; then
