@@ -183,14 +183,14 @@ def repo(tmp_path):
     return tmp_path
 
 
-@pytest.mark.parametrize("runner", ["hardware-hcm-4x_01", "nope"])
+@pytest.mark.parametrize("runner", ["nope"])
 def test_runner_outside_serving_pool_rejected(repo, runner):
     text = with_line("runner: h200-greennode-slurm-1x_01", f"runner: {runner}").replace("gpus: 1", "gpus: 8")
     with pytest.raises(ServingError) as info:
         load_serving(text, repo)
     assert str(info.value) == (
         f"runner: {runner} cannot run a serving YAML; use one of: "
-        "h200-greennode-slurm-1x_01, h200-greennode-slurm-1x_02, hardware-hcm-8x_01"
+        "h200-greennode-slurm-1x_01, h200-greennode-slurm-1x_02, hardware-hcm-8x_01, hardware-hcm-4x_01"
     )
 
 
@@ -404,3 +404,8 @@ def test_host_resources_load_on_hardware_hcm():
 ], ids=["other-runner", "cpus-too-small", "mem-too-small"])
 def test_host_resources_errors(text, error):
     assert error in errors(text)
+
+
+def test_hardware_hcm_4x_accepts_4_gpus(repo):
+    text = with_line("runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-4x_01").replace("gpus: 1", "gpus: 4")
+    assert load_serving(text, repo).gpus == 4
