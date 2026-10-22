@@ -1,11 +1,11 @@
 # Production Gemma-4-31B config, untuned, as ONE direct TP4 server (prod = 2x TP1 behind vllm-router cache_aware).
 # Source: kubectl read-only on HCM cluster `hcm-gemma4`, deploy gemma4-31b-fp8-h200-eagle-{a,b}, 2026-10-22
 # (args identical to the 2026-10-15 audit). Kept as prod: vLLM v0.25.1, MTP 4 (draft google/gemma-4-31B-it-assistant),
-# max-num-seqs 64, max-num-batched-tokens 16384, long-prefill-token-threshold 8192, gpu-mem 0.92, max-model-len 262144,
+# max-num-seqs 64 in prod (here 128, user request), max-num-batched-tokens 16384, long-prefill-token-threshold 8192, gpu-mem 0.92, max-model-len 262144,
 # VLLM_DISABLE_COMPILE_CACHE=1, NCCL_P2P_LEVEL=NVL, default attention backend, no PR #57613, no SWA retention.
 # Changed: --tensor-parallel-size 1 -> 4 (requested), router dropped, prod's two served names -> the model id the harness
 # uses. Not in prod: --trust-remote-code absent here as in prod. Prod draft path /models/... -> HF id.
-# max-num-seqs 64 is prod's value for 1 GPU; at c80 on TP4 it can queue. Left as prod on purpose.
+# max-num-seqs 128 (prod: 64 per TP1 GPU) set by the user; the only deviation from prod besides TP4 and no router.
 # Fixed CCU c50 only (user: no c80 for prod).
 name: gemma4-livekit-tp4-prod-v11
 runner: hardware-hcm-8x_01
@@ -22,7 +22,7 @@ serve: |
   --tensor-parallel-size 4
   --gpu-memory-utilization 0.92
   --max-model-len 262144
-  --max-num-seqs 64
+  --max-num-seqs 128
   --max-num-batched-tokens 16384
   --enable-chunked-prefill
   --long-prefill-token-threshold 8192

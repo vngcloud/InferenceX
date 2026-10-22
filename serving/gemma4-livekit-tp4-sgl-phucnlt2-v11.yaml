@@ -3,7 +3,7 @@
 # sglang.launch_server) + --cuda-graph-backend-prefill breakable + runners/sglang_gemma4_bcg/sitecustomize.py
 # (Gemma4 prefill CUDA graph, see the pfbreak arm header). Fixed CCU: c50 then c80 on one boot.
 name: gemma4-livekit-tp4-sgl-phucnlt2-v11
-runner: hardware-hcm-8x_01
+runner: hardware-hcm-4x_01
 image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 4
@@ -17,7 +17,7 @@ serve: |
   --model-path RedHatAI/gemma-4-31B-it-FP8-block
   --tp 4
   --context-length 262144
-  --max-running-requests 256
+  --max-running-requests 128
   --attention-backend fa3
   --page-size 64
   --kv-cache-dtype fp8_e4m3
