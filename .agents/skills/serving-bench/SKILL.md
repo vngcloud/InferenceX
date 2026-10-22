@@ -16,6 +16,8 @@ image: vllm/vllm-openai:v0.29.0     # required
 model: Qwen/Qwen3.8-27B             # HF repo id, never a local path
 gpus: 1                             # GPUs the command needs
 replicas: 1                         # optional: N engine copies, gpus/N GPUs each; N > 1 needs router: with {{engine_urls}}
+host_cpus: 64                       # optional, hardware-hcm-8x_* only: job CPUs / RAM GB (default 8 CPU + 64 GB per GPU
+host_mem_gb: 192                    #   plus HiCache/Mooncake host pools); set only to ask for something else
 precision: bf16                     # optional (bf16 default), naming only
 env:                                # optional, the engine's env vars; quote booleans
   PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -76,11 +78,14 @@ It validates first. On `ERROR <field>: <fix>` lines, fix the YAML and rerun; not
 
 ## 4. Results
 
-- Status: `gh run view <run-id> --repo vngcloud/InferenceX`. One job per `conc`. Expect roughly 20 min of image pull, model load and warmup on top of the scenario duration (180 s smoke ≈ 25 min).
-- Artifacts (`gh run download <run-id> --repo vngcloud/InferenceX -n <artifact>`), names start with `<name>_c<conc>`:
-  - `agentic_<name>_c<conc>_…`: `results/` with `serving.yaml`, `router_command.txt`, `router.log`, `server_command.txt`, `server.log`, `benchmark_command.txt`, `benchmark.log`, `aiperf_artifacts/`
-  - `bmk_agentic_<name>_c<conc>_…`: aggregate result JSON
-  - `server_logs_<name>_c<conc>_…`: server logs
+- Status: `gh run view <run-id> --repo vngcloud/InferenceX`. One job per `conc`. Expect roughly 20 min of image pull, model load and warmup on top of the scenario duration (180 s smoke ≈ 25 min), plus the wait for the runner (hours when the box is busy). An old `gh` that prints no jobs: `gh api repos/vngcloud/InferenceX/actions/runs/<run-id>/jobs`.
+- Artifacts: `gh run download <run-id> --repo vngcloud/InferenceX -D <dir>` takes all of them (`-n <artifact>` one). Names start with `<name>_c<conc>`:
+  - `agentic_<name>_c<conc>_…`: `serving.yaml`, `dataset.txt`, `router_command.txt`, `router.log`, `server_command.txt`, `server.log`, `benchmark_command.txt`, `benchmark.log`, `gpu_metrics.csv`, `aiperf_artifacts/` (with `replicas: N`, replica `i` > 0 also has `server_command.<i>.txt` / `server.<i>.log`)
+  - `bmk_agentic_<name>_c<conc>_…` and `results_bmk/agg_bmk.json` (all concs): the aggregate result
+  - `server_logs_…`, `gpu_metrics_…`, `power_audit_…`, `run-stats`
+- Read the aggregate: `request_metrics.latency.ttft` (s; mean/p50/p90/p95), `request_accounting` (`records_profiled`, `records_error_dropped`, `error_categories`; warmup drops are normal), `server_metrics.cache.gpu_cache_hit_rate`, `request_metrics.throughput`, `avg_total_gpu_power_w`. `tp` and the `tp<N>` in names are the YAML's `gpus`, not the engine's TP: with `replicas` read the TP from `server_command.txt`. `scenario_type` says `agentic-coding` for every agentic scenario.
+- LiveKit scenarios (`custom-agentic-livekit111868-*`): after downloading the whole run, from the repo root run `uv run -q --no-project --python 3.12 --with pyyaml --with huggingface_hub python utils/serving/livekit_ttft.py <dir>`. It prints TTFT per conc split by a room's first turn vs later turns; report both, since first turns set the p95 tail. It fetches the plan CSV from the lock (`<dataset>-plan`, a public repo: no token needed); `--plan <csv>` uses a local copy. On `-v1-warm` (dial warm-up) runs, warm-up requests are excluded from the TTFT views and reported on their own last line; report their p95 too, since they must finish before the room's first turn.
+- Not failures: `503 Service Unavailable` lines in `server.log` / `router.log` before the warmup starts (readiness polling while the model loads), and errors in `router.log` at teardown after the profiling phase. Check the timestamps against `benchmark.log`.
 - Dataset errors appear as `ERROR dataset <name>: …` lines in the job log (`gh run view <id> --repo vngcloud/InferenceX --log-failed`); the first tau2 run downloads ~1.1 GB.
 - A failed job: read `server.log` first (engine flags, OOM, parser errors), then `benchmark.log` (aiperf). Router path: read `router.log` first when the job fails before aiperf starts. `gh run view <run-id> --repo vngcloud/InferenceX --log-failed | tail -100` shows the launcher side (slurm, enroot).
 - If the engine crashes or the job fails, report the error and the config as given. Do not change flags or env, or redispatch a modified config, on your own: the config is the user's, a change is their decision.

@@ -118,10 +118,12 @@ alloc_mem_gb() {
     total=$(( GPU_COUNT * (64 + hicache + segment) ))
     echo $(( total > 1950 ? 1950 : total ))
 }
+# A serving YAML's host_cpus / host_mem_gb (HOST_CPUS / HOST_MEM_GB) override both,
+# e.g. to ask for less than the 64G/GPU base when the engines need little host RAM.
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 8)) --mem="$(alloc_mem_gb)"G \
+    --cpus-per-task="${HOST_CPUS:-$((GPU_COUNT * 8))}" --mem="${HOST_MEM_GB:-$(alloc_mem_gb)}G" \
     --time=180 --no-shell --job-name="$RUNNER_NAME"
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
@@ -274,6 +276,11 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
         export DYN_DISCOVERY_BACKEND=file DYN_FILE_KV=/workspace/results/.dynkv DYN_SYSTEM_ENABLED=true
         # engine/bench only: exported after the router srun forks so the frontend does not inherit it
         DYN_SYSTEM_PORT="$(free_tcp_port_below_32768)"
+        # Replicas (dynamo.vllm): one system port and one KV event port each; the first system port is DYN_SYSTEM_PORT.
+        DYN_SYSTEM_PORTS="$DYN_SYSTEM_PORT" DYN_KV_EVENT_PORTS="$(free_tcp_port)"
+        for ((replica = 1; replica < ${REPLICAS:-1}; replica++)); do
+            DYN_SYSTEM_PORTS+=" $(free_tcp_port_below_32768)" DYN_KV_EVENT_PORTS+=" $(free_tcp_port)"
+        done
     else
         export ENGINE_PORT="$(free_tcp_port)"
         # Serving-YAML replicas (spec 2026-10-16): one engine port per replica; the first is ENGINE_PORT.
@@ -307,7 +314,7 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
     ) &
     ROUTER_SRUN_PID=$!
     if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
-        export DYN_SYSTEM_PORT
+        export DYN_SYSTEM_PORT DYN_SYSTEM_PORTS DYN_KV_EVENT_PORTS
     fi
 fi
 trap 'rc=$?; kill "$DCGM_SRUN_PID" $ROUTER_SRUN_PID $STORAGE_SRUN_PID 2>/dev/null || true; rm -rf "$GITHUB_WORKSPACE/results/.dynkv"; scancel "$JOB_ID" 2>/dev/null || true; exit "$rc"' EXIT INT TERM

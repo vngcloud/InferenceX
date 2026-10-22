@@ -77,6 +77,8 @@ def test_serving_object():
         "router-profile": "",
         "router-metrics-port": "",
         "replicas": "1",
+        "host-cpus": "",
+        "host-mem-gb": "",
         "storage-image": "",
         "storage-cmd": "",
         "storage-env": "",
@@ -85,7 +87,7 @@ def test_serving_object():
 
 GOLDEN = REPO / "utils/testdata/serving_dynamo_build_golden.json"
 NEW_SERVING_FIELDS = (
-    "router-profile", "router-metrics-port", "replicas",
+    "router-profile", "router-metrics-port", "replicas", "host-cpus", "host-mem-gb",
     "storage-image", "storage-cmd", "storage-env",
     "search",  # sweep scenarios; the goldens predate it
     "scenario-map",  # per-row scenario payloads; the goldens predate it
@@ -156,6 +158,19 @@ def test_dynamo_serving_object_and_rows():
     validate_matrix(result["matrix"])
     assert {row["runner"] for row in result["matrix"]} == {"hardware-hcm-8x_02"}
     assert result["matrix"][0]["tp"] == 8
+
+
+def test_dynamo_vllm_replicas_render_as_vllm_behind_the_frontend():
+    text = (DYNAMO.replace("gpus: 8", "gpus: 8\nreplicas: 2")
+                  .replace("python3 -m dynamo.sglang --model-path=PhalaCloud/GLM-5.3-W4AFP8 --served-model-name=zai-org/GLM-5.3 --tp=8 --enable-metrics",
+                           "python3 -m dynamo.vllm --model PhalaCloud/GLM-5.3-W4AFP8 --served-model-name zai-org/GLM-5.3 --tensor-parallel-size 4"))
+    result = build(text)
+    serving = result["serving"]
+    assert serving["router-profile"] == "dynamo"
+    assert serving["replicas"] == "2"
+    assert serving["served-model-name"] == "zai-org/GLM-5.3"
+    validate_matrix(result["matrix"])
+    assert {row["framework"] for row in result["matrix"]} == {"vllm"}
 
 
 @pytest.mark.parametrize("path", sorted((REPO / "serving").glob("*.yaml")), ids=lambda p: p.name)

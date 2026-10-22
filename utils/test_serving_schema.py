@@ -68,7 +68,7 @@ def test_router_unknown_key_rejected():
 
 def test_router_needs_hardware_hcm_runner():
     text = dynamo().replace("runner: hardware-hcm-8x_02", "runner: h200-greennode-slurm-1x_01").replace("gpus: 8", "gpus: 1")
-    assert "router: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the router)" in errors(text)
+    assert "router: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner" in errors(text)
 
 
 @pytest.mark.parametrize("field, text", [
@@ -287,7 +287,7 @@ def test_storage_unknown_key_rejected():
 
 def test_storage_needs_hardware_hcm_runner():
     text = GOOD + STORAGE  # h200-greennode runner, not hardware-hcm
-    assert "storage: needs a hardware-hcm-8x_* runner" in errors(text)
+    assert "storage: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner" in errors(text)
 
 
 def test_storage_unknown_placeholder_rejected():
@@ -329,6 +329,15 @@ REPLICAS_YAML = textwrap.dedent("""\
 """)
 
 
+DYNAMO_VLLM_REPLICAS = dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2").replace(
+    "serve: python3 -m dynamo.sglang --model-path=Qwen/Qwen3.8-27B --tp=8",
+    "serve: python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4")
+
+
+def test_dynamo_vllm_replicas_load():
+    assert load_serving(DYNAMO_VLLM_REPLICAS).replicas == 2
+
+
 def test_replicas_default_one_and_router_yaml_loads():
     assert load_serving(GOOD).replicas == 1
     assert load_serving(REPLICAS_YAML).replicas == 2
@@ -338,10 +347,13 @@ def test_replicas_default_one_and_router_yaml_loads():
     (REPLICAS_YAML.replace("gpus: 2", "gpus: 3"), "replicas: gpus 3 is not a multiple of replicas 2"),
     (REPLICAS_YAML.split("router:")[0] + "scenario: agentx-cc-062126-smoke\nconc: [8]\n",
      "replicas: more than 1 replica needs a router: block"),
-    (dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2"), "replicas: the Dynamo frontend discovers its engines itself"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nreplicas: 2"), "replicas: with the Dynamo frontend only python3 -m dynamo.vllm"),
+    (DYNAMO_VLLM_REPLICAS.replace("--tensor-parallel-size 4", "--tensor-parallel-size 4 --kv-events-config '{}'"),
+     "replicas: drop --kv-events-config"),
     (REPLICAS_YAML.replace("replicas: 2", "replicas: 0"), "replicas: Input should be greater than or equal to 1"),
     (REPLICAS_YAML.replace("gpus: 2\n", "gpus: 2\nenv: {ENGINE_PORTS: x}\n"), "env.ENGINE_PORTS: reserved"),
-], ids=["indivisible", "no-router", "dynamo", "zero", "reserved-env"])
+    (REPLICAS_YAML.replace("gpus: 2\n", "gpus: 2\nenv: {DYN_KV_EVENT_PORTS: x}\n"), "env.DYN_KV_EVENT_PORTS: reserved"),
+], ids=["indivisible", "no-router", "dynamo-sglang", "dynamo-kv-events", "zero", "reserved-env", "reserved-dyn-env"])
 def test_replicas_errors(text, error):
     assert error in errors(text)
 
@@ -372,3 +384,18 @@ def test_non_sweep_scenario_keeps_conc_rule_unchanged(sweep_repo):
     text = with_line("conc: [4, 8]", "conc: [8, 16]")
     spec = load_serving(text, sweep_repo)
     assert spec.conc == [8, 16]
+
+
+def test_host_resources_load_on_hardware_hcm():
+    spec = load_serving(DYNAMO_VLLM_REPLICAS.replace("replicas: 2", "replicas: 2\nhost_cpus: 64\nhost_mem_gb: 256"))
+    assert (spec.host_cpus, spec.host_mem_gb) == (64, 256)
+    assert load_serving(DYNAMO_VLLM_REPLICAS).host_cpus is None
+
+
+@pytest.mark.parametrize("text, error", [
+    (GOOD.replace("gpus: 1", "gpus: 1\nhost_cpus: 16"), "host_cpus/host_mem_gb: only the hardware-hcm-8x_* launcher"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nhost_cpus: 2"), "host_cpus: Input should be greater than or equal to 4"),
+    (dynamo().replace("gpus: 8", "gpus: 8\nhost_mem_gb: 8"), "host_mem_gb: Input should be greater than or equal to 16"),
+], ids=["other-runner", "cpus-too-small", "mem-too-small"])
+def test_host_resources_errors(text, error):
+    assert error in errors(text)

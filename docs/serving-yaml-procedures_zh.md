@@ -61,6 +61,10 @@
    脚本执行与 CI 相同的校验。出现 `ERROR <field>: <fix>` 时不会派发任何任务：修改 YAML 后重新运行。成功时会输出运行 URL。使用 `--ref <branch>` 可派发当前分支以外的分支。
 4. 如果脚本提示运行未出现，不要重复派发；先执行 `gh run list --repo vngcloud/InferenceX -w e2e-tests.yml -L 5` 检查。
 
+### 主机 CPU / 内存（hardware-hcm）
+
+`hardware-hcm-8x_*` 启动器默认每块 GPU 申请 8 个 CPU + 64 GB 内存，再加上引擎的主机 KV 池（`--hicache-size`、`MOONCAKE_GLOBAL_SEGMENT_SIZE`），上限 1950 GB。YAML 可用 `host_cpus` / `host_mem_gb` 覆盖两者（整个作业：引擎、路由、sidecar、aiperf），例如 2× TP4 vLLM Gemma-4-31B c96 峰值约 70 GB：`host_cpus: 64`、`host_mem_gb: 192`。这里 Slurm 不强制 `--mem`，申请低于峰值会导致节点超分。
+
 ### 副本（replicas）
 
 「**副本（replicas）**」：同一引擎的多个副本（如 2×TP1）。设置 `replicas: N`，`gpus` = N × 每个引擎的 GPU 数；路由命令用 `{{engine_urls}}`（空格分隔的 URL）列出全部引擎。不支持 Dynamo frontend。
@@ -115,7 +119,8 @@ router:
 ## 查看结果与失败
 
 - 状态：`gh run view <run-id> --repo vngcloud/InferenceX`。每个 `conc` 值对应一个任务。除场景时长外，镜像拉取、模型加载与预热约需 20 分钟。
-- 产物（`gh run download <run-id> --repo vngcloud/InferenceX -n <artifact>`）以 `<name>_c<conc>` 开头；`results/` 包含 `serving.yaml`、`server.log`、`benchmark.log`、`router.log`（Router 路径）与 `aiperf_artifacts/`。
+- 产物（全部：`gh run download <run-id> --repo vngcloud/InferenceX -D <dir>`；单个：`-n <artifact>`）以 `<name>_c<conc>` 开头；`agentic_<name>_c<conc>_…` 包含 `serving.yaml`、`dataset.txt`、`server.log`、`benchmark.log`、`router.log`（Router 路径）与 `aiperf_artifacts/`（`replicas: N` 时，副本 `i` > 0 另写 `server.<i>.log`）。聚合结果为 `bmk_agentic_…` / `results_bmk/agg_bmk.json`；其中 `tp` 是 YAML 的 `gpus`，不是引擎 TP。warmup 之前的 `503` 行是就绪轮询，不是失败。
+- LiveKit 场景（`custom-agentic-livekit111868-*`）：`gh run download <run-id> --repo vngcloud/InferenceX -D <dir>`，然后在仓库根目录运行 `uv run -q --no-project --python 3.12 --with pyyaml --with huggingface_hub python utils/serving/livekit_ttft.py <dir>` 按 conc 输出 TTFT，并区分房间首轮与后续轮次（p95 尾部由首轮决定）。脚本从锁文件（`<dataset>-plan`）获取 trace 的 plan CSV；`--plan <csv>` 使用本地副本。`-v1-warm`（拨号预热）运行中，预热请求不计入任何 TTFT 视图，单独在最后一行输出（延迟，以及 0.5/1/1.5/2 s 内完成的比例）。
 - 失败时先看 `server.log`，再看 `benchmark.log`。Router 路径下，若任务在 aiperf 启动前失败，先看 `router.log`。`gh run view <run-id> --repo vngcloud/InferenceX --log-failed | tail -100` 显示启动脚本侧（Slurm、enroot）的日志。
 - 引擎崩溃反映的是原样提交的配置。是否修改参数由配置所有者决定，而不是由基准测试决定。
 

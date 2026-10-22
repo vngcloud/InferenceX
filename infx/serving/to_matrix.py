@@ -147,7 +147,9 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
         sweep = is_sweep(scenario, repo)
         for conc in spec.conc:
             exp_name = (
-                f"{spec.name}-{scenario}" if multi else (f"{spec.name}_search" if sweep else f"{spec.name}_c{conc}")
+                f"{spec.name}-{scenario}"
+                if multi
+                else (f"{spec.name}_search" if sweep else f"{spec.name}_c{conc}")
             )
             rows.append(_row(spec, rendered["framework"], conc, duration, exp_name))
             scenario_map[exp_name] = {"scenario": scenario, "loader": loader, "search": sweep}
@@ -172,6 +174,8 @@ def build(text: str, repo: Path = REPO_ROOT) -> dict:
             "router-profile": rendered["router-profile"],
             "router-metrics-port": rendered["router-metrics-port"],
             "replicas": str(spec.replicas),
+            "host-cpus": str(spec.host_cpus or ""),
+            "host-mem-gb": str(spec.host_mem_gb or ""),
             "storage-image": rendered["storage-image"],
             "storage-cmd": rendered["storage-cmd"],
             "storage-env": rendered["storage-env"],

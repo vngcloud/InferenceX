@@ -21,6 +21,7 @@ umask 0000
 #   ROUTER_METRICS_PORT generic router: its /metrics port, empty = the router port
 #   ENGINE_PORT        generic router: the engine's HTTP port (launcher)
 #   DYN_SYSTEM_PORT    Dynamo engine metrics/health port (launcher)
+#   DYN_SYSTEM_PORTS, DYN_KV_EVENT_PORTS  Dynamo replicas: one system / vLLM KV event port per replica (launcher)
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
@@ -72,8 +73,12 @@ HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= "$AIPERF_HF_CLI" down
 if [[ -n "${ROUTER_CMD:-}" ]]; then
     if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
         check_env_vars DYN_SYSTEM_PORT
-        # Frontend (dynamo_frontend_*) + engine (sglang:* via the Dynamo system port).
-        export AIPERF_SERVER_METRICS_URLS="http://localhost:${PORT}/metrics,http://localhost:${DYN_SYSTEM_PORT}/metrics"
+        # Frontend (dynamo_frontend_*) + every engine (via its Dynamo system port).
+        metrics_urls="http://localhost:${PORT}/metrics"
+        for system_port in ${DYN_SYSTEM_PORTS:-$DYN_SYSTEM_PORT}; do
+            metrics_urls+=",http://localhost:${system_port}/metrics"
+        done
+        export AIPERF_SERVER_METRICS_URLS="$metrics_urls"
     else
         check_env_vars ENGINE_PORT
         # Router (its own metrics port, else the router port) + every engine's own /metrics.
@@ -94,7 +99,41 @@ esac
 
 SERVER_LOG="$RESULT_DIR/server.log"
 eval "set -- $SERVE_CMD"
-if [[ "${REPLICAS:-1}" -gt 1 ]]; then
+if [[ "${REPLICAS:-1}" -gt 1 && "${ROUTER_PROFILE:-}" == dynamo ]]; then
+    # Dynamo replicas (schema: dynamo.vllm only): N engines, each on its own GPU slice, Dynamo
+    # system port (health + metrics, DYN_SYSTEM_PORTS) and vLLM KV event port (DYN_KV_EVENT_PORTS);
+    # the frontend finds them through file discovery. Replica 0 keeps server.log, as below.
+    read -r -a replica_ports <<< "${DYN_SYSTEM_PORTS:-}"
+    read -r -a kv_ports <<< "${DYN_KV_EVENT_PORTS:-}"
+    if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+        IFS=, read -r -a replica_gpus <<< "$CUDA_VISIBLE_DEVICES"
+    else
+        mapfile -t replica_gpus < <(nvidia-smi --query-gpu=index --format=csv,noheader)
+    fi
+    if (( ${#replica_ports[@]} != REPLICAS || ${#kv_ports[@]} != REPLICAS || ${#replica_gpus[@]} == 0 || ${#replica_gpus[@]} % REPLICAS )); then
+        echo "ERROR: replicas $REPLICAS needs $REPLICAS ports in DYN_SYSTEM_PORTS/DYN_KV_EVENT_PORTS (got '${DYN_SYSTEM_PORTS:-}' / '${DYN_KV_EVENT_PORTS:-}') and a GPU count divisible by $REPLICAS" >&2
+        exit 1
+    fi
+    gpus_per_replica=$(( ${#replica_gpus[@]} / REPLICAS ))
+    replica_pids=()
+    for ((replica = 0; replica < REPLICAS; replica++)); do
+        suffix=""
+        (( replica == 0 )) || suffix=".$replica"
+        replica_cmd=("$@" --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+        write_command "$RESULT_DIR/server_command${suffix}.txt" "${replica_cmd[@]}"
+        DYN_SYSTEM_PORT="${replica_ports[replica]}" \
+        CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${replica_gpus[*]:replica*gpus_per_replica:gpus_per_replica}")" \
+            "${replica_cmd[@]}" > "$RESULT_DIR/server${suffix}.log" 2>&1 &
+        replica_pids+=("$!")
+    done
+    for ((replica = 0; replica < REPLICAS; replica++)); do
+        suffix=""
+        (( replica == 0 )) || suffix=".$replica"
+        wait_for_server_ready --port "${replica_ports[replica]}" --server-log "$RESULT_DIR/server${suffix}.log" \
+            --server-pid "${replica_pids[replica]}"
+    done
+    SERVER_PID="${replica_pids[0]}"
+elif [[ "${REPLICAS:-1}" -gt 1 ]]; then
     # Serving-YAML replicas (spec 2026-10-16): N copies of SERVE_CMD, each on its own GPU slice and
     # ENGINE_PORTS entry. Replica 0 keeps server.log / server_command.txt: the vLLM server-metrics
     # adapter reads "GPU KV cache size" from server.log (replicas are identical).
