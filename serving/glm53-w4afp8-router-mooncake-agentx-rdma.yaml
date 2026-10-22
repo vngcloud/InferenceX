@@ -1,4 +1,5 @@
-# AgentX Mooncake arm over RDMA: serving/glm53-w4afp8-router-mooncake-agentx.yaml (write_through_selective) with the
+# AgentX Mooncake arm over RDMA: serving/glm53-w4afp8-router-mooncake-agentx.yaml with --hicache-write-policy write_through (as the E3 and
+# serving/glm53-w4afp8-router-mooncake-wt-agentx.yaml arms) and the
 # L3 moved from TCP to RDMA through the ConnectX-6 (rocep41s0f0, 10.200.3.1 on hgx-h200-01), the same L3 setup as
 # serving/glm53-w4afp8-router-mooncake-e3-rdma.yaml (smoke run 39725803197: 4 x 192 GiB stores up, L3 reads over RDMA):
 # only the CX-6 (never the E810s), 4 mooncake_store_service x 192 GiB = 768 GiB in the storage sidecar, engine segment 0,
@@ -55,7 +56,7 @@ serve: |
   --allow-auto-truncate
   --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
   --enable-hierarchical-cache
-  --hicache-size 48 --hicache-io-backend direct --hicache-write-policy write_through_selective
+  --hicache-size 48 --hicache-io-backend direct --hicache-write-policy write_through
   --hicache-host-memory-mode buffer_only
   --hicache-storage-backend mooncake
   --speculative-algorithm EAGLE --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
