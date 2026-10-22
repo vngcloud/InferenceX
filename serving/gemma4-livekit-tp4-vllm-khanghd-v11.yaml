@@ -1,0 +1,34 @@
+# vLLM khanghd arm (gemma4-livekit-2tp4-dyn-kv-sa-warm-chunk-ret4k-pr57613-v11, max CCU 72 under the AIPerf SLA)
+# as ONE direct TP4 server: no Dynamo, no router, so no session affinity and no x-dynamo-session-id.
+# Engine flags and PR #57613 patch are the same as the 2x TP4 arm; image = its dynamo-vllm runtime (vLLM 0.31.0,
+# plain `vllm serve` is in it), so the sitecustomize patch targets the same vLLM. Gemma4 parsers move from
+# --dyn-*-parser to the vLLM flags. Check `[pr57613] patched` in server.log.
+# 4 GPUs of an 8xH200 node; max-num-seqs 256 as in the arm. Fixed CCU, not a search: c50 then c80 on one boot
+# (cache carries over between the two).
+name: gemma4-livekit-tp4-vllm-khanghd-v11
+runner: hardware-hcm-8x_01
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0.dev20261018-g4strip
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+  PYTHONPATH: /workspace/runners/vllm_pr57613
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 256
+  --max-num-batched-tokens 8192
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 2048
+  --kv-cache-metrics
+  --prefix-cache-retention-interval 4096
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [50, 80]

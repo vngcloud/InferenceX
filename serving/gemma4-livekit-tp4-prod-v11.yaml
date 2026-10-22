@@ -1,0 +1,36 @@
+# Production Gemma-4-31B config, untuned, as ONE direct TP4 server (prod = 2x TP1 behind vllm-router cache_aware).
+# Source: kubectl read-only on HCM cluster `hcm-gemma4`, deploy gemma4-31b-fp8-h200-eagle-{a,b}, 2026-10-22
+# (args identical to the 2026-10-15 audit). Kept as prod: vLLM v0.25.1, MTP 4 (draft google/gemma-4-31B-it-assistant),
+# max-num-seqs 64, max-num-batched-tokens 16384, long-prefill-token-threshold 8192, gpu-mem 0.92, max-model-len 262144,
+# VLLM_DISABLE_COMPILE_CACHE=1, NCCL_P2P_LEVEL=NVL, default attention backend, no PR #57613, no SWA retention.
+# Changed: --tensor-parallel-size 1 -> 4 (requested), router dropped, prod's two served names -> the model id the harness
+# uses. Not in prod: --trust-remote-code absent here as in prod. Prod draft path /models/... -> HF id.
+# max-num-seqs 64 is prod's value for 1 GPU; at c80 on TP4 it can queue. Left as prod on purpose.
+# Fixed CCU c50 only (user: no c80 for prod).
+name: gemma4-livekit-tp4-prod-v11
+runner: hardware-hcm-8x_01
+image: vllm/vllm-openai:v0.25.1
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 16384
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 8192
+  --kv-cache-metrics
+  --enable-prompt-tokens-details
+  --speculative-config '{"model": "google/gemma-4-31B-it-assistant", "num_speculative_tokens": 4, "method": "mtp"}'
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [50]
