@@ -1,5 +1,5 @@
 # GreenNode Tuning (offered) = gemma4-livekit-tp4-vllm-khanghd-v11 at TP2: one direct TP2 server (2x H200), no router.
-# Only changes vs the TP4 file: gpus 4 -> 2, --tensor-parallel-size 4 -> 2, conc [24], runner 8x_02 (node 02 free on
+# Only changes vs the TP4 file: gpus 4 -> 2, --tensor-parallel-size 4 -> 2, conc [16] (c24 ran as run 39734185316: TTFT p95 user turns 578 ms, fail), runner 8x_02 (node 02 free on
 # 2026-10-22, node 01 held). Sizing check: TP4 held TTFT p95 (user turns) 438 ms at c50; TP2 estimated ~20-30 CCU.
 name: gemma4-livekit-tp2-vllm-khanghd-v11
 runner: hardware-hcm-8x_02
@@ -27,4 +27,4 @@ serve: |
   --tool-call-parser gemma4
   --reasoning-parser gemma4
 scenario: custom-agentic-livekit111868-v1.1-warm
-conc: [24]
+conc: [16]
