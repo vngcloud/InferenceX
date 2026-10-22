@@ -1,0 +1,579 @@
+"""Validate eval scores against per-task and per-model thresholds."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import glob
+import json
+import math
+import os
+import re
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+
+CONC_SUFFIX_RE = re.compile(r"_conc(\d+)(?:_\d+)?\.json$")
+
+# Quality harnesses do not share lm-eval's ``exact_match,*`` metric naming.
+# Keep the primary metric explicit so auxiliary/per-sample values are not
+# accidentally treated as release gates.
+QUALITY_PRIMARY_METRICS = {
+    "gpqa": {"exact_match,strict-match"},
+    "mmlu_pro": {"exact_match,custom-extract"},
+    "hle": {"exact_match,custom-extract"},
+    "livecodebench": {"pass@1"},
+    "scicode": {"mean", "sub_problem_correctness", "Problem Correctness/mean"},
+    "swebench_pro": {"exact_match,resolved"},
+}
+
+QUALITY_PRIMARY_TASKS = {
+    "gpqa": "gpqa_diamond_cot_n_shot",
+    "mmlu_pro": "mmlu_pro",
+    "hle": "hle",
+    "livecodebench": "livecodebench",
+    "scicode": "scicode/scicode_scorer",
+    "swebench_pro": "swebench_pro",
+}
+
+QUALITY_THRESHOLD_KEYS = {
+    # The workflow uses the short launcher name while thresholds retain the
+    # canonical lm-eval task name.
+    "gpqa": "gpqa_diamond_cot_n_shot",
+}
+
+
+def load_config(path: str) -> dict:
+    """Load YAML or JSON thresholds, including legacy flat configs."""
+    with open(path) as f:
+        text = f.read()
+    try:
+        import yaml
+    except ModuleNotFoundError:
+        # Runner hosts may lack PyYAML.
+        try:
+            cfg = json.loads(text)
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"PyYAML is not installed and {path} is not JSON; "
+                "install it with 'pip install pyyaml'"
+            ) from None
+    else:
+        try:
+            cfg = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"invalid YAML: {exc}") from exc
+    if not isinstance(cfg, dict):
+        raise ValueError("thresholds config must be a mapping")
+    if "default" not in cfg and "models" not in cfg:
+        # Legacy flat format: the whole object is the per-task default.
+        return {"default": cfg, "models": {}}
+    return {"default": cfg.get("default", {}), "models": cfg.get("models", {})}
+
+
+def detect_model_prefix(meta_env_path: str, override: str | None) -> str | None:
+    """Resolve the model prefix: explicit override > meta_env.json > env var."""
+    if override:
+        return override
+    try:
+        with open(meta_env_path) as f:
+            prefix = json.load(f).get("infmax_model_prefix")
+        if prefix and prefix != "unknown":
+            return prefix
+    except (json.JSONDecodeError, OSError, AttributeError):
+        pass
+    env_prefix = os.environ.get("MODEL_PREFIX")
+    if env_prefix and env_prefix != "unknown":
+        return env_prefix
+    return None
+
+
+def detect_benchmark(meta_env_path: str) -> str | None:
+    """Return the quality benchmark recorded by the launcher, if present."""
+    try:
+        with open(meta_env_path) as f:
+            benchmark = json.load(f).get("benchmark")
+        return benchmark if isinstance(benchmark, str) and benchmark else None
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return None
+
+
+def _numeric_score(value: object) -> float | None:
+    """Parse numeric and percentage values emitted by external harnesses."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    try:
+        if text.endswith("%"):
+            return float(text[:-1]) / 100.0
+        return float(text)
+    except ValueError:
+        return None
+
+
+def native_quality_scores(data: dict, benchmark: str | None) -> Iterator[tuple[str, str, float]]:
+    """Yield primary scores from harness-native result structures."""
+    if benchmark == "bfcl":
+        subset = data.get("subset")
+        if isinstance(subset, dict):
+            value = _numeric_score(subset.get("overall_accuracy"))
+            if value is not None:
+                yield "bfcl", "subset_overall_accuracy", value
+                return
+        for row in data.get("scores", []):
+            if not isinstance(row, dict):
+                continue
+            value = _numeric_score(row.get("Overall Acc"))
+            if value is not None:
+                yield "bfcl", "overall_accuracy", value
+                return
+    elif benchmark == "deepswe":
+        evals = data.get("stats", {}).get("evals", {})
+        if not isinstance(evals, dict):
+            return
+        for eval_data in evals.values():
+            if not isinstance(eval_data, dict):
+                continue
+            for metrics in eval_data.get("metrics", []):
+                if not isinstance(metrics, dict):
+                    continue
+                value = _numeric_score(metrics.get("reward"))
+                if value is not None:
+                    yield "deepswe", "reward", value
+    elif benchmark == "swebench_pro":
+        # The upstream SWE-bench Pro evaluator writes eval_results.json as a
+        # bare {instance_id: resolved_bool} mapping. Accept that native format
+        # as well as the normalized lm-eval-shaped wrapper produced by our
+        # runner, so old/resumed artifacts validate correctly too.
+        if data and all(isinstance(value, bool) for value in data.values()):
+            yield (
+                "swebench_pro",
+                "exact_match,resolved",
+                sum(data.values()) / len(data),
+            )
+
+
+def resolve_threshold(
+    config: dict, prefix: str | None, task: str, fallback: float
+) -> tuple[float, str]:
+    """Return (min_score, source) for a task, most-specific-first."""
+    models = config.get("models", {})
+    if prefix and task in models.get(prefix, {}):
+        return models[prefix][task], f"models.{prefix}"
+    default = config.get("default", {})
+    if task in default:
+        return default[task], "default"
+    return fallback, "min-score"
+
+
+def invalid_effective_count(data: dict, task: str) -> tuple[bool, object]:
+    """Return whether an explicitly present effective count is invalid."""
+    if "n-samples" not in data:
+        return False, None
+    sample_counts = data["n-samples"]
+    if not isinstance(sample_counts, dict) or task not in sample_counts:
+        return True, sample_counts
+    task_samples = sample_counts[task]
+    if not isinstance(task_samples, dict) or "effective" not in task_samples:
+        return True, task_samples
+    effective = task_samples["effective"]
+    invalid = (
+        isinstance(effective, bool)
+        or not isinstance(effective, (int, float))
+        or not math.isfinite(effective)
+        or effective <= 0
+    )
+    return invalid, effective
+
+
+def metric_prefixes(data: dict, task: str, override: str | None) -> tuple[str, ...]:
+    """Resolve score metric prefixes from an explicit override or task config."""
+    if override is not None:
+        return (override,)
+    task_config = data.get("configs", {}).get(task, {})
+    metric_list = task_config.get("metric_list", [])
+    declared = tuple(
+        f"{item['metric']},"
+        for item in metric_list
+        if isinstance(item, dict) and isinstance(item.get("metric"), str) and item["metric"]
+    )
+    return declared or ("exact_match,",)
+
+
+def integration_error_message(error: object) -> str:
+    """Render the structured integration error fields for a direct failure."""
+    if isinstance(error, dict):
+        error_type = error.get("type", "unknown")
+        message = error.get("message", "")
+        return f"{error_type}: {message}"
+    return f"unknown: {error}"
+
+
+def validate_batch_manifest(
+    meta_env_path: str,
+    result_files: list[str],
+    expected_concs: list[int] | None = None,
+) -> list[str]:
+    """Validate that a batched eval produced every requested concurrency."""
+    try:
+        with open(meta_env_path) as f:
+            meta = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        if expected_concs is not None or any(
+            CONC_SUFFIX_RE.search(Path(result_file).name) for result_file in result_files
+        ):
+            return [
+                (
+                    "batched eval result files exist but "
+                    f"{meta_env_path} is unavailable or invalid: {exc}"
+                )
+            ]
+        return []
+
+    if expected_concs is not None and "eval_concs" not in meta:
+        if len(expected_concs) > 1:
+            return [
+                "workflow requested multiple concurrencies but batched eval metadata is missing"
+            ]
+        errors = []
+        if meta.get("conc") != expected_concs[0]:
+            errors.append("eval metadata concurrency does not match workflow request")
+        if len(result_files) != 1:
+            errors.append("eval must produce exactly one result file")
+        return errors
+    if "eval_concs" not in meta:
+        return []
+
+    metadata_expected = meta.get("eval_concs")
+    completed = meta.get("completed_eval_concs")
+    failed = meta.get("failed_eval_concs")
+    if not all(isinstance(values, list) for values in (metadata_expected, completed, failed)):
+        return ["batched eval metadata must contain list-valued concurrency fields"]
+    if not all(
+        isinstance(value, int) and value > 0
+        for values in (metadata_expected, completed, failed)
+        for value in values
+    ):
+        return ["batched eval metadata contains an invalid concurrency"]
+
+    errors = []
+    metadata_expected_set = set(metadata_expected)
+    expected_set = set(expected_concs or metadata_expected)
+    completed_set = set(completed)
+    failed_set = set(failed)
+    if len(metadata_expected_set) != len(metadata_expected):
+        errors.append("batched eval metadata contains duplicate expected concurrencies")
+    if len(completed_set) != len(completed):
+        errors.append("batched eval metadata contains duplicate completed concurrencies")
+    if expected_concs is not None and metadata_expected_set != expected_set:
+        errors.append("batched eval metadata does not match workflow concurrencies")
+    if failed_set:
+        errors.append(
+            "batched eval failed for concurrency: "
+            + ", ".join(str(value) for value in sorted(failed_set))
+        )
+    if completed_set != expected_set:
+        missing = sorted(expected_set - completed_set)
+        unexpected = sorted(completed_set - expected_set)
+        if missing:
+            errors.append(
+                "batched eval is missing completed concurrency: "
+                + ", ".join(str(value) for value in missing)
+            )
+        if unexpected:
+            errors.append(
+                "batched eval completed unexpected concurrency: "
+                + ", ".join(str(value) for value in unexpected)
+            )
+
+    actual_concs = set()
+    for result_file in result_files:
+        match = CONC_SUFFIX_RE.search(Path(result_file).name)
+        if match is None:
+            errors.append(f"batched eval result lacks a concurrency suffix: {result_file}")
+            continue
+        actual_concs.add(int(match.group(1)))
+
+    missing_results = sorted(expected_set - actual_concs)
+    unexpected_results = sorted(actual_concs - expected_set)
+    if missing_results:
+        errors.append(
+            "batched eval is missing result files for concurrency: "
+            + ", ".join(str(value) for value in missing_results)
+        )
+    if unexpected_results:
+        errors.append(
+            "batched eval has unexpected result files for concurrency: "
+            + ", ".join(str(value) for value in unexpected_results)
+        )
+    return errors
+
+
+def _nested_nonempty_strings(value: object) -> list[str]:
+    """Return non-empty strings from nested lm-eval response containers."""
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [item for child in value for item in _nested_nonempty_strings(child)]
+    return []
+
+
+def validate_smoke_artifacts(meta_env_path: str) -> list[str]:
+    """Reject operationally invalid outputs that a score-only smoke test hides."""
+    try:
+        with open(meta_env_path) as f:
+            benchmark = json.load(f).get("benchmark")
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return []
+
+    errors = []
+    if benchmark == "hle":
+        sample_files = sorted(glob.glob("sample*.jsonl"))
+        if not sample_files:
+            return ["HLE smoke test produced no sample logs"]
+        total = 0
+        empty = 0
+        for path in sample_files:
+            try:
+                with open(path) as fh:
+                    for line in fh:
+                        if not line.strip():
+                            continue
+                        total += 1
+                        sample = json.loads(line)
+                        if not _nested_nonempty_strings(sample.get("resps", [])):
+                            empty += 1
+            except (json.JSONDecodeError, OSError) as exc:
+                errors.append(f"could not inspect HLE sample log {path}: {exc}")
+        if total == 0:
+            errors.append("HLE sample logs contain no records")
+        elif empty:
+            errors.append(f"HLE produced {empty}/{total} empty completions")
+    return errors
+
+
+def main() -> int:
+    # Keep merged CI logs ordered.
+    for _stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError):
+            _stream.reconfigure(line_buffering=True)
+
+    parser = argparse.ArgumentParser(description="Validate eval scores")
+    parser.add_argument(
+        "--min-score",
+        type=float,
+        default=0.85,
+        help="Fallback minimum score when no threshold config matches (default: 0.85)",
+    )
+    parser.add_argument(
+        "--thresholds",
+        default=None,
+        help="Path to thresholds config, YAML or JSON (default: infx/evals/thresholds.yaml)",
+    )
+    parser.add_argument(
+        "--meta-env",
+        default="meta_env.json",
+        help="Path to meta_env.json used to detect the model prefix (default: meta_env.json)",
+    )
+    parser.add_argument(
+        "--model-prefix",
+        default=None,
+        help="Override the detected model prefix (default: read from meta_env.json / $MODEL_PREFIX)",
+    )
+    parser.add_argument(
+        "--metric-prefix",
+        default=None,
+        help="Override task-config metric selection with one metric prefix",
+    )
+    parser.add_argument(
+        "--results-glob",
+        default="results*.json",
+        help="Glob pattern for result files (default: 'results*.json')",
+    )
+    parser.add_argument(
+        "--expected-concs",
+        default=None,
+        help="Space-separated concurrencies requested by the workflow",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Smoke-test mode: verify result artifacts exist without checking thresholds",
+    )
+    args = parser.parse_args()
+
+    expected_concs = None
+    if args.expected_concs is not None:
+        try:
+            expected_concs = [int(value) for value in args.expected_concs.split()]
+        except ValueError:
+            expected_concs = []
+        if (
+            not expected_concs
+            or any(value <= 0 for value in expected_concs)
+            or len(set(expected_concs)) != len(expected_concs)
+        ):
+            print(
+                "FAIL: expected concurrencies must be unique positive integers",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Load thresholds config
+    config = {"default": {}, "models": {}}
+    thresholds_path = args.thresholds
+    if thresholds_path is None:
+        default_path = Path(__file__).parent / "thresholds.yaml"
+        if default_path.exists():
+            thresholds_path = str(default_path)
+    if thresholds_path:
+        try:
+            config = load_config(thresholds_path)
+            print(f"Loaded thresholds from {thresholds_path}")
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            print(
+                f"WARN: could not load thresholds from {thresholds_path}: {e}",
+                file=sys.stderr,
+            )
+
+    # Identify the model so per-model thresholds can apply
+    prefix = detect_model_prefix(args.meta_env, args.model_prefix)
+    benchmark = detect_benchmark(args.meta_env)
+    if prefix and prefix in config.get("models", {}):
+        print(f"Model prefix: {prefix} (per-model thresholds apply)")
+    elif prefix:
+        print(f"Model prefix: {prefix} (no per-model override; using global default)")
+    else:
+        print("Model prefix: <unknown> (using global default thresholds)")
+
+    failed = False
+    checked = 0
+    result_files = sorted(glob.glob(args.results_glob))
+
+    if args.smoke:
+        for error in validate_smoke_artifacts(args.meta_env):
+            print(f"FAIL: {error}", file=sys.stderr)
+            failed = True
+
+    manifest_errors = validate_batch_manifest(
+        args.meta_env,
+        result_files,
+        expected_concs,
+    )
+    for error in manifest_errors:
+        print(f"FAIL: {error}", file=sys.stderr)
+        failed = True
+    if not manifest_errors:
+        try:
+            with open(args.meta_env) as f:
+                if "eval_concs" in json.load(f):
+                    print("PASS: batched eval produced every requested concurrency")
+        except (json.JSONDecodeError, OSError) as exc:
+            print(
+                f"WARN: could not inspect eval metadata for batched concurrency status: {exc}",
+                file=sys.stderr,
+            )
+
+    for f in result_files:
+        match = CONC_SUFFIX_RE.search(Path(f).name)
+        conc_label = f"[conc={match.group(1)}] " if match else ""
+        with open(f) as fh:
+            data = json.load(fh)
+        if "integration_error" in data:
+            print(
+                f"FAIL: {conc_label}integration failure: "
+                f"{integration_error_message(data['integration_error'])}",
+                file=sys.stderr,
+            )
+            failed = True
+            continue
+        for task, metrics in data.get("results", {}).items():
+            if not isinstance(metrics, dict):
+                continue
+            invalid_effective, effective = invalid_effective_count(data, task)
+            if invalid_effective:
+                print(
+                    f"FAIL: {conc_label}{task} invalid effective sample count: {effective!r}",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+            min_score, source = resolve_threshold(config, prefix, task, args.min_score)
+            prefixes = metric_prefixes(data, task, args.metric_prefix)
+            for name, val in metrics.items():
+                primary_metrics = QUALITY_PRIMARY_METRICS.get(benchmark)
+                if primary_metrics is not None:
+                    if task != QUALITY_PRIMARY_TASKS[benchmark]:
+                        continue
+                    if name not in primary_metrics:
+                        continue
+                elif not name.startswith(prefixes) or "stderr" in name:
+                    continue
+                if not isinstance(val, (int, float)):
+                    continue
+                if primary_metrics is not None:
+                    min_score, source = resolve_threshold(
+                        config,
+                        prefix,
+                        QUALITY_THRESHOLD_KEYS.get(benchmark, benchmark),
+                        args.min_score,
+                    )
+                checked += 1
+                if args.smoke:
+                    print(
+                        f"PASS (smoke): {conc_label}{task} {name} = {val:.4f} "
+                        f"(threshold check skipped)"
+                    )
+                elif val < min_score:
+                    print(
+                        f"FAIL: {conc_label}{task} {name} = {val:.4f} (< {min_score} from {source})",
+                        file=sys.stderr,
+                    )
+                    failed = True
+                else:
+                    print(
+                        f"PASS: {conc_label}{task} {name} = {val:.4f} (>= {min_score} from {source})"
+                    )
+
+        for task, name, val in native_quality_scores(data, benchmark):
+            min_score, source = resolve_threshold(
+                config,
+                prefix,
+                QUALITY_THRESHOLD_KEYS.get(benchmark, benchmark),
+                args.min_score,
+            )
+            checked += 1
+            if args.smoke:
+                print(
+                    f"PASS (smoke): {conc_label}{task} {name} = {val:.4f} (threshold check skipped)"
+                )
+            elif val < min_score:
+                print(
+                    f"FAIL: {conc_label}{task} {name} = {val:.4f} (< {min_score} from {source})",
+                    file=sys.stderr,
+                )
+                failed = True
+            else:
+                print(f"PASS: {conc_label}{task} {name} = {val:.4f} (>= {min_score} from {source})")
+
+    if checked == 0:
+        selector = args.metric_prefix or "declared task metrics"
+        if args.smoke:
+            if not result_files:
+                print("FAIL: smoke test produced no result artifacts", file=sys.stderr)
+                return 1
+            print(
+                f"PASS (smoke): no metrics matched {selector!r} but result artifacts are parseable"
+            )
+            return 1 if failed else 0
+        print(f"WARN: no metrics matched {selector!r}", file=sys.stderr)
+
+    return 1 if (failed or checked == 0) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -99,7 +99,7 @@ setup_lmeval() {
     # delta assembly independent of the installed lm-eval source layout.
     local SITE_PACKAGES
     SITE_PACKAGES="$("$VENV/bin/python" -c 'import site; print(site.getsitepackages()[0])')"
-    cp "$QUALITY_WORKSPACE/utils/evals/patches/lm_eval_sitecustomize.py" \
+    cp "$QUALITY_WORKSPACE/infx/evals/patches/lm_eval_sitecustomize.py" \
         "$SITE_PACKAGES/sitecustomize.py"
     # Patch openai_completions.py + api_models.py for streaming
     local OAI_COMP="$VENV/lib/python3.12/site-packages/lm_eval/models/openai_completions.py"

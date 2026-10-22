@@ -1,7 +1,33 @@
 name: Template - Benchmark
 on:
   workflow_call:
+    secrets:
+      REPO_PAT:
+        required: true
+      INFERENCEX_OFFICIAL_RO_HF_TOKEN:
+        required: true
+      MODAL_TOKEN_ID:
+        required: false
+      MODAL_TOKEN_SECRET:
+        required: false
+      # Read-only token for the private prepared SPEED-Bench repo pulled by
+      # resolve_speedbench_dataset (benchmark_lib.sh). Optional: every other
+      # recipe ignores it, and the SPEED-Bench path falls back to HF_TOKEN.
+      SPEEDBENCH_HF_TOKEN:
+        required: false
+      # Bearer token for the GreenNode MaaS endpoint (quality evals, remote bench).
+      GREENNODE_API_KEY:
+        required: false
     inputs:
+      config:
+        description: "Benchmark configuration as JSON"
+        required: true
+        type: string
+      klaud-run:
+        description: "Run Klaud Cold benchmarks at background priority"
+        required: false
+        type: boolean
+        default: false
       runner:
         required: true
         type: string
@@ -18,73 +44,27 @@ on:
         required: false
         type: string
         default: ''
-      image:
-        required: true
-        type: string
-      model:
-        required: true
-        type: string
-      model-prefix:
-        required: true
-        type: string
-      precision:
-        required: true
-        type: string
-      framework:
-        required: true
-        type: string
-      exp-name:
-        required: true
-        type: string
-      isl:
-        required: true
-        type: string
-      osl:
-        required: true
-        type: string
-      tp:
-        required: true
-        type: string
-      pp:
-        required: false
-        type: string
-        default: '1'
-      dcp-size:
-        required: false
-        type: string
-        default: '1'
-      pcp-size:
-        required: false
-        type: string
-        default: '1'
-
-      ep:
-        required: true
-        type: string
       dp-attn:
         required: true
         type: boolean
-      max-model-len:
-        required: true
-        type: string
-      conc:
-        required: true
-        type: string
-      spec-decoding:
-        required: true
-        type: string
-      disagg:
-        required: true
-        type: string
       run-eval:
         type: boolean
         required: true
-        default: false
       eval-only:
         description: "Run only evals (skip throughput benchmark)"
         type: boolean
         required: false
         default: false
+      eval-framework:
+        description: "Eval runner (lm-eval, swebench, kimi-vendor, minimax-vendor, or bfcl)"
+        type: string
+        required: false
+        default: "lm-eval"
+      eval-suite:
+        description: "Eval suite (kimi_tool_call_schema, kimi_tool_call_schema_full, minimax_m3_smoke, minimax_m3_full, bfcl_smoke, bfcl_vllm_minimax_m3, or bfcl_vllm_kimi); empty for lm-eval and swebench"
+        type: string
+        required: false
+        default: ""
       random-range-ratio:
         required: false
         type: string
@@ -99,38 +79,13 @@ on:
         required: false
         type: string
         default: 'fixed-seq-len'
-      kv-offloading:
-        description: "KV offload mode for agentic scenarios (none/dram)"
-        required: false
-        type: string
-      kv-offload-backend:
-        description: "KV offload backend for agentic scenarios when kv-offloading is not none"
-        required: false
-        type: string
-      kv-offload-backend-metadata:
-        description: "Optional KV offload backend name and version metadata as JSON"
-        required: false
-        type: string
-      router:
-        description: "Optional router name and version metadata as JSON"
-        required: false
-        type: string
-      kv-p2p-transfer:
-        description: "Optional multinode peer-to-peer KV transfer engine name"
-        required: false
-        type: string
-      total-cpu-dram-gb:
-        description: "Configured CPU DRAM capacity in GB for KV offloading"
-        required: false
-        type: string
-        default: '0'
       duration:
         description: "Benchmark duration in seconds"
         required: false
         type: string
         default: '3600'
       require-power:
-        description: "Fail fixed-sequence result processing when GPU power is invalid"
+        description: "Fail result processing when GPU power is invalid"
         required: false
         type: boolean
         default: false
@@ -158,7 +113,7 @@ on:
         type: string
         default: ""
       remote-gpu-telemetry-url:
-        description: "DCGM /metrics endpoint on the remote target (required for remote-bench)"
+        description: "DCGM /metrics endpoint on the remote target (optional; absent means the run uses --no-gpu-telemetry and reports no GPU power or utilization). A URL that is supplied but unreachable still fails the job -- that is a misconfiguration, not an absent capability."
         required: false
         type: string
         default: ""
@@ -178,82 +133,84 @@ on:
         type: string
         default: ""
       remote-max-context-length:
-        description: "Actual deployed context window of the remote target (required for remote-bench). Caps aiperf's replayed trace length; without it aiperf may replay traces longer than the remote model supports, which was confirmed via smoke test to trigger a silent 100%-GPU hang relying on server-side --allow-auto-truncate."
+        description: "Trace-length cap for the remote target (optional; omit when the target's context window exceeds the trace corpus, set it when the window is smaller). Caps aiperf's replayed trace length; without it aiperf may replay traces longer than the remote model supports, which was confirmed via smoke test to trigger a silent 100%-GPU hang relying on server-side --allow-auto-truncate."
         required: false
         type: string
         default: ""
-      # Quality-eval inputs. Only consumed by quality-eval scenario types
-      # (runner: cluster:quality-eval); every other recipe leaves these
-      # empty and is unaffected.
-      benchmark-name:
-        description: "Quality benchmark to run (gpqa, mmlu_pro, hle, livecodebench, bfcl, scicode, swebench_pro, deepswe)"
+      remote-tokenizer:
+        description: "HuggingFace tokenizer repo id for the remote target, when the endpoint serves the model under a different name (e.g. gateway alias z-ai/glm-5.2 backed by zai-org/GLM-5.2-FP8). Optional; defaults to the --model value."
         required: false
         type: string
         default: ""
-      quality-endpoint:
-        description: "OpenAI-compatible endpoint URL for quality evals"
-        required: false
-        type: string
-        default: ""
-      quality-model-name:
-        description: "Model name for quality evals (e.g. openai/z-ai/glm-5.2)"
-        required: false
-        type: string
-        default: ""
-      smoke:
-        description: "Smoke-test mode: skip threshold validation, only verify artifact exists"
+      remote-insecure-tls:
+        description: "Set true to skip TLS certificate verification for the remote target, in both the pre-flight probes and aiperf's metrics scrape. Needed when the endpoint sits behind a self-signed or Kubernetes ingress-default certificate; leave false for anything with a real certificate."
         required: false
         type: boolean
         default: false
-      num-concurrent:
-        description: "API request concurrency for quality evals (passed as NUM_CONCURRENT env var)"
+      weka-loader-override:
+        description: "Override the trace corpus selected by MODEL_PREFIX. resolve_trace_source() in benchmark_lib.sh maps each model-prefix to a default aiperf loader (e.g. glm5.2* -> the unfiltered semianalysis_cc_traces_weka_062126 corpus). Set this to an alternative loader key (e.g. semianalysis_cc_traces_weka_062126_256k) to swap corpora -- useful when the target's enforced context window is at or below 256k and the prefix's default corpus carries traces longer than that. Empty = use the prefix default. Consumed via the WEKA_LOADER_OVERRIDE env by every recipe that calls resolve_trace_source."
         required: false
         type: string
         default: ""
-      max-gen-tokens:
-        description: "Per-request output-token ceiling; empty uses the benchmark-specific default"
+      serving:
+        description: "Rendered serving object from infx.serving.to_matrix (serving-yaml path only). Empty for every other job."
         required: false
         type: string
         default: ""
 env:
+  PORT: '8888'
+  INFMAX_CONTAINER_WORKSPACE: '/workspace'
+  DSV41_MIN_CUDAGRAPH_CAPTURE_SIZE: '1'
+  MODEL_DOWNLOAD_LOCK_TIMEOUT: '21600'
+  ENROOT_IMPORT_TIME_LIMIT: '120'
+  SALLOC_TIME_LIMIT: '480'
+  GPU_MONITOR_INTERVAL: '1'
+  GPU_METRICS_CSV: 'gpu_metrics.csv'
+  KEEP_LOGS: '0'
+  IS_MULTINODE: 'false'
   RANDOM_RANGE_RATIO: 0.8
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
   HF_HUB_CACHE: '/mnt/hf_hub_cache/'
-  EXP_NAME: ${{ inputs.exp-name }}
-  MODEL: ${{ inputs.model }}
-  MODEL_PREFIX: ${{ inputs.model-prefix }}
-  ISL: ${{ inputs.isl }}
-  OSL: ${{ inputs.osl }}
-  MAX_MODEL_LEN: ${{ inputs.max-model-len }}
-  IMAGE: ${{ inputs.image }}
-  FRAMEWORK: ${{ inputs.framework }}
-  PRECISION: ${{ inputs.precision }}
-  TP: ${{ inputs.tp }}
-  PP_SIZE: ${{ inputs.pp }}
-  DCP_SIZE: ${{ inputs.dcp-size }}
-  PCP_SIZE: ${{ inputs.pcp-size }}
-  EP_SIZE: ${{ inputs.ep }}
+  SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+  EXP_NAME: ${{ fromJSON(inputs.config).exp-name }}
+  RECIPE_FINGERPRINT: ${{ fromJSON(inputs.config).recipe-fingerprint || '' }}
+  MODEL: ${{ fromJSON(inputs.config).model }}
+  MODEL_PREFIX: ${{ fromJSON(inputs.config).model-prefix }}
+  ISL: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && '0' || fromJSON(inputs.config).isl }}
+  OSL: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && '0' || fromJSON(inputs.config).osl }}
+  MAX_MODEL_LEN: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && '0' || fromJSON(inputs.config).max-model-len }}
+  IMAGE: ${{ fromJSON(inputs.config).image }}
+  FRAMEWORK: ${{ fromJSON(inputs.config).framework }}
+  PRECISION: ${{ fromJSON(inputs.config).precision }}
+  TP: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).tp }}
+  PP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).pp }}
+  DCP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).dcp-size }}
+  PCP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).pcp-size }}
+  EP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).ep }}
   DP_ATTENTION: ${{ inputs.dp-attn }}
-  CONC: ${{ inputs.conc }}
-  SPEC_DECODING: ${{ inputs.spec-decoding }}
-  DISAGG: ${{ inputs.disagg }}
+  CONC: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).conc }}
+  SPEC_DECODING: ${{ startsWith(inputs.scenario-type, 'quality-') && 'none' || fromJSON(inputs.config).spec-decoding }}
+  DISAGG: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && 'false' || fromJSON(inputs.config).disagg }}
   RUN_EVAL: ${{ inputs.run-eval }}
   EVAL_ONLY: ${{ inputs.eval-only }}
+  EVAL_FRAMEWORK: ${{ inputs.eval-framework }}
+  EVAL_SUITE: ${{ inputs.eval-suite }}
   # Agentic-coding env. Fixed-seq-len jobs leave these empty.
   SCENARIO_TYPE: ${{ inputs.scenario-type }}
   SCENARIO_SUBDIR: ${{ (inputs.scenario-type == 'agentic-coding' && 'agentic/') || (startsWith(inputs.scenario-type, 'quality-') && 'quality/') || 'fixed_seq_len/' }}
   IS_AGENTIC: ${{ inputs.scenario-type == 'agentic-coding' && '1' || '0' }}
-  KV_OFFLOADING: ${{ inputs.kv-offloading }}
-  KV_OFFLOAD_BACKEND: ${{ inputs.kv-offload-backend }}
-  KV_OFFLOAD_BACKEND_METADATA: ${{ inputs.kv-offload-backend-metadata }}
-  ROUTER_METADATA: ${{ inputs.router }}
-  KV_P2P_TRANSFER: ${{ inputs.kv-p2p-transfer }}
-  TOTAL_CPU_DRAM_GB: ${{ inputs.total-cpu-dram-gb }}
+  KV_OFFLOADING: ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).kv-offloading) || '' }}
+  KV_OFFLOAD_BACKEND: ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).kv-offload-backend.name) || '' }}
+  KV_OFFLOAD_BACKEND_METADATA: ${{ inputs.scenario-type == 'agentic-coding' && fromJSON(inputs.config).kv-offload-backend && toJSON(fromJSON(inputs.config).kv-offload-backend) || '' }}
+  HICACHE_RATIO: ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).hicache-ratio) || '' }}
+  ROUTER_METADATA: ${{ fromJSON(inputs.config).router && toJSON(fromJSON(inputs.config).router) || '' }}
+  KV_P2P_TRANSFER: ${{ fromJSON(inputs.config).kv-p2p-transfer || '' }}
+  TOTAL_CPU_DRAM_GB: ${{ inputs.scenario-type != 'agentic-coding' && '0' || fromJSON(inputs.config).total-cpu-dram-gb }}
   DURATION: ${{ inputs.duration }}
   REQUIRE_POWER: ${{ inputs.require-power && '1' || '0' }}
   AIPERF_EXPERIMENTAL_FAST: ${{ inputs.agentx-fast && '1' || '0' }}
   EVAL_LIMIT: ${{ inputs.eval-limit }}
-  SWEBENCH_GEN_MODE: ${{ inputs.swebench-gen-mode }}
+  SWEBENCH_GEN_MODE: ${{ inputs.swebench-gen-mode || 'agentic' }}
   # Remote-bench env. Only consumed by *-remote-bench.sh recipes.
   REMOTE_BASE_URL: ${{ inputs.remote-base-url }}
   REMOTE_GPU_TELEMETRY_URL: ${{ inputs.remote-gpu-telemetry-url }}
@@ -261,14 +218,46 @@ env:
   REMOTE_RESET_URL: ${{ inputs.remote-reset-url }}
   REMOTE_RUNNER_TYPE: ${{ inputs.remote-runner-type }}
   REMOTE_MAX_CONTEXT_LENGTH: ${{ inputs.remote-max-context-length }}
-  # Quality-eval env. Only consumed by quality-eval scenario types.
-  QUALITY_BENCHMARK_NAME: ${{ inputs.benchmark-name }}
-  QUALITY_ENDPOINT: ${{ inputs.quality-endpoint }}
+  REMOTE_TOKENIZER: ${{ inputs.remote-tokenizer }}
+  REMOTE_INSECURE_TLS: ${{ inputs.remote-insecure-tls }}
+  WEKA_LOADER_OVERRIDE: ${{ inputs.weka-loader-override }}
+  # Serving-YAML path (infx.serving). Empty unless e2e-tests got a serving input;
+  # runners/launch_h200-greennode-slurm-1x.sh switches to serve_generic.sh on SERVE_CMD.
+  SERVE_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).serve-cmd || '' }}
+  SERVE_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).serve-env || '' }}
+  SERVED_MODEL_NAME: ${{ inputs.serving != '' && fromJSON(inputs.serving).served-model-name || '' }}
+  # Per-row scenario (a serving YAML may list several scenarios: one job per
+  # scenario in one run). scenario-map is keyed by the row's exp-name; the flat
+  # serving.scenario is the single-scenario fallback, empty for scenario lists
+  # so a missing map entry fails loudly in serve_generic.sh (check_env_vars).
+  SERVING_SCENARIO: ${{ inputs.serving != '' && (fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].scenario || fromJSON(inputs.serving).scenario) || '' }}
+  SERVING_LOADER: ${{ inputs.serving != '' && (fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].loader || fromJSON(inputs.serving).loader) || '' }}
+  # '1' for sweep scenarios (adaptive_search), '0' otherwise — never '': check_env_vars
+  # rejects empty values, so '' would abort every non-sweep serving run in serve_generic.sh.
+  SERVING_SEARCH: ${{ inputs.serving != '' && ((fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].search || fromJSON(inputs.serving).search) && '1' || '0') }}
+  SERVING_YAML: ${{ inputs.serving != '' && fromJSON(inputs.serving).yaml || '' }}
+  # Router sidecar (any router, spec 2026-10-14); only runners/launch_hardware-hcm.sh reads these.
+  ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}
+  ROUTER_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-cmd || '' }}
+  ROUTER_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-env || '' }}
+  ROUTER_PROFILE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-profile || '' }}
+  ROUTER_METRICS_PORT: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-metrics-port || '' }}
+  REPLICAS: ${{ inputs.serving != '' && fromJSON(inputs.serving).replicas || '' }}
+  # Storage sidecar (Mooncake master for HiCache L3 etc.); only launch_hardware-hcm.sh reads these.
+  STORAGE_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).storage-image || '' }}
+  STORAGE_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).storage-cmd || '' }}
+  STORAGE_ENV: ${{ inputs.serving != '' && fromJSON(inputs.serving).storage-env || '' }}
+  # Bearer token for authenticated remote targets. Empty for every other
+  # recipe, which leaves build_replay_cmd's --api-key branch inert.
+  REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
+  # Quality-eval env, from the quality row (scenario-type quality-*); empty for every other recipe.
+  QUALITY_BENCHMARK_NAME: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).benchmark-name || '' }}
+  QUALITY_ENDPOINT: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).quality-endpoint || '' }}
   QUALITY_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
-  QUALITY_MODEL_NAME: ${{ inputs.quality-model-name }}
-  SMOKE: ${{ inputs.smoke }}
-  NUM_CONCURRENT: ${{ inputs.num-concurrent }}
-  MAX_GEN_TOKENS: ${{ inputs.max-gen-tokens }}
+  QUALITY_MODEL_NAME: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).quality-model-name || '' }}
+  SMOKE: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).smoke && 'true' || 'false' }}
+  NUM_CONCURRENT: ${{ startsWith(inputs.scenario-type, 'quality-') && format('{0}', fromJSON(inputs.config).num-concurrent) || '' }}
+  MAX_GEN_TOKENS: ${{ startsWith(inputs.scenario-type, 'quality-') && format('{0}', fromJSON(inputs.config).max-gen-tokens) || '' }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
@@ -277,8 +266,6 @@ env:
   SWEBENCH_USE_MODAL: 'true'
   MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
   MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-  # These b300 nodes are currently broken.
-  SALLOC_EXCLUDE: 'b300-005,b300-006'
 
 permissions:
   contents: read
@@ -289,39 +276,90 @@ jobs:
       ${{ fromJSON(
         vars.PRIORITY_SCHEDULER_ENABLED == 'true' &&
         (
-          inputs.skip-queue-pr != '' &&
-          format(
-            '["self-hosted",{0},{1},{2},{3}]',
-            toJSON(inputs.runner),
-            toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
-            toJSON(format('ci-attempt-{0}', github.run_attempt)),
-            toJSON(format('ci-skip-queue-pr-{0}', inputs.skip-queue-pr))
+          vars.NODE_SLOT_SCHEDULER_ENABLED == 'true' &&
+          (
+            inputs.skip-queue-pr != '' &&
+            format(
+              '["self-hosted",{0},{1},{2},{3},{4}]',
+              toJSON(inputs.runner),
+              '"nodes:1"',
+              toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
+              toJSON(format('ci-attempt-{0}', github.run_attempt)),
+              toJSON(format('ci-skip-queue-pr-{0}', inputs.skip-queue-pr))
+            ) ||
+            format(
+              '["self-hosted",{0},{1},{2},{3}]',
+              toJSON(inputs.runner),
+              '"nodes:1"',
+              toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
+              toJSON(format('ci-attempt-{0}', github.run_attempt))
+            )
           ) ||
-          format(
-            '["self-hosted",{0},{1},{2}]',
-            toJSON(inputs.runner),
-            toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
-            toJSON(format('ci-attempt-{0}', github.run_attempt))
+          (
+            inputs.skip-queue-pr != '' &&
+            format(
+              '["self-hosted",{0},{1},{2},{3}]',
+              toJSON(inputs.runner),
+              toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
+              toJSON(format('ci-attempt-{0}', github.run_attempt)),
+              toJSON(format('ci-skip-queue-pr-{0}', inputs.skip-queue-pr))
+            ) ||
+            format(
+              '["self-hosted",{0},{1},{2}]',
+              toJSON(inputs.runner),
+              toJSON(format('ci-job-{0}-{1}', inputs.priority, inputs.queue-token)),
+              toJSON(format('ci-attempt-{0}', github.run_attempt))
+            )
           )
         ) ||
         format('[{0}]', toJSON(inputs.runner))
       ) }}
     timeout-minutes: 500
     name: >-
-      p${{ inputs.priority }} | ${{ inputs.model-prefix }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework == 'sglang' && 'sgl' || inputs.framework == 'dynamo-sglang' && 'dyn-sgl' || inputs.framework == 'sglang-disagg' && 'sgl-disagg' || inputs.framework }}
-      ${{ inputs.benchmark-name != '' && inputs.benchmark-name || '' }}
-      TP${{ inputs.tp }}${{ inputs.pp != '' && inputs.pp != '1' && format('/PP{0}', inputs.pp) || '' }}${{ inputs.dcp-size != '' && inputs.dcp-size != '1' && format('/DCP{0}', inputs.dcp-size) || '' }}${{ inputs.pcp-size != '' && inputs.pcp-size != '1' && format('/PCP{0}', inputs.pcp-size) || '' }}${{ inputs.ep != '' && inputs.ep != '1' && format('/EP{0}', inputs.ep) || '' }}${{ inputs.dp-attn && '/DPA' || '' }}
-      ${{ inputs.spec-decoding != 'none' && inputs.spec-decoding || '' }}
-      ${{ inputs.kv-offloading != '' && inputs.kv-offloading != 'none' && format('{0} KV offload', inputs.kv-offloading) || '' }}
-      ${{ inputs.kv-offload-backend != '' && inputs.kv-offload-backend != 'none' && inputs.kv-offload-backend != 'default' && inputs.kv-offload-backend || '' }}
-      c${{ inputs.conc }}${{ inputs.eval-only && ' | eval-only' || (inputs.run-eval && ' | eval' || '') }}
+      ${{ inputs.klaud-run && 'klaud | ' || '' }}p${{ inputs.priority }} | ${{ fromJSON(inputs.config).model-prefix }} ${{ fromJSON(inputs.config).precision }} ${{ inputs.runner }} ${{ fromJSON(inputs.config).framework == 'sglang' && 'sgl' || fromJSON(inputs.config).framework == 'dynamo-sglang' && 'dyn-sgl' || fromJSON(inputs.config).framework == 'sglang-disagg' && 'sgl-disagg' || fromJSON(inputs.config).framework }}
+      ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).benchmark-name || '' }}
+      TP${{ fromJSON(inputs.config).tp }}${{ format('{0}', fromJSON(inputs.config).pp) != '' && format('{0}', fromJSON(inputs.config).pp) != '1' && format('/PP{0}', fromJSON(inputs.config).pp) || '' }}${{ format('{0}', fromJSON(inputs.config).dcp-size) != '' && format('{0}', fromJSON(inputs.config).dcp-size) != '1' && format('/DCP{0}', fromJSON(inputs.config).dcp-size) || '' }}${{ format('{0}', fromJSON(inputs.config).pcp-size) != '' && format('{0}', fromJSON(inputs.config).pcp-size) != '1' && format('/PCP{0}', fromJSON(inputs.config).pcp-size) || '' }}${{ format('{0}', fromJSON(inputs.config).ep) != '' && format('{0}', fromJSON(inputs.config).ep) != '1' && format('/EP{0}', fromJSON(inputs.config).ep) || '' }}${{ inputs.dp-attn && '/DPA' || '' }}
+      ${{ fromJSON(inputs.config).spec-decoding != 'none' && fromJSON(inputs.config).spec-decoding || '' }}
+      ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).kv-offloading) != '' && fromJSON(inputs.config).kv-offloading != 'none' && format('{0} KV offload', fromJSON(inputs.config).kv-offloading) || '' }}
+      ${{ inputs.scenario-type == 'agentic-coding' && fromJSON(inputs.config).kv-offload-backend.name != 'none' && fromJSON(inputs.config).kv-offload-backend.name != 'default' && format('{0}', fromJSON(inputs.config).kv-offload-backend.name) || '' }}
+      c${{ fromJSON(inputs.config).conc }}${{ inputs.eval-only && ' | eval-only' || (inputs.run-eval && ' | eval' || '') }}
     steps:
+      - name: Repair root-owned artifacts (pre-run)
+        if: ${{ inputs.runner == 'cluster:mi355x-amds' }}
+        run: |
+          if [[ -d "$GITHUB_WORKSPACE" ]]; then
+            sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+          fi
+
       - name: Resource cleanup (pre-run)
         run: &resource-cleanup |
-          # Cleanup Docker resources
-          if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+          # Reap aiperf replay trees orphaned by a SIGKILLed benchmark shell.
+          # Shared by the pre-run and post-run copies of this step on purpose:
+          # post-run stops this job's own orphan after a cancellation, pre-run
+          # stops a previously cancelled job's orphan before it can double-load
+          # the endpoint and corrupt this run's numbers. No-op on any runner
+          # that never ran aiperf outside a container. Runs first because the
+          # docker loop below can block for a while. The pre-run copy executes
+          # before actions/checkout, so it uses the previous checkout's copy of
+          # the script and is skipped on a never-checked-out workspace.
+          if [ -f runners/reap_orphan_aiperf.sh ]; then
+            bash runners/reap_orphan_aiperf.sh || true
+          fi
+
+          # Cleanup Docker resources. Skipped on the greennode runners that
+          # share han-1 with other people's containers (grafana, prometheus,
+          # ...): the slurm slices (h200-greennode-slurm_*) never start docker
+          # containers, and h200-greennode_06 is the docker runner on the same
+          # node -- `docker rm -f` of everything would kill those sidecars.
+          if [[ "${RUNNER_NAME}" == h200-greennode-slurm_* || "${RUNNER_NAME}" == h200-greennode_06 ]]; then
+            echo "[Docker] Skipped on ${RUNNER_NAME}: shared han-1 host, containers are not all ours"
+          elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
             echo "[Docker] Cleaning up resources ..."
-            docker ps -aq | xargs -r docker rm -f
+            # Two runners can share a host (e.g. the h200-greennode-slurm_1a/1b
+            # split) and race to remove the same stale container here --
+            # "removal already in progress" fails this step under `set -e`;
+            # tolerate it, the while loop below still waits for a clean host.
+            docker ps -aq | xargs -r docker rm -f || true
             docker network prune -f
             while [ -n "$(docker ps -aq)" ]; do
               docker ps -a
@@ -331,47 +369,97 @@ jobs:
 
           # Cleanup SLURM resources
           if command -v squeue >/dev/null 2>&1; then
-            echo "[Slurm] Cleaning up jobs with name: ${{ runner.name }} ..."
-            scancel --name="${{ runner.name }}" || true
-            while [ -n "$(squeue --name='${{ runner.name }}' --noheader --format='%i')" ]; do
-              squeue --name="${{ runner.name }}"
+            echo "[Slurm] Cleaning up jobs with name: ${RUNNER_NAME} ..."
+            scancel --name="${RUNNER_NAME}" || true
+            while [ -n "$(squeue --name="${RUNNER_NAME}" --noheader --format='%i')" ]; do
+              squeue --name="${RUNNER_NAME}"
               sleep 5
             done
           fi
 
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Repair stale git state (pre-run)
+        run: |
+          # Interrupted runs leave index.lock files and corrupt submodule git
+          # dirs behind in the persistent self-hosted workspace, and both make
+          # actions/checkout fail before any benchmark starts. The runner
+          # executes one job at a time, so any lock found here is stale by
+          # definition. Grouping dirs (e.g. .git/modules/utils) hold only
+          # nested module dirs, so any dir carrying top-level files is a
+          # module git dir — a truncated clone may lack HEAD entirely, and a
+          # git dir whose HEAD does not resolve to a commit is dropped
+          # together with its worktree so checkout re-clones it.
+          repo_dir="${GITHUB_WORKSPACE}"
+          if [ -d "${repo_dir}/.git" ]; then
+            find "${repo_dir}/.git" -name index.lock -type f -delete || true
+            for gitdir in "${repo_dir}"/.git/modules/* "${repo_dir}"/.git/modules/*/*; do
+              [ -d "${gitdir}" ] || continue
+              [ -n "$(find "${gitdir}" -maxdepth 1 -type f -print -quit)" ] || continue
+              if ! git --git-dir="${gitdir}" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1; then
+                rel="${gitdir##*/.git/modules/}"
+                echo "[git-repair] Removing corrupt submodule state: ${rel}"
+                rm -rf "${gitdir}" "${repo_dir:?}/${rel}"
+              fi
+            done
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.REPO_PAT }}
           fetch-depth: 0
           ref: ${{ inputs.ref || github.sha }}
           clean: true
           submodules: true
+          persist-credentials: false
 
       - name: Launch job script
         env:
           RUNNER_NAME: ${{ runner.name }}
           RUNNER_TYPE: ${{ inputs.runner }}
-          # Hash uniquely on {EXP_NAME}_{PRECISION}_{FRAMEWORK}_tp{}-pp{}-dcp{}-pcp{}-ep{}-dpa{}_disagg-{}_spec-{}_conc{}_{runner}
-          RESULT_FILENAME: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}_tp${{ env.TP }}-pp${{ env.PP_SIZE }}-dcp${{ env.DCP_SIZE }}-pcp${{ env.PCP_SIZE }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_conc${{ env.CONC }}_${{ runner.name }}
+          RESULT_FILENAME_BASE: ${{ env.EXP_NAME }}_${{ env.PRECISION }}_${{ env.FRAMEWORK }}_tp${{ env.TP }}-pp${{ env.PP_SIZE }}-dcp${{ env.DCP_SIZE }}-pcp${{ env.PCP_SIZE }}-ep${{ env.EP_SIZE }}-dpa${{ env.DP_ATTENTION }}_disagg-${{ env.DISAGG }}_spec-${{ env.SPEC_DECODING }}_conc${{ env.CONC }}_${{ runner.name }}
           # Suppress per-job eval markdown from being appended to the step summary.
           # We'll publish a single combined eval table in the collection job instead.
           GITHUB_STEP_SUMMARY: ''
         run: |
+          if [[ -f utils/result_filename.py ]]; then
+            RESULT_FILENAME=$(python3 utils/result_filename.py)
+          else
+            # Older measured commits predate the helper; preserve safe identity.
+            RESULT_FILENAME=$(printf '%s\0' "$RESULT_FILENAME_BASE" "$RECIPE_FINGERPRINT" | sha256sum)
+            RESULT_FILENAME="${RESULT_FILENAME%% *}"
+          fi
+          export RESULT_FILENAME
           export GPU_COUNT=$((TP * PP_SIZE * PCP_SIZE))
           echo "GPU_COUNT=${GPU_COUNT}" >> "$GITHUB_ENV"
 
           # Export RESULT_FILENAME early so it's available for artifact uploads even if cancelled
-          echo "RESULT_FILENAME=${RESULT_FILENAME}" >> $GITHUB_ENV
+          echo "RESULT_FILENAME=${RESULT_FILENAME}" >> "$GITHUB_ENV"
 
-          # Quality-eval scenarios run on any runner with the quality-eval label;
-          # dispatch directly to launch_quality-eval.sh regardless of runner name.
-          if [ "${SCENARIO_SUBDIR}" = "quality/" ]; then
-            bash ./runners/launch_quality-eval.sh
-          else
-            bash ./runners/launch_${RUNNER_NAME%%_*}.sh
+          # Historical measured revisions own their configuration in the launchers.
+          if [[ -f benchmarks/runtime_settings.sh ]]; then
+            source benchmarks/runtime_settings.sh
           fi
+          if [[ -f runners/runtime_settings.sh ]]; then
+            source runners/runtime_settings.sh
+          fi
+          # hardware-hcm-8x_01/_02 (primary, full-node) and hardware-hcm-4x_01/_02
+          # (second runner identity per box, added for concurrency -- see
+          # runners/launch_hardware-hcm.sh) are on-node slurm runners for the
+          # hardware-hcm partition (hgx-h200-01/02, a different Slurm
+          # cluster/account than the h200-greennode-slurm nodes below); route
+          # them to their own launcher, everything else keeps the
+          # name-prefix mapping.
+          case "$RUNNER_NAME" in
+            hardware-hcm-*) LAUNCH_SCRIPT="runners/launch_hardware-hcm.sh" ;;
+            *) LAUNCH_SCRIPT="runners/launch_${RUNNER_NAME%%_*}.sh" ;;
+          esac
+          # Quality evals drive a remote endpoint from any runner labelled
+          # cluster:quality-eval, so they skip the per-runner launchers.
+          if [[ "$SCENARIO_SUBDIR" == "quality/" ]]; then
+            LAUNCH_SCRIPT="runners/launch_quality-eval.sh"
+          fi
+          bash "$LAUNCH_SCRIPT"
 
-          if [ "${{ inputs.eval-only }}" = "true" ]; then
+          if [ "${EVAL_ONLY}" = "true" ]; then
             echo "Eval-only mode: skipping benchmark result file check"
             # Verify eval produced results
             if ! ls results*.json 1>/dev/null 2>&1; then
@@ -394,7 +482,9 @@ jobs:
               exit 1
             fi
 
-            if [ "${{ inputs.scenario-type }}" = "agentic-coding" ]; then
+            # Search artifact layouts have no top-level profile_export_aiperf.json;
+            # the failed-request gate lives in the search's SLA filters instead.
+            if [ "${SCENARIO_TYPE}" = "agentic-coding" ] && [ "${SERVING_SEARCH:-0}" != "1" ]; then
               python3 -m utils.agentic.validation.validate_agentic_result \
                 results/aiperf_artifacts \
                 --failed-request-threshold "$AIPERF_FAILED_REQUEST_THRESHOLD"
@@ -402,14 +492,18 @@ jobs:
           fi
 
       - name: Process result
-        if: ${{ !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        if: ${{ always() && env.RESULT_FILENAME != '' && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
         env:
           RUNNER_TYPE: ${{ inputs.runner }}
         run: |
+          if [ ! -f "$RESULT_FILENAME.json" ]; then
+            echo "no raw result to process: $RESULT_FILENAME.json" >&2
+            exit 1
+          fi
           python3 utils/process_result.py
 
       - name: Upload result
-        if: ${{ !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        if: ${{ success() && env.RESULT_FILENAME != '' && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bmk_${{ env.RESULT_FILENAME }}
@@ -445,6 +539,19 @@ jobs:
             results/*_config.json
           if-no-files-found: ignore
 
+      # SPEED-Bench recipes (run_speedbench_aiperf) keep the full aiperf export
+      # next to the vllm-bench-shaped result, for per-request audit and
+      # `aiperf speed-bench-report`. Absent for every other fixed-seq recipe.
+      - name: Upload SPEED-Bench aiperf artifacts
+        if: ${{ always() && inputs.scenario-type != 'agentic-coding' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: speedbench_aiperf_${{ env.RESULT_FILENAME }}
+          path: |
+            results/speedbench_aiperf/**
+            !results/speedbench_aiperf/**/inputs.json
+          if-no-files-found: ignore
+
       - name: Upload GPU metrics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -452,13 +559,18 @@ jobs:
           name: ${{ inputs.eval-only && 'eval_gpu_metrics_' || 'gpu_metrics_' }}${{ env.RESULT_FILENAME }}
           path: |
             gpu_metrics.csv
+            gpu_metrics*_context.json
             gpu_metrics_energy_start.csv
             gpu_metrics_energy_end.csv
             gpu_metrics_identity.json
+            gpu_metrics_identity.csv
+            results/gpu_metrics*.csv
+            results/gpu_metrics*_context.json
+            results/gpu_metrics_identity.json
           if-no-files-found: ignore
 
       - name: Upload power audit bundle
-        if: ${{ always() && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        if: ${{ always() && !inputs.eval-only }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: power_audit_${{ env.RESULT_FILENAME }}
@@ -466,20 +578,31 @@ jobs:
             ${{ env.RESULT_FILENAME }}.json
             agg_${{ env.RESULT_FILENAME }}.json
             gpu_metrics.csv
+            gpu_metrics*_context.json
             gpu_metrics_energy_start.csv
             gpu_metrics_energy_end.csv
             gpu_metrics_identity.json
+            gpu_metrics_identity.csv
             power_validation_${{ env.RESULT_FILENAME }}.json
+            results/gpu_metrics*.csv
+            results/gpu_metrics*_context.json
+            results/gpu_metrics_identity.json
+            results/agentic_power_window.json
+            results/agentic_power_timezone_offset.txt
+            results/power_validation.json
           if-no-files-found: ignore
 
       - name: Upload eval results (if any)
         if: ${{ always() && (env.RUN_EVAL == 'true' || inputs.eval-only) }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: eval_${{ env.EXP_NAME }}_${{ env.RESULT_FILENAME }}
+          name: eval_${{ env.RESULT_FILENAME }}_${{ env.EVAL_FRAMEWORK }}_${{ env.EVAL_SUITE }}_${{ github.run_attempt }}
           path: |
             meta_env.json
             results*.json
+            *_report.json
+            *_results.jsonl
+            *_artifacts.tar.gz
             sample*.jsonl
             agent_preds.json
             predictions.jsonl
@@ -498,7 +621,7 @@ jobs:
         if: ${{ (success() || failure()) && inputs.eval-only }}
         run: |
           SMOKE_FLAG=""
-          if [ "${{ inputs.smoke }}" = "true" ]; then
+          if [ "$SMOKE" = "true" ]; then
             SMOKE_FLAG="--smoke"
           fi
           python3 utils/evals/validate_scores.py $SMOKE_FLAG
@@ -509,11 +632,21 @@ jobs:
           rm -f meta_env.json || true
           # Remove any eval results JSONs that were moved into workspace
           rm -f results*.json || true
+          rm -f -- ./*_report.json || true
+          rm -f -- ./*_results.jsonl || true
           rm -f sample*.jsonl || true
-          rm -f agent_preds.json predictions.jsonl swebench_report_*.json eval_results*.json *.traj* || true
-          rm -f *.csv lcb_results*.json || true
+          rm -f -- ./*_artifacts.tar.gz || true
+          rm -f agent_preds.json predictions.jsonl swebench_report_*.json *.traj* || true
+          rm -f eval_results*.json *.csv lcb_results*.json || true
           rm -f bfcl_inference_audit.json bfcl_result_*.json scicode_debug.tar.gz || true
           
+      - name: Repair root-owned artifacts (post-run)
+        if: ${{ always() && inputs.runner == 'cluster:mi355x-amds' }}
+        run: |
+          if [[ -d "$GITHUB_WORKSPACE" ]]; then
+            sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+          fi
+
       - name: Resource cleanup (post-run)
         if: always()
         run: *resource-cleanup

@@ -1,0 +1,28 @@
+# Gemma-4-31B FP8-block, prod flags (HCM gemma4 audit 2026-10-15) minus MTP, 1 GPU, no router.
+# LiveKit 111868 sizing ladder, V2 = observed cache (spec 2026-10-16).
+name: gemma4-livekit-1gpu-v2
+runner: hardware-hcm-8x_01
+image: vllm/vllm-openai:v0.25.1
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 1
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 16384
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 8192
+  --kv-cache-metrics
+  --enable-prompt-tokens-details
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v2
+conc: [4, 6, 8, 16, 32, 48, 64]

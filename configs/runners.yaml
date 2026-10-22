@@ -22,16 +22,9 @@ labels:
     - h100-dgxc-slurm_17
     - h100-dgxc-slurm_18
     - h100-dgxc-slurm_19
-  h100-multinode:
-    - h100-dgxc-slurm_16
-    - h100-dgxc-slurm_17
-    - h100-dgxc-slurm_18
-    - h100-dgxc-slurm_19
   h200:
     - h200-cw_00
     - h200-cw_01
-    - h200-nb_0
-    - h200-nb_1
     - h200-dgxc-slurm_0
     - h200-dgxc-slurm_1
     - h200-dgxc-slurm_2
@@ -50,70 +43,69 @@ labels:
     - h200-dgxc-slurm_11
     - h200-dgxc-slurm_12
     - h200-dgxc-slurm_13
+  # h200-1x is shared across two independent clusters/launchers (docker path
+  # on h200-greennode_03/_05, Slurm hardware-hcm path on hardware-hcm-1x_*)
+  # -- same cluster-agnostic-flavor pattern this repo already uses for
+  # h200-8x (also shared with h200-greennode_06). Routing to the right
+  # launcher is by RUNNER_NAME prefix once GH picks a runner, so mixing
+  # clusters under one flavor label is safe.
+  h200-1x:
+    - h200-greennode_03
+    - h200-greennode_05
+    - hardware-hcm-1x_01
+    - hardware-hcm-1x_02
+  # hgx-h200-01/02 (hardware-hcm partition) flavor tiers -- see
+  # cluster:hardware-hcm below for the concurrency rationale. One runner
+  # identity per box per tier (not multiple slots per tier), so each tier
+  # is exactly one concurrent job slot; Slurm's gres accounting (see
+  # runners/launch_hardware-hcm.sh) prevents two tiers double-booking GPUs.
+  h200-2x:
+    - hardware-hcm-2x_01
+    - hardware-hcm-2x_02
+  h200-4x:
+    - hardware-hcm-4x_01
+    - hardware-hcm-4x_02
+  h200-8x:
+    - hardware-hcm-8x_01
+    - hardware-hcm-8x_02
   b200:
     - b200-cw_00
     - b200-cw_01
     - b200-nb_0
     - b200-nb_1
-    - b200-dgxc_00
-    - b200-dgxc_01
-    - b200-dgxc_02
-    - b200-dgxc_03
-    - b200-dgxc_04
-    - b200-dgxc_05
-    - b200-dgxc_06
-    - b200-dgxc_07
-    - b200-dgxc_08
-    - b200-dgxc_09
-  b200-dsv4:
-    - b200-dgxc_00
-    - b200-dgxc_01
-    - b200-dgxc_02
-    - b200-dgxc_03
-    - b200-dgxc_04
-    - b200-dgxc_05
-    - b200-dgxc_06
-    - b200-dgxc_07
-    - b200-dgxc_08
-    - b200-dgxc_09
-  b200-multinode:
-    - b200-dgxc-slurm_7
-    - b200-dgxc-slurm_8
-    - b200-dgxc-slurm_9
-  b200-new:
-    - b200-nscale-slurm_0
-    - b200-nscale-slurm_1
-    - b200-nscale-slurm_2
-    - b200-nscale-slurm_3
-    - b200-nscale-slurm_4
-    - b200-nscale-slurm_5
-    - b200-nscale-slurm_6
-    - b200-nscale-slurm_7
-    - b200-nscale-slurm_8
+    - b200-nscale-slurm_00
+    - b200-nscale-slurm_01
+    - b200-nscale-slurm_02
+    - b200-nscale-slurm_03
+    - b200-nscale-slurm_04
+    - b200-nscale-slurm_05
+    - b200-nscale-slurm_06
+    - b200-nscale-slurm_07
+    - b200-nscale-slurm_08
+    - b200-nscale-slurm_09
+    - b200-nscale-slurm_10
   b200-nscale:
-    - b200-nscale-slurm_0
-    - b200-nscale-slurm_1
-    - b200-nscale-slurm_2
-    - b200-nscale-slurm_3
-    - b200-nscale-slurm_4
-    - b200-nscale-slurm_5
-    - b200-nscale-slurm_6
-    - b200-nscale-slurm_7
-    - b200-nscale-slurm_8
+    - b200-nscale-slurm_00
+    - b200-nscale-slurm_01
+    - b200-nscale-slurm_02
+    - b200-nscale-slurm_03
+    - b200-nscale-slurm_04
+    - b200-nscale-slurm_05
+    - b200-nscale-slurm_06
+    - b200-nscale-slurm_07
+    - b200-nscale-slurm_08
+    - b200-nscale-slurm_09
+    - b200-nscale-slurm_10
   mi300x:
-    - mi300x-amds_00
-    - mi300x-amds_01
-    - mi300x-amds_02
-    - mi300x-amds_03
-    - mi300x-amds_04
-    - mi300x-amds_05
-    - mi300x-amds_06
-    - mi300x-amds_07
-    - mi300x-amds_08
-  mi300x-disagg:
-    - mi300x-amds_06
-    - mi300x-amds_07
-    - mi300x-amds_08
+    - mi300x-amd_00
+    - mi300x-amd_01
+    - mi300x-amd_02
+    - mi300x-amd_03
+    - mi300x-amd_04
+    - mi300x-amd_05
+    - mi300x-amd_06
+    - mi300x-amd_07
+    - mi300x-amd_08
   mi325x:
     - mi325x-amds_00
     - mi325x-amds_01
@@ -121,14 +113,6 @@ labels:
     - mi325x-amds_03
     - mi325x-amds_04
     - mi325x-amds_05
-    - mi325x-amds_06
-    - mi325x-amds_07
-    - mi325x-amds_08
-  mi325x-disagg:
-    - mi325x-amds_00
-    - mi325x-amds_01
-    - mi325x-amds_02
-    - mi325x-amds_03
     - mi325x-amds_06
     - mi325x-amds_07
     - mi325x-amds_08
@@ -142,52 +126,59 @@ labels:
     - mi355x-amds_06
     - mi355x-amds_07
     - mi355x-amds_08
-  mi355x-disagg:
-    - mi355x-amds_06
-    - mi355x-amds_07
-    - mi355x-amds_08
-    - mi355x-amds_12
-    - mi355x-amds_14
-    - mi355x-amds_16
-    - mi355x-amds_17
-    - mi355x-amds_18
-    - mi355x-amds_19
   gb200:
     - gb200-nv_0
     - gb200-nv_1
     - gb200-nv_2
   b300:
-    - b300-nv_01
-    - b300-nv_02
-    - b300-nv_03
-    - b300-nv_04
-    - b300-nv_05
-    - b300-nv_06
-    - b300-nv_07
-    - b300-nv_08
-    - b300-nv_09
-    - b300-nv_10
-    - b300-nv_11
-    - b300-nv_12
-    - b300-nv_13
-    - b300-nv_14
-    - b300-nv_15
-    - b300-nv_16
-    - b300-nv_17
-  b300-p1:
-    - b300-nv_13
-    - b300-nv_14
-    - b300-nv_15
-    - b300-nv_16
-    - b300-nv_17
+    - b300-dsxe_00
+    - b300-dsxe_01
+    - b300-dsxe_02
+    - b300-dsxe_03
+    - b300-dsxe_04
+    - b300-dsxe_05
+    - b300-dsxe_06
+    - b300-dsxe_07
+    - b300-dsxe_08
+    - b300-dsxe_09
+    - b300-dsxe_10
+    - b300-dsxe_11
+    - b300-dsxe_12
+    - b300-dsxe_13
+    - b300-dsxe_14
+    - b300-dsxe_15
+    - b300-dsxe_16
+    - b300-dsxe_17
   gb300:
-    - gb300-nv_0
-    - gb300-nv_1
-    - gb300-nv_2
+    - gb300-nv_00
+    - gb300-nv_01
+    - gb300-nv_02
+    - gb300-nv_03
+    - gb300-nv_04
+    - gb300-nv_05
+    - gb300-nv_06
+    - gb300-nv_07
+    - gb300-nv_08
+    - gb300-nv_09
+    - gb300-nv_10
+    - gb300-nv_11
+    - gb300-nv_12
+    - gb300-nv_13
+    - gb300-nv_14
+    - gb300-nv_15
+    - gb300-nv_16
+    - gb300-nv_17
   rtx6000pro:
     - rtx6000pro-lat_00
   rtx6000pro-lat:
     - rtx6000pro-lat_00
+  # On-node runner daemons on the two 2xRTX PRO 6000 Blackwell Max-Q nodes of
+  # the hcm-rtx6000pro partition (hoanq3-rtx6000x2-slurm-1/-2, research Slurm
+  # cluster). One runner per node, up to 2 GPUs per job. Routed to
+  # runners/launch_hcm-rtx6000pro.sh (salloc + pyxis/enroot, no Docker).
+  hcm-rtx6000pro:
+    - hcm-rtx6000pro_01
+    - hcm-rtx6000pro_02
   cluster:h100-cw:
     - h100-cw_00
     - h100-cw_01
@@ -232,6 +223,41 @@ labels:
     - h200-dgxc-slurm_13
   cluster:h200-nb:
     - h200-nb_0
+  cluster:h200-greennode:
+    - h200-greennode_01
+    - h200-greennode_03
+    - h200-greennode_04
+    - h200-greennode_06
+  cluster:h200-greennode_04:
+    - h200-greennode_04
+  # On-node runner daemons on the two 1xH200 nodes of the greennode Slurm
+  # cluster (partition "test"). The old 1a-1d slices were 4-GPU allocations
+  # of han-1, dead with that box since 2026-09-29. One runner per node, one
+  # GPU per node. See runners/launch_h200-greennode-slurm-1x.sh.
+  cluster:h200-greennode-slurm:
+    - h200-greennode-slurm-1x_01
+    - h200-greennode-slurm-1x_02
+  # On-node runners living on the hgx-h200-01/02 HCM boxes (partition
+  # hardware-hcm on the research Slurm cluster, not the greennode-slurm
+  # cluster above). Routed to runners/launch_hardware-hcm.sh, which salloc's
+  # --gres=gpu:$GPU_COUNT with no --exclusive, so concurrent identities
+  # sharing a box are safe -- Slurm's own gres accounting queues a job if
+  # not enough GPUs are free, no manual capacity split needed here.
+  #
+  # Naming: hardware-hcm-<flavor>_<box>, box 01=hgx-h200-01, 02=hgx-h200-02.
+  # -8x_* is the primary identity per box (full-node jobs). -4x_* is a
+  # second, independent runner process per box (own systemd service under
+  # /mnt/runner-4x), added purely for concurrency -- lets a smaller job run
+  # alongside one already on the -8x_* identity instead of queuing behind it.
+  cluster:hardware-hcm:
+    - hardware-hcm-8x_01
+    - hardware-hcm-8x_02
+    - hardware-hcm-4x_01
+    - hardware-hcm-4x_02
+    - hardware-hcm-2x_01
+    - hardware-hcm-2x_02
+    - hardware-hcm-1x_01
+    - hardware-hcm-1x_02
   cluster:b200-dgxc:
     - b200-dgxc_00
     - b200-dgxc_01
@@ -249,7 +275,14 @@ labels:
     - b300-cw_02
     - b300-cw_03
     - b300-cw_04
+  # Pins to the one netperf host. It is also a member of cluster:b300-nv, but
+  # that cluster's launcher resolves bench scripts under the `b300` hardware
+  # string while launch_b300-netperf.sh uses `b300-netperf`, so a config that
+  # only ships the netperf variant must target this label.
+  cluster:b300-netperf:
+    - b300-netperf_00
   cluster:b300-nv:
+    - b300-netperf_00
     - b300-nv_01
     - b300-nv_02
     - b300-nv_03
@@ -267,27 +300,77 @@ labels:
     - b300-nv_15
     - b300-nv_16
     - b300-nv_17
+  cluster:b200-nscale:
+    - b200-nscale-slurm_00
+    - b200-nscale-slurm_01
+    - b200-nscale-slurm_02
+    - b200-nscale-slurm_03
+    - b200-nscale-slurm_04
+    - b200-nscale-slurm_05
+    - b200-nscale-slurm_06
+    - b200-nscale-slurm_07
+    - b200-nscale-slurm_08
+    - b200-nscale-slurm_09
+    - b200-nscale-slurm_10
   cluster:gb200-nv:
     - gb200-nv_0
     - gb200-nv_1
     - gb200-nv_2
     - gb200-nv_3
+  cluster:b300-dsxe:
+    - b300-dsxe_00
+    - b300-dsxe_01
+    - b300-dsxe_02
+    - b300-dsxe_03
+    - b300-dsxe_04
+    - b300-dsxe_05
+    - b300-dsxe_06
+    - b300-dsxe_07
+    - b300-dsxe_08
+    - b300-dsxe_09
+    - b300-dsxe_10
+    - b300-dsxe_11
+    - b300-dsxe_12
+    - b300-dsxe_13
+    - b300-dsxe_14
+    - b300-dsxe_15
+    - b300-dsxe_16
+    - b300-dsxe_17
   cluster:gb300-nv:
-    - gb300-nv_0
-    - gb300-nv_1
-    - gb300-nv_2
+    - gb300-nv_00
+    - gb300-nv_01
+    - gb300-nv_02
+    - gb300-nv_03
+    - gb300-nv_04
+    - gb300-nv_05
+    - gb300-nv_06
+    - gb300-nv_07
+    - gb300-nv_08
+    - gb300-nv_09
+    - gb300-nv_10
+    - gb300-nv_11
+    - gb300-nv_12
+    - gb300-nv_13
+    - gb300-nv_14
+    - gb300-nv_15
+    - gb300-nv_16
+    - gb300-nv_17
   cluster:rtx6000pro-lat:
     - rtx6000pro-lat_00
-  cluster:mi300x-amds:
-    - mi300x-amds_00
-    - mi300x-amds_01
-    - mi300x-amds_02
-    - mi300x-amds_03
-    - mi300x-amds_04
-    - mi300x-amds_05
-    - mi300x-amds_06
-    - mi300x-amds_07
-    - mi300x-amds_08
+  # See the hcm-rtx6000pro flavor entry above for the fleet description.
+  cluster:hcm-rtx6000pro:
+    - hcm-rtx6000pro_01
+    - hcm-rtx6000pro_02
+  cluster:mi300x-amd:
+    - mi300x-amd_00
+    - mi300x-amd_01
+    - mi300x-amd_02
+    - mi300x-amd_03
+    - mi300x-amd_04
+    - mi300x-amd_05
+    - mi300x-amd_06
+    - mi300x-amd_07
+    - mi300x-amd_08
   cluster:mi300x-tw:
     - mi300x-tw_00
     - mi300x-tw_01
@@ -332,14 +415,43 @@ hardware:
   cluster:h200-nb:
     available-cpu-dram-mib: 1_472_512
     gpus-per-node: 8
+  cluster:h200-greennode:
+    available-cpu-dram-mib: 1_502_319
+    gpus-per-node: 8
+  cluster:h200-greennode_04:
+    available-cpu-dram-mib: 806_148
+    gpus-per-node: 4
+  # The 1xH200 nodes (hoanq3-h200-1x-han-3/-3-1, ~118G RAM each). One runner
+  # per node and one GPU per node, so jobs never share a node.
+  # launch_h200-greennode-slurm-1x.sh's salloc reserves --mem=100G
+  # (102_400 MiB) per job -- use that as the DRAM budget.
+  cluster:h200-greennode-slurm:
+    available-cpu-dram-mib: 102_400
+    gpus-per-node: 1
+  # hgx-h200-01/02: 8x H200, ~2TB DRAM per box (sinfo %m = 2050000M). Jobs
+  # salloc --mem=$((GPU_COUNT*240))G via runners/launch_hardware-hcm.sh; the
+  # 4x tier (hardware-hcm-4x_*, what glm53flash agentic dispatches pin via
+  # --runner-node-filter) reserves 960G, so use that as the DRAM budget.
+  cluster:hardware-hcm:
+    available-cpu-dram-mib: 983_040
+    gpus-per-node: 8
   cluster:b200-dgxc:
     available-cpu-dram-mib: 3_095_781
     gpus-per-node: 8
   b200-nscale:
     available-cpu-dram-mib: 2_063_920
     gpus-per-node: 8
+  cluster:b300-netperf:
+    available-cpu-dram-mib: 3_095_989
+    gpus-per-node: 8
   cluster:b300-nv:
     available-cpu-dram-mib: 2_964_436
+    gpus-per-node: 8
+  cluster:b200-nscale:
+    available-cpu-dram-mib: 2_063_920
+    gpus-per-node: 8
+  cluster:b300-dsxe:
+    available-cpu-dram-mib: 3_977_095
     gpus-per-node: 8
   cluster:gb200-nv:
     available-cpu-dram-mib: 860_160
@@ -350,8 +462,12 @@ hardware:
   cluster:rtx6000pro-lat:
     available-cpu-dram-mib: 1_500_000
     gpus-per-node: 8
-  cluster:mi300x-amds:
-    available-cpu-dram-mib: 2_321_924
+  # Measured idle free RAM on hoanq3-rtx6000x2-slurm-1/-2 (2026-10-18 probe).
+  cluster:hcm-rtx6000pro:
+    available-cpu-dram-mib: 239_000
+    gpus-per-node: 2
+  cluster:mi300x-amd:
+    available-cpu-dram-mib: 1_547_820
     gpus-per-node: 8
   cluster:mi300x-tw:
     available-cpu-dram-mib: 2_322_328

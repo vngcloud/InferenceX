@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from validate_scores import main as validate_scores_main
-from validate_scores import validate_batch_manifest, validate_smoke_artifacts
+from infx.evals.validate_scores import main as validate_scores_main
+from infx.evals.validate_scores import validate_batch_manifest, validate_smoke_artifacts
 
 
 def _run_batched_eval(
@@ -26,6 +26,7 @@ def _run_batched_eval(
         "BENCHMARK_LIB": str(benchmark_lib),
         "TRACE_PATH": str(trace_path),
         "FAILING_CONC": failing_conc,
+        "IS_AGENTIC": "0",
     }
     script = r'''
 source "$BENCHMARK_LIB"
@@ -169,30 +170,6 @@ def test_validate_scores_fails_when_expected_batch_metadata_is_unreadable(
     assert "unavailable or invalid" in captured.err
 
 
-def test_hle_smoke_rejects_empty_completions(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "meta_env.json").write_text(
-        json.dumps({"benchmark": "hle", "infmax_model_prefix": "glm5.2"})
-    )
-    (tmp_path / "samples_hle.jsonl").write_text(
-        json.dumps({"resps": [[""]]}) + "\n" + json.dumps({"resps": [["answer"]]}) + "\n"
-    )
-
-    assert validate_smoke_artifacts("meta_env.json") == [
-        "HLE produced 1/2 empty completions"
-    ]
-
-
-def test_hle_smoke_accepts_nonempty_nested_completions(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "meta_env.json").write_text(json.dumps({"benchmark": "hle"}))
-    (tmp_path / "samples_hle.jsonl").write_text(
-        json.dumps({"resps": [["  final answer  "]]}) + "\n"
-    )
-
-    assert validate_smoke_artifacts("meta_env.json") == []
-
-
 def test_workflow_concurrencies_are_independent_of_eval_metadata(
     tmp_path: Path,
 ) -> None:
@@ -251,6 +228,130 @@ def test_validate_scores_checks_threshold_for_every_concurrency(
     captured = capsys.readouterr()
     assert "PASS: [conc=1] gsm8k exact_match,strict-match" in captured.out
     assert "FAIL: [conc=4] gsm8k exact_match,strict-match" in captured.err
+
+
+def test_validate_scores_reports_integration_failure_without_thresholding(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    result_path = tmp_path / "results_test.json"
+    result_path.write_text(json.dumps({
+        "integration_error": {
+            "type": "RuntimeError",
+            "message": "vendor verifier checkout failed",
+        },
+        "results": {
+            "gsm8k": {
+                "exact_match,strict-match": 0.0,
+            },
+        },
+        "n-samples": {"gsm8k": {"effective": 0}},
+    }))
+    monkeypatch.setattr(sys, "argv", [
+        "validate_scores.py",
+        "--meta-env",
+        str(tmp_path / "meta_env.json"),
+        "--results-glob",
+        str(result_path),
+    ])
+
+    assert validate_scores_main() == 1
+    captured = capsys.readouterr()
+    assert "integration failure: RuntimeError: vendor verifier checkout failed" in captured.err
+    assert "gsm8k exact_match,strict-match" not in captured.err
+
+
+def test_validate_scores_rejects_invalid_effective_count_without_thresholding(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    result_path = tmp_path / "results_test.json"
+    result_path.write_text(json.dumps({
+        "results": {
+            "gsm8k": {
+                "exact_match,strict-match": 0.0,
+            },
+            "other": {
+                "exact_match,strict-match": 0.0,
+            },
+            "nonfinite": {
+                "exact_match,strict-match": 1.0,
+            },
+        },
+        "n-samples": {
+            "gsm8k": {"effective": "unknown"},
+            "other": {"effective": 0},
+            "nonfinite": {"effective": float("inf")},
+        },
+    }))
+    monkeypatch.setattr(sys, "argv", [
+        "validate_scores.py",
+        "--meta-env",
+        str(tmp_path / "meta_env.json"),
+        "--results-glob",
+        str(result_path),
+    ])
+
+    assert validate_scores_main() == 1
+    captured = capsys.readouterr()
+    assert "gsm8k invalid effective sample count: 'unknown'" in captured.err
+    assert "gsm8k exact_match,strict-match" not in captured.err
+    assert "other invalid effective sample count: 0" in captured.err
+    assert "other exact_match,strict-match" not in captured.err
+
+    assert "nonfinite invalid effective sample count: inf" in captured.err
+    assert "nonfinite exact_match,strict-match" not in captured.err
+
+def test_validate_scores_accepts_legacy_result_without_effective_count(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    result_path = tmp_path / "results_test.json"
+    result_path.write_text(json.dumps({
+        "results": {
+            "gsm8k": {
+                "exact_match,strict-match": 1.0,
+            },
+        },
+    }))
+    monkeypatch.setattr(sys, "argv", [
+        "validate_scores.py",
+        "--meta-env",
+        str(tmp_path / "meta_env.json"),
+        "--results-glob",
+        str(result_path),
+    ])
+
+    assert validate_scores_main() == 0
+    captured = capsys.readouterr()
+    assert "PASS: gsm8k exact_match,strict-match" in captured.out
+
+
+def test_hle_smoke_rejects_empty_completions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "meta_env.json").write_text(
+        json.dumps({"benchmark": "hle", "infmax_model_prefix": "glm5.2"})
+    )
+    (tmp_path / "samples_hle.jsonl").write_text(
+        json.dumps({"resps": [[""]]}) + "\n" + json.dumps({"resps": [["answer"]]}) + "\n"
+    )
+
+    assert validate_smoke_artifacts("meta_env.json") == [
+        "HLE produced 1/2 empty completions"
+    ]
+
+
+def test_hle_smoke_accepts_nonempty_nested_completions(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "meta_env.json").write_text(json.dumps({"benchmark": "hle"}))
+    (tmp_path / "samples_hle.jsonl").write_text(
+        json.dumps({"resps": [["  final answer  "]]}) + "\n"
+    )
+
+    assert validate_smoke_artifacts("meta_env.json") == []
 
 
 @pytest.mark.parametrize(
@@ -455,26 +556,3 @@ def test_validate_scores_reads_deepswe_pier_result(
 
     assert validate_scores_main() == 0
     assert "PASS: deepswe reward = 0.2000" in capsys.readouterr().out
-
-
-def test_amd_multinode_container_forwards_eval_concurrency_list() -> None:
-    job_slurm = (
-        Path(__file__).resolve().parents[2]
-        / "benchmarks"
-        / "multi_node"
-        / "amd_utils"
-        / "job.slurm"
-    )
-    contents = job_slurm.read_text()
-
-    assert r'-e \"EVAL_CONC=\$EVAL_CONC\"' in contents
-    assert "-e EVAL_CONC\n" not in contents
-
-    workflow = (
-        Path(__file__).resolve().parents[2]
-        / ".github"
-        / "workflows"
-        / "benchmark-multinode-tmpl.yml"
-    ).read_text()
-    assert 'expected_concs="${EVAL_CONC}"' in workflow
-    assert 'validate_scores.py --expected-concs "${expected_concs}"' in workflow

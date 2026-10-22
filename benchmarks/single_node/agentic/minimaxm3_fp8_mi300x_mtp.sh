@@ -6,7 +6,6 @@ set -x
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
-export EVAL_FRAMEWORK="lm-eval"
 
 check_env_vars MODEL TP CONC KV_OFFLOADING TOTAL_CPU_DRAM_GB RESULT_DIR DURATION EP_SIZE DP_ATTENTION PORT EVAL_ONLY
 
@@ -163,6 +162,10 @@ VLLM_CMD=(
     --trust-remote-code
     --block-size 128
     --gpu-memory-utilization 0.90
+    # The upstream nightly does not torch-compile MiniMaxM3SparseForConditionalGeneration,
+    # so with VLLM_USE_BREAKABLE_CUDAGRAPH=0 the default FULL_AND_PIECEWISE
+    # mode aborts at init ("piecewise CUDA graphs unavailable").
+    --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}'
     --enable-chunked-prefill
     --max-num-batched-tokens 16384
     --language-model-only
