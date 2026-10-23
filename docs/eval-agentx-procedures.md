@@ -68,6 +68,8 @@ A correct AgentX eval row contains `"scenario-type": "agentic-coding"`, `"run-ev
 4. If the task's primary result is not compatible with the collector's strict/extract/accuracy rules, extend `extract_metrics()` in [`infx.results.evals`](../infx/results/evals.py). It accepts loaded JSON and explicit source provenance; `build_rows()` applies collector score validation and metadata conversion. A successful published row must have a non-null `score`.
 5. Run a small explicit slice, inspect samples, then run the full split. `EVAL_LIMIT` is a smoke-test control, not a publishable score setting.
 
+Quality coding launchers give SciCode, SWE-bench Pro, and DeepSWE up to 65,536 generated tokens per model or agent turn. BFCL partial runs validate a sample-weighted aggregate of only the requested categories; full runs continue to validate BFCL's canonical overall score. SWE-bench Pro allows 600 seconds for its local Docker environment to start.
+
 Against an already healthy OpenAI-compatible server:
 
 ```bash

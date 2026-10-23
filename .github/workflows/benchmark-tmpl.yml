@@ -15,6 +15,9 @@ on:
       # recipe ignores it, and the SPEED-Bench path falls back to HF_TOKEN.
       SPEEDBENCH_HF_TOKEN:
         required: false
+      # Bearer token for the GreenNode MaaS endpoint (quality evals, remote bench).
+      GREENNODE_API_KEY:
+        required: false
     inputs:
       config:
         description: "Benchmark configuration as JSON"
@@ -173,28 +176,28 @@ env:
   RECIPE_FINGERPRINT: ${{ fromJSON(inputs.config).recipe-fingerprint || '' }}
   MODEL: ${{ fromJSON(inputs.config).model }}
   MODEL_PREFIX: ${{ fromJSON(inputs.config).model-prefix }}
-  ISL: ${{ inputs.scenario-type == 'agentic-coding' && '0' || fromJSON(inputs.config).isl }}
-  OSL: ${{ inputs.scenario-type == 'agentic-coding' && '0' || fromJSON(inputs.config).osl }}
-  MAX_MODEL_LEN: ${{ inputs.scenario-type == 'agentic-coding' && '0' || fromJSON(inputs.config).max-model-len }}
+  ISL: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && '0' || fromJSON(inputs.config).isl }}
+  OSL: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && '0' || fromJSON(inputs.config).osl }}
+  MAX_MODEL_LEN: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && '0' || fromJSON(inputs.config).max-model-len }}
   IMAGE: ${{ fromJSON(inputs.config).image }}
   FRAMEWORK: ${{ fromJSON(inputs.config).framework }}
   PRECISION: ${{ fromJSON(inputs.config).precision }}
-  TP: ${{ fromJSON(inputs.config).tp }}
-  PP_SIZE: ${{ fromJSON(inputs.config).pp }}
-  DCP_SIZE: ${{ fromJSON(inputs.config).dcp-size }}
-  PCP_SIZE: ${{ fromJSON(inputs.config).pcp-size }}
-  EP_SIZE: ${{ fromJSON(inputs.config).ep }}
+  TP: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).tp }}
+  PP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).pp }}
+  DCP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).dcp-size }}
+  PCP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).pcp-size }}
+  EP_SIZE: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).ep }}
   DP_ATTENTION: ${{ inputs.dp-attn }}
-  CONC: ${{ fromJSON(inputs.config).conc }}
-  SPEC_DECODING: ${{ fromJSON(inputs.config).spec-decoding }}
-  DISAGG: ${{ inputs.scenario-type == 'agentic-coding' && 'false' || fromJSON(inputs.config).disagg }}
+  CONC: ${{ startsWith(inputs.scenario-type, 'quality-') && '1' || fromJSON(inputs.config).conc }}
+  SPEC_DECODING: ${{ startsWith(inputs.scenario-type, 'quality-') && 'none' || fromJSON(inputs.config).spec-decoding }}
+  DISAGG: ${{ (inputs.scenario-type == 'agentic-coding' || startsWith(inputs.scenario-type, 'quality-')) && 'false' || fromJSON(inputs.config).disagg }}
   RUN_EVAL: ${{ inputs.run-eval }}
   EVAL_ONLY: ${{ inputs.eval-only }}
   EVAL_FRAMEWORK: ${{ inputs.eval-framework }}
   EVAL_SUITE: ${{ inputs.eval-suite }}
   # Agentic-coding env. Fixed-seq-len jobs leave these empty.
   SCENARIO_TYPE: ${{ inputs.scenario-type }}
-  SCENARIO_SUBDIR: ${{ inputs.scenario-type == 'agentic-coding' && 'agentic/' || 'fixed_seq_len/' }}
+  SCENARIO_SUBDIR: ${{ (inputs.scenario-type == 'agentic-coding' && 'agentic/') || (startsWith(inputs.scenario-type, 'quality-') && 'quality/') || 'fixed_seq_len/' }}
   IS_AGENTIC: ${{ inputs.scenario-type == 'agentic-coding' && '1' || '0' }}
   KV_OFFLOADING: ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).kv-offloading) || '' }}
   KV_OFFLOAD_BACKEND: ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).kv-offload-backend.name) || '' }}
@@ -247,6 +250,14 @@ env:
   # Bearer token for authenticated remote targets. Empty for every other
   # recipe, which leaves build_replay_cmd's --api-key branch inert.
   REMOTE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
+  # Quality-eval env, from the quality row (scenario-type quality-*); empty for every other recipe.
+  QUALITY_BENCHMARK_NAME: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).benchmark-name || '' }}
+  QUALITY_ENDPOINT: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).quality-endpoint || '' }}
+  QUALITY_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
+  QUALITY_MODEL_NAME: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).quality-model-name || '' }}
+  SMOKE: ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).smoke && 'true' || 'false' }}
+  NUM_CONCURRENT: ${{ startsWith(inputs.scenario-type, 'quality-') && format('{0}', fromJSON(inputs.config).num-concurrent) || '' }}
+  MAX_GEN_TOKENS: ${{ startsWith(inputs.scenario-type, 'quality-') && format('{0}', fromJSON(inputs.config).max-gen-tokens) || '' }}
   AIPERF_FAILED_REQUEST_THRESHOLD: '0.10'
   RESULT_DIR: /workspace/results
   PYTHONDONTWRITEBYTECODE: '1'
@@ -306,6 +317,7 @@ jobs:
     timeout-minutes: 1260
     name: >-
       ${{ inputs.klaud-run && 'klaud | ' || '' }}p${{ inputs.priority }} | ${{ fromJSON(inputs.config).model-prefix }} ${{ fromJSON(inputs.config).precision }} ${{ inputs.runner }} ${{ fromJSON(inputs.config).framework == 'sglang' && 'sgl' || fromJSON(inputs.config).framework == 'dynamo-sglang' && 'dyn-sgl' || fromJSON(inputs.config).framework == 'sglang-disagg' && 'sgl-disagg' || fromJSON(inputs.config).framework }}
+      ${{ startsWith(inputs.scenario-type, 'quality-') && fromJSON(inputs.config).benchmark-name || '' }}
       TP${{ fromJSON(inputs.config).tp }}${{ format('{0}', fromJSON(inputs.config).pp) != '' && format('{0}', fromJSON(inputs.config).pp) != '1' && format('/PP{0}', fromJSON(inputs.config).pp) || '' }}${{ format('{0}', fromJSON(inputs.config).dcp-size) != '' && format('{0}', fromJSON(inputs.config).dcp-size) != '1' && format('/DCP{0}', fromJSON(inputs.config).dcp-size) || '' }}${{ format('{0}', fromJSON(inputs.config).pcp-size) != '' && format('{0}', fromJSON(inputs.config).pcp-size) != '1' && format('/PCP{0}', fromJSON(inputs.config).pcp-size) || '' }}${{ format('{0}', fromJSON(inputs.config).ep) != '' && format('{0}', fromJSON(inputs.config).ep) != '1' && format('/EP{0}', fromJSON(inputs.config).ep) || '' }}${{ inputs.dp-attn && '/DPA' || '' }}
       ${{ fromJSON(inputs.config).spec-decoding != 'none' && fromJSON(inputs.config).spec-decoding || '' }}
       ${{ inputs.scenario-type == 'agentic-coding' && format('{0}', fromJSON(inputs.config).kv-offloading) != '' && fromJSON(inputs.config).kv-offloading != 'none' && format('{0} KV offload', fromJSON(inputs.config).kv-offloading) || '' }}
@@ -440,6 +452,11 @@ jobs:
             hardware-hcm-*) LAUNCH_SCRIPT="runners/launch_hardware-hcm.sh" ;;
             *) LAUNCH_SCRIPT="runners/launch_${RUNNER_NAME%%_*}.sh" ;;
           esac
+          # Quality evals drive a remote endpoint from any runner labelled
+          # cluster:quality-eval, so they skip the per-runner launchers.
+          if [[ "$SCENARIO_SUBDIR" == "quality/" ]]; then
+            LAUNCH_SCRIPT="runners/launch_quality-eval.sh"
+          fi
           bash "$LAUNCH_SCRIPT"
 
           if [ "${EVAL_ONLY}" = "true" ]; then
@@ -590,12 +607,24 @@ jobs:
             agent_preds.json
             predictions.jsonl
             swebench_report_*.json
+            eval_results*.json
             *.traj*
+            *.csv
+            lcb_results*.json
+            *.jsonl
+            bfcl_inference_audit.json
+            bfcl_result_*.json
+            scicode_debug.tar.gz
           if-no-files-found: ${{ inputs.eval-only && 'error' || 'ignore' }}
 
       - name: Verify eval scores
         if: ${{ (success() || failure()) && inputs.eval-only }}
-        run: python3 utils/evals/validate_scores.py
+        run: |
+          SMOKE_FLAG=""
+          if [ "$SMOKE" = "true" ]; then
+            SMOKE_FLAG="--smoke"
+          fi
+          python3 utils/evals/validate_scores.py $SMOKE_FLAG
 
       - name: Cleanup eval outputs (post-upload)
         if: ${{ always() && (env.RUN_EVAL == 'true' || inputs.eval-only) }}
@@ -608,6 +637,8 @@ jobs:
           rm -f sample*.jsonl || true
           rm -f -- ./*_artifacts.tar.gz || true
           rm -f agent_preds.json predictions.jsonl swebench_report_*.json *.traj* || true
+          rm -f eval_results*.json *.csv lcb_results*.json || true
+          rm -f bfcl_inference_audit.json bfcl_result_*.json scicode_debug.tar.gz || true
           
       - name: Repair root-owned artifacts (post-run)
         if: ${{ always() && inputs.runner == 'cluster:mi355x-amds' }}

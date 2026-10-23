@@ -13,11 +13,13 @@ import yaml
 
 from .validation import (
     DEFAULT_AGENTIC_DURATION_SECONDS,
+    QUALITY_SCENARIO_TYPES,
     Fields,
     load_config_files,
     load_runner_file,
     validate_agentic_matrix_entry,
     validate_matrix_entry,
+    validate_quality_matrix_entry,
 )
 
 seq_len_stoi = {"1k1k": (1024, 1024), "8k1k": (8192, 1024)}
@@ -993,6 +995,36 @@ def _agentic_entries(
     return entries
 
 
+def _quality_entries(
+    config: dict, benchmark: dict, scenario: dict, scenario_type: str, runners: list[str]
+) -> list[dict]:
+    """Build quality-eval rows: one per benchmark and runner, against a remote endpoint."""
+    model_code = config[Fields.MODEL_PREFIX.value]
+    benchmark_name = benchmark[Fields.BENCHMARK_NAME.value]
+    entries = []
+    for runner in runners:
+        entry = {
+            Fields.IMAGE.value: config[Fields.IMAGE.value],
+            Fields.MODEL.value: config[Fields.MODEL.value],
+            Fields.MODEL_PREFIX.value: model_code,
+            Fields.PRECISION.value: config[Fields.PRECISION.value],
+            Fields.FRAMEWORK.value: config[Fields.FRAMEWORK.value],
+            Fields.RUNNER.value: runner,
+            Fields.BENCHMARK_NAME.value: benchmark_name,
+            Fields.QUALITY_ENDPOINT.value: scenario[Fields.QUALITY_ENDPOINT.value],
+            Fields.QUALITY_MODEL_NAME.value: scenario[Fields.QUALITY_MODEL_NAME.value],
+            Fields.EXP_NAME.value: f"{model_code}_quality_{benchmark_name}",
+            Fields.SCENARIO_TYPE.value: scenario_type,
+            Fields.SMOKE.value: benchmark.get(Fields.SMOKE.value, False),
+            Fields.RUN_EVAL.value: False,
+        }
+        for field in (Fields.NUM_CONCURRENT, Fields.MAX_GEN_TOKENS, Fields.EVAL_LIMIT):
+            if benchmark.get(field.value) is not None:
+                entry[field.value] = benchmark[field.value]
+        entries.append(validate_quality_matrix_entry(entry))
+    return entries
+
+
 @dataclass(frozen=True)
 class FullSweepOptions:
     """Full-sweep selection and overrides, independent of the CLI parser."""
@@ -1298,6 +1330,16 @@ def _expand_configs(
                         conc_filter=concurrencies,
                     )
                 )
+        if not node_allowed:
+            continue
+        for scenario_type in QUALITY_SCENARIO_TYPES:
+            if scenario_types and scenario_type not in scenario_types:
+                continue
+            for scenario in config[Fields.SCENARIOS.value].get(scenario_type, []):
+                for benchmark in scenario[Fields.SEARCH_SPACE.value]:
+                    rows.extend(
+                        _quality_entries(config, benchmark, scenario, scenario_type, runners)
+                    )
     return rows
 
 
@@ -1476,7 +1518,7 @@ def main() -> list[dict]:
     parent_parser.add_argument(
         "--scenario-type",
         nargs="+",
-        choices=["fixed-seq-len", "agentic-coding"],
+        choices=["fixed-seq-len", "agentic-coding", *QUALITY_SCENARIO_TYPES],
         required=False,
         help="Scenario type(s) to include. If not specified, all scenario types are generated.",
     )
