@@ -1,0 +1,34 @@
+# GreenNode Tuning TTFT/ITL A/B, arm E2 = E0 + native CPU KV offload as a second KV tier, 64 GiB host RAM per GPU.
+# vLLM 0.31 --kv-offloading-size is one /dev/shm region shared by the engine's TP ranks, so it is the TP total:
+# 4 x 64 GiB = 256. The launcher sizes the Slurm --mem from it (4 x 64 G engine base + 256 G = 512 G).
+# Only change vs E0 (gemma4-livekit-tp4-gntune-e0-base): --kv-offloading-size 256; runner _02 (node 01 runs E0/E1).
+# Boot-tested on Slurm job 5564 (hgx-h200-01, host /dev/shm 1008G tmpfs). The 2026-10-20 offload arm (512 GiB per
+# replica, 2 replicas, run 39392294271) failed at boot in madvise(MADV_POPULATE_WRITE) on the /dev/shm region.
+name: gemma4-livekit-tp4-gntune-e2-offload64g
+runner: hardware-hcm-8x_02
+image: vcr.vngcloud.vn/108942-public69/vllm:v0.31.0-pr57613-dynamo1.6.0-fix16781
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 128
+  --max-num-batched-tokens 8192
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 2048
+  --kv-cache-metrics
+  --enable-logging-iteration-details
+  --prefix-cache-retention-interval 4096
+  --kv-offloading-size 256
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [50, 80]
