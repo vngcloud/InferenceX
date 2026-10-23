@@ -83,6 +83,13 @@ class FetchedBytesTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("total 0.00 MB", out)
 
+    def test_null_bytes_in_fetched_json_is_treated_as_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".cache").mkdir()
+            (Path(tmp) / ".cache/fetched.json").write_text('{"bytes": null}')
+            code, out = run(FIX / "gh_fixed", "--out", tmp)
+        self.assertEqual(code, 0, out)
+
     def test_local_folder_creates_no_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             run(FIX / "gh_fixed", "--out", tmp)

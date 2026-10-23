@@ -24,12 +24,13 @@ HTTP Range requests and skips the heavy ones (`profile_export.jsonl`, `inputs.js
 `server_metrics_export.json` of fixed runs). A search run reads the aiperf export of every probe,
 `search_history.json`, and the winning probe's `server_metrics_export.json` only if it is ≤ 40 MB
 compressed (`--max-member-mb`; real ones are 25-35 MB each, 350-400 MB raw). Typical total: a few MB
-to ~40 MB. Remote runs can still take minutes: run in the background and expect minutes; progress
-(`fetching ...`) goes to stderr. Over the cap, the winner's cache tiers are skipped with a Note; this applies to local search folders too (size on disk), raise `--max-member-mb` to read them.
+to ~40 MB. Remote search run: ~1-2 min; grids with 20+ artifacts: ~5-15 min. Run it in the background.
+Progress (`fetching ...`) goes to stderr; filter with `2>&1 | grep -v '^fetching'`. If output is piped, read the
+exit code from `$?` / `PIPESTATUS`, not the pipe. Over the cap, the winner's cache tiers are skipped with a Note; this applies to local search folders too (size on disk), raise `--max-member-mb` to read them.
 
 Output goes to `~/bench-reports/<date>-<slug>/` (or `--out DIR`): `report.md`, `data.json`,
 `report.html` with `--html`. Remote downloads are cached in `<out>/.cache/` (re-runs are fast); local
-folder inputs create no `.cache` and report 0.00 MB. The header shows the cumulative download size
+folder inputs create no `.cache` and report 0.00 MB. `<out>/.cache` is much larger than the "downloaded" figure (members are stored decompressed: 18 MB downloaded ~ 360 MB cache, mostly the winner's `server_metrics_export.json`); safe to delete once the report is final. The header shows the cumulative download size
 (`<out>/.cache/fetched.json`); the CLI summary prints "this run X MB (total Y MB)". To check a number,
 cached files sit at `<out>/.cache/<artifact_id>/files/<path inside artifact>`.
 
@@ -42,6 +43,7 @@ Inputs are grouped automatically:
   `arm1 / arm2`. Tell the user the grid is split by runner; do not claim a comparison.
 - **Scenario** = the workload. `sweep-isl*-osl*-cache*` / `fixed-isl*-osl*-cache*` names become grid axes.
   A missing scenario shows as `(unknown)`.
+- Framework and TP/EP in the Runs table stay `—` when the aggregate lacks them (serving.yaml gives only model/image/precision/GPUs/runner). The `Config` column and arm guidance here apply only to multi-config inputs; a single run needs none of it.
 - Local folders with several configs of the same arm and CCU get a `Config` column (folder name) so rows are distinguishable.
 
 Same arm + many scenarios → a grid summary. Several arms + the same scenario + CCU → deltas: every
@@ -52,6 +54,8 @@ Matrix cells: `—` = scenario not run by that arm, `✗` = infeasible / no CCU 
 Folder layout: aggregate-only folders work (aggregate JSON under `bmk_agentic_*` or `results_bmk/agg_bmk.json`);
 look-alike dirs (`power_audit_*`, `gpu_metrics_*`, `server_logs_*`, `results_bmk`, `run-stats`) are ignored;
 folders with no results are listed in Notes ("skipped N folder(s) ...").
+
+A failed-job Note may start with `…` (GitHub truncates job names); the job URL in it is the reliable pointer.
 
 ## Write the Key findings
 

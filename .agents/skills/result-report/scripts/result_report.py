@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     stamp = cache / "fetched.json"  # cumulative download size survives cached --findings re-runs
     try:
         prior = int(json.loads(stamp.read_text()).get("bytes", 0)) if stamp.is_file() else 0
-    except (ValueError, AttributeError, OSError):  # corrupt stamp: start the total over
+    except (ValueError, TypeError, AttributeError, OSError):  # corrupt stamp: start the total over
         print(f"warning: ignoring unreadable {stamp}", file=sys.stderr)
         prior = 0
     data["bytes_fetched"] = prior + this_run
