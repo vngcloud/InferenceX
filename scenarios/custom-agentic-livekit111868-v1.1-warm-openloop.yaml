@@ -1,0 +1,44 @@
+# custom-agentic family, open loop: the V1.1-warm LiveKit 111868 trace (V1 append-ideal restricted to the 671 rooms
+# with >= 4 real requests, a dial warm-up row before each room's first turn; HF README) with calls arriving by the clock instead of when a lane frees up, so every server receives the same calls per hour
+# at the same concurrency. conc = target mean concurrent calls. Before aiperf runs, serve_generic.sh rewrites the
+# trace with utils/serving/livekit_openloop.py: calls open as a seeded Poisson process at conc / 127 s per second
+# (127 s = the trace's mean call length at production reply speed), 180 s linear ramp, arrivals stop 300 s before
+# the end so the last scored calls can finish. Inside a call each request keeps its logged gap after the previous
+# reply ends. Override with serving-YAML env: IX_OPENLOOP_CALL_DURATION_S, IX_OPENLOOP_RAMP_S, IX_OPENLOOP_TAIL_S,
+# IX_OPENLOOP_SEED. Score with utils/serving/livekit_ttft.py: it keeps the calls opened in [ramp, duration - tail)
+# (openloop.json in the run dir) and drops the dial warm-ups.
+# Client policy: a request with no answer after 10 s is abandoned (the agent's side-request timeout; agent turns
+# time out at 5 s, counted by the scorer).
+schemaVersion: "2.0"
+benchmark:
+  unsafeOverride: true
+  endpoint:
+    type: chat
+    path: /v1/chat/completions
+    streaming: true
+    useServerTokenCount: true
+    timeout: 10.0
+  datasets:
+  - name: livekit-111868-v1.1-warm
+    type: file
+    format: mooncake_trace
+    path: ${IX_CUSTOM_DATASET_FILE}
+    # fixed_schedule sends each call at its timestamp, so file order does not matter; calls are drawn by the
+    # rewrite's seed
+    sampling: sequential
+  phases:
+  - name: profiling
+    kind: profiling
+    type: fixed_schedule
+    autoOffset: true
+    # 180 s ramp + 1800 s scored + 300 s tail. Hard stop: requests of calls still running then are not sent.
+    duration: 2280.0
+    gracePeriod: 30.0
+    failedRequestThreshold: 0.1
+  artifacts:
+    sliceDuration: 1.0
+  tokenizer:
+    trustRemoteCode: true
+  runtime:
+    statsInterval: 30.0
+randomSeed: 42
