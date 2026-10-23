@@ -122,7 +122,8 @@ salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
     --cpus-per-task=$((GPU_COUNT * 8)) --mem="$(alloc_mem_gb)"G \
-    --time=180 --no-shell --job-name="$RUNNER_NAME"
+    --time=1200 --no-shell --job-name="$RUNNER_NAME"
+# --time 1200 (was 180): long runs (max-CCU searches, 1M-context AgentX replay) outlive 180 min; cut runs 39583069057 / 39583087151.
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)
 if [[ -z "$JOB_ID" ]]; then
     echo "ERROR: failed to resolve hardware-hcm Slurm allocation" >&2
