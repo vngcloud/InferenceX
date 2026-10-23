@@ -80,15 +80,22 @@ def _zip_bytes(members):
 class _Handler(http.server.BaseHTTPRequestHandler):
     payloads: dict = {}
     ranges = True
+    expired = False
 
     def do_GET(self):
+        if self.expired:
+            self.send_error(403)
+            return
         body = self.payloads[self.path]
         match = re.match(r"bytes=(\d+)-(\d+)", self.headers.get("Range") or "")
         if not (self.ranges and match):
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except ConnectionError:
+                pass
             return
         start, end = int(match[1]), min(int(match[2]), len(body) - 1)
         self.send_response(206)
@@ -105,6 +112,7 @@ class RemoteTest(unittest.TestCase):
     def setUp(self):
         self.big = os.urandom(2_000_000)
         _Handler.ranges = True
+        _Handler.expired = False
         _Handler.payloads = {
             "/raw": _zip_bytes({"server.log": self.big, "aiperf_artifacts/profile_export_aiperf.json": b'{"x": 1}'}),
             "/agg": _zip_bytes({"RF.json": json.dumps({"infmax_model_prefix": "m", "conc": 8, "request_metrics": {}}).encode()}),
@@ -116,6 +124,7 @@ class RemoteTest(unittest.TestCase):
 
     def tearDown(self):
         self.server.shutdown()
+        self.server.server_close()
         self.tmp.cleanup()
 
     def test_range_read_fetches_a_fraction_of_the_zip(self):
@@ -163,6 +172,30 @@ class RemoteTest(unittest.TestCase):
             self.assertEqual(cfg.files.read("aiperf_artifacts/profile_export_aiperf.json"), b'{"x": 1}')
         self.assertTrue(any("bench c32" in n for n in notes))
         self.assertTrue(any("bmk_agentic_OLD" in n and "expired" in n for n in notes))
+
+    def test_read_after_blob_url_expiry_re_resolves(self):
+        calls = []
+
+        def url_for(repo, i):
+            calls.append(i)
+            _Handler.expired = False  # a fresh URL works again
+            return self.base + "/raw"
+
+        art = {"id": 9, "name": "agentic_RF", "size_in_bytes": 10, "workflow_run": {"id": 1}}
+        reader = fetch.ZipReader("o/r", art, Path(self.tmp.name), 100, url_for=url_for)
+        reader.read("aiperf_artifacts/profile_export_aiperf.json")
+        _Handler.expired = True
+        self.assertEqual(reader.read("server.log"), self.big)
+        self.assertEqual(len(calls), 2)
+
+    def test_malicious_member_names_are_not_read_or_cached(self):
+        _Handler.payloads["/evil"] = _zip_bytes({"../../escape.txt": b"x", "/abs.txt": b"y"})
+        art = {"id": 10, "name": "agentic_RF", "size_in_bytes": 10, "workflow_run": {"id": 1}}
+        reader = fetch.ZipReader("o/r", art, Path(self.tmp.name) / "c", 100, url_for=lambda r, i: self.base + "/evil")
+        self.assertIsNone(reader.read("../../escape.txt"))
+        self.assertIsNone(reader.read("/abs.txt"))
+        self.assertFalse((Path(self.tmp.name) / "escape.txt").exists())
+        reader.close()
 
 
 if __name__ == "__main__":

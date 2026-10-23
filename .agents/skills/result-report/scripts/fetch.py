@@ -205,6 +205,7 @@ def blob_url(repo: str, artifact_id: int) -> str:
         urllib.request.build_opener(_NoRedirect).open(request)
     except urllib.error.HTTPError as err:
         if err.code in (301, 302, 303, 307, 308):
+            err.close()
             return err.headers["Location"]
         raise
     raise OSError(f"artifact {artifact_id}: expected a redirect to the zip blob")
@@ -254,15 +255,26 @@ class ZipReader:
         return names
 
     def read(self, rel: str) -> bytes | None:
+        if Path(rel).is_absolute() or ".." in Path(rel).parts:  # member names come from a remote zip
+            return None
         cached = self.cache / "files" / rel
         if cached.is_file():
             return cached.read_bytes()
         if rel not in self.names():
             return None
-        data = self._backend().read(rel)
+        try:
+            data = self._backend().read(rel)
+        except OSError:  # the short-lived blob URL expired: re-resolve once and retry
+            self.close()
+            data = self._backend().read(rel)
         cached.parent.mkdir(parents=True, exist_ok=True)
         cached.write_bytes(data)
         return data
+
+    def close(self) -> None:
+        if self._zip is not None:
+            self._zip.close()
+        self._zip = self._dir = None
 
 
 def remote_configs(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tuple[list[Config], list[str]]:
