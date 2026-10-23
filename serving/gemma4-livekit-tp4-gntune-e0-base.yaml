@@ -1,0 +1,32 @@
+# GreenNode Tuning TTFT/ITL A/B, arm E0 = baseline: the gemma4-livekit-tp4-vllm-khanghd-v11 config (run 39717833048)
+# on the image with PR #57613 baked (vllm:v0.31.0-pr57613-dynamo1.6.0-fix16781 = sha256:739f79a1), so no
+# PYTHONPATH runtime patch. Every arm adds --enable-logging-iteration-details (per-step tokens + time, to fit the
+# step-cost model); it is the same in all arms. Runs on hgx-h200-01 in parallel with E1 (hardware-hcm-4x_01).
+# Plan: tmp/2026-10-23-vllm031-ttft-itl/suggestions.md (InferenceOptimization workspace).
+name: gemma4-livekit-tp4-gntune-e0-base
+runner: hardware-hcm-8x_01
+image: vcr.vngcloud.vn/108942-public69/vllm:v0.31.0-pr57613-dynamo1.6.0-fix16781
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 128
+  --max-num-batched-tokens 8192
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 2048
+  --kv-cache-metrics
+  --enable-logging-iteration-details
+  --prefix-cache-retention-interval 4096
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [50, 80]

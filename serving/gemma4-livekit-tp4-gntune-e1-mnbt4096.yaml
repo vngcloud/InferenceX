@@ -1,0 +1,31 @@
+# GreenNode Tuning TTFT/ITL A/B, arm E1: E0 with --max-num-batched-tokens 4096 (was 8192), threshold stays 2048,
+# so at most 2 prefill chunks per step instead of 4. Expected (inferred): lower ITL p90/p99, warm-up TTFT slightly up.
+# Same image digest, flags, scenario and node (hgx-h200-01, second slot hardware-hcm-4x_01) as E0, run in parallel.
+# Plan: tmp/2026-10-23-vllm031-ttft-itl/suggestions.md (InferenceOptimization workspace).
+name: gemma4-livekit-tp4-gntune-e1-mnbt4096
+runner: hardware-hcm-4x_01
+image: vcr.vngcloud.vn/108942-public69/vllm:v0.31.0-pr57613-dynamo1.6.0-fix16781
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 128
+  --max-num-batched-tokens 4096
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 2048
+  --kv-cache-metrics
+  --enable-logging-iteration-details
+  --prefix-cache-retention-interval 4096
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [50, 80]
