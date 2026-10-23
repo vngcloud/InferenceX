@@ -400,9 +400,14 @@ def arm_of(point: dict, cfg) -> tuple[str, str]:
 def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="") -> dict:
     arms: dict[str, dict] = {}
     points = []
+    built = []
     for cfg in configs:
         point = build_point(cfg)
-        key, label = arm_of(point, cfg)
+        built.append((cfg, point, *arm_of(point, cfg)))
+    # an aggregate-only config (no serving.yaml) joins the yaml-backed arm with the same identity
+    yaml_arm = {json.dumps(pt["identity"], sort_keys=True): k for _, pt, k, _ in built if k.startswith("yaml:")}
+    for cfg, point, key, label in sorted(built, key=lambda b: not b[2].startswith("yaml:")):
+        key = yaml_arm.get(key[3:], key) if key.startswith("id:") else key
         config = point.pop("config")
         if key not in arms:
             taken, final, n = {a["label"] for a in arms.values()}, label, 2

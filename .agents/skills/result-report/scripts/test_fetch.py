@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shutil
 import tempfile
 import threading
 import zipfile
@@ -196,6 +197,24 @@ class RemoteTest(unittest.TestCase):
         self.assertIsNone(reader.read("/abs.txt"))
         self.assertFalse((Path(self.tmp.name) / "escape.txt").exists())
         reader.close()
+
+
+class MultiArtifactTest(unittest.TestCase):
+    def test_lookalike_json_dirs_are_not_aggregates(self):
+        agg = (FIX / "gh_fixed/bmk_agentic_glm53_c108/glm53_c108.json").read_bytes()
+        other = (FIX / "aggonly/bmk_agentic_gemma4_c96/gemma4_c96.json").read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIX / "gh_fixed/agentic_glm53_c108", root / "agentic_RF108")
+            for d, rf, data in (("bmk_agentic_RF108", "RF108", agg), ("bmk_agentic_RF120", "RF120", other),
+                                ("power_audit_RF108", "RF108", agg), ("power_audit_RF120", "RF120", other),
+                                ("results_bmk", "agg_bmk", agg), ("run-stats", "run_stats", other)):
+                (root / d).mkdir()
+                (root / d / f"{rf}.json").write_bytes(data)
+            cfgs = fetch.local_configs(fetch.parse_source(str(root)))
+        self.assertEqual([c.rf for c in cfgs], ["RF108", "RF120"])
+        self.assertIsNotNone(cfgs[0].files)
+        self.assertIsNone(cfgs[1].files)
 
 
 if __name__ == "__main__":

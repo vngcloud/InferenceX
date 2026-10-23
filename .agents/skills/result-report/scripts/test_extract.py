@@ -193,6 +193,13 @@ class ArmsTest(unittest.TestCase):
         self.assertNotIn("config", data["points"][0])
         self.assertIn("serving.yaml", data["arms"][0]["config"])
 
+    def test_aggregate_only_joins_the_yaml_arm_with_same_identity(self):
+        full = _cfg("gh_fixed")
+        only = fetch.Config(rf="x_c120", source=full.source, agg=copy.deepcopy(full.agg), files=None)
+        data = extract.build_data([only, full], [])
+        self.assertEqual(len(data["arms"]), 1)
+        self.assertEqual(len(data["points"]), 2)
+
     def test_unknown_baseline(self):
         with self.assertRaises(ValueError):
             extract.build_data([_cfg("gh_fixed")], [], baseline="nope")

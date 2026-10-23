@@ -87,8 +87,12 @@ def _key(rel: Path, prefix: str) -> str:
 def local_configs(src: Source) -> list[Config]:
     root = src.path
     aggs: dict[str, dict] = {}
+    # multi-artifact download: only bmk_agentic_*/ holds aggregates (power_audit_*, results_bmk, run-stats look alike)
+    multi = any(p.is_dir() and p.name.startswith(AGG_PREFIX) for p in root.iterdir())
     for path in sorted(root.rglob("*.json")):
         rel = path.relative_to(root)
+        if multi and not rel.parts[0].startswith(AGG_PREFIX):
+            continue
         if any(p.startswith("search_iter_") or p in ("aiperf_artifacts", "aggregate") for p in rel.parts):
             continue
         if path.stat().st_size > 1_000_000:
