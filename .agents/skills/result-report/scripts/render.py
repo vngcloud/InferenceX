@@ -128,6 +128,8 @@ def runs_table(data) -> Table:
     for a in data["arms"]:
         i = a["identity"]
         cfgs = [p["rf"] for p in data["points"] if p["arm"] == a["label"] and p.get("rf")]
+        if len(cfgs) > 4:  # the full list stays in data.json
+            cfgs = cfgs[:3] + [f"… (+{len(cfgs) - 3} more)"]
         rows.append([(_label(data, a["label"]), None)] + ([(", ".join(cfgs) or DASH, None)] if show_cfg else []) + [
             (str(v) if v is not None else DASH, None) for v in
             (i.get("model"), i.get("hw"), i.get("framework"), i.get("precision"), i.get("num_gpus"))

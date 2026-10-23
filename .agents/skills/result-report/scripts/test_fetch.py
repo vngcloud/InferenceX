@@ -194,6 +194,15 @@ class RemoteTest(unittest.TestCase):
                                 Path(self.tmp.name) / "c", 100, url_for=lambda r, i: 1 / 0)
         self.assertEqual(again.size("server.log"), len(self.big))  # from the cache, no URL needed
 
+    def test_old_list_format_names_cache_is_rebuilt_with_sizes(self):
+        art = {"id": 9, "name": "agentic_RF", "size_in_bytes": 1}
+        cache = Path(self.tmp.name) / "c"
+        (cache / "9").mkdir(parents=True)
+        (cache / "9" / "names.json").write_text(json.dumps(["server.log"]))
+        reader = fetch.ZipReader("o/r", art, cache, 100, url_for=lambda r, i: self.base + "/raw")
+        self.assertEqual(reader.size("server.log"), len(self.big))
+        reader.close()
+
     def test_read_after_blob_url_expiry_re_resolves(self):
         calls = []
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sys
@@ -80,13 +81,19 @@ def main(argv: list[str] | None = None) -> int:
 
     this_run = fetch.FETCHED["bytes"] - before
     stamp = cache / "fetched.json"  # cumulative download size survives cached --findings re-runs
-    prior = json.loads(stamp.read_text()).get("bytes", 0) if stamp.is_file() else 0
+    try:
+        prior = int(json.loads(stamp.read_text()).get("bytes", 0)) if stamp.is_file() else 0
+    except (ValueError, AttributeError, OSError):  # corrupt stamp: start the total over
+        print(f"warning: ignoring unreadable {stamp}", file=sys.stderr)
+        prior = 0
     data["bytes_fetched"] = prior + this_run
     if fetch.FAILED_JOBS:
         data["failed_jobs"] = list(fetch.FAILED_JOBS)
     if this_run:
         cache.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(json.dumps({"bytes": data["bytes_fetched"]}))
+        tmp = stamp.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"bytes": data["bytes_fetched"]}))
+        os.replace(tmp, stamp)
     if args.findings:
         data["findings"] = args.findings.read_text().strip()
     out.mkdir(parents=True, exist_ok=True)

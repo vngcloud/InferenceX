@@ -184,3 +184,11 @@ class FixRound1RenderTest(unittest.TestCase):
         self.assertNotIn("Deltas are against", render.to_markdown(render.build_blocks(d)))
         d["points"][1]["scenario"] = "fixed-isl8k-osl1k-cache0"
         self.assertIn("Deltas are against", render.to_markdown(render.build_blocks(d)))
+
+    def test_runs_table_truncates_long_config_lists(self):
+        d = self._two_configs()
+        d["points"] = [dict(d["points"][0], rf=f"cfg{i}") for i in range(21)]
+        cell = render.runs_table(d).rows[0][1][0]
+        self.assertIn("cfg0", cell)
+        self.assertNotIn("cfg20", cell)
+        self.assertIn("(+", cell)

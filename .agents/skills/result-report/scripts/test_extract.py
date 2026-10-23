@@ -146,6 +146,22 @@ class SearchSizeCapTest(unittest.TestCase):
         self.assertEqual(p["cache"]["overall"], 0.3)  # aggregate fallback
         self.assertEqual(p["cache"]["source"], "aggregate")
 
+    def test_unknown_size_is_never_read(self):
+        class Blind(SizeAwareReader):
+            def size(self, rel):
+                return None
+        cfg = _cfg("search_local")
+        reader = Blind(cfg.files)
+        extract.build_point(fetch.Config(rf=cfg.rf, source=cfg.source, agg=cfg.agg, files=reader))
+        self.assertEqual([r for r in reader.reads if r.endswith(self.SM)], [])
+
+    def test_local_reader_note_does_not_say_compressed(self):
+        cfg = _cfg("search_local")
+        p = extract.build_point(cfg, max_member_mb=0.0001)
+        note = next(n for n in p["notes"] if "cache tiers unavailable" in n)
+        self.assertNotIn("compressed", note)
+        self.assertIn("cap 0.0001 MB", note)
+
     def test_cap_is_configurable(self):
         winner = extract.PROBE_DIR.format(10) + self.SM
         cfg = _cfg("search_local")

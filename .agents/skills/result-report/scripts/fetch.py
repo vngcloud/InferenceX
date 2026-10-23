@@ -60,6 +60,8 @@ def parse_source(arg: str, default_repo: str = DEFAULT_REPO) -> Source:
 class DirReader:
     """Read files under one local results root."""
 
+    size_kind = "on disk"
+
     def __init__(self, root: Path):
         self.root = root
 
@@ -286,8 +288,12 @@ class ZipReader:
         """member name -> compressed size, cached in names.json (read from the zip directory, no payload)."""
         listing = self.cache / "names.json"
         if listing.is_file():
-            doc = json.loads(listing.read_text())
-            return doc if isinstance(doc, dict) else dict.fromkeys(doc)  # older cache: names only
+            try:
+                doc = json.loads(listing.read_text())
+            except json.JSONDecodeError:
+                doc = None
+            if isinstance(doc, dict):
+                return doc  # an older list-of-names cache has no sizes: fall through and rebuild it
         backend = self._backend()
         if isinstance(backend, zipfile.ZipFile):
             sizes = {i.filename: i.compress_size for i in backend.infolist() if not i.is_dir()}

@@ -305,10 +305,13 @@ def search_summary(history: dict, files, notes: list[str] | None = None,
             win_metrics = metrics
             sm_path = PROBE_DIR.format(idx) + "server_metrics_export.json"
             size = files.size(sm_path) if files else None
-            if size is not None and size > max_member_mb * 1e6:
+            if size is None:
+                pass  # absent, or size unknown: never read blind (a missing member has nothing to read)
+            elif size > max_member_mb * 1e6:
                 if notes is not None:
+                    kind = getattr(files, "size_kind", "compressed")
                     notes.append(f"cache tiers unavailable for winner probe: server_metrics_export.json is "
-                                 f"{size / 1e6:.0f} MB compressed (cap {max_member_mb:g} MB)")
+                                 f"{size / 1e6:.0f} MB {kind} (cap {max_member_mb:g} MB)")
             else:
                 sm = _read_json(files, sm_path)
                 win_cache = tiers_from_server_metrics(sm) if sm else None

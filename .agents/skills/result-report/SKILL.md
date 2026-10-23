@@ -25,7 +25,7 @@ HTTP Range requests and skips the heavy ones (`profile_export.jsonl`, `inputs.js
 `search_history.json`, and the winning probe's `server_metrics_export.json` only if it is ≤ 40 MB
 compressed (`--max-member-mb`; real ones are 25-35 MB each, 350-400 MB raw). Typical total: a few MB
 to ~40 MB. Remote runs can still take minutes: run in the background and expect minutes; progress
-(`fetching ...`) goes to stderr. Over the cap, the winner's cache tiers are skipped with a Note.
+(`fetching ...`) goes to stderr. Over the cap, the winner's cache tiers are skipped with a Note; this applies to local search folders too (size on disk), raise `--max-member-mb` to read them.
 
 Output goes to `~/bench-reports/<date>-<slug>/` (or `--out DIR`): `report.md`, `data.json`,
 `report.html` with `--html`. Remote downloads are cached in `<out>/.cache/` (re-runs are fast); local
