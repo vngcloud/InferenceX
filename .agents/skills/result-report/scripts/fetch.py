@@ -7,8 +7,13 @@ member by member over HTTP Range requests, so only the needed bytes are download
 
 from __future__ import annotations
 
+import io
 import json
 import re
+import subprocess
+import urllib.error
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,6 +117,184 @@ def local_configs(src: Source) -> list[Config]:
     ]
 
 
+MIN_FETCH = 256 * 1024  # bytes per Range request; zipfile asks for small chunks
+FAILED_CONCLUSIONS = {"failure", "cancelled", "timed_out"}
+
+
+class TooLarge(Exception):
+    """Range reads failed and the full artifact zip is over the --max-full-zip-mb budget."""
+
+
+class RangeFile(io.RawIOBase):
+    """Seekable read-only file over HTTP Range requests: enough for zipfile.ZipFile."""
+
+    def __init__(self, url: str):
+        self.url, self.pos, self.fetched = url, 0, 0
+        self._start, self._buf = 0, b""
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"Range": "bytes=0-0"})) as resp:
+            if resp.status != 206:
+                raise OSError(f"server ignored Range (HTTP {resp.status})")
+            self.size = int(resp.headers["Content-Range"].rsplit("/", 1)[1])
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self.pos
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        base = {io.SEEK_SET: 0, io.SEEK_CUR: self.pos, io.SEEK_END: self.size}[whence]
+        self.pos = base + offset
+        return self.pos
+
+    def read(self, n: int = -1) -> bytes:
+        if n is None or n < 0:
+            n = self.size - self.pos
+        n = min(n, self.size - self.pos)
+        if n <= 0:
+            return b""
+        if not (self._start <= self.pos and self.pos + n <= self._start + len(self._buf)):
+            end = min(self.pos + max(n, MIN_FETCH), self.size) - 1
+            req = urllib.request.Request(self.url, headers={"Range": f"bytes={self.pos}-{end}"})
+            with urllib.request.urlopen(req) as resp:
+                self._buf = resp.read()
+            self._start = self.pos
+            self.fetched += len(self._buf)
+            FETCHED["bytes"] += len(self._buf)
+        offset = self.pos - self._start
+        data = self._buf[offset:offset + n]
+        self.pos += len(data)
+        return data
+
+    def readinto(self, buffer) -> int:
+        data = self.read(len(buffer))
+        buffer[:len(data)] = data
+        return len(data)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def _gh(*args: str) -> str:
+    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+
+
+def _gh_pages(path: str, key: str) -> list[dict]:
+    items, page = [], 1
+    while True:
+        doc = json.loads(_gh("api", f"{path}?per_page=100&page={page}"))
+        items += doc[key]
+        if not doc[key] or len(items) >= doc["total_count"]:
+            return items
+        page += 1
+
+
+def blob_url(repo: str, artifact_id: int) -> str:
+    """The short-lived blob URL the artifact zip endpoint redirects to (it supports Range)."""
+    token = _gh("auth", "token").strip()
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        urllib.request.build_opener(_NoRedirect).open(request)
+    except urllib.error.HTTPError as err:
+        if err.code in (301, 302, 303, 307, 308):
+            return err.headers["Location"]
+        raise
+    raise OSError(f"artifact {artifact_id}: expected a redirect to the zip blob")
+
+
+class ZipReader:
+    """Members of one remote artifact zip, each cached under cache_dir/<artifact id>/."""
+
+    def __init__(self, repo: str, artifact: dict, cache_dir: Path, max_full_zip_mb: float, url_for=None):
+        self.repo, self.artifact, self.max_mb = repo, artifact, max_full_zip_mb
+        self.cache = cache_dir / str(artifact["id"])
+        self._url_for = url_for
+        self._zip: zipfile.ZipFile | None = None
+        self._dir: DirReader | None = None
+
+    def _backend(self):
+        if self._zip is None and self._dir is None:
+            try:
+                url = (self._url_for or blob_url)(self.repo, self.artifact["id"])
+                self._zip = zipfile.ZipFile(RangeFile(url))
+            except (OSError, zipfile.BadZipFile) as err:
+                self._dir = DirReader(self._download_full(err))
+        return self._zip if self._zip is not None else self._dir
+
+    def _download_full(self, reason: Exception) -> Path:
+        size_mb = self.artifact["size_in_bytes"] / 1e6
+        if size_mb > self.max_mb:
+            raise TooLarge(
+                f"{self.artifact['name']}: Range read failed ({reason}); the full zip is "
+                f"{size_mb:.0f} MB > --max-full-zip-mb {self.max_mb:g}"
+            )
+        dest = self.cache / "full"
+        if not dest.is_dir():
+            _gh("run", "download", str(self.artifact["workflow_run"]["id"]), "-R", self.repo,
+                "-n", self.artifact["name"], "-D", str(dest))
+            FETCHED["bytes"] += self.artifact["size_in_bytes"]
+        return dest
+
+    def names(self) -> list[str]:
+        listing = self.cache / "names.json"
+        if listing.is_file():
+            return json.loads(listing.read_text())
+        backend = self._backend()
+        names = backend.namelist() if isinstance(backend, zipfile.ZipFile) else backend.names()
+        listing.parent.mkdir(parents=True, exist_ok=True)
+        listing.write_text(json.dumps(names))
+        return names
+
+    def read(self, rel: str) -> bytes | None:
+        cached = self.cache / "files" / rel
+        if cached.is_file():
+            return cached.read_bytes()
+        if rel not in self.names():
+            return None
+        data = self._backend().read(rel)
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(data)
+        return data
+
+
+def remote_configs(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tuple[list[Config], list[str]]:
+    notes: list[str] = []
+    jobs = _gh_pages(f"repos/{src.repo}/actions/runs/{src.run_id}/jobs", "jobs")
+    failed = [job["name"] for job in jobs if job.get("conclusion") in FAILED_CONCLUSIONS]
+    if failed:
+        notes.append(f"{src.link}: {len(failed)} job(s) did not succeed: " + "; ".join(failed))
+    parts: dict[str, dict[str, dict]] = {}
+    for art in _gh_pages(f"repos/{src.repo}/actions/runs/{src.run_id}/artifacts", "artifacts"):
+        for prefix, kind in ((AGG_PREFIX, "agg"), (RAW_PREFIX, "raw")):
+            if not art["name"].startswith(prefix):
+                continue
+            if art.get("expired"):
+                notes.append(f"{src.link}: artifact {art['name']} expired, skipped")
+            else:
+                parts.setdefault(art["name"][len(prefix):], {})[kind] = art
+    configs: list[Config] = []
+    for rf, found in sorted(parts.items()):
+        raw = ZipReader(src.repo, found["raw"], cache_dir, max_full_zip_mb) if "raw" in found else None
+        aggs: list[dict | None] = [None]
+        if "agg" in found:
+            reader = ZipReader(src.repo, found["agg"], cache_dir, max_full_zip_mb)
+            aggs = [json.loads(reader.read(n)) for n in reader.names() if n.endswith(".json")] or [None]
+        configs += [Config(rf=rf, source=src, agg=agg, files=raw) for agg in aggs]
+    if not configs:
+        notes.append(f"{src.link}: no bmk_agentic_* / agentic_* artifacts found")
+    return configs, notes
+
+
 def discover(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tuple[list[Config], list[str]]:
+    if src.kind == "run":
+        return remote_configs(src, cache_dir, max_full_zip_mb)
     configs = local_configs(src)
     return configs, ([] if configs else [f"{src.link}: no aggregate JSON or aiperf export found"])
