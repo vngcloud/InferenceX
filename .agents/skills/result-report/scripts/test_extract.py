@@ -1,9 +1,11 @@
 import copy
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
 import extract
+import fetch
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 load = lambda rel: json.loads((FIX / rel).read_text())
@@ -99,3 +101,98 @@ class ServerMetricsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _cfg(name):
+    [cfg] = fetch.local_configs(fetch.parse_source(str(FIX / name)))
+    return cfg
+
+
+class SearchSummaryTest(unittest.TestCase):
+    # source of the cases: infx/results/sweep.py:32 state order
+    def test_states(self):
+        ok = {"boundary_summary": {"feasible_max": {"value": 60}, "infeasible_min": {"value": 61},
+                                   "boundary_type": "smooth"}, "convergence_reason": "precision", "iterations": [1, 2]}
+        self.assertEqual(extract.summarize_search(ok)["state"], "ok")
+        cliff = copy.deepcopy(ok); cliff["boundary_summary"]["boundary_type"] = "cliff"
+        self.assertEqual(extract.summarize_search(cliff)["state"], "cliff")
+        none = {"boundary_summary": {"feasible_max": None, "infeasible_min": {"value": 1}}}
+        self.assertEqual(extract.summarize_search(none)["state"], "no_pass_in_range")
+        self.assertEqual(extract.summarize_search({})["state"], "no_data")
+
+    def test_sla_text(self):
+        f = {"metric_tag": "inter_token_latency", "stat": "p90", "op": "lt", "threshold": 50.0}
+        self.assertEqual(extract.sla_text(f), "ITL p90 < 50 ms")
+
+
+class BuildPointTest(unittest.TestCase):
+    def test_fixed_gh_layout(self):
+        p = extract.build_point(_cfg("gh_fixed"))
+        self.assertEqual((p["mode"], p["conc"], p["scenario"]), ("fixed", 108, "agentx-cc-062126"))
+        self.assertIsNone(p["grid"])
+        self.assertEqual(p["metrics"]["source"], "aiperf")
+        self.assertAlmostEqual(p["metrics"]["throughput"]["output_tps_per_gpu"],
+                               p["metrics"]["throughput"]["output_tps"] / 8)
+        self.assertEqual(p["cache"]["cpu"], 0.43174)
+        self.assertTrue(any("397" in n and "18" in n for n in p["notes"]))
+        self.assertIn("--concurrency 108", p["config"]["benchmark_command.txt"])
+
+    def test_aggregate_only_notes_missing_p99(self):
+        p = extract.build_point(_cfg("aggonly"))
+        self.assertEqual((p["metrics"]["source"], p["conc"]), ("aggregate", 96))
+        self.assertIsNone(p["metrics"]["ttft"]["p99"])
+        self.assertTrue(any("p99 unavailable" in n for n in p["notes"]))
+
+    def test_search(self):
+        p = extract.build_point(_cfg("search_local"))
+        s = p["search"]
+        self.assertEqual((p["mode"], p["conc"], s["state"]), ("search", 60, "ok"))
+        self.assertEqual(p["scenario"], "sweep-isl8k-osl1k-cache50")
+        self.assertEqual(p["grid"], {"kind": "search", "isl": "8k", "osl": "1k", "cache": 50})
+        self.assertEqual(s["binding"], "ITL p90 < 50 ms")
+        self.assertAlmostEqual(s["breach_observed"], 50.84856, places=4)
+        self.assertEqual((s["infeasible_min"], s["best_trials_conc"]), (61, 48))
+        self.assertEqual(len(s["probes"]), 12)
+        winner = [pr for pr in s["probes"] if pr["winner"]]
+        self.assertEqual([pr["conc"] for pr in winner], [60])
+        self.assertAlmostEqual(p["metrics"]["throughput"]["output_tps"], 1334.9068416429348, places=6)
+        self.assertAlmostEqual(winner[0]["observed"]["inter_token_latency.p90"], 49.1599168688172, places=6)
+        self.assertAlmostEqual(p["cache"]["gpu"], 0.48894, places=4)
+        self.assertEqual(p["cache_check"]["nominal"], 0.5)
+        self.assertFalse(p["cache_check"]["mismatch"])
+
+    def test_raw_aiperf(self):
+        p = extract.build_point(_cfg("raw_aiperf"))
+        self.assertEqual((p["mode"], p["conc"], p["scenario"]), ("fixed", 16, None))
+        self.assertIsNone(p["cache"])
+        self.assertEqual(p["metrics"]["source"], "aiperf")
+
+
+class ArmsTest(unittest.TestCase):
+    def _dir_cfg(self, root, name, scenario, conc):
+        d = Path(root) / name
+        (d / "aiperf_artifacts").mkdir(parents=True)
+        (d / "serving.yaml").write_text(
+            f"# comment {name}\nname: gemma4-hicache-1gpu-{scenario.removeprefix('fixed-')}\n"
+            f"image: img\nserve: |\n  python3 -m sglang.launch_server --tp 1\nscenario: {scenario}\nconc: [8, 32]\n")
+        (d / "benchmark_command.txt").write_text(
+            f"aiperf profile --config /workspace/scenarios/{scenario}.yaml --concurrency {conc}\n")
+        (d / "aiperf_artifacts/profile_export_aiperf.json").write_text(
+            json.dumps({"output_token_throughput": {"unit": "tokens/sec", "avg": 100.0 + conc}}))
+        return fetch.Config(rf=name, source=fetch.parse_source(root), agg=None, files=fetch.DirReader(d))
+
+    def test_name_suffix_scenario_and_conc_do_not_split_an_arm(self):
+        with tempfile.TemporaryDirectory() as root:
+            cfgs = [self._dir_cfg(root, "a", "fixed-isl8k-osl1k-cache0", 8),
+                    self._dir_cfg(root, "b", "fixed-isl8k-osl1k-cache50", 32)]
+            data = extract.build_data(cfgs, [], inputs=[root], generated="2026-10-23")
+        self.assertEqual([a["label"] for a in data["arms"]], ["gemma4-hicache-1gpu"])
+        self.assertEqual(data["baseline"], "gemma4-hicache-1gpu")
+        self.assertEqual({(p["scenario"], p["conc"]) for p in data["points"]},
+                         {("fixed-isl8k-osl1k-cache0", 8), ("fixed-isl8k-osl1k-cache50", 32)})
+        self.assertNotIn("config", data["points"][0])
+        self.assertIn("serving.yaml", data["arms"][0]["config"])
+
+    def test_unknown_baseline(self):
+        with self.assertRaises(ValueError):
+            extract.build_data([_cfg("gh_fixed")], [], baseline="nope")

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from pathlib import Path
 
 PCTS = ("avg", "p50", "p90", "p95", "p99")
 GRID_RE = re.compile(r"^(sweep|fixed)-isl(\d+k?)-osl(\d+k?)-cache(\d+)$")
@@ -202,3 +205,222 @@ def tiers_from_server_metrics(export: dict) -> dict:
     if hits:
         out["router"] = _rate(hits.get("hit"), sum(hits.values()))
     return out
+
+
+SCENARIO_CMD_RE = re.compile(r"--config\s+\S*?scenarios/([\w.-]+)\.yaml")
+CONC_CMD_RE = re.compile(r"--concurrency\s+(\d+)")
+DIR_CONC_RE = re.compile(r"(?:ccu|conc|_c)(\d+)")
+SERVING_SCENARIO_RE = re.compile(r"^scenario:\s*([\w.-]+)\s*$", re.M)
+SERVING_NAME_RE = re.compile(r"^name:\s*(\S+)", re.M)
+GRID_SUFFIX_RE = re.compile(r"-(?:(?:sweep|fixed)-)?isl\d+k?-osl\d+k?-cache\d+$")
+RUN_SUFFIX_RE = re.compile(r"(?:_c\d+|_search)$")
+COMMENT_RE = re.compile(r"^\s*#.*\n", re.M)
+PER_RUN_KEYS_RE = re.compile(r"^(?:name|scenario|conc):.*\n(?:-\s.*\n)*", re.M)
+IDENTITY_KEYS = ("model", "image", "framework", "precision", "tp", "ep", "dp_attention",
+                 "spec_decoding", "num_gpus", "hw")
+CONFIG_FILES = ("serving.yaml", "server_command.txt", "router_command.txt", "benchmark_command.txt")
+SLA_NAMES = {"time_to_first_token": "TTFT", "inter_token_latency": "ITL", "request_latency": "E2E"}
+SLA_OPS = {"lt": "<", "le": "≤", "gt": ">", "ge": "≥"}
+PROBE_DIR = "aiperf_artifacts/search_iter_{:04d}/profile_runs/run_0001/"
+
+
+def summarize_search(history: dict) -> dict:
+    # source: infx/results/sweep.py:32 (copied: that module imports env-bound identity helpers)
+    boundary = history.get("boundary_summary")
+    reason = history.get("convergence_reason")
+    base = {"convergence_reason": reason, "iterations": len(history.get("iterations") or []),
+            "max_conc": None, "infeasible_min": None, "binding_constraint": None, "boundary_type": None}
+    if boundary is None:
+        return {**base, "state": "no_data"}
+    passed, failed = boundary.get("feasible_max"), boundary.get("infeasible_min")
+    base["max_conc"] = passed["value"] if passed else None
+    base["infeasible_min"] = failed["value"] if failed else None
+    base["binding_constraint"] = boundary.get("binding_constraint")
+    base["boundary_type"] = boundary.get("boundary_type")
+    if passed is None:
+        state = "no_pass_in_range"
+    elif failed is None:
+        state = "no_failure_in_range"
+    elif boundary.get("boundary_type") == "cliff":
+        state = "cliff"
+    elif reason == "max_iterations":
+        state = "max_iterations"
+    else:
+        state = "ok"
+    return {**base, "state": state}
+
+
+def sla_text(f: dict) -> str:
+    tag = f.get("metric_tag", "?")
+    unit = " ms" if tag in SLA_NAMES else ""
+    return f"{SLA_NAMES.get(tag, tag)} {f.get('stat')} {SLA_OPS.get(f.get('op'), f.get('op'))} {f.get('threshold'):g}{unit}"
+
+
+def _read_json(files, *paths: str):
+    for path in paths:
+        data = files.read(path) if files else None
+        if data is not None:
+            return json.loads(data)
+    return None
+
+
+def _read_text(files, path: str) -> str | None:
+    data = files.read(path) if files else None
+    return data.decode("utf-8", "replace") if data is not None else None
+
+
+def _match(pattern: re.Pattern, text: str | None) -> str | None:
+    found = pattern.search(text or "")
+    return found.group(1) if found else None
+
+
+def _observed(export: dict | None, f: dict) -> float | None:
+    if not export or f.get("stat") not in PCTS:
+        return None
+    return ms_stats(export.get(f.get("metric_tag")))[f["stat"]]
+
+
+def search_summary(history: dict, files) -> tuple[dict, dict | None, dict | None]:
+    """(search block, winning probe metrics, winning probe cache tiers)."""
+    summary = summarize_search(history)
+    filters = (history.get("config") or {}).get("sla_filters") or []
+    boundary = history.get("boundary_summary") or {}
+    winner = (boundary.get("feasible_max") or {}).get("iteration_idx")
+    best = ((history.get("best_trials") or [{}])[0] or {}).get("iteration_idx")
+    breach = (boundary.get("infeasible_min") or {}).get("first_breach")
+    probes, win_metrics, win_cache = [], None, None
+    for it in history.get("iterations") or []:
+        idx = it["iteration_idx"]
+        export = _read_json(files, PROBE_DIR.format(idx) + "profile_export_aiperf.json")
+        sm = _read_json(files, PROBE_DIR.format(idx) + "server_metrics_export.json")
+        metrics = from_aiperf(export) if export else None
+        cache = tiers_from_server_metrics(sm) if sm else None
+        if idx == winner:
+            win_metrics, win_cache = metrics, cache
+        probes.append({
+            "iter": idx,
+            "conc": next(iter((it.get("variation_values") or {}).values()), None),
+            "feasible": it.get("feasible"),
+            "objective": (it.get("objective_values") or [None])[0],
+            "observed": {f"{f['metric_tag']}.{f['stat']}": _observed(export, f) for f in filters},
+            "output_tps": metrics["throughput"]["output_tps"] if metrics else None,
+            "cache_overall": cache["overall"] if cache else None,
+            "winner": idx == winner,
+            "best_objective": idx == best,
+        })
+    search = {
+        **summary,
+        "sla": [sla_text(f) for f in filters],
+        "sla_filters": filters,
+        "binding": sla_text(breach) if breach else None,
+        "breach_observed": breach.get("observed") if breach else None,
+        "best_trials_conc": next((p["conc"] for p in probes if p["best_objective"]), None),
+        "probes": probes,
+    }
+    return search, win_metrics, win_cache
+
+
+def build_point(cfg) -> dict:
+    agg, files = cfg.agg or {}, cfg.files
+    config = {name: _read_text(files, name) for name in CONFIG_FILES}
+    serving, bench_cmd = config["serving.yaml"], config["benchmark_command.txt"]
+    history = _read_json(files, "aiperf_artifacts/search_history.json", "search_history.json")
+    scenario = agg.get("scenario") or _match(SCENARIO_CMD_RE, bench_cmd) or _match(SERVING_SCENARIO_RE, serving)
+    notes: list[str] = []
+    point = {"rf": cfg.rf, "source": cfg.source.link, "scenario": scenario, "grid": parse_grid(scenario),
+             "identity": {k: agg.get(k) for k in IDENTITY_KEYS}, "config": config, "notes": notes,
+             "search": None}
+    if history:
+        search, metrics, cache = search_summary(history, files)
+        point.update(mode="search", conc=search["max_conc"], search=search)
+        if metrics is None and agg.get("output_tps") is not None:
+            metrics = from_search_aggregate(agg)
+            notes.append("winning probe export missing: metrics from the search aggregate (avg/p90 only)")
+    elif agg.get("state"):  # search aggregate without its raw tree
+        point.update(mode="search", conc=agg.get("max_conc"), search=None)
+        metrics, cache = from_search_aggregate(agg), None
+        notes.append("search raw tree missing: no probe table; metrics from the search aggregate (avg/p90 only)")
+    else:
+        export = _read_json(files, "aiperf_artifacts/profile_export_aiperf.json", "profile_export_aiperf.json")
+        point["mode"] = "fixed"
+        if export:
+            metrics = from_aiperf(export)
+        elif agg.get("request_metrics"):
+            metrics = from_aggregate(agg)
+            notes.append("p99 unavailable: aggregate-only (no aiperf export); latency converted from seconds")
+        else:
+            metrics = None
+        cache = aggregate_tiers(agg) if agg else None
+        conc = (agg.get("conc") or _match(CONC_CMD_RE, bench_cmd)
+                or (((export or {}).get("input_config") or {}).get("loadgen") or {}).get("concurrency")
+                or _match(DIR_CONC_RE, cfg.rf))
+        point["conc"] = int(conc) if conc is not None else None
+    if cache is None and metrics and metrics.get("client_cache_hit") is not None:
+        cache = {**_cache("client", None), "overall": metrics["client_cache_hit"]}
+    gpus = agg.get("num_gpus")
+    if metrics and gpus and metrics["throughput"]["output_tps"] is not None:
+        metrics["throughput"]["output_tps_per_gpu"] = metrics["throughput"]["output_tps"] / gpus
+    validator = (agg.get("request_accounting") or {}).get("records_error_dropped")
+    errors = metrics.get("errors") if metrics else None
+    if validator is not None and errors is not None and validator - errors > max(10, errors):
+        notes.append(f"validator dropped {validator} error records vs {errors} aiperf errors")
+    point["metrics"], point["cache"] = metrics, cache
+    if point["grid"]:
+        nominal = point["grid"]["cache"] / 100
+        measured = cache["overall"] if cache else None
+        point["cache_check"] = {"nominal": nominal, "measured": measured,
+                                "mismatch": None if measured is None else abs(measured - nominal) > 0.10}
+    else:
+        point["cache_check"] = None
+    return point
+
+
+def _strip_run_suffix(name: str) -> str:
+    return GRID_SUFFIX_RE.sub("", RUN_SUFFIX_RE.sub("", name))
+
+
+def arm_of(point: dict, cfg) -> tuple[str, str]:
+    """Arm = same serving config. name/scenario/conc and comments do not split an arm."""
+    serving = point["config"]["serving.yaml"]
+    if serving:
+        body = PER_RUN_KEYS_RE.sub("", COMMENT_RE.sub("", serving))
+        return ("yaml:" + hashlib.sha1(body.encode()).hexdigest()[:12],
+                _strip_run_suffix(_match(SERVING_NAME_RE, serving) or cfg.rf))
+    if cfg.agg:
+        return ("id:" + json.dumps(point["identity"], sort_keys=True),
+                _strip_run_suffix(cfg.agg.get("infmax_model_prefix") or cfg.rf))
+    return "src:" + cfg.source.link, Path(cfg.source.link).name or cfg.source.link
+
+
+def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="") -> dict:
+    arms: dict[str, dict] = {}
+    points = []
+    for cfg in configs:
+        point = build_point(cfg)
+        key, label = arm_of(point, cfg)
+        config = point.pop("config")
+        if key not in arms:
+            taken, final, n = {a["label"] for a in arms.values()}, label, 2
+            while final in taken:
+                final, n = f"{label} #{n}", n + 1
+            arms[key] = {"label": final, "identity": point["identity"], "sources": [], "config": config}
+        arm = arms[key]
+        if point["source"] not in arm["sources"]:
+            arm["sources"].append(point["source"])
+        point["arm"] = arm["label"]
+        points.append(point)
+    labels = [a["label"] for a in arms.values()]
+    if baseline is not None and baseline not in labels:
+        raise ValueError(f"--baseline {baseline!r} is not an arm; arms: {labels}")
+    point_notes = [f"{p['arm']} · {p['scenario'] or '-'} · c{p['conc']}: {n}" for p in points for n in p["notes"]]
+    return {
+        "title": title or (labels[0] if labels else "benchmark report"),
+        "generated": generated,
+        "inputs": list(inputs),
+        "baseline": baseline or (labels[0] if labels else None),
+        "arms": list(arms.values()),
+        "points": points,
+        "notes": list(notes) + point_notes,
+        "bytes_fetched": 0,
+        "findings": None,
+    }
