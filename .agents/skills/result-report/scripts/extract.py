@@ -404,21 +404,43 @@ def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="
     for cfg in configs:
         point = build_point(cfg)
         built.append((cfg, point, *arm_of(point, cfg)))
-    # an aggregate-only config (no serving.yaml) joins the yaml-backed arm with the same identity
-    yaml_arm = {json.dumps(pt["identity"], sort_keys=True): k for _, pt, k, _ in built if k.startswith("yaml:")}
-    for cfg, point, key, label in sorted(built, key=lambda b: not b[2].startswith("yaml:")):
-        key = yaml_arm.get(key[3:], key) if key.startswith("id:") else key
-        config = point.pop("config")
-        if key not in arms:
-            taken, final, n = {a["label"] for a in arms.values()}, label, 2
-            while final in taken:
-                final, n = f"{label} #{n}", n + 1
-            arms[key] = {"label": final, "identity": point["identity"], "sources": [], "config": config}
+    # an aggregate-only config (no serving.yaml) joins a yaml-backed arm only if exactly one has its identity
+    ident = lambda pt: json.dumps(pt["identity"], sort_keys=True)
+    yaml_arms: dict[str, set[str]] = {}
+    for _, pt, k, _ in built:
+        if k.startswith("yaml:"):
+            yaml_arms.setdefault(ident(pt), set()).add(k)
+    notes = list(notes)
+    resolved = []  # (point, arm key, label, merged)
+    for cfg, point, key, label in built:
+        merged = False
+        if key.startswith("id:") and ident(point) in yaml_arms:
+            matches = yaml_arms[ident(point)]
+            if len(matches) == 1:
+                key, merged = next(iter(matches)), True
+            else:
+                notes.append(f"aggregate-only c{point['conc']}: identity matches {len(matches)} serving.yaml arms, kept separate")
+        resolved.append((point, key, label, merged))
+    arms: dict[str, dict] = {}
+    for point, key, label, merged in resolved:  # arms keep discovery order
+        if merged or key in arms:
+            continue
+        taken, final, n = {a["label"] for a in arms.values()}, label, 2
+        while final in taken:
+            final, n = f"{label} #{n}", n + 1
+        arms[key] = {"label": final, "identity": point["identity"], "sources": [], "config": point["config"]}
+    for point, key, label, merged in resolved:
+        point.pop("config")
         arm = arms[key]
         if point["source"] not in arm["sources"]:
             arm["sources"].append(point["source"])
         point["arm"] = arm["label"]
         points.append(point)
+    for point, key, label, merged in resolved:
+        if merged and point["scenario"] is None:
+            seen = {p["scenario"] for p in points if p["arm"] == arms[key]["label"] and p["scenario"]}
+            if len(seen) == 1:
+                point["scenario"] = next(iter(seen))
     labels = [a["label"] for a in arms.values()]
     if baseline is not None and baseline not in labels:
         raise ValueError(f"--baseline {baseline!r} is not an arm; arms: {labels}")
@@ -430,7 +452,7 @@ def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="
         "baseline": baseline or (labels[0] if labels else None),
         "arms": list(arms.values()),
         "points": points,
-        "notes": list(notes) + point_notes,
+        "notes": notes + point_notes,
         "bytes_fetched": 0,
         "findings": None,
     }

@@ -1,5 +1,6 @@
 import copy
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -199,6 +200,33 @@ class ArmsTest(unittest.TestCase):
         data = extract.build_data([only, full], [])
         self.assertEqual(len(data["arms"]), 1)
         self.assertEqual(len(data["points"]), 2)
+
+    def _ambiguous(self):
+        a = _cfg("gh_fixed")
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, root)
+        shutil.copytree(FIX / "gh_fixed/agentic_glm53_c108", root / "r")
+        y = root / "r/serving.yaml"
+        y.write_text(y.read_text() + "\n# x\nextra_flag: 1\n")
+        b = fetch.Config(rf="b", source=a.source, agg=copy.deepcopy(a.agg), files=fetch.DirReader(root / "r"))
+        only = fetch.Config(rf="x", source=a.source, agg=copy.deepcopy(a.agg), files=None)
+        return a, b, only
+
+    def test_ambiguous_identity_keeps_aggregate_only_separate_in_any_order(self):
+        a, b, only = self._ambiguous()
+        for order in ([a, b, only], [only, b, a]):
+            data = extract.build_data(order, [])
+            self.assertEqual(len(data["arms"]), 3)
+            self.assertTrue(any("matches 2 serving.yaml arms" in n for n in data["notes"]))
+
+    def test_merge_keeps_arm_order_and_inherits_single_scenario(self):
+        a = _cfg("gh_fixed")
+        only = fetch.Config(rf="x_c120", source=a.source, agg=copy.deepcopy(a.agg), files=None)
+        only.agg["infmax_scenario"] = None
+        base = extract.build_data([a], [])["points"][0]
+        data = extract.build_data([only, a], [])
+        self.assertEqual(len(data["arms"]), 1)
+        self.assertEqual({p["scenario"] for p in data["points"]}, {base["scenario"]})
 
     def test_unknown_baseline(self):
         with self.assertRaises(ValueError):

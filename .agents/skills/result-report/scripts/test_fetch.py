@@ -213,6 +213,12 @@ class MultiArtifactTest(unittest.TestCase):
                 (root / d / f"{rf}.json").write_bytes(data)
             cfgs = fetch.local_configs(fetch.parse_source(str(root)))
         self.assertEqual([c.rf for c in cfgs], ["RF108", "RF120"])
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "bmk_agentic_A").mkdir()
+            (Path(tmp) / "hand.json").write_bytes(other)
+            notes = []
+            fetch.local_configs(fetch.parse_source(tmp), notes)
+        self.assertIn("ignored 1 aggregate-looking file(s)", notes[0])
         self.assertIsNotNone(cfgs[0].files)
         self.assertIsNone(cfgs[1].files)
 

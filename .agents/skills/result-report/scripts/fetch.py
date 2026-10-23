@@ -19,6 +19,7 @@ from pathlib import Path
 
 DEFAULT_REPO = "vngcloud/InferenceX"
 AGG_PREFIX = "bmk_agentic_"
+KNOWN_OTHER = ("power_audit_", "gpu_metrics_", "server_logs_", "results_bmk", "run-stats")  # look-alike artifacts, ignored silently
 RAW_PREFIX = "agentic_"
 RUN_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/(\d+)")
 FETCHED = {"bytes": 0}  # downloaded bytes, reported by the CLI
@@ -84,15 +85,15 @@ def _key(rel: Path, prefix: str) -> str:
     return rel.as_posix()
 
 
-def local_configs(src: Source) -> list[Config]:
+def local_configs(src: Source, notes: list[str] | None = None) -> list[Config]:
     root = src.path
     aggs: dict[str, dict] = {}
+    ignored: list[str] = []
     # multi-artifact download: only bmk_agentic_*/ holds aggregates (power_audit_*, results_bmk, run-stats look alike)
     multi = any(p.is_dir() and p.name.startswith(AGG_PREFIX) for p in root.iterdir())
     for path in sorted(root.rglob("*.json")):
         rel = path.relative_to(root)
-        if multi and not rel.parts[0].startswith(AGG_PREFIX):
-            continue
+        outside = multi and not rel.parts[0].startswith(AGG_PREFIX)
         if any(p.startswith("search_iter_") or p in ("aiperf_artifacts", "aggregate") for p in rel.parts):
             continue
         if path.stat().st_size > 1_000_000:
@@ -102,7 +103,11 @@ def local_configs(src: Source) -> list[Config]:
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
         if _is_aggregate(doc):
-            aggs[_key(rel, AGG_PREFIX)] = doc
+            if outside:
+                if not rel.parts[0].startswith(KNOWN_OTHER):
+                    ignored.append(rel.parts[0])
+            else:
+                aggs[_key(rel, AGG_PREFIX)] = doc
     roots: dict[str, Path] = {}
     for name in ("profile_export_aiperf.json", "search_history.json"):
         for path in sorted(root.rglob(name)):
@@ -111,6 +116,8 @@ def local_configs(src: Source) -> list[Config]:
                 continue
             base = path.parent.parent if path.parent.name == "aiperf_artifacts" else path.parent
             roots.setdefault(_key(base.relative_to(root), RAW_PREFIX), base)
+    if ignored and notes is not None:
+        notes.append(f"ignored {len(ignored)} aggregate-looking file(s) outside {AGG_PREFIX}*: " + ", ".join(sorted(set(ignored))))
     lone_aggs = [k for k in aggs if k not in roots]
     lone_roots = [k for k in roots if k not in aggs]
     if len(lone_aggs) == 1 and len(lone_roots) == 1:  # e.g. hand-named ag/ + bmk/ copies
@@ -312,5 +319,8 @@ def remote_configs(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tupl
 def discover(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tuple[list[Config], list[str]]:
     if src.kind == "run":
         return remote_configs(src, cache_dir, max_full_zip_mb)
-    configs = local_configs(src)
-    return configs, ([] if configs else [f"{src.link}: no aggregate JSON or aiperf export found"])
+    notes: list[str] = []
+    configs = local_configs(src, notes)
+    if not configs:
+        notes.append(f"{src.link}: no aggregate JSON or aiperf export found")
+    return configs, notes
