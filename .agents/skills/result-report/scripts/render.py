@@ -313,7 +313,15 @@ def line_chart(title, series, x_label, y_label, threshold=None, width=560, heigh
     x0, x1 = min(xs), max(xs)
     x1 = x1 if x1 > x0 else x0 + 1
     y1 = max(ys) * 1.1 or 1.0
-    left, right, top, bottom = 60, 20, 30, 40
+    left, right, bottom = 60, 20, 40
+    legend, lx, row = [], left, 0  # legend lives in the top margin, one wrapped row per ~full width
+    for i, name in enumerate(series):
+        w = 22 + 6.5 * len(name)
+        if lx > left and lx + w > width - right:
+            lx, row = left, row + 1
+        legend.append((i, name, lx, row))
+        lx += w + 8
+    top = 30 + 14 * (row + 1)
     sx = lambda x: left + (x - x0) / (x1 - x0) * (width - left - right)
     sy = lambda y: height - bottom - y / y1 * (height - top - bottom)
     esc = html.escape
@@ -338,7 +346,10 @@ def line_chart(title, series, x_label, y_label, threshold=None, width=560, heigh
         coords = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in values)
         parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{coords}"/>')
         parts += [f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="3" fill="{color}"/>' for x, y in values]
-        parts.append(f'<text x="{width - right}" y="{top + 14 * i}" font-size="11" text-anchor="end" fill="{color}">{esc(name)}</text>')
+    for i, name, x, r in legend:
+        y = 34 + 14 * r
+        parts.append(f'<rect x="{x:.1f}" y="{y - 8}" width="10" height="10" fill="{PALETTE[i % len(PALETTE)]}"/>'
+                     f'<text class="legend" x="{x + 14:.1f}" y="{y}" font-size="11">{esc(name)}</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -422,11 +433,16 @@ def to_markdown(blocks) -> str:
     return "\n\n".join(out) + "\n"
 
 
+def _anchor(m) -> str:
+    label, url = m.group(1), m.group(2)
+    return f'<a href="{url}">{label}</a>' if re.match(r"(https?://|/|\.|#|[\w./-]+$)", url) else label
+
+
 def _inline(text: str) -> str:
-    if text.startswith("<!--"):
+    if text == KEY_FINDINGS_PLACEHOLDER:
         return text
     out = html.escape(text)
-    out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', out)
+    out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _anchor, out)
     out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
     return re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
 

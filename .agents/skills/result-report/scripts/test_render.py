@@ -136,3 +136,24 @@ class HtmlTest(unittest.TestCase):
                grid_point("A", "fixed-isl8k-osl1k-cache0", 32, 1500.0, 2500.0)]
         blocks = render.chart_blocks(grid_data(pts, ["A"]), pts)
         self.assertEqual(len(blocks), 3)
+
+
+class SafetyTest(unittest.TestCase):
+    def test_inline_escapes_raw_html_but_keeps_placeholder(self):
+        out = render._inline("<!-- x --><script>alert(1)</script>")
+        self.assertNotIn("<script>", out)
+        self.assertEqual(render._inline(render.KEY_FINDINGS_PLACEHOLDER), render.KEY_FINDINGS_PLACEHOLDER)
+
+    def test_inline_links_only_safe_urls(self):
+        self.assertNotIn("<a", render._inline("[x](javascript:alert(1))"))
+        self.assertNotIn("<a", render._inline("[x](data:text/html,hi)"))
+        self.assertIn('<a href="https://a.b/c">x</a>', render._inline("[x](https://a.b/c)"))
+
+    def test_legend_outside_plot_area(self):
+        import re
+        series = {f"arm-number-{i}": [(1, 1.0), (2, 2.0)] for i in range(8)}
+        svg = render.line_chart("t", series, "x", "y")
+        ys = [float(y) for y in re.findall(r'class="legend" x="[\d.]+" y="([\d.]+)"', svg)]
+        self.assertEqual(len(ys), 8)
+        plot_top = min(float(y) for y in re.findall(r'<line x1="60" x2="\d+" y1="([\d.]+)"', svg))
+        self.assertTrue(all(y < plot_top for y in ys))
