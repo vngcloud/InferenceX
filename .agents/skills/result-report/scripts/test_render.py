@@ -157,3 +157,30 @@ class SafetyTest(unittest.TestCase):
         self.assertEqual(len(ys), 8)
         plot_top = min(float(y) for y in re.findall(r'<line x1="60" x2="\d+" y1="([\d.]+)"', svg))
         self.assertTrue(all(y < plot_top for y in ys))
+
+
+class FixRound1RenderTest(unittest.TestCase):
+    def _two_configs(self, concs=(8, 8)):
+        pts = []
+        for rf, c in zip(("conc2_v4", "ccu8_x"), concs):
+            p = grid_point("a", "fixed-isl8k-osl1k-cache0", c, 100.0, 5.0)
+            p.update(rf=rf, scenario=None, grid=None, mode="fixed", cache_check=None)
+            pts.append(p)
+        return grid_data(pts, ["a"])
+
+    def test_config_label_column_when_conc_is_shared(self):
+        md = render.to_markdown(render.build_blocks(self._two_configs()))
+        self.assertIn("| Arm | Config | CCU |", md)
+        self.assertIn("conc2_v4", md)
+        self.assertIn("| a | conc2_v4, ccu8_x |", md)  # Runs table lists the configs
+
+    def test_no_config_column_when_conc_differs(self):
+        md = render.to_markdown(render.build_blocks(self._two_configs((8, 16))))
+        self.assertNotIn("Config |", md)
+
+    def test_baseline_note_only_when_deltas_exist(self):
+        d = grid_data([grid_point("a", "fixed-isl8k-osl1k-cache0", 8, 1.0, 1.0),
+                       grid_point("b", "fixed-isl8k-osl1k-cache50", 8, 1.0, 1.0)], ["a", "b"])
+        self.assertNotIn("Deltas are against", render.to_markdown(render.build_blocks(d)))
+        d["points"][1]["scenario"] = "fixed-isl8k-osl1k-cache0"
+        self.assertIn("Deltas are against", render.to_markdown(render.build_blocks(d)))

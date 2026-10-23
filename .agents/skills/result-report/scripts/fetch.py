@@ -11,6 +11,7 @@ import io
 import json
 import re
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 import zipfile
@@ -22,7 +23,12 @@ AGG_PREFIX = "bmk_agentic_"
 KNOWN_OTHER = ("power_audit_", "gpu_metrics_", "server_logs_", "results_bmk", "run-stats")  # look-alike artifacts, ignored silently
 RAW_PREFIX = "agentic_"
 RUN_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/(\d+)")
-FETCHED = {"bytes": 0}  # downloaded bytes, reported by the CLI
+FETCHED = {"bytes": 0}  # downloaded bytes of this process, reported by the CLI
+FAILED_JOBS: list[dict] = []  # full details of failed jobs (notes only carry a short tail)
+
+
+def progress(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
 
 
 @dataclass(frozen=True)
@@ -64,6 +70,11 @@ class DirReader:
         path = self.root / rel
         return path.read_bytes() if path.is_file() else None
 
+    def size(self, rel: str) -> int | None:
+        """Bytes the member costs to read (file size); None if absent."""
+        path = self.root / rel
+        return path.stat().st_size if path.is_file() else None
+
 
 @dataclass
 class Config:
@@ -89,6 +100,8 @@ def local_configs(src: Source, notes: list[str] | None = None) -> list[Config]:
     root = src.path
     aggs: dict[str, dict] = {}
     ignored: list[str] = []
+    used_tops: set[str] = set()  # top-level folders that hold a result
+    single = False  # the root itself is one run folder
     # multi-artifact download: only bmk_agentic_*/ holds aggregates (power_audit_*, results_bmk, run-stats look alike)
     multi = any(p.is_dir() and p.name.startswith(AGG_PREFIX) for p in root.iterdir())
     for path in sorted(root.rglob("*.json")):
@@ -108,6 +121,10 @@ def local_configs(src: Source, notes: list[str] | None = None) -> list[Config]:
                     ignored.append(rel.parts[0])
             else:
                 aggs[_key(rel, AGG_PREFIX)] = doc
+                if len(rel.parts) == 1:
+                    single = True
+                else:
+                    used_tops.add(rel.parts[0])
     roots: dict[str, Path] = {}
     for name in ("profile_export_aiperf.json", "search_history.json"):
         for path in sorted(root.rglob(name)):
@@ -116,8 +133,18 @@ def local_configs(src: Source, notes: list[str] | None = None) -> list[Config]:
                 continue
             base = path.parent.parent if path.parent.name == "aiperf_artifacts" else path.parent
             roots.setdefault(_key(base.relative_to(root), RAW_PREFIX), base)
+            if base == root:
+                single = True
+            else:
+                used_tops.add(base.relative_to(root).parts[0])
     if ignored and notes is not None:
         notes.append(f"ignored {len(ignored)} aggregate-looking file(s) outside {AGG_PREFIX}*: " + ", ".join(sorted(set(ignored))))
+    if notes is not None and not single and (aggs or roots):
+        empty = sorted(p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")
+                       and p.name not in used_tops and p.name not in set(ignored)
+                       and not p.name.startswith(KNOWN_OTHER))
+        if empty:
+            notes.append(f"skipped {len(empty)} folder(s) with no results: " + ", ".join(empty))
     lone_aggs = [k for k in aggs if k not in roots]
     lone_roots = [k for k in roots if k not in aggs]
     if len(lone_aggs) == 1 and len(lone_roots) == 1:  # e.g. hand-named ag/ + bmk/ copies
@@ -255,15 +282,27 @@ class ZipReader:
             FETCHED["bytes"] += self.artifact["size_in_bytes"]
         return dest
 
-    def names(self) -> list[str]:
+    def _listing(self) -> dict[str, int]:
+        """member name -> compressed size, cached in names.json (read from the zip directory, no payload)."""
         listing = self.cache / "names.json"
         if listing.is_file():
-            return json.loads(listing.read_text())
+            doc = json.loads(listing.read_text())
+            return doc if isinstance(doc, dict) else dict.fromkeys(doc)  # older cache: names only
         backend = self._backend()
-        names = backend.namelist() if isinstance(backend, zipfile.ZipFile) else backend.names()
+        if isinstance(backend, zipfile.ZipFile):
+            sizes = {i.filename: i.compress_size for i in backend.infolist() if not i.is_dir()}
+        else:
+            sizes = {n: backend.size(n) for n in backend.names()}
         listing.parent.mkdir(parents=True, exist_ok=True)
-        listing.write_text(json.dumps(names))
-        return names
+        listing.write_text(json.dumps(sizes))
+        return sizes
+
+    def names(self) -> list[str]:
+        return list(self._listing())
+
+    def size(self, rel: str) -> int | None:
+        """Compressed bytes the member costs to download; None if absent or unknown."""
+        return self._listing().get(rel)
 
     def read(self, rel: str) -> bytes | None:
         if Path(rel).is_absolute() or ".." in Path(rel).parts:  # member names come from a remote zip
@@ -273,6 +312,8 @@ class ZipReader:
             return cached.read_bytes()
         if rel not in self.names():
             return None
+        size = self.size(rel)
+        progress(f"fetching {self.artifact['name']}/{rel}" + (f" ({size / 1e6:.1f} MB)" if size else "") + " ...")
         try:
             data = self._backend().read(rel)
         except OSError:  # the short-lived blob URL expired: re-resolve once and retry
@@ -288,12 +329,23 @@ class ZipReader:
         self._zip = self._dir = None
 
 
+def job_tail(name: str, limit: int = 60) -> str:
+    """Readable end of a (GitHub-truncated) job name: the part after the last ' / ', whitespace collapsed."""
+    tail = " ".join(name.rsplit(" / ", 1)[-1].split())
+    return tail if len(tail) <= limit else "…" + tail[-limit:]
+
+
 def remote_configs(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tuple[list[Config], list[str]]:
     notes: list[str] = []
+    progress(f"listing jobs and artifacts of {src.link} ...")
     jobs = _gh_pages(f"repos/{src.repo}/actions/runs/{src.run_id}/jobs", "jobs")
-    failed = [job["name"] for job in jobs if job.get("conclusion") in FAILED_CONCLUSIONS]
-    if failed:
-        notes.append(f"{src.link}: {len(failed)} job(s) did not succeed: " + "; ".join(failed))
+    for job in jobs:
+        if job.get("conclusion") in FAILED_CONCLUSIONS:
+            FAILED_JOBS.append({"id": job.get("id"), "name": job["name"], "conclusion": job["conclusion"],
+                                "url": job.get("html_url")})
+            ref = job.get("html_url") or (f"job {job['id']}" if job.get("id") else "")
+            notes.append(f"{src.link}: job failed: {job_tail(job['name'])} ({job['conclusion']})"
+                         + (f" {ref}" if ref else ""))
     parts: dict[str, dict[str, dict]] = {}
     for art in _gh_pages(f"repos/{src.repo}/actions/runs/{src.run_id}/artifacts", "artifacts"):
         for prefix, kind in ((AGG_PREFIX, "agg"), (RAW_PREFIX, "raw")):
@@ -308,6 +360,7 @@ def remote_configs(src: Source, cache_dir: Path, max_full_zip_mb: float) -> tupl
         raw = ZipReader(src.repo, found["raw"], cache_dir, max_full_zip_mb) if "raw" in found else None
         aggs: list[dict | None] = [None]
         if "agg" in found:
+            progress(f"reading aggregate of {rf} ...")
             reader = ZipReader(src.repo, found["agg"], cache_dir, max_full_zip_mb)
             aggs = [json.loads(reader.read(n)) for n in reader.names() if n.endswith(".json")] or [None]
         configs += [Config(rf=rf, source=src, agg=agg, files=raw) for agg in aggs]

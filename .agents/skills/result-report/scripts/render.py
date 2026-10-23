@@ -96,6 +96,19 @@ def _base(data, pts, p):
     return None
 
 
+def _dup_conc(pts) -> bool:
+    """True when two configs of the same arm share a CCU, so rows need the config label to be told apart."""
+    keys = [(p["arm"], p["conc"]) for p in pts]
+    return len(set(keys)) < len(keys)
+
+
+def _lead(data, p, dup: bool) -> list:
+    row = [(_label(data, p["arm"]), None)]
+    if dup:
+        row.append((p.get("rf") or DASH, None))
+    return row + [(_conc(p), None)]
+
+
 def drop_empty(headers, rows, droppable: set[int]) -> Table:
     keep = [i for i in range(len(headers)) if i not in droppable or any(r[i][0] != DASH for r in rows)]
     return Table([headers[i] for i in keep], [[r[i] for i in keep] for r in rows])
@@ -108,32 +121,40 @@ def _link(s: str) -> str:
 
 def runs_table(data) -> Table:
     rows = []
+    by_scen: dict = {}
+    for p in data["points"]:
+        by_scen.setdefault(p["scenario"], []).append(p)
+    show_cfg = any(_dup_conc(pts) for pts in by_scen.values())
     for a in data["arms"]:
         i = a["identity"]
-        rows.append([(_label(data, a["label"]), None)] + [
+        cfgs = [p["rf"] for p in data["points"] if p["arm"] == a["label"] and p.get("rf")]
+        rows.append([(_label(data, a["label"]), None)] + ([(", ".join(cfgs) or DASH, None)] if show_cfg else []) + [
             (str(v) if v is not None else DASH, None) for v in
             (i.get("model"), i.get("hw"), i.get("framework"), i.get("precision"), i.get("num_gpus"))
         ] + [(f"{i.get('tp') or DASH}/{i.get('ep') or DASH}", None), (i.get("image") or DASH, None),
              (", ".join(_link(s) for s in a["sources"]), None)])
-    return Table(["Arm", "Model", "HW", "Framework", "Precision", "GPUs", "TP/EP", "Image", "Sources"], rows)
+    head = ["Arm", *(["Configs"] if show_cfg else [])]
+    return Table([*head, "Model", "HW", "Framework", "Precision", "GPUs", "TP/EP", "Image", "Sources"], rows)
 
 
 def throughput_table(data, pts) -> list:
-    headers = ["Arm", "CCU", *(h for h, _ in THROUGHPUT), *(h for h, _ in CACHE), "Cached tokens by tier"]
+    dup = _dup_conc(pts)
+    lead = 2 + dup
+    headers = ["Arm", *(["Config"] if dup else []), "CCU", *(h for h, _ in THROUGHPUT), *(h for h, _ in CACHE), "Cached tokens by tier"]
     rows = []
     for p in pts:
         b = _base(data, pts, p)
-        row = [(_label(data, p["arm"]), None), (_conc(p), None)]
+        row = _lead(data, p, dup)
         row += [cell(get(p, "metrics", "throughput", *k), get(b, "metrics", "throughput", *k), num, True)
                 for _, k in THROUGHPUT]
         row += [cell(get(p, "cache", k), get(b, "cache", k), pct, True) for _, k in CACHE]
         if get(p, "cache", "source") == "client":
-            text, tone = row[2 + len(THROUGHPUT)]
-            row[2 + len(THROUGHPUT)] = (text + " (client)", tone)
+            text, tone = row[lead + len(THROUGHPUT)]
+            row[lead + len(THROUGHPUT)] = (text + " (client)", tone)
         tiers = get(p, "cache", "tokens_by_tier") or {}
         row.append((" · ".join(f"{k} {_tok(v)}" for k, v in tiers.items()) or DASH, None))
         rows.append(row)
-    table = drop_empty(headers, rows, set(range(2 + len(THROUGHPUT), len(headers))))
+    table = drop_empty(headers, rows, set(range(lead + len(THROUGHPUT), len(headers))))
     blocks = [("h", 3, "Throughput & cache"), ("table", table)]
     if not any(h in table.headers for h, _ in CACHE):
         blocks.append(("p", "No server metrics logged; cache hit rates unavailable."))
@@ -143,11 +164,12 @@ def throughput_table(data, pts) -> list:
 def latency_tables(data, pts) -> list:
     blocks = []
     for title, key in LATENCY:
-        headers = ["Arm", "CCU", *PCTS] + (["Out tok/s/user", "Errors"] if key == "e2e" else [])
+        dup = _dup_conc(pts)
+        headers = ["Arm", *(["Config"] if dup else []), "CCU", *PCTS] + (["Out tok/s/user", "Errors"] if key == "e2e" else [])
         rows = []
         for p in pts:
             b = _base(data, pts, p)
-            row = [(_label(data, p["arm"]), None), (_conc(p), None)]
+            row = _lead(data, p, dup)
             row += [cell(get(p, "metrics", key, s), get(b, "metrics", key, s), num, False) for s in PCTS]
             if key == "e2e":
                 row.append(cell(get(p, "metrics", "tps_per_user"), get(b, "metrics", "tps_per_user"), num, True))
@@ -284,7 +306,7 @@ def notes_blocks(data) -> list:
         notes.append("Hit overall marked (client) is aiperf's client-side prompt cache read %, not tiered.")
     if any(get(p, "metrics", "source") in ("aggregate", "search_aggregate") for p in points):
         notes.append("Rows without an aiperf export use the aggregate JSON: latency from seconds, p99 unavailable.")
-    if len(data["arms"]) > 1:
+    if any(_base(data, points, p) for p in points):
         notes.append(f"Deltas are against the baseline arm `{data['baseline']}` at the same scenario and CCU "
                      "(search: same scenario).")
     return [("h", 2, "Notes"), ("p", "\n".join(f"- {n}" for n in notes))] if notes else []
@@ -385,7 +407,7 @@ def build_blocks(data, charts: bool = False) -> list:
     inputs = ", ".join(_link(i) for i in data["inputs"]) or DASH
     blocks = [
         ("h", 1, data["title"]),
-        ("p", f"Generated {data['generated']} · inputs: {inputs} · downloaded {data.get('bytes_fetched', 0) / 1e6:.2f} MB"),
+        ("p", f"Generated {data['generated']} · inputs: {inputs} · downloaded {data.get('bytes_fetched', 0) / 1e6:.2f} MB (cumulative)"),
         ("h", 2, "Key findings"), ("p", data.get("findings") or KEY_FINDINGS_PLACEHOLDER),
         ("h", 2, "Runs"), ("table", runs_table(data)),
     ]

@@ -100,6 +100,82 @@ class ServerMetricsTest(unittest.TestCase):
         self.assertNotIn("local_compute", c["tokens_by_tier"])
 
 
+class SizeAwareReader:
+    """Wraps a DirReader; records reads and lets a test fake member sizes."""
+    def __init__(self, inner, sizes=None):
+        self.inner, self.sizes, self.reads = inner, sizes or {}, []
+
+    def read(self, rel):
+        self.reads.append(rel)
+        return self.inner.read(rel)
+
+    def size(self, rel):
+        return self.sizes.get(rel, self.inner.size(rel))
+
+
+class SearchSizeCapTest(unittest.TestCase):
+    SM = "server_metrics_export.json"
+
+    def _run(self, sizes=None, agg=None):
+        cfg = _cfg("search_local")
+        reader = SizeAwareReader(cfg.files, sizes)
+        cfg = fetch.Config(rf=cfg.rf, source=cfg.source, agg=agg if agg is not None else cfg.agg, files=reader)
+        return extract.build_point(cfg), reader
+
+    def test_only_the_winner_server_metrics_is_read(self):
+        p, reader = self._run()
+        sm_reads = [r for r in reader.reads if r.endswith(self.SM)]
+        self.assertEqual(sm_reads, [extract.PROBE_DIR.format(10) + self.SM])  # the c60 probe is iteration 10
+        self.assertEqual(len([r for r in reader.reads if r.endswith("profile_export_aiperf.json")]), 12)
+        self.assertAlmostEqual(p["cache"]["gpu"], 0.48894, places=4)
+
+    def test_probe_cache_overall_is_client_side(self):
+        p, _ = self._run()
+        winner = next(pr for pr in p["search"]["probes"] if pr["winner"])
+        export = load(PROBE.format(winner["iter"]) + "profile_export_aiperf.json")
+        self.assertEqual(winner["cache_overall"], extract.from_aiperf(export)["client_cache_hit"])
+
+    def test_oversized_winner_is_never_read_and_noted(self):
+        winner = extract.PROBE_DIR.format(10) + self.SM
+        agg = copy.deepcopy(_cfg("search_local").agg)
+        agg["server_metrics"] = {"present": True, "adapter": "vllm", "cache": {"overall_cache_hit_rate": 0.3}}
+        p, reader = self._run({winner: 45_000_000}, agg)
+        self.assertEqual([r for r in reader.reads if r.endswith(self.SM)], [])
+        self.assertIn("cache tiers unavailable for winner probe: server_metrics_export.json is 45 MB "
+                      "compressed (cap 40 MB)", p["notes"])
+        self.assertEqual(p["cache"]["overall"], 0.3)  # aggregate fallback
+        self.assertEqual(p["cache"]["source"], "aggregate")
+
+    def test_cap_is_configurable(self):
+        winner = extract.PROBE_DIR.format(10) + self.SM
+        cfg = _cfg("search_local")
+        reader = SizeAwareReader(cfg.files, {winner: 5_000_000})
+        cfg = fetch.Config(rf=cfg.rf, source=cfg.source, agg=cfg.agg, files=reader)
+        extract.build_point(cfg, max_member_mb=1)
+        self.assertEqual([r for r in reader.reads if r.endswith(self.SM)], [])
+
+
+class ServingFallbackTest(unittest.TestCase):
+    def test_serving_identity(self):
+        got = extract.serving_identity("# c\nrunner: hw-8x_02\nimage: 'a/b:1'\nmodel: org/m\ngpus: 8\nprecision: fp8\n")
+        self.assertEqual(got, {"model": "org/m", "image": "a/b:1", "precision": "fp8", "num_gpus": 8, "hw": "hw-8x_02"})
+
+    def test_arm_identity_and_per_gpu_fall_back_to_serving_yaml(self):
+        cfg = _cfg("search_local")
+        cfg = fetch.Config(rf=cfg.rf, source=cfg.source, agg=None, files=cfg.files)  # failed run: no aggregate
+        data = extract.build_data([cfg], [])
+        ident = data["arms"][0]["identity"]
+        self.assertEqual((ident["model"], ident["precision"], ident["num_gpus"], ident["hw"]),
+                         ("RedHatAI/gemma-4-31B-it-FP8-block", "fp8", 1, "h200-greennode-slurm-1x_01"))
+        self.assertEqual(ident["image"], "vllm/vllm-openai:v0.25.1")
+        tps = data["points"][0]["metrics"]["throughput"]
+        self.assertEqual(tps["output_tps_per_gpu"], tps["output_tps"])
+
+    def test_aggregate_values_win(self):
+        p = extract.build_data([_cfg("gh_fixed")], [])["arms"][0]["identity"]
+        self.assertEqual(p["model"], _cfg("gh_fixed").agg["model"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

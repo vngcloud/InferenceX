@@ -36,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--findings", type=Path, help="markdown bullets that replace the Key findings placeholder")
     ap.add_argument("--max-full-zip-mb", type=float, default=100,
                     help="largest artifact zip to download whole when Range reads fail")
+    ap.add_argument("--max-member-mb", type=float, default=extract.MAX_MEMBER_MB,
+                    help="largest compressed server_metrics_export.json read for a search winner's cache tiers")
     args = ap.parse_args(argv)
 
     try:
@@ -47,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     names = [s.run_id or s.path.name for s in sources]
     out = args.out or Path.home() / "bench-reports" / f"{today}-{slugify(args.title or '-'.join(names))}"
     cache = out / ".cache"
+    fetch.FAILED_JOBS.clear()
+    before = fetch.FETCHED["bytes"]
 
     try:
         configs, notes = [], []
@@ -58,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             print("ERROR nothing to report:\n" + "\n".join(f"  {n}" for n in notes), file=sys.stderr)
             return 1
         data = extract.build_data(configs, notes, baseline=args.baseline, title=args.title,
-                                  inputs=[s.link for s in sources], generated=today)
+                                  inputs=[s.link for s in sources], generated=today, max_member_mb=args.max_member_mb)
     except ValueError as err:
         print(f"ERROR {err}", file=sys.stderr)
         return 2
@@ -74,7 +78,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR gh failed: {' '.join(err.cmd)}\n{(err.stderr or '').strip()}", file=sys.stderr)
         return 4
 
-    data["bytes_fetched"] = fetch.FETCHED["bytes"]
+    this_run = fetch.FETCHED["bytes"] - before
+    stamp = cache / "fetched.json"  # cumulative download size survives cached --findings re-runs
+    prior = json.loads(stamp.read_text()).get("bytes", 0) if stamp.is_file() else 0
+    data["bytes_fetched"] = prior + this_run
+    if fetch.FAILED_JOBS:
+        data["failed_jobs"] = list(fetch.FAILED_JOBS)
+    if this_run:
+        cache.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(json.dumps({"bytes": data["bytes_fetched"]}))
     if args.findings:
         data["findings"] = args.findings.read_text().strip()
     out.mkdir(parents=True, exist_ok=True)
@@ -86,7 +98,8 @@ def main(argv: list[str] | None = None) -> int:
         written.append("report.html")
     print(f"wrote {', '.join(str(out / w) for w in written)}")
     print(f"{len(data['points'])} config(s), {len(data['arms'])} arm(s), baseline {data['baseline']!r}, "
-          f"downloaded {data['bytes_fetched'] / 1e6:.2f} MB, {len(data['notes'])} note(s)")
+          f"downloaded {this_run / 1e6:.2f} MB this run (total {data['bytes_fetched'] / 1e6:.2f} MB), "
+          f"{len(data['notes'])} note(s)")
     for note in data["notes"]:
         print(f"  note: {note}")
     return 0

@@ -155,7 +155,10 @@ class RemoteTest(unittest.TestCase):
             {"id": 2, "name": "agentic_RF", "size_in_bytes": 2_000_000, "expired": False, "workflow_run": {"id": 5}},
             {"id": 3, "name": "bmk_agentic_OLD", "size_in_bytes": 300, "expired": True, "workflow_run": {"id": 5}},
         ]
-        jobs = [{"name": "bench c8", "conclusion": "success"}, {"name": "bench c32", "conclusion": "failure"}]
+        jobs = [{"name": "bench c8", "conclusion": "success"},
+                {"name": "agentic / (/data/…-3... / p2.500 | name TP8    c32", "conclusion": "failure", "id": 77,
+                 "html_url": "https://github.com/o/r/actions/runs/5/job/77"}]
+        fetch.FAILED_JOBS.clear()
 
         def fake_gh(*args):
             path = args[1]
@@ -171,8 +174,25 @@ class RemoteTest(unittest.TestCase):
             self.assertEqual((cfg.rf, cfg.agg["conc"]), ("RF", 8))
             # raw zip is read lazily, so the blob_url patch must still be active here
             self.assertEqual(cfg.files.read("aiperf_artifacts/profile_export_aiperf.json"), b'{"x": 1}')
-        self.assertTrue(any("bench c32" in n for n in notes))
+        self.assertIn("job failed: p2.500 | name TP8 c32 (failure) https://github.com/o/r/actions/runs/5/job/77",
+                      " ".join(notes))
+        self.assertNotIn("/data/", " ".join(notes))
+        self.assertEqual(fetch.FAILED_JOBS[0]["name"], "agentic / (/data/…-3... / p2.500 | name TP8    c32")
         self.assertTrue(any("bmk_agentic_OLD" in n and "expired" in n for n in notes))
+
+    def test_zip_reader_size_comes_from_the_directory_without_reading(self):
+        reader = fetch.ZipReader("o/r", {"id": 9, "name": "agentic_RF", "size_in_bytes": 1},
+                                 Path(self.tmp.name) / "c", 100, url_for=lambda r, i: self.base + "/raw")
+        before = fetch.FETCHED["bytes"]
+        self.assertEqual(reader.size("server.log"), len(self.big))
+        self.assertIsNone(reader.size("nope"))
+        self.assertLess(fetch.FETCHED["bytes"] - before, len(self.big) // 2)
+        self.assertFalse((reader.cache / "files").exists())
+        self.assertEqual(json.loads((reader.cache / "names.json").read_text())["server.log"], len(self.big))
+        reader.close()
+        again = fetch.ZipReader("o/r", {"id": 9, "name": "agentic_RF", "size_in_bytes": 1},
+                                Path(self.tmp.name) / "c", 100, url_for=lambda r, i: 1 / 0)
+        self.assertEqual(again.size("server.log"), len(self.big))  # from the cache, no URL needed
 
     def test_read_after_blob_url_expiry_re_resolves(self):
         calls = []
@@ -221,6 +241,34 @@ class MultiArtifactTest(unittest.TestCase):
         self.assertIn("ignored 1 aggregate-looking file(s)", notes[0])
         self.assertIsNotNone(cfgs[0].files)
         self.assertIsNone(cfgs[1].files)
+
+
+class FixRound1FetchTest(unittest.TestCase):
+    def test_dir_reader_size(self):
+        reader = fetch.DirReader(FIX / "gh_fixed/agentic_glm53_c108")
+        self.assertEqual(reader.size("benchmark_command.txt"), len(reader.read("benchmark_command.txt")))
+        self.assertIsNone(reader.size("nope"))
+
+    def test_job_tail_is_short_and_readable(self):
+        name = "agentic / (/data/…-3... / p2.500 | name fp8 hardware-hcm-8x_02 sgl TP8    c1"
+        self.assertEqual(fetch.job_tail(name), "p2.500 | name fp8 hardware-hcm-8x_02 sgl TP8 c1")
+        self.assertTrue(fetch.job_tail("x" * 200).startswith("…"))
+
+    def test_skipped_folders_noted_for_multi_folder_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIX / "raw_aiperf/glm5.1_public_ccu16_dur900", root / "conc16")
+            (root / "conc1" / "logs").mkdir(parents=True)
+            (root / "power_audit_x").mkdir()
+            notes = []
+            cfgs = fetch.local_configs(fetch.parse_source(tmp), notes)
+        self.assertEqual(len(cfgs), 1)
+        self.assertEqual(notes, ["skipped 1 folder(s) with no results: conc1"])
+
+    def test_single_run_folder_has_no_skipped_note(self):
+        notes = []
+        fetch.local_configs(fetch.parse_source(str(FIX / "gh_fixed/agentic_glm53_c108")), notes)
+        self.assertEqual(notes, [])
 
 
 if __name__ == "__main__":

@@ -221,6 +221,7 @@ IDENTITY_KEYS = ("model", "image", "framework", "precision", "tp", "ep", "dp_att
 CONFIG_FILES = ("serving.yaml", "server_command.txt", "router_command.txt", "benchmark_command.txt")
 SLA_NAMES = {"time_to_first_token": "TTFT", "inter_token_latency": "ITL", "request_latency": "E2E"}
 SLA_OPS = {"lt": "<", "le": "≤", "gt": ">", "ge": "≥"}
+MAX_MEMBER_MB = 40  # largest compressed server_metrics_export.json read (real probes run 25-35 MB each)
 PROBE_DIR = "aiperf_artifacts/search_iter_{:04d}/profile_runs/run_0001/"
 
 
@@ -283,8 +284,12 @@ def _observed(export: dict | None, f: dict) -> float | None:
     return ms_stats(export.get(f.get("metric_tag")))[f["stat"]]
 
 
-def search_summary(history: dict, files) -> tuple[dict, dict | None, dict | None]:
-    """(search block, winning probe metrics, winning probe cache tiers)."""
+def search_summary(history: dict, files, notes: list[str] | None = None,
+                   max_member_mb: float = MAX_MEMBER_MB) -> tuple[dict, dict | None, dict | None]:
+    """(search block, winning probe metrics, winning probe cache tiers).
+
+    Per-probe numbers come from the small aiperf export. server_metrics_export.json is hundreds of MB
+    uncompressed, so it is read only for the winning probe and only if its compressed size is <= the cap."""
     summary = summarize_search(history)
     filters = (history.get("config") or {}).get("sla_filters") or []
     boundary = history.get("boundary_summary") or {}
@@ -295,11 +300,18 @@ def search_summary(history: dict, files) -> tuple[dict, dict | None, dict | None
     for it in history.get("iterations") or []:
         idx = it["iteration_idx"]
         export = _read_json(files, PROBE_DIR.format(idx) + "profile_export_aiperf.json")
-        sm = _read_json(files, PROBE_DIR.format(idx) + "server_metrics_export.json")
         metrics = from_aiperf(export) if export else None
-        cache = tiers_from_server_metrics(sm) if sm else None
         if idx == winner:
-            win_metrics, win_cache = metrics, cache
+            win_metrics = metrics
+            sm_path = PROBE_DIR.format(idx) + "server_metrics_export.json"
+            size = files.size(sm_path) if files else None
+            if size is not None and size > max_member_mb * 1e6:
+                if notes is not None:
+                    notes.append(f"cache tiers unavailable for winner probe: server_metrics_export.json is "
+                                 f"{size / 1e6:.0f} MB compressed (cap {max_member_mb:g} MB)")
+            else:
+                sm = _read_json(files, sm_path)
+                win_cache = tiers_from_server_metrics(sm) if sm else None
         probes.append({
             "iter": idx,
             "conc": next(iter((it.get("variation_values") or {}).values()), None),
@@ -307,7 +319,7 @@ def search_summary(history: dict, files) -> tuple[dict, dict | None, dict | None
             "objective": (it.get("objective_values") or [None])[0],
             "observed": {f"{f['metric_tag']}.{f['stat']}": _observed(export, f) for f in filters},
             "output_tps": metrics["throughput"]["output_tps"] if metrics else None,
-            "cache_overall": cache["overall"] if cache else None,
+            "cache_overall": metrics["client_cache_hit"] if metrics else None,
             "winner": idx == winner,
             "best_objective": idx == best,
         })
@@ -323,7 +335,7 @@ def search_summary(history: dict, files) -> tuple[dict, dict | None, dict | None
     return search, win_metrics, win_cache
 
 
-def build_point(cfg) -> dict:
+def build_point(cfg, max_member_mb: float = MAX_MEMBER_MB) -> dict:
     agg, files = cfg.agg or {}, cfg.files
     config = {name: _read_text(files, name) for name in CONFIG_FILES}
     serving, bench_cmd = config["serving.yaml"], config["benchmark_command.txt"]
@@ -334,13 +346,15 @@ def build_point(cfg) -> dict:
              "identity": {k: agg.get(k) for k in IDENTITY_KEYS}, "config": config, "notes": notes,
              "search": None}
     if history:
-        search, metrics, cache = search_summary(history, files)
+        search, metrics, cache = search_summary(history, files, notes, max_member_mb)
         point.update(mode="search", conc=search["max_conc"], search=search)
         if metrics is None and agg.get("output_tps") is not None:
             metrics = from_search_aggregate(agg)
             notes.append("winning probe export missing: metrics from the search aggregate (avg/p90 only)")
         elif metrics is None:
             notes.append("winning probe export missing: no metrics for the search point")
+        if cache is None and agg:
+            cache = aggregate_tiers(agg)  # search aggregate may carry server_metrics.cache
     elif agg.get("state"):  # search aggregate without its raw tree
         point.update(mode="search", conc=agg.get("max_conc"), search=None)
         metrics, cache = from_search_aggregate(agg), None
@@ -362,7 +376,7 @@ def build_point(cfg) -> dict:
         point["conc"] = int(conc) if conc is not None else None
     if cache is None and metrics and metrics.get("client_cache_hit") is not None:
         cache = {**_cache("client", None), "overall": metrics["client_cache_hit"]}
-    gpus = agg.get("num_gpus")
+    gpus = agg.get("num_gpus") or serving_identity(serving).get("num_gpus")
     if metrics and gpus and metrics["throughput"]["output_tps"] is not None:
         metrics["throughput"]["output_tps_per_gpu"] = metrics["throughput"]["output_tps"] / gpus
     validator = (agg.get("request_accounting") or {}).get("records_error_dropped")
@@ -378,6 +392,20 @@ def build_point(cfg) -> dict:
     else:
         point["cache_check"] = None
     return point
+
+
+SERVING_FIELDS = {"model": "model", "image": "image", "precision": "precision", "num_gpus": "gpus", "hw": "runner"}
+
+
+def serving_identity(serving: str | None) -> dict:
+    """Identity fields from top-level `key: value` lines of serving.yaml (no yaml parser needed)."""
+    out: dict = {}
+    for ident, key in SERVING_FIELDS.items():
+        found = re.search(rf"^{key}:[ \t]*(\S.*?)\s*$", COMMENT_RE.sub("", serving or ""), re.M)
+        if found:
+            value = found.group(1).strip("'\"")
+            out[ident] = int(value) if ident == "num_gpus" and value.isdigit() else value
+    return out
 
 
 def _strip_run_suffix(name: str) -> str:
@@ -397,12 +425,13 @@ def arm_of(point: dict, cfg) -> tuple[str, str]:
     return "src:" + cfg.source.link, Path(cfg.source.link).name or cfg.source.link
 
 
-def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="") -> dict:
+def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="",
+               max_member_mb: float = MAX_MEMBER_MB) -> dict:
     arms: dict[str, dict] = {}
     points = []
     built = []
     for cfg in configs:
-        point = build_point(cfg)
+        point = build_point(cfg, max_member_mb)
         built.append((cfg, point, *arm_of(point, cfg)))
     # an aggregate-only config (no serving.yaml) joins a yaml-backed arm only if exactly one has its identity
     ident = lambda pt: json.dumps(pt["identity"], sort_keys=True)
@@ -428,7 +457,9 @@ def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="
         taken, final, n = {a["label"] for a in arms.values()}, label, 2
         while final in taken:
             final, n = f"{label} #{n}", n + 1
-        arms[key] = {"label": final, "identity": point["identity"], "sources": [], "config": point["config"]}
+        identity = {k: v if v is not None else serving_identity(point["config"]["serving.yaml"]).get(k)
+                    for k, v in point["identity"].items()}  # serving.yaml fills what the aggregate lacks
+        arms[key] = {"label": final, "identity": identity, "sources": [], "config": point["config"]}
     for point, key, label, merged in resolved:
         point.pop("config")
         arm = arms[key]

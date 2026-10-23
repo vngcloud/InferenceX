@@ -28,9 +28,9 @@ Readers: the team deciding prod configs, plus Redmine/MR posts. Lead with the co
 | 10 | Identity + engine cache tiers from the aggregate `bmk_agentic_<RF>/<RF>.json`; never parse the artifact name | Name is truncated to 120 bytes + hash; spec field cut, no hw. |
 | 11 | Cache tier presence is decided by measured values, not identity flags | `kv_offloading`/`router` flags are often unset even when host hits are 43%. |
 | 12 | Search mode: headline = `boundary_summary.feasible_max` (max CCU), binding SLA + observed breach; table of **all probes**; mark `best_trials` probe if different | Shows where and how the SLA breaks. |
-| 13 | Search-mode cache tiers: parse each probe's `server_metrics_export.json` (~130 KB) with copied sglang/vllm tier logic | Aggregate has no `server_metrics` in search mode. |
+| 13 | Search-mode cache tiers: parse `server_metrics_export.json` with copied sglang/vllm tier logic **only for the winning probe**, and only if its compressed zip member is ≤ 40 MB (`--max-member-mb`). Above the cap: skip, add a Note, fall back to the search aggregate's `server_metrics.cache` if present. Per-probe `Hit overall` comes from the aiperf export (client-side) | Real probes are 350-400 MB uncompressed (25-35 MB compressed) each, not ~130 KB; reading all of them downloaded 100+ MB and took minutes. |
 | 14 | Router hit rate: optional. Shown when computable (search probes: `smg_cache_aware_hit` hit/(hit+miss); dynamo: aggregate `router_kv_hit_rate`), else `—` | Fixed mode would need the 1.26 GB export. |
-| 15 | Never read `server_metrics_export.json` in fixed mode, `profile_export.jsonl`, `inputs.json`, or timeslice files by default | These are the heavy files. Per-request reads are deferred (no `--per-request` flag yet). |
+| 15 | Never read `server_metrics_export.json` in fixed mode or for non-winner/oversized search probes, nor `profile_export.jsonl`, `inputs.json`, or timeslice files by default | These are the heavy files (member sizes come from the zip directory, no payload download). Per-request reads are deferred (no `--per-request` flag yet). |
 | 16 | No server metrics at all (raw aiperf folder) → cache section shows "no server metrics logged"; client-side `overall_usage_prompt_cache_read_pct` shown as "client-side, untiered" | |
 | 17 | Script writes tables deterministically; the agent writes the "Key findings" section from `data.json` | Tables identical across reports; only commentary varies. |
 | 18 | Output dir default `~/bench-reports/<YYYY-MM-DD>-<slug>/` (`--out` overrides): `report.md`, `data.json`, `report.html` (with `--html`) | Outside the repo; nothing committed. |
@@ -60,7 +60,7 @@ Files read per config (Range-fetched from `agentic_<RF>` when remote):
 | `serving.yaml`, `server_command.txt`, `router_command.txt`, `benchmark_command.txt` | both, optional | collapsed config section |
 | `aiperf_artifacts/search_history.json` | search | iterations, boundary, SLA filters |
 | `search_iter_NNNN/profile_runs/run_0001/profile_export_aiperf.json` | search | per-probe metrics |
-| `search_iter_NNNN/profile_runs/run_0001/server_metrics_export.json` | search | per-probe cache tiers, router hit |
+| `search_iter_NNNN/profile_runs/run_0001/server_metrics_export.json` | search, winner probe only, ≤ 40 MB compressed (350-400 MB raw) | winner cache tiers, router hit |
 
 Only `run_0001` per probe is read (the search uses one run per probe).
 
@@ -171,7 +171,7 @@ Needs `gh` (authenticated) for remote inputs only. `--findings` re-renders with 
 | # | Input | Checks beyond layout + 3 spot-checked numbers |
 |---|---|---|
 | 1 | Fixed run link 39558375380 | aggregate-only fallback footnote, p99 `—` |
-| 2 | Search run link 39642191354 (266 MB zip) | bytes downloaded ≪ zip size; probe table; feasible_max headline |
+| 2 | Search run link 39642191354 (266 MB zip) | bytes downloaded ≪ zip size (aiperf per probe + history + winner server metrics ≤ cap: a few MB to ~35 MB); probe table; feasible_max headline |
 | 2b | Several `sweep-*` run links of one grid (from `/tmp/h200sweep-chk` runs) | search summary matrix, `✗`/`*` markers |
 | 3 | Local folder `/tmp/fill-1015/38843679057` | p99 present, CPU tier present |
 | 4 | Raw aiperf folder `/mnt/poc_tencent/artifacts/*` | "no server metrics logged", client-side hit shown |

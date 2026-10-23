@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import result_report
 
@@ -51,6 +52,33 @@ class CliTest(unittest.TestCase):
     def test_unknown_baseline(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(run(FIX / "gh_fixed", "--out", tmp, "--baseline", "nope")[0], 2)
+
+
+class FetchedBytesTest(unittest.TestCase):
+    def test_cumulative_bytes_survive_a_cached_rerun(self):
+        import fetch
+        real = fetch.discover
+
+        def fake(src, cache, mb):
+            fetch.FETCHED["bytes"] += 3_000_000
+            return real(src, cache, mb)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(fetch, "discover", fake):
+            code, out = run(FIX / "gh_fixed", "--out", tmp)
+            self.assertIn("downloaded 3.00 MB this run (total 3.00 MB)", out)
+            self.assertEqual(json.loads((Path(tmp) / ".cache/fetched.json").read_text()), {"bytes": 3_000_000})
+            with mock.patch.object(fetch, "discover", real):
+                code, out = run(FIX / "gh_fixed", "--out", tmp)
+            data = json.loads((Path(tmp) / "data.json").read_text())
+            md = (Path(tmp) / "report.md").read_text()
+        self.assertEqual(data["bytes_fetched"], 3_000_000)
+        self.assertIn("downloaded 0.00 MB this run (total 3.00 MB)", out)
+        self.assertIn("downloaded 3.00 MB", md)
+
+    def test_local_folder_creates_no_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run(FIX / "gh_fixed", "--out", tmp)
+            self.assertFalse((Path(tmp) / ".cache").exists())
 
 
 if __name__ == "__main__":
