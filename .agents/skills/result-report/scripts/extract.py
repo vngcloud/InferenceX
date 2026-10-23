@@ -215,7 +215,7 @@ SERVING_NAME_RE = re.compile(r"^name:\s*(\S+)", re.M)
 GRID_SUFFIX_RE = re.compile(r"-(?:(?:sweep|fixed)-)?isl\d+k?-osl\d+k?-cache\d+$")
 RUN_SUFFIX_RE = re.compile(r"(?:_c\d+|_search)$")
 COMMENT_RE = re.compile(r"^\s*#.*\n", re.M)
-PER_RUN_KEYS_RE = re.compile(r"^(?:name|scenario|conc):.*\n(?:-\s.*\n)*", re.M)
+PER_RUN_KEYS_RE = re.compile(r"^(?:name|scenario|conc):.*\n?(?:\s*-\s.*\n?)*", re.M)
 IDENTITY_KEYS = ("model", "image", "framework", "precision", "tp", "ep", "dp_attention",
                  "spec_decoding", "num_gpus", "hw")
 CONFIG_FILES = ("serving.yaml", "server_command.txt", "router_command.txt", "benchmark_command.txt")
@@ -251,9 +251,12 @@ def summarize_search(history: dict) -> dict:
 
 
 def sla_text(f: dict) -> str:
-    tag = f.get("metric_tag", "?")
+    tag = f.get("metric_tag") or "—"
     unit = " ms" if tag in SLA_NAMES else ""
-    return f"{SLA_NAMES.get(tag, tag)} {f.get('stat')} {SLA_OPS.get(f.get('op'), f.get('op'))} {f.get('threshold'):g}{unit}"
+    thr = f.get("threshold")
+    op = f.get("op")
+    return (f"{SLA_NAMES.get(tag, tag)} {f.get('stat') or '—'} "
+            f"{SLA_OPS.get(op, op) or '—'} {'—' if thr is None else format(thr, 'g')}{unit if thr is not None else ''}")
 
 
 def _read_json(files, *paths: str):
@@ -336,6 +339,8 @@ def build_point(cfg) -> dict:
         if metrics is None and agg.get("output_tps") is not None:
             metrics = from_search_aggregate(agg)
             notes.append("winning probe export missing: metrics from the search aggregate (avg/p90 only)")
+        elif metrics is None:
+            notes.append("winning probe export missing: no metrics for the search point")
     elif agg.get("state"):  # search aggregate without its raw tree
         point.update(mode="search", conc=agg.get("max_conc"), search=None)
         metrics, cache = from_search_aggregate(agg), None
@@ -412,7 +417,7 @@ def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="
     labels = [a["label"] for a in arms.values()]
     if baseline is not None and baseline not in labels:
         raise ValueError(f"--baseline {baseline!r} is not an arm; arms: {labels}")
-    point_notes = [f"{p['arm']} · {p['scenario'] or '-'} · c{p['conc']}: {n}" for p in points for n in p["notes"]]
+    point_notes = [f"{p['arm']} · {p['scenario'] or '—'} · c{'—' if p['conc'] is None else p['conc']}: {n}" for p in points for n in p["notes"]]
     return {
         "title": title or (labels[0] if labels else "benchmark report"),
         "generated": generated,

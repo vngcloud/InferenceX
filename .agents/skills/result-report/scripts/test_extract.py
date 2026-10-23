@@ -196,3 +196,30 @@ class ArmsTest(unittest.TestCase):
     def test_unknown_baseline(self):
         with self.assertRaises(ValueError):
             extract.build_data([_cfg("gh_fixed")], [], baseline="nope")
+
+
+class FixRound1Test(unittest.TestCase):
+    def test_sla_text_missing(self):
+        self.assertEqual(extract.sla_text({"metric_tag": "inter_token_latency"}), "ITL — — —")
+        self.assertEqual(extract.sla_text({"metric_tag": "x", "stat": "p90", "op": "lt", "threshold": 3}), "x p90 < 3")
+
+    def test_arm_key_ignores_trailing_conc_and_indented_lists(self):
+        def key(serving):
+            p = {"config": {"serving.yaml": serving}, "identity": {}}
+            return extract.arm_of(p, fetch.Config(rf="r", source=fetch.parse_source("/tmp"), agg=None, files=None))[0]
+        base = "name: a\nimage: i\n"
+        self.assertEqual(key(base + "conc: 1"), key(base + "conc: 2"))
+        self.assertEqual(key(base + "scenario:\n  - x\nimage2: z\n"), key(base + "scenario:\n  - y\n  - w\nimage2: z\n"))
+
+    def test_empty_search_history_point(self):
+        with tempfile.TemporaryDirectory() as root:
+            d = Path(root) / "s"
+            d.mkdir()
+            (d / "search_history.json").write_text(json.dumps(
+                {"boundary_summary": {"feasible_max": None, "infeasible_min": {"value": 1}}}))
+            cfg = fetch.Config(rf="s", source=fetch.parse_source(root), agg=None, files=fetch.DirReader(d))
+            p = extract.build_point(cfg)
+            self.assertEqual((p["mode"], p["search"]["state"], p["conc"]), ("search", "no_pass_in_range", None))
+            self.assertTrue(any("winning probe export missing" in n for n in p["notes"]))
+            data = extract.build_data([cfg], [])
+            self.assertIn("c—", data["notes"][-1])
