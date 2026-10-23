@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
 
@@ -289,8 +290,84 @@ def notes_blocks(data) -> list:
     return [("h", 2, "Notes"), ("p", "\n".join(f"- {n}" for n in notes))] if notes else []
 
 
+PALETTE = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"]
+CSS = """body{font:14px/1.5 system-ui,sans-serif;max-width:1280px;margin:24px auto;padding:0 16px;color:#111}
+table{border-collapse:collapse;margin:8px 0 16px;font-size:13px}
+th,td{border:1px solid #d0d7de;padding:4px 8px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{background:#f6f8fa}
+td.good{color:#1a7f37}td.bad{color:#cf222e}
+pre{background:#f6f8fa;padding:8px;overflow:auto}details{margin:8px 0}summary{cursor:pointer;font-weight:600}
+svg{margin:8px 16px 8px 0}"""
+
+
+def _tick(v: float) -> str:
+    return f"{v:,.0f}" if abs(v) >= 10 or v == int(v) else f"{v:.2g}"
+
+
+def line_chart(title, series, x_label, y_label, threshold=None, width=560, height=300) -> str:
+    points = [xy for values in series.values() for xy in values]
+    if not points:
+        return ""
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points] + ([threshold] if threshold is not None else [])
+    x0, x1 = min(xs), max(xs)
+    x1 = x1 if x1 > x0 else x0 + 1
+    y1 = max(ys) * 1.1 or 1.0
+    left, right, top, bottom = 60, 20, 30, 40
+    sx = lambda x: left + (x - x0) / (x1 - x0) * (width - left - right)
+    sy = lambda y: height - bottom - y / y1 * (height - top - bottom)
+    esc = html.escape
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" '
+             f'height="{height}" role="img" aria-label="{esc(title)}">',
+             f'<text x="{left}" y="18" font-size="13" font-weight="600">{esc(title)}</text>']
+    for i in range(5):
+        y = y1 * i / 4
+        parts.append(f'<line x1="{left}" x2="{width - right}" y1="{sy(y):.1f}" y2="{sy(y):.1f}" stroke="#e5e7eb"/>'
+                     f'<text x="{left - 6}" y="{sy(y) + 4:.1f}" font-size="10" text-anchor="end">{_tick(y)}</text>')
+    for x in sorted(set(xs)):
+        parts.append(f'<text x="{sx(x):.1f}" y="{height - bottom + 14}" font-size="10" text-anchor="middle">{_tick(x)}</text>')
+    mid_y = (top + height - bottom) / 2
+    parts.append(f'<text x="{(left + width - right) / 2}" y="{height - 6}" font-size="11" text-anchor="middle">{esc(x_label)}</text>')
+    parts.append(f'<text x="14" y="{mid_y}" font-size="11" text-anchor="middle" transform="rotate(-90 14 {mid_y})">{esc(y_label)}</text>')
+    if threshold is not None:
+        parts.append(f'<line x1="{left}" x2="{width - right}" y1="{sy(threshold):.1f}" y2="{sy(threshold):.1f}" '
+                     f'stroke="#dc2626" stroke-dasharray="4 3"/>')
+    for i, (name, values) in enumerate(series.items()):
+        color = PALETTE[i % len(PALETTE)]
+        values = sorted(values)
+        coords = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in values)
+        parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{coords}"/>')
+        parts += [f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="3" fill="{color}"/>' for x, y in values]
+        parts.append(f'<text x="{width - right}" y="{top + 14 * i}" font-size="11" text-anchor="end" fill="{color}">{esc(name)}</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def chart_blocks(data, pts) -> list:
-    return []  # Task 8
+    blocks = []
+    fixed = [p for p in pts if p["mode"] == "fixed" and p["conc"] is not None and p.get("metrics")]
+    arms = list(dict.fromkeys(p["arm"] for p in fixed))
+
+    def series(path, suffix=""):
+        return {f"{a}{suffix}": [(p["conc"], get(p, *path)) for p in fixed
+                                 if p["arm"] == a and get(p, *path) is not None] for a in arms}
+
+    if len({p["conc"] for p in fixed}) >= 2:
+        blocks.append(("chart", line_chart("Output tok/s vs CCU", series(("metrics", "throughput", "output_tps")), "CCU", "tok/s")))
+        for name, key in (("TTFT", "ttft"), ("ITL", "itl")):
+            both = {**series(("metrics", key, "p50"), " p50"), **series(("metrics", key, "p99"), " p99")}
+            blocks.append(("chart", line_chart(f"{name} p50/p99 vs CCU", both, "CCU", "ms")))
+    for p in pts:
+        s = p.get("search")
+        if p["mode"] != "search" or not s or not s["sla_filters"]:
+            continue
+        f = next((f for f in s["sla_filters"] if sla_text(f) == s["binding"]), s["sla_filters"][0])
+        key = f"{f['metric_tag']}.{f['stat']}"
+        probe_series = {p["arm"]: [(pr["conc"], pr["observed"][key]) for pr in s["probes"]
+                                   if pr["conc"] is not None and pr["observed"].get(key) is not None]}
+        blocks.append(("chart", line_chart(f"{p['arm']}: {sla_text(f)} by probe CCU", probe_series, "CCU", "ms",
+                                           threshold=f["threshold"])))
+    return [b for b in blocks if b[1]]
 
 
 def build_blocks(data, charts: bool = False) -> list:
@@ -343,3 +420,47 @@ def to_markdown(blocks) -> str:
             out.append(f"<details><summary>{block[1]}</summary>\n\n{to_markdown(block[2]).rstrip()}\n\n</details>")
         # "chart" blocks are HTML-only
     return "\n\n".join(out) + "\n"
+
+
+def _inline(text: str) -> str:
+    if text.startswith("<!--"):
+        return text
+    out = html.escape(text)
+    out = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', out)
+    out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", out)
+
+
+def _td(text: str, tone: str | None) -> str:
+    return f'<td class="{tone}">{_inline(text)}</td>' if tone else f"<td>{_inline(text)}</td>"
+
+
+def _html_blocks(blocks) -> str:
+    out = []
+    for block in blocks:
+        kind = block[0]
+        if kind == "h":
+            out.append(f"<h{block[1]}>{_inline(block[2])}</h{block[1]}>")
+        elif kind == "p":
+            lines = block[1].split("\n")
+            if all(line.startswith("- ") for line in lines):
+                out.append("<ul>" + "".join(f"<li>{_inline(line[2:])}</li>" for line in lines) + "</ul>")
+            else:
+                out.append(f"<p>{'<br>'.join(_inline(line) for line in lines)}</p>")
+        elif kind == "table":
+            t = block[1]
+            head = "".join(f"<th>{html.escape(h)}</th>" for h in t.headers)
+            body = "".join("<tr>" + "".join(_td(text, tone) for text, tone in row) + "</tr>" for row in t.rows)
+            out.append(f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
+        elif kind == "code":
+            out.append(f"<pre><code>{html.escape(block[2])}</code></pre>")
+        elif kind == "details":
+            out.append(f"<details><summary>{_inline(block[1])}</summary>{_html_blocks(block[2])}</details>")
+        elif kind == "chart":
+            out.append(block[1])
+    return "\n".join(out)
+
+
+def to_html(blocks, title: str) -> str:
+    return (f'<!doctype html>\n<html><head><meta charset="utf-8"><title>{html.escape(title)}</title>'
+            f"<style>{CSS}</style></head><body>\n{_html_blocks(blocks)}\n</body></html>\n")

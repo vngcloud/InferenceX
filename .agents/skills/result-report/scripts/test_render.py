@@ -112,3 +112,27 @@ class ReportTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HtmlTest(unittest.TestCase):
+    def test_line_chart_has_series_and_threshold(self):
+        svg = render.line_chart("ITL", {"A": [(8, 40.0), (32, 55.0)]}, "CCU", "ms", threshold=50.0)
+        self.assertTrue(svg.startswith("<svg"))
+        self.assertIn("<polyline", svg)
+        self.assertIn('stroke-dasharray="4 3"', svg)
+        self.assertEqual(render.line_chart("x", {}, "a", "b"), "")
+
+    def test_html_report_has_tables_tones_and_probe_chart(self):
+        data = data_for("search_local")
+        page = render.to_html(render.build_blocks(data, charts=True), data["title"])
+        self.assertTrue(page.startswith("<!doctype html>"))
+        self.assertIn("<table>", page)
+        self.assertIn('class="good"', page)
+        self.assertIn("<svg", page)
+        self.assertIn("by probe CCU", page)
+
+    def test_fixed_ladder_gets_three_charts(self):
+        pts = [grid_point("A", "fixed-isl8k-osl1k-cache0", 8, 500.0, 900.0),
+               grid_point("A", "fixed-isl8k-osl1k-cache0", 32, 1500.0, 2500.0)]
+        blocks = render.chart_blocks(grid_data(pts, ["A"]), pts)
+        self.assertEqual(len(blocks), 3)
