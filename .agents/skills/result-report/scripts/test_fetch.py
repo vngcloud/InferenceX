@@ -82,6 +82,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     payloads: dict = {}
     ranges = True
     expired = False
+    full_after_probe = False  # answer 200 with the whole body to any Range request after the first probe
 
     def do_GET(self):
         if self.expired:
@@ -89,6 +90,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return
         body = self.payloads[self.path]
         match = re.match(r"bytes=(\d+)-(\d+)", self.headers.get("Range") or "")
+        if match and match[1] != "0" and self.full_after_probe:
+            match = None
         if not (self.ranges and match):
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
@@ -114,6 +117,7 @@ class RemoteTest(unittest.TestCase):
         self.big = os.urandom(2_000_000)
         _Handler.ranges = True
         _Handler.expired = False
+        _Handler.full_after_probe = False
         _Handler.payloads = {
             "/raw": _zip_bytes({"server.log": self.big, "aiperf_artifacts/profile_export_aiperf.json": b'{"x": 1}'}),
             "/agg": _zip_bytes({"RF.json": json.dumps({"infmax_model_prefix": "m", "conc": 8, "request_metrics": {}}).encode()}),
@@ -193,6 +197,48 @@ class RemoteTest(unittest.TestCase):
         again = fetch.ZipReader("o/r", {"id": 9, "name": "agentic_RF", "size_in_bytes": 1},
                                 Path(self.tmp.name) / "c", 100, url_for=lambda r, i: 1 / 0)
         self.assertEqual(again.size("server.log"), len(self.big))  # from the cache, no URL needed
+
+    def test_later_read_answered_with_200_is_range_unsupported(self):
+        rf = fetch.RangeFile(self.base + "/raw")
+        _Handler.full_after_probe = True
+        rf.seek(len(_Handler.payloads["/raw"]) - 100)
+        with self.assertRaises(OSError):
+            rf.read(10)
+
+    def test_killed_write_leaves_no_truncated_cache_entry(self):
+        art = {"id": 9, "name": "agentic_RF", "size_in_bytes": 1}
+        cache = Path(self.tmp.name) / "c"
+        reader = fetch.ZipReader("o/r", art, cache, 100, url_for=lambda r, i: self.base + "/raw")
+        member = "aiperf_artifacts/profile_export_aiperf.json"
+        real = Path.write_bytes
+
+        def dying(path, data):
+            real(path, data[:3])
+            raise KeyboardInterrupt
+
+        with mock.patch.object(Path, "write_bytes", dying), self.assertRaises(KeyboardInterrupt):
+            reader.read(member)
+        self.assertFalse((reader.cache / "files" / member).exists())
+        stale = reader.cache / "files" / (member + ".tmp")
+        self.assertEqual(reader.read(member), b'{"x": 1}')  # a leftover .tmp is not mistaken for a cache hit
+        self.assertFalse(stale.exists())
+        reader.close()
+
+    def test_killed_names_write_leaves_no_truncated_listing(self):
+        art = {"id": 9, "name": "agentic_RF", "size_in_bytes": 1}
+        cache = Path(self.tmp.name) / "c"
+        reader = fetch.ZipReader("o/r", art, cache, 100, url_for=lambda r, i: self.base + "/raw")
+        real = Path.write_text
+
+        def dying(path, data, *a, **k):
+            real(path, data[:3])
+            raise KeyboardInterrupt
+
+        with mock.patch.object(Path, "write_text", dying), self.assertRaises(KeyboardInterrupt):
+            reader.names()
+        self.assertFalse((reader.cache / "names.json").exists())
+        self.assertIn("server.log", reader.names())
+        reader.close()
 
     def test_old_list_format_names_cache_is_rebuilt_with_sizes(self):
         art = {"id": 9, "name": "agentic_RF", "size_in_bytes": 1}

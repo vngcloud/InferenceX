@@ -387,14 +387,18 @@ def build_point(cfg, max_member_mb: float = MAX_MEMBER_MB) -> dict:
     if validator is not None and errors is not None and validator - errors > max(10, errors):
         notes.append(f"validator dropped {validator} error records vs {errors} aiperf errors")
     point["metrics"], point["cache"] = metrics, cache
+    set_cache_check(point)
+    return point
+
+
+def set_cache_check(point: dict) -> None:
     if point["grid"]:
         nominal = point["grid"]["cache"] / 100
-        measured = cache["overall"] if cache else None
+        measured = point["cache"]["overall"] if point["cache"] else None
         point["cache_check"] = {"nominal": nominal, "measured": measured,
                                 "mismatch": None if measured is None else abs(measured - nominal) > 0.10}
     else:
         point["cache_check"] = None
-    return point
 
 
 SERVING_FIELDS = {"model": "model", "image": "image", "precision": "precision", "num_gpus": "gpus", "hw": "runner"}
@@ -404,7 +408,7 @@ def serving_identity(serving: str | None) -> dict:
     """Identity fields from top-level `key: value` lines of serving.yaml (no yaml parser needed)."""
     out: dict = {}
     for ident, key in SERVING_FIELDS.items():
-        found = re.search(rf"^{key}:[ \t]*(\S.*?)\s*$", COMMENT_RE.sub("", serving or ""), re.M)
+        found = re.search(rf"^{key}:[ \t]*(\S.*?)(?:[ \t]+#.*)?\s*$", COMMENT_RE.sub("", serving or ""), re.M)
         if found:
             value = found.group(1).strip("'\"")
             out[ident] = int(value) if ident == "num_gpus" and value.isdigit() else value
@@ -430,7 +434,6 @@ def arm_of(point: dict, cfg) -> tuple[str, str]:
 
 def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="",
                max_member_mb: float = MAX_MEMBER_MB) -> dict:
-    arms: dict[str, dict] = {}
     points = []
     built = []
     for cfg in configs:
@@ -475,6 +478,8 @@ def build_data(configs, notes, baseline=None, title=None, inputs=(), generated="
             seen = {p["scenario"] for p in points if p["arm"] == arms[key]["label"] and p["scenario"]}
             if len(seen) == 1:
                 point["scenario"] = next(iter(seen))
+                point["grid"] = parse_grid(point["scenario"])
+                set_cache_check(point)
     labels = [a["label"] for a in arms.values()]
     if baseline is not None and baseline not in labels:
         raise ValueError(f"--baseline {baseline!r} is not an arm; arms: {labels}")

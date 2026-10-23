@@ -41,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="largest compressed server_metrics_export.json read for a search winner's cache tiers")
     args = ap.parse_args(argv)
 
+    if args.findings and not args.findings.is_file():
+        print(f"ERROR --findings file not found: {args.findings}", file=sys.stderr)
+        return 2
     try:
         sources = [fetch.parse_source(a, args.repo) for a in args.inputs]
     except ValueError as err:
@@ -72,6 +75,9 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 3
     except FileNotFoundError as err:
+        if err.filename != "gh":  # an input file vanished mid-run, not a missing gh
+            print(f"ERROR {err}", file=sys.stderr)
+            return 2
         print(f"ERROR {err}: the gh CLI is required for run links (install it and run `gh auth login`)",
               file=sys.stderr)
         return 4

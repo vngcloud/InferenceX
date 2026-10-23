@@ -187,6 +187,21 @@ class ServingFallbackTest(unittest.TestCase):
         tps = data["points"][0]["metrics"]["throughput"]
         self.assertEqual(tps["output_tps_per_gpu"], tps["output_tps"])
 
+    def test_inline_yaml_comments_are_stripped(self):
+        got = extract.serving_identity("gpus: 8  # eight\nimage: a/b:1 # pinned\nmodel: org/m#frag\n")
+        self.assertEqual((got["num_gpus"], got["image"], got["model"]), (8, "a/b:1", "org/m#frag"))
+
+    def test_merged_aggregate_only_point_gets_grid_and_cache_check(self):
+        with tempfile.TemporaryDirectory() as root:
+            full = ArmsTest._dir_cfg(None, root, "a", "fixed-isl8k-osl1k-cache50", 8)
+            only = fetch.Config(rf="b", source=full.source, files=None,
+                                agg={"infmax_model_prefix": "m", "conc": 16, "request_metrics": {}})
+            data = extract.build_data([full, only], [])
+        merged = next(p for p in data["points"] if p["conc"] == 16)
+        self.assertEqual(merged["scenario"], "fixed-isl8k-osl1k-cache50")
+        self.assertEqual(merged["grid"]["cache"], 50)
+        self.assertEqual(merged["cache_check"]["nominal"], 0.5)
+
     def test_aggregate_values_win(self):
         p = extract.build_data([_cfg("gh_fixed")], [])["arms"][0]["identity"]
         self.assertEqual(p["model"], _cfg("gh_fixed").agg["model"])

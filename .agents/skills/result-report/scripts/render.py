@@ -167,7 +167,7 @@ def latency_tables(data, pts) -> list:
     blocks = []
     for title, key in LATENCY:
         dup = _dup_conc(pts)
-        headers = ["Arm", *(["Config"] if dup else []), "CCU", *PCTS] + (["Out tok/s/user", "Errors"] if key == "e2e" else [])
+        headers = ["Arm", *(["Config"] if dup else []), "CCU", *PCTS] + (["Out tok/s/user", "Error %"] if key == "e2e" else [])
         rows = []
         for p in pts:
             b = _base(data, pts, p)
@@ -236,8 +236,8 @@ def search_matrix(data) -> list:
                 if s["state"] == "no_pass_in_range":
                     texts.append("✗")
                     continue
-                text = f"{s['max_conc']}{'*' if s['state'] == 'cliff' else ''} · {num(get(p, 'metrics', 'throughput', 'output_tps'))}"
-                if base is not None and p is not base and get(base, "search", "max_conc"):
+                text = f"{DASH if s['max_conc'] is None else s['max_conc']}{'*' if s['state'] == 'cliff' else ''} · {num(get(p, 'metrics', 'throughput', 'output_tps'))}"
+                if base is not None and p is not base and s["max_conc"] is not None and get(base, "search", "max_conc"):
                     suffix, tone = _delta(s["max_conc"], base["search"]["max_conc"], True)
                     text += suffix
                 texts.append(text)

@@ -96,5 +96,23 @@ class FetchedBytesTest(unittest.TestCase):
             self.assertFalse((Path(tmp) / ".cache").exists())
 
 
+class ErrorPathsTest(unittest.TestCase):
+    def test_missing_findings_file_is_a_clean_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = run(FIX / "gh_fixed", "--out", tmp, "--findings", Path(tmp) / "nope.md")
+        self.assertEqual(code, 2)
+        self.assertIn("ERROR", out)
+        self.assertNotIn("Traceback", out)
+
+    def test_missing_gh_is_exit_4_but_vanished_input_file_is_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(result_report.fetch, "discover", side_effect=FileNotFoundError(2, "No such file", "gh")):
+                self.assertEqual(run(FIX / "gh_fixed", "--out", tmp)[0], 4)
+            with mock.patch.object(result_report.fetch, "discover", side_effect=FileNotFoundError(2, "No such file", "/x/y.json")):
+                code, out = run(FIX / "gh_fixed", "--out", tmp)
+        self.assertEqual(code, 2)
+        self.assertNotIn("gh CLI", out)
+
+
 if __name__ == "__main__":
     unittest.main()

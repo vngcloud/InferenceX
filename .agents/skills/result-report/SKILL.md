@@ -89,7 +89,7 @@ If the process is killed, nothing is written to `<out>` except `.cache/`; re-run
 ## Reading the tables
 
 - Latency is ms; columns avg/p50/p90/p95/p99. `—` means the value does not exist, never zero.
-- Rows built from the aggregate JSON only (no aiperf export) have no p99, no Out tok/s/user and no Errors (`—`); Notes says so.
+- Rows built from the aggregate JSON only (no aiperf export) have no p99, no Out tok/s/user and no Error % (`—`); Notes says so.
 - Cache columns: overall, GPU (HBM), CPU (DRAM), external (L3), router. "Cached tokens by tier" uses engine tier names: `device` = GPU HBM (SGLang naming), `host` = CPU DRAM, `storage*` = external L3. Columns empty for every row are hidden.
   vLLM cannot split CPU from L3: its offload hits show as external.
 - Grid tables compare the nominal cache % in the scenario name against the measured **overall** hit; `⚠` when they differ by more than 10 points.

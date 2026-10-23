@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -200,6 +201,8 @@ class RangeFile(io.RawIOBase):
             end = min(self.pos + max(n, MIN_FETCH), self.size) - 1
             req = urllib.request.Request(self.url, headers={"Range": f"bytes={self.pos}-{end}"})
             with urllib.request.urlopen(req) as resp:
+                if resp.status != 206:  # a 200 carries the whole body, not our slice
+                    raise OSError(f"server ignored Range (HTTP {resp.status})")
                 self._buf = resp.read()
             self._start = self.pos
             self.fetched += len(self._buf)
@@ -251,6 +254,13 @@ def blob_url(repo: str, artifact_id: int) -> str:
     raise OSError(f"artifact {artifact_id}: expected a redirect to the zip blob")
 
 
+def _atomic_write(path: Path, data: bytes | str) -> None:
+    """Write via <name>.tmp + os.replace so a killed run never leaves a truncated cache entry."""
+    tmp = path.with_name(path.name + ".tmp")
+    (tmp.write_bytes if isinstance(data, bytes) else tmp.write_text)(data)
+    os.replace(tmp, path)
+
+
 class ZipReader:
     """Members of one remote artifact zip, each cached under cache_dir/<artifact id>/."""
 
@@ -300,7 +310,7 @@ class ZipReader:
         else:
             sizes = {n: backend.size(n) for n in backend.names()}
         listing.parent.mkdir(parents=True, exist_ok=True)
-        listing.write_text(json.dumps(sizes))
+        _atomic_write(listing, json.dumps(sizes))
         return sizes
 
     def names(self) -> list[str]:
@@ -324,9 +334,14 @@ class ZipReader:
             data = self._backend().read(rel)
         except OSError:  # the short-lived blob URL expired: re-resolve once and retry
             self.close()
-            data = self._backend().read(rel)
+            try:
+                data = self._backend().read(rel)
+            except OSError as err:  # Range really does not work: whole zip, if within budget
+                self.close()
+                self._dir = DirReader(self._download_full(err))
+                data = self._dir.read(rel)
         cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_bytes(data)
+        _atomic_write(cached, data)
         return data
 
     def close(self) -> None:

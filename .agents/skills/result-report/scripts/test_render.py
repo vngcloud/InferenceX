@@ -192,3 +192,15 @@ class FixRound1RenderTest(unittest.TestCase):
         self.assertIn("cfg0", cell)
         self.assertNotIn("cfg20", cell)
         self.assertIn("(+", cell)
+
+    def test_search_matrix_dash_when_non_baseline_has_no_max_conc(self):
+        a = grid_point("a", "sweep-isl8k-osl1k-cache0", 60, 1.0, 1.0, state="ok")
+        b = grid_point("b", "sweep-isl8k-osl1k-cache0", 60, 1.0, 1.0, state="ok")
+        b["search"]["max_conc"] = None
+        md = render.to_markdown(render.build_blocks(grid_data([a, b], ["a", "b"])))
+        self.assertIn("60 · 1.00 / —", md)
+
+    def test_error_percent_header(self):
+        md = render.to_markdown(render.build_blocks(self._two_configs()))
+        self.assertIn("Error %", md)
+        self.assertNotIn("| Errors", md)
