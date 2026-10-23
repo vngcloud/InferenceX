@@ -1,7 +1,7 @@
 """Open-loop LiveKit trace: calls arrive by the clock, not when a lane frees up.
 
     python utils/serving/livekit_openloop.py <trace.jsonl> <out.jsonl> <openloop.json> --ccu N
-        [--call-duration-s 127] [--duration-s T | --scenario scenarios/<name>.yaml] [--ramp-s 180] [--tail-s 300]
+        [--call-duration-s 127] [--duration-s T | --scenario scenarios/<name>.yaml] [--ramp-s 120] [--tail-s 60]
         [--seed 42]
 
 The lane replay (custom-agentic-livekit111868-*) starts a lane's next call the moment its previous one ends, and
@@ -87,8 +87,8 @@ def main(argv: list[str]) -> int:
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--duration-s", type=float, help="whole profiling phase: ramp + scored + tail")
     group.add_argument("--scenario", help="read the profiling phase duration from this scenario YAML")
-    ap.add_argument("--ramp-s", type=float, default=180.0)
-    ap.add_argument("--tail-s", type=float, default=300.0)
+    ap.add_argument("--ramp-s", type=float, default=120.0)
+    ap.add_argument("--tail-s", type=float, default=60.0)
     ap.add_argument("--seed", type=int, default=42)
     a = ap.parse_args(argv)
 

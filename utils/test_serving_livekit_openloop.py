@@ -86,7 +86,7 @@ def test_duration_from_the_scenario(tmp_path):
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     side = json.loads((tmp_path / "o.json").read_text())
-    assert (side["duration_s"], side["ramp_s"], side["tail_s"], side["call_duration_s"]) == (2280, 180, 300, 127)
+    assert (side["duration_s"], side["ramp_s"], side["tail_s"], side["call_duration_s"]) == (1980, 120, 60, 127)
 
 
 def test_no_scored_window_is_an_error(tmp_path):

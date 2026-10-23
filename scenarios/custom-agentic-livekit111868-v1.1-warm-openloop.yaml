@@ -2,7 +2,7 @@
 # with >= 4 real requests, a dial warm-up row before each room's first turn; HF README) with calls arriving by the clock instead of when a lane frees up, so every server receives the same calls per hour
 # at the same concurrency. conc = target mean concurrent calls. Before aiperf runs, serve_generic.sh rewrites the
 # trace with utils/serving/livekit_openloop.py: calls open as a seeded Poisson process at conc / 127 s per second
-# (127 s = the trace's mean call length at production reply speed), 180 s linear ramp, arrivals stop 300 s before
+# (127 s = the trace's mean call length at production reply speed), 120 s linear ramp, arrivals stop 60 s before
 # the end so the last scored calls can finish. Inside a call each request keeps its logged gap after the previous
 # reply ends. Override with serving-YAML env: IX_OPENLOOP_CALL_DURATION_S, IX_OPENLOOP_RAMP_S, IX_OPENLOOP_TAIL_S,
 # IX_OPENLOOP_SEED. Score with utils/serving/livekit_ttft.py: it keeps the calls opened in [ramp, duration - tail)
@@ -31,8 +31,8 @@ benchmark:
     kind: profiling
     type: fixed_schedule
     autoOffset: true
-    # 180 s ramp + 1800 s scored + 300 s tail. Hard stop: requests of calls still running then are not sent.
-    duration: 2280.0
+    # 120 s ramp + 1800 s scored + 60 s tail. Hard stop: requests of calls still running then are not sent.
+    duration: 1980.0
     gracePeriod: 30.0
     failedRequestThreshold: 0.1
   artifacts:
