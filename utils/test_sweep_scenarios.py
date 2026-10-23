@@ -9,7 +9,9 @@ from __future__ import annotations
 import yaml
 
 from utils.serving.gen_sweep_scenarios import (
+    FIXED_HEADER,
     GRID_CACHE,
+    SCENARIOS_DIR,
     _scenario_text,
     build_scenario,
     grid,
@@ -100,3 +102,28 @@ def test_rendered_template_matches_dict_builder_for_all_24_points() -> None:
     """main() writes from _scenario_text(), not build_scenario(); guard against drift."""
     for il, isl, ol, osl, cache in grid():
         assert yaml.safe_load(_scenario_text(isl, osl, cache)) == build_scenario(isl, osl, cache)
+
+
+def test_fixed_name() -> None:
+    assert scenario_name("8k", "1k", 50, kind="fixed") == "fixed-isl8k-osl1k-cache50"
+
+
+def test_fixed_twin_has_no_sweep_block_and_same_workload() -> None:
+    for il, isl, ol, osl, cache in grid():
+        fixed = build_scenario(isl, osl, cache, search=False)
+        assert "sweep" not in fixed
+        assert fixed["benchmark"] == build_scenario(isl, osl, cache)["benchmark"]
+        assert yaml.safe_load(_scenario_text(isl, osl, cache, search=False)) == fixed
+
+
+def test_fixed_files_on_disk_match_generator() -> None:
+    for il, isl, ol, osl, cache in grid():
+        path = SCENARIOS_DIR / f"{scenario_name(il, ol, cache, kind='fixed')}.yaml"
+        assert path.read_text() == FIXED_HEADER + _scenario_text(isl, osl, cache, search=False)
+
+
+def test_fixed_scenario_is_not_a_search() -> None:
+    from infx.serving.to_matrix import is_sweep
+
+    assert not is_sweep("fixed-isl8k-osl1k-cache50")
+    assert is_sweep("sweep-isl8k-osl1k-cache50")
