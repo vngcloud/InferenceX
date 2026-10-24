@@ -1,0 +1,49 @@
+# A/B arm of gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-v11 (run 39587349420, c150/c200): identical config (engine
+# flags, env, prefill-graph shim, router, scenario, concs, runner) except the engine image, which adds ngoctg2's SM90
+# FP8 head_dim-512 attention kernels (fa4_fp8mma) and their FA backend route. The route turns
+# on by itself for fp8_e4m3 KV + page size 64 + no speculative decoding, so Gemma-4's head_dim-512 global layers run
+# fa4_fp8mma (FP8 WGMMA prefill/mixed, swapAB decode) instead of FA4's in-kernel FP8->BF16 cast; the FA3 sliding
+# layers are unchanged. Image: the base arm's sqsh (sha256 fdaeb87c...) + the kernels and route, node-local
+# on hgx-h200-02. The router keeps the base arm's image.
+name: gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-fa4fp8mma-v11
+runner: hardware-hcm-8x_02
+image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-fa4fp8mma-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+host_cpus: 64
+host_mem_gb: 192
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+  PYTHONPATH: /workspace/runners/sglang_gemma4_bcg
+serve: |
+  python3 -m dynamo.sglang
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [150, 200]
