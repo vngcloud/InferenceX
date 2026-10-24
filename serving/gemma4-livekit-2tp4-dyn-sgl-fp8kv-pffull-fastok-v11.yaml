@@ -1,0 +1,54 @@
+# Arm of gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-fastok-v11 (run 39981558321): prefill CUDA graph breakable -> full,
+# PYTHONPATH runners/sglang_gemma4_bcg -> runners/sglang_gemma4_bcg_fix. Full captures the whole layer body incl.
+# attention per num_tokens bucket (breakable runs attention eager between graph segments). Gemma4 needs the fix:
+# Gemma4ForConditionalGeneration.forward does `positions += 1` in place, which the Full tail never sees (prefill KV
+# one position off from decode); the fix hands it the static positions slot (and keeps the input_embeds change).
+# Slurm job 6038 (TP4, these engine flags, image ngoctg2 v0.5.22 + the fix): greedy text vs breakable 76/80 identical
+# (eager vs breakable 74/80; divergence only in free-form continuations, from token 13+), needle 1k-48k 16/16,
+# images 1-4 per request correct as eager, 0 errors at 32 CCU; TTFT p50 text 46 vs 60 ms, 1 image 120 vs 138 ms.
+# Probe 5730 (1 CCU): append 2k/8k/18k 18/20/39 ms vs breakable 26/35/49 ms. Not combined with --enable-mixed-chunk:
+# there 47 of ~930 prefill batches fell back to eager (more requests than the Full graph's slots).
+name: gemma4-livekit-2tp4-dyn-sgl-fp8kv-pffull-fastok-v11
+runner: hardware-hcm-8x_02
+image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+host_cpus: 64
+host_mem_gb: 192
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+  PYTHONPATH: /workspace/runners/sglang_gemma4_bcg_fix
+serve: |
+  python3 -m dynamo.sglang
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill full
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+    FASTOKENS_BPE_THREADS: "4"
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+    --tokenizer fastokens
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [150, 200]
