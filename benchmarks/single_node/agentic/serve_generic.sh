@@ -66,6 +66,10 @@ else
         *) echo "ERROR: cannot tell whether $SERVING_LOADER is a lock-pinned dataset (exit $custom_rc)" >&2; exit 1 ;;
     esac
 fi
+# open-loop scenarios replay the fetched trace with calls arriving by the clock (benchmark_lib.sh openloop_trace)
+if [[ "$SERVING_SCENARIO" == *-openloop ]]; then
+    openloop_trace "$RESULT_DIR"
+fi
 # the user's env may set HF_HUB_OFFLINE=1 for the engine; the pre-download must reach the Hub
 HF_HUB_OFFLINE= TRANSFORMERS_OFFLINE= HF_DATASETS_OFFLINE= "$AIPERF_HF_CLI" download "$MODEL"
 

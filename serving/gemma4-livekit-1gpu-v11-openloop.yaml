@@ -1,0 +1,30 @@
+# gemma4-livekit-1gpu-v1 (Gemma-4-31B FP8-block, prod vLLM flags minus MTP, 1 GPU) on the open-loop V1.1-warm
+# scenario: calls arrive by the clock, so a faster server gets the same calls per hour instead of more (scenario
+# header). Score each conc with: python utils/serving/livekit_ttft.py <run artifacts> (window from openloop.json).
+name: gemma4-livekit-1gpu-v11-openloop
+runner: hardware-hcm-8x_02
+image: vllm/vllm-openai:v0.25.1
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 1
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 16384
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 8192
+  --kv-cache-metrics
+  --enable-prompt-tokens-details
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm-openloop
+# target mean concurrent calls (calls arrive by the clock at conc / 127 s per second)
+conc: [8, 16, 32]
