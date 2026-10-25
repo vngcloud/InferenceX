@@ -1,0 +1,49 @@
+# Arm of gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-fa4fp8mma-fastok-v11 (run 40102908092): chunk 4096 -> 8192.
+# c250 misses the SLO by 42 ms (TTFT p95 542 ms); long uncached turns need half as many extend steps with 8192,
+# at the cost of longer decode stalls per extend step (ITL).
+# The breakable prefill graph captures up to max_bs tokens (4096 in that run, = chunk), so max_bs is raised to 8192.
+name: gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-fa4fp8mma-fastok-chunk8k-v11
+runner: hardware-hcm-8x_02
+image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-fa4fp8mma-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+host_cpus: 64
+host_mem_gb: 192
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+  PYTHONPATH: /workspace/runners/sglang_gemma4_bcg
+serve: |
+  python3 -m dynamo.sglang
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 8192
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --cuda-graph-max-bs-prefill 8192
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: /data/ngoctg2-enroot/images/sglang-v0.5.22-gemma4-fp8kv-amd64.sqsh
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+    FASTOKENS_BPE_THREADS: "4"
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+    --tokenizer fastokens
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [200, 250]
