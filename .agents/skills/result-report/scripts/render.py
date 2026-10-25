@@ -59,8 +59,14 @@ def _delta(value: float, base: float, higher_better: bool) -> tuple[str, str | N
     return f" ({d:+.1f}%)", tone
 
 
-def cell(value, base, fmt, higher_better) -> tuple[str, str | None]:
+def cell(value, base, fmt, higher_better, pp=None) -> tuple[str, str | None]:
+    """pp=(scale, min_pp): the metric is already a rate, so the delta is absolute percentage points."""
     text = fmt(value)
+    if pp and value is not None and base is not None:
+        d = (value - base) * pp[0]
+        if abs(d) < pp[1]:
+            return text, None
+        return f"{text} ({d:+.2f} pp)", "good" if (d > 0) == higher_better else "bad"
     if value is None or base is None or base == 0:
         return text, None
     suffix, tone = _delta(value, base, higher_better)
@@ -149,7 +155,7 @@ def throughput_table(data, pts) -> list:
         row = _lead(data, p, dup)
         row += [cell(get(p, "metrics", "throughput", *k), get(b, "metrics", "throughput", *k), num, True)
                 for _, k in THROUGHPUT]
-        row += [cell(get(p, "cache", k), get(b, "cache", k), pct, True) for _, k in CACHE]
+        row += [cell(get(p, "cache", k), get(b, "cache", k), pct, True, pp=(100, 1.0)) for _, k in CACHE]
         if get(p, "cache", "source") == "client":
             text, tone = row[lead + len(THROUGHPUT)]
             row[lead + len(THROUGHPUT)] = (text + " (client)", tone)
@@ -175,7 +181,7 @@ def latency_tables(data, pts) -> list:
             row += [cell(get(p, "metrics", key, s), get(b, "metrics", key, s), num, False) for s in PCTS]
             if key == "e2e":
                 row.append(cell(get(p, "metrics", "tps_per_user"), get(b, "metrics", "tps_per_user"), num, True))
-                row.append(cell(get(p, "metrics", "error_rate_pct"), get(b, "metrics", "error_rate_pct"), err_pct, False))
+                row.append(cell(get(p, "metrics", "error_rate_pct"), get(b, "metrics", "error_rate_pct"), err_pct, False, pp=(1, 0.1)))
             rows.append(row)
         blocks += [("h", 3, f"{title} (ms)"), ("table", Table(headers, rows))]
     warnings = [f"⚠ {p['arm']} c{p['conc']}: {n}" for p in pts for n in p["notes"] if n.startswith("validator dropped")]

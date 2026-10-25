@@ -49,6 +49,9 @@ Inputs are grouped automatically:
 Same arm + many scenarios → a grid summary. Several arms + the same scenario + CCU → deltas: every
 non-baseline cell shows `value (Δ%)` against the baseline arm (first arm, or `--baseline <label>`; marked
 `(baseline)` only where it ran). Arms on different scenarios get separate scenario blocks, no deltas.
+Cache-hit and Error % deltas are absolute percentage points (`20.0% (+19.95 pp)`, shown when ≥ 1 pp for cache, ≥ 0.1 pp for errors); other metrics use relative Δ%.
+The `(baseline)` marker is on the baseline arm's rows in the Runs table and every per-scenario table (throughput, TTFT, ITL, E2E), not in the matrices.
+Arm labels are the `serving.yaml` `name` with trailing `_c<N>` / `_search` / `-<sweep|fixed>-isl*-osl*-cache*` stripped (other suffixes stay, e.g. `-armB`); the full config is in each arm's `config` in `data.json`.
 Matrix cells: `—` = scenario not run by that arm, `✗` = infeasible / no CCU passed, `*` = cliff / boundary estimate.
 
 Folder layout: aggregate-only folders work (aggregate JSON under `bmk_agentic_*` or `results_bmk/agg_bmk.json`);

@@ -48,6 +48,26 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(render.cell(110.0, None, render.num, True), ("110", None))
 
 
+class PointDeltaTest(unittest.TestCase):
+    def test_cache_hit_delta_is_absolute_percentage_points(self):
+        self.assertEqual(render.cell(0.20, 0.0005, render.pct, True, pp=(100, 1.0)), ("20.0% (+19.95 pp)", "good"))
+        self.assertEqual(render.cell(0.0005, 0.20, render.pct, True, pp=(100, 1.0)), ("0.1% (-19.95 pp)", "bad"))
+
+    def test_small_or_missing_pp_delta_is_hidden(self):
+        self.assertEqual(render.cell(0.205, 0.20, render.pct, True, pp=(100, 1.0)), ("20.5%", None))
+        self.assertEqual(render.cell(0.2, None, render.pct, True, pp=(100, 1.0)), ("20.0%", None))
+
+    def test_error_rate_delta_in_pp_up_is_bad(self):
+        self.assertEqual(render.cell(1.5, 0.2, render.err_pct, False, pp=(1, 0.1)), ("1.50% (+1.30 pp)", "bad"))
+        self.assertEqual(render.cell(0.2, 1.5, render.err_pct, False, pp=(1, 0.1)), ("0.20% (-1.30 pp)", "good"))
+
+    def test_report_cache_cells_use_pp(self):
+        a = grid_point("a", "fixed-isl8k-osl1k-cache0", 8, 1.0, 1.0, measured=0.0005)
+        b = grid_point("b", "fixed-isl8k-osl1k-cache0", 8, 1.0, 1.0, measured=0.20)
+        md = render.to_markdown(render.build_blocks(grid_data([a, b], ["a", "b"])))
+        self.assertIn("20.0% (+19.95 pp)", md)
+
+
 class ReportTest(unittest.TestCase):
     def test_fixed_report_hides_empty_cache_columns(self):
         md = render.to_markdown(render.build_blocks(data_for("gh_fixed")))
