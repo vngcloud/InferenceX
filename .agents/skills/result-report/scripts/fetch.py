@@ -241,7 +241,7 @@ def blob_url(repo: str, artifact_id: int) -> str:
     """The short-lived blob URL the artifact zip endpoint redirects to (it supports Range)."""
     token = _gh("auth", "token").strip()
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip",
+        f"{os.environ.get('GITHUB_API_URL', 'https://api.github.com')}/repos/{repo}/actions/artifacts/{artifact_id}/zip",
         headers={"Authorization": f"Bearer {token}"},
     )
     try:
