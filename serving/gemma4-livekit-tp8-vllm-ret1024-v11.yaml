@@ -1,0 +1,29 @@
+# Same-dataset baseline for the LiveKit 111868 sizing report: the 10-18 "1 node = 48 CCU" config
+# (vLLM v0.30.0, 1 engine TP8, retention 1024, mbt 16384, no --long-prefill-token-threshold; run 39129621745
+# on V1) replayed on V1.1-warm, the dataset every later arm used. No router, no Dynamo.
+# Engine flags = "non-default args" of that run's server.log; env as in its sibling 2rep/tp8 YAMLs.
+name: gemma4-livekit-tp8-vllm-ret1024-v11
+runner: hardware-hcm-8x_02
+image: vllm/vllm-openai:v0.30.0
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  vllm serve RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 8
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 16384
+  --enable-chunked-prefill
+  --prefix-cache-retention-interval 1024
+  --kv-cache-metrics
+  --enable-prompt-tokens-details
+  --enable-auto-tool-choice
+  --tool-call-parser gemma4
+  --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [16, 32, 48, 64]
