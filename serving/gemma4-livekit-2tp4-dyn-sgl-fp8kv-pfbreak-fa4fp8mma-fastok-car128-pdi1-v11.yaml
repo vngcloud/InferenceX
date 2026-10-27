@@ -49,4 +49,4 @@ router:
     --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
     --tokenizer fastokens
 scenario: custom-agentic-livekit111868-v1.1-warm
-conc: [200, 250]
+conc: [150, 200]
