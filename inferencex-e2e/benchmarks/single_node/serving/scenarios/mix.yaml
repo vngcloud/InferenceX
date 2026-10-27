@@ -7,8 +7,10 @@
 #   and marks the run as not submission-valid, which is fine for an internal run.
 # - blockSize 64: mix.py names one hash id per 64-token page (aiperf's default is 512); the tail
 #   past the last whole page is fresh tokens, aiperf's "prefix only" layout.
-# - duration is the safety stop, not the length: the schedule ends at 3600 s. A smaller duration
-#   (overrides) cuts the replay there.
+# - duration = the trace's length (3600 s): the scenario lock fails the run when TTFT/ITL cover less
+#   than 95% of it, so a longer safety margin fails a run that served every request (run 40465657027,
+#   3900 s: 92.3%). Requests still in flight at the end finish within gracePeriod. A smaller duration
+#   (overrides) cuts the replay there; a longer trace is cut at 3600 s.
 # - No warmup and no trajectory start: rows are single requests with no session_id.
 schemaVersion: "2.0"
 benchmark:
@@ -32,7 +34,7 @@ benchmark:
     kind: profiling
     type: fixed_schedule
     autoOffset: true
-    duration: 3900.0
+    duration: 3600.0
     gracePeriod: 300.0
     failedRequestThreshold: 0.1
   artifacts:
