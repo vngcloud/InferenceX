@@ -1,9 +1,9 @@
-# Pattern: open-loop mixed traffic, H200 twin of qwen3-8b-mix-enterprise-rtx.yaml (the RTX runners have no
-# git yet). Qwen3-8B on one H200, SGLang HiCache L1 (GPU) + L2 (80 GB host RAM), no L3, under the enterprise
-# mix at 12000 prompt tok/s replayed at its own times for 1 h. conc only caps requests in flight; the
-# trace's timestamps set the pace. YaRN x4 for the trace's longest prompts (108k).
+# Pattern: open-loop mixed traffic. Qwen3-8B on one H200, SGLang HiCache L1 (GPU) + L2 (80 GB host RAM),
+# no L3, under the enterprise mix at 12000 prompt tok/s replayed at its own times for 1 h. conc only caps
+# requests in flight; the trace's timestamps set the pace. YaRN x4 for the trace's longest prompts (108k).
+# Passed on hgx-h200-01: run 40478619956 (1 h), run 40510497105 (180 s smoke).
 name: qwen3-8b-mix-enterprise-h200
-runner: cluster:hcm-hgx02
+runner: cluster:hcm-hgx01
 image: lmsysorg/sglang:v0.5.22
 model: Qwen/Qwen3-8B
 gpus: 1
