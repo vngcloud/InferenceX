@@ -60,3 +60,46 @@ jobs:
             scenario-type: agentic-coding
             duration: ${{ matrix.config.duration }}
             test-name: ${{ inputs.test-name }}
+
+    # One report over every point of the run (.agents/skills/result-report), on the run's summary
+    # page; report.html is a separate artifact that opens without unzipping.
+    report:
+        needs: [plan, bench]
+        if: ${{ always() && needs.plan.result == 'success' }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            actions: read
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .agents/skills/result-report
+            - name: Render report
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  TITLE: ${{ inputs.test-name }}
+              run: |
+                  python3 .agents/skills/result-report/scripts/result_report.py "$GITHUB_RUN_ID" \
+                    --repo "$GITHUB_REPOSITORY" --title "$TITLE" --html --out report 2>&1 \
+                    | grep -v '^fetching' || true
+                  rm -rf report/.cache
+                  if [ -f report/report.md ]; then
+                      cat report/report.md >> "$GITHUB_STEP_SUMMARY"
+                  else
+                      echo "No report: no point produced a result (see the bench jobs)." >> "$GITHUB_STEP_SUMMARY"
+                  fi
+            - name: Upload report.html
+              if: ${{ hashFiles('report/report.html') != '' }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  path: report/report.html
+                  archive: false
+            - name: Upload report data
+              if: ${{ hashFiles('report/data.json') != '' }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: report
+                  path: |
+                      report/report.md
+                      report/data.json
