@@ -433,8 +433,10 @@ def _minute(t_s: float) -> str:
 
 
 def _mermaid_line(title: str, y_label: str, xs: list[str], ys: list[float]) -> str:
-    return (f'xychart-beta\n  title "{title}"\n  x-axis "minute" [{", ".join(xs)}]\n'
-            f'  y-axis "{y_label}"\n  line [{", ".join(f"{y:.1f}" for y in ys)}]')
+    # y from 0: Mermaid's auto range turns a 9% change into a full-height climb
+    top = max(ys) * 1.1 or 1.0
+    return (f'xychart-beta\n  title "{title}"\n  x-axis "minute (slice start)" [{", ".join(xs)}]\n'
+            f'  y-axis "{y_label}" 0 --> {top:.1f}\n  line [{", ".join(f"{y:.1f}" for y in ys)}]')
 
 
 def timeline_blocks(data, pts, charts: bool) -> list:
@@ -464,7 +466,7 @@ def timeline_blocks(data, pts, charts: bool) -> list:
             series = {f"{p['arm']} c{_conc(p)}": [(s["t_s"] / 60, get(s, *path) * scale)
                                                   for s in p["timeline"]["slices"] if get(s, *path) is not None]
                       for p in timed}
-            blocks.append(("chart", line_chart(f"{title} over time", series, "minute", unit)))
+            blocks.append(("chart", line_chart(f"{title} over time", series, "minute (slice start)", unit)))
     return [b for b in blocks if b[0] != "chart" or b[1]]
 
 
