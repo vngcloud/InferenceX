@@ -120,7 +120,7 @@ flowchart LR
 | Router / KV storage | recipe-defined | any image + command as `--overlap` sidecar steps |
 | Node use | often `--exclusive`; srtctl uses fixed port bases | GPUs, 16 CPU/GPU and a memory share per GPU; every port picked free at run time |
 | Clusters | workspace on Lustre or rsynced to the compute node | one cluster record per node; runner, HF cache and squash files on that node's disk |
-| Scenarios | upstream AgentX configs | six base files + validated overrides, synthetic grid, SLO search |
+| Scenarios | upstream AgentX configs | seven base files + validated overrides, synthetic grid, SLO search |
 | Harness, aiperf, result format | `agentx-harness`, `infx.results` | same |
 | Artifacts | `bmk_agentic_*`, `agentic_*` | same names; aggregate `scenario` holds the legacy label |
 
@@ -138,7 +138,7 @@ lists every one of them.
 | `benchmarks/single_node/serving/datasets/lock.yaml` | pinned file datasets, with `entries` |
 | `infx/serving/datasets.py` | read the lock, fetch and sha256-check one dataset |
 | `infx/serving/slo.py` | parse `metric:stat:op:threshold;...` |
-| `benchmarks/single_node/serving/scenarios/*.yaml` | the six base AIPerf configs |
+| `benchmarks/single_node/serving/scenarios/*.yaml` | the seven base AIPerf configs |
 | `infx/serving/scenarios.py` | base + overrides / grid point / search / slo → final config and legacy label |
 | `configs/runners.yaml` (VNG block) | VNG runner labels and cluster records |
 | `infx/serving/schema.py`, `render.py` | serving YAML model and validation; command rendering |
@@ -212,7 +212,7 @@ that several nodes need belong in a registry, where every node caches its own sq
 
 ## 6. Scenarios
 
-Six base files in `benchmarks/single_node/serving/scenarios/`:
+Seven base files in `benchmarks/single_node/serving/scenarios/`:
 
 | Family | Workload | Dataset |
 |---|---|---|
@@ -221,10 +221,12 @@ Six base files in `benchmarks/single_node/serving/scenarios/`:
 | `livekit` | voice-agent sessions | pinned file, Mooncake trace format |
 | `shared-prefix-e2` | requests sharing long prefixes | pinned file, Mooncake trace format |
 | `hidden-prefix-e3` | prefixes reused without being visible to the router | pinned file, Mooncake trace format |
+| `mix` | realistic mixed traffic, open loop at the trace's own times (`fixed_schedule`) | pinned file in this repo, Mooncake trace format, 64-token pages |
 | `synthetic` | generated ISL/OSL with a shared-prefix share | synthetic |
 
 Pinned files are listed in `benchmarks/single_node/serving/datasets/lock.yaml` with their URL and
-sha256; the client downloads and checks them before the run.
+sha256 (or, for small files kept in this repo, a `path` under `datasets/files/`); the client
+downloads and checks them before the run.
 
 A serving YAML picks a family and may set `overrides`. The keys allowed are `duration`, `dataset`
 (same kind only: public to public, lock to lock), `max_context_length` (`null` removes the cap),
@@ -287,7 +289,9 @@ of section 6 (`agentx-cc-062126-smoke`,
 `sweep-isl8k-osl1k-cache50`, ...). Search points carry a `state`: `ok`, `cliff`,
 `no_pass_in_range`, `no_failure_in_range`, `max_iterations` or `no_data`.
 
-`.agents/skills/result-report` turns run links into `report.md` / `data.json`. It reads the
+`.agents/skills/result-report` turns run links into `report.md` / `data.json`. The workflow's
+`report` job runs it over the whole run: `report.md` on the run's summary page, `report.html` as an
+artifact that opens without unzipping. It reads the
 scenario from the aggregate first (`scenario_of` in `scripts/extract.py`).
 
 ## 8. Syncing upstream

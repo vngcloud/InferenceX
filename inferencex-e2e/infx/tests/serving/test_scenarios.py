@@ -90,3 +90,12 @@ def test_bad_variants_fail_with_one_line(args, message):
 def test_families_have_base_files():
     from infx.serving.scenarios import SCENARIOS_DIR
     assert {path.stem for path in SCENARIOS_DIR.glob("*.yaml")} == set(FAMILIES)
+
+
+def test_mix_replays_the_trace_times_and_names_the_rate():
+    rendered = render("mix")
+    assert (rendered.label, rendered.kind, rendered.dataset) == ("mix-enterprise-12000-1h", "file", "mix-enterprise-12000-1h")
+    [phase] = rendered.doc["benchmark"]["phases"]
+    assert phase["type"] == "fixed_schedule"
+    assert rendered.doc["benchmark"]["datasets"][0]["blockSize"] == 64
+    assert render("mix", {"duration": 180}).label == "mix-enterprise-12000-1h-smoke"

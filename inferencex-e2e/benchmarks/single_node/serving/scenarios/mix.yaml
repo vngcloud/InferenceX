@@ -1,0 +1,44 @@
+# Mixed traffic: mix.py's realistic mix (chat, RAG, coding, tool agent, batch API), replayed open loop
+# at the trace's own timestamps. Lock entries mix-<scenario>-<rate>-<hours>h; overrides.dataset picks
+# the rate, which is this family's load axis (conc only caps the requests in flight).
+# Differences from the other trace scenarios, all deliberate:
+# - fixed_schedule, not concurrency: a closed loop at conc would drop the arrival times, which are
+#   the workload. inferencex-agentx-mvp locks AGENTIC_REPLAY; unsafeOverride keeps this phase type
+#   and marks the run as not submission-valid, which is fine for an internal run.
+# - blockSize 64: mix.py names one hash id per 64-token page (aiperf's default is 512); the tail
+#   past the last whole page is fresh tokens, aiperf's "prefix only" layout.
+# - duration is the safety stop, not the length: the schedule ends at 3600 s. A smaller duration
+#   (overrides) cuts the replay there.
+# - No warmup and no trajectory start: rows are single requests with no session_id.
+schemaVersion: "2.0"
+benchmark:
+  scenario: inferencex-agentx-mvp
+  unsafeOverride: true
+  endpoint:
+    type: chat
+    path: /v1/chat/completions
+    streaming: true
+    useServerTokenCount: true
+  datasets:
+  - name: mix-enterprise-12000-1h
+    type: file
+    format: mooncake_trace
+    path: ${IX_CUSTOM_DATASET_FILE}
+    entries: 12679
+    blockSize: 64
+    randomSeed: 42
+  phases:
+  - name: profiling
+    kind: profiling
+    type: fixed_schedule
+    autoOffset: true
+    duration: 3900.0
+    gracePeriod: 300.0
+    failedRequestThreshold: 0.1
+  artifacts:
+    sliceDuration: 1.0
+  tokenizer:
+    trustRemoteCode: true
+  runtime:
+    statsInterval: 30.0
+randomSeed: 42

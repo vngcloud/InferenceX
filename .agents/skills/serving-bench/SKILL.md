@@ -30,7 +30,7 @@ router:                             # optional: any router in front of the engin
 storage:                            # optional: a non-GPU sidecar started first (e.g. Mooncake master)
   image: <image>
   serve: mooncake_master --port={{storage_master_port}} --http_metadata_server_port={{storage_meta_port}}
-scenario: agentx                    # agentx | tau2 | livekit | shared-prefix-e2 | hidden-prefix-e3 | synthetic
+scenario: agentx                    # agentx | tau2 | livekit | shared-prefix-e2 | hidden-prefix-e3 | mix | synthetic
 overrides: {duration: 180}          # optional variant, see the table below
 conc: [4, 8]                        # one benchmark job per value
 ```
@@ -45,6 +45,7 @@ Working examples, one per pattern: `inferencex-e2e/configs/serving/*.yaml`. They
 | `tau2` | tau2 customer-service agent traces | 1200 s |
 | `livekit` | LiveKit voice-agent traces, V1.1 warm (dial warm-ups count in TTFT) | 1200 s |
 | `shared-prefix-e2` / `hidden-prefix-e3` | prefix-cache A/B traces (HiCache L2 vs Mooncake L3) | 1800 s |
+| `mix` | realistic mixed traffic (chat, RAG, coding, tool agent, batch API) replayed open loop at the trace's own times; `conc` only caps requests in flight | the trace (3600 s) |
 | `synthetic` | synthetic ISL/OSL with a shared-prefix cache hit, needs `workload:` | 300 s per point |
 
 Variants (`overrides:`, only these keys):
@@ -57,6 +58,7 @@ Variants (`overrides:`, only these keys):
 | sampling instead of greedy | `overrides: {generation: {top_p: 0.95, temperature: 1.0}}` |
 | LiveKit V1 / V2 trace | `overrides: {dataset: livekit-111868-v1}` (or `-v2`) |
 | a different trace idle-gap cap | `overrides: {trace_idle_gap_cap: 1}` |
+| another mix rate (each rate is its own lock entry) | `overrides: {dataset: mix-enterprise-<rate>-1h}` |
 
 Synthetic grid, one job per point, all in one run:
 
@@ -128,7 +130,7 @@ Asking means: stop, write nothing, dispatch nothing, and end your reply with the
 
 - No image and no version → ask for the exact tag. Never take it from `configs/serving/*.yaml` or past runs.
 - A **version** but no image → resolve it: SGLang → `lmsysorg/sglang:v<ver>`, vLLM → `vllm/vllm-openai:v<ver>`. Verify the tag exists: `curl -s "https://hub.docker.com/v2/repositories/<repo>/tags?name=<tag>&page_size=50"`. Not found → ask. Router images are never resolved this way.
-- No scenario → list the six with their lengths and ask.
+- No scenario → list the seven with their lengths and ask.
 - `gpus` fits no node in the runner table → ask.
 - A Dynamo router with a non-Dynamo engine, or the reverse → the validator rejects it; explain and ask.
 

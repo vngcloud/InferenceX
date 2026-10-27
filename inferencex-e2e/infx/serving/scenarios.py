@@ -1,4 +1,4 @@
-"""Serving scenarios: six base AIPerf configs plus the variant a serving YAML asks for.
+"""Serving scenarios: seven base AIPerf configs plus the variant a serving YAML asks for.
 
 render() returns the final AIPerf config and the legacy label its results are filed under
 (agentx-cc-062126-smoke, sweep-isl8k-osl1k-cache50, ...), so old and new runs line up.
@@ -17,7 +17,7 @@ from infx.serving.datasets import LockEntry, load_lock
 from infx.serving.slo import SLOError, parse_slo
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[2] / "benchmarks/single_node/serving/scenarios"
-FAMILIES = ("agentx", "tau2", "livekit", "shared-prefix-e2", "hidden-prefix-e3", "synthetic")
+FAMILIES = ("agentx", "tau2", "livekit", "shared-prefix-e2", "hidden-prefix-e3", "mix", "synthetic")
 OVERRIDE_KEYS = ("duration", "dataset", "max_context_length", "generation", "trace_idle_gap_cap")
 SYNTHETIC_OVERRIDES = ("duration",)
 GENERATION_KEYS = ("top_p", "temperature")
@@ -196,5 +196,8 @@ def render(family: str, overrides: dict[str, Any] | None = None, point: Point | 
         kind, name = "file", dataset["name"]
         if name not in lock:
             raise ScenarioError(f"scenario: dataset {name} of {family} is not in the dataset lock")
-    base = LABELS.get(family) or LIVEKIT_LABEL + name.removeprefix("livekit-111868-")
+    if family == "mix":
+        base = name  # mix-<scenario>-<rate>-<hours>h: the rate is the load, so it names the result
+    else:
+        base = LABELS.get(family) or LIVEKIT_LABEL + name.removeprefix("livekit-111868-")
     return Rendered(doc, base + "".join(suffixes), kind, name, False, _profiling(doc)["duration"])
