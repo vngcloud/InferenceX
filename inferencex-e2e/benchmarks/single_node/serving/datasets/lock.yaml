@@ -42,3 +42,10 @@ livekit-111868-v1.1-warm:
   file: trace.v1.1-append-ideal-warm.jsonl
   sha256: e26542392a202764849c05018f2f8ea3f9574277ffa3400615f0b4df23b0eb2f
   entries: 671
+# Enterprise mix (chat 9%, RAG 18%, coding 30%, tool agent 30%, batch API 13% of prompt tokens) at
+# 12000 prompt tok/s for 1 h: bench repo studies/mixed-workload/mix.py enterprise rate=12000 hours=1.
+# Kept in this repo (6.8 MB), not on HF.
+mix-enterprise-12000-1h:
+  path: benchmarks/single_node/serving/datasets/files/mix-enterprise-12000-1h.jsonl
+  sha256: 787f6268023142da193b215dee920f45c4c022195886eae79a62245501584a9e
+  entries: 12679

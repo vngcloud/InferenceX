@@ -2,6 +2,8 @@
 
     python -m infx.serving.datasets <name>   # local path on stdout, or one ERROR line, exit 1
 
+An entry pins either an HF dataset file (repo, revision, file) or a file in this repo (path, relative
+to inferencex-e2e/; the job container sees the checkout). Both are sha256-checked.
 Token: GREENLAB_HF_TOKEN when set; unset means anonymous (never the runner's HF_TOKEN).
 """
 
@@ -16,7 +18,12 @@ from pathlib import Path
 
 import yaml
 
-LOCK = Path(__file__).resolve().parents[2] / "benchmarks/single_node/serving/datasets/lock.yaml"
+E2E = Path(__file__).resolve().parents[2]
+LOCK = E2E / "benchmarks/single_node/serving/datasets/lock.yaml"
+LOCAL_FIELDS = {
+    "path": r"[\w.\-/]+",
+    "sha256": r"[0-9a-f]{64}",
+}
 FIELDS = {
     "repo": r"[^/\s]+/[^/\s]+",
     "revision": r"[0-9a-f]{40}",
@@ -37,6 +44,7 @@ class LockEntry:
     file: str
     sha256: str
     entries: int | None = None
+    path: str | None = None  # repo-local file, relative to inferencex-e2e/; repo/revision/file are then ""
 
 
 def load_lock(path: Path = LOCK) -> dict[str, LockEntry]:
@@ -50,15 +58,22 @@ def load_lock(path: Path = LOCK) -> dict[str, LockEntry]:
     lock = {}
     for name, entry in raw.items():
         keys = set(entry) if isinstance(entry, dict) else set()
-        if not set(FIELDS) <= keys or keys - {*FIELDS, "entries"}:
-            raise DatasetError(f"lock: {name} needs exactly {', '.join(FIELDS)} (and optional entries)")
-        for field, pattern in FIELDS.items():
+        fields = LOCAL_FIELDS if "path" in keys else FIELDS
+        if not set(fields) <= keys or keys - {*fields, "entries"}:
+            raise DatasetError(f"lock: {name} needs exactly {', '.join(FIELDS)} or {', '.join(LOCAL_FIELDS)} "
+                               "(and optional entries)")
+        for field, pattern in fields.items():
             if not re.fullmatch(pattern, str(entry[field])):
                 raise DatasetError(f"lock: {name}.{field} {entry[field]!r} does not match {pattern}")
+        if "path" in keys and (entry["path"].startswith("/") or ".." in entry["path"].split("/")):
+            raise DatasetError(f"lock: {name}.path must be relative to inferencex-e2e/ and stay inside it")
         entries = entry.get("entries")
         if entries is not None and (isinstance(entries, bool) or not isinstance(entries, int) or entries < 1):
             raise DatasetError(f"lock: {name}.entries must be a positive integer")
-        lock[name] = LockEntry(name, *(str(entry[field]) for field in FIELDS), entries)
+        if "path" in keys:
+            lock[name] = LockEntry(name, "", "", "", str(entry["sha256"]), entries, str(entry["path"]))
+        else:
+            lock[name] = LockEntry(name, *(str(entry[field]) for field in FIELDS), entries)
     return lock
 
 
@@ -75,6 +90,8 @@ def fetch(name: str, lock: dict[str, LockEntry] | None = None) -> Path:
     entry = (load_lock() if lock is None else lock).get(name)
     if entry is None:
         raise DatasetError(f"dataset {name}: not in {LOCK.name}")
+    if entry.path:
+        return _verified(entry, E2E / entry.path, f"repo:{entry.path}")
     token = os.environ.get("GREENLAB_HF_TOKEN") or None
     from huggingface_hub import hf_hub_download
     from huggingface_hub.errors import HfHubHTTPError, RepositoryNotFoundError
@@ -90,13 +107,20 @@ def fetch(name: str, lock: dict[str, LockEntry] | None = None) -> Path:
         if getattr(getattr(error, "response", None), "status_code", None) in (401, 403):
             raise DatasetError(unreadable) from None
         raise
+    return _verified(entry, path, f"{where}/{entry.file}")
+
+
+def _verified(entry: LockEntry, path: Path, where: str) -> Path:
+    """``path`` once its sha256 matches the lock; recorded in RESULT_DIR/dataset.txt."""
+    if not path.is_file():
+        raise DatasetError(f"dataset {entry.name}: {where} is missing")
     actual = sha256(path)
     if actual != entry.sha256:
-        raise DatasetError(f"dataset {name}: sha256 mismatch for {where}/{entry.file}: "
+        raise DatasetError(f"dataset {entry.name}: sha256 mismatch for {where}: "
                            f"expected {entry.sha256}, got {actual}")
     if os.environ.get("RESULT_DIR"):
         Path(os.environ["RESULT_DIR"], "dataset.txt").write_text(
-            f"{name} {where} file={entry.file} sha256={actual} path={path}\n")
+            f"{entry.name} {where} sha256={actual} path={path}\n")
     return path
 
 

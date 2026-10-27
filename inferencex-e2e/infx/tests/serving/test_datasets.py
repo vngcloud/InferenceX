@@ -7,18 +7,21 @@ import pytest
 from infx.serving.datasets import DatasetError, LockEntry, fetch, load_lock
 
 
-def test_lock_pins_six_datasets_with_entries():
+def test_lock_pins_seven_datasets_with_entries():
     lock = load_lock()
     assert set(lock) == {
         "tau2-cs", "shared-prefix-e2", "hidden-prefix-e3",
         "livekit-111868-v1", "livekit-111868-v2", "livekit-111868-v1.1-warm",
+        "mix-enterprise-12000-1h",
     }
     assert lock["livekit-111868-v1.1-warm"].entries == 671
     assert lock["livekit-111868-v1"].entries == 1217
 
 
 @pytest.mark.parametrize("body, message", [
-    ("x: {repo: a/b}\n", "x needs exactly repo, revision, file, sha256"),
+    ("x: {repo: a/b}\n", "x needs exactly repo, revision, file, sha256 or path, sha256"),
+    ("x: {path: ../x.jsonl, sha256: " + "b" * 64 + "}\n", "x.path must be relative"),
+    ("x: {path: a.jsonl, file: f, sha256: " + "b" * 64 + "}\n", "x needs exactly"),
     ("x: {repo: a/b, revision: abc, file: f, sha256: " + "b" * 64 + "}\n", "x.revision"),
     # all-digit hashes would load as YAML ints, hence a/b
     ("x: {repo: a/b, revision: " + "a" * 40 + ", file: f, sha256: " + "b" * 64 + ", entries: 0}\n",
@@ -64,3 +67,20 @@ def test_fetch_rejects_a_changed_file(tmp_path, monkeypatch):
 def test_unknown_dataset(monkeypatch):
     with pytest.raises(DatasetError, match="dataset nope: not in lock.yaml"):
         fetch("nope", {})
+
+
+def test_repo_local_dataset_is_checked_in_and_verified(tmp_path, monkeypatch):
+    monkeypatch.setenv("RESULT_DIR", str(tmp_path))
+    path = fetch("mix-enterprise-12000-1h")
+    assert path.is_file()
+    assert (tmp_path / "dataset.txt").read_text().startswith("mix-enterprise-12000-1h repo:benchmarks/")
+
+
+def test_repo_local_dataset_rejects_a_changed_file(tmp_path, monkeypatch):
+    import infx.serving.datasets as datasets
+
+    (tmp_path / "trace.jsonl").write_text("tampered\n")
+    monkeypatch.setattr(datasets, "E2E", tmp_path)
+    lock = {"d": LockEntry("d", "", "", "", "0" * 64, 1, "trace.jsonl")}
+    with pytest.raises(DatasetError, match="sha256 mismatch for repo:trace.jsonl"):
+        fetch("d", lock)
