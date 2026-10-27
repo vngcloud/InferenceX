@@ -223,6 +223,10 @@ SLA_NAMES = {"time_to_first_token": "TTFT", "inter_token_latency": "ITL", "reque
 SLA_OPS = {"lt": "<", "le": "≤", "gt": ">", "ge": "≥"}
 MAX_MEMBER_MB = 40  # largest compressed server_metrics_export.json read (real probes run 25-35 MB each)
 PROBE_DIR = "aiperf_artifacts/search_iter_{:04d}/profile_runs/run_0001/"
+TIMESLICES = "aiperf_artifacts/profile_export_aiperf_timeslices.json"
+SLICE_RE = re.compile(r"^\s*sliceDuration:\s*([\d.]+)", re.M)
+MIN_SLICE_S = 30  # 1 s slices (AgentX's default) are unreadable over an hour and ~80 MB raw
+MAX_TIMESLICES_MB = 10
 
 
 def summarize_search(history: dict) -> dict:
@@ -338,6 +342,42 @@ def search_summary(history: dict, files, notes: list[str] | None = None,
     return search, win_metrics, win_cache
 
 
+def timeline(files, notes: list[str]) -> dict | None:
+    """aiperf's per-slice stats (profile_export_aiperf_timeslices.json) as exported: no re-aggregation.
+
+    aiperf files a request under the slice it started in; throughput and in-flight are time-weighted
+    over the slice. Runs with slices under MIN_SLICE_S get a note instead of a time view."""
+    slice_s = _match(SLICE_RE, _read_text(files, "scenario.yaml"))
+    if slice_s is None:
+        return None
+    if float(slice_s) < MIN_SLICE_S:
+        notes.append(f"no time view: aiperf slices are {float(slice_s):g} s (needs sliceDuration >= {MIN_SLICE_S} s)")
+        return None
+    size = files.size(TIMESLICES) if files else None
+    if size is None:
+        return None
+    if size > MAX_TIMESLICES_MB * 1e6:
+        notes.append(f"no time view: {TIMESLICES} is {size / 1e6:.0f} MB (cap {MAX_TIMESLICES_MB} MB)")
+        return None
+    slices = (_read_json(files, TIMESLICES) or {}).get("timeslices") or []
+    if not slices:
+        return None
+    t0 = slices[0]["start_ns"]
+    rows = []
+    for s in slices:
+        hit = _avg(s, "overall_usage_prompt_cache_read_pct")
+        rows.append({
+            "t_s": (s["start_ns"] - t0) / 1e9, "dur_s": (s["end_ns"] - s["start_ns"]) / 1e9,
+            "partial": s.get("is_complete") is False,
+            "requests": _avg(s, "request_count"), "rps": _avg(s, "request_throughput"),
+            "input_tps": _avg(s, "input_token_throughput"), "output_tps": _avg(s, "output_token_throughput"),
+            "in_flight": _avg(s, "effective_concurrency"),
+            "ttft": ms_stats(s.get("time_to_first_token")), "itl": ms_stats(s.get("inter_token_latency")),
+            "hit": hit / 100 if hit is not None else None,
+        })
+    return {"slice_s": float(slice_s), "slices": rows}
+
+
 def scenario_of(agg: dict, config: dict) -> str | None:
     """Scenario label: the aggregate's, else the scenario file in the aiperf command, else serving.yaml's."""
     return (agg.get("scenario") or _match(SCENARIO_CMD_RE, config["benchmark_command.txt"])
@@ -353,7 +393,7 @@ def build_point(cfg, max_member_mb: float = MAX_MEMBER_MB) -> dict:
     notes: list[str] = []
     point = {"rf": cfg.rf, "source": cfg.source.link, "scenario": scenario, "grid": parse_grid(scenario),
              "identity": {k: agg.get(k) for k in IDENTITY_KEYS}, "config": config, "notes": notes,
-             "search": None}
+             "search": None, "timeline": None}
     if history:
         search, metrics, cache = search_summary(history, files, notes, max_member_mb)
         point.update(mode="search", conc=search["max_conc"], search=search)
@@ -383,6 +423,7 @@ def build_point(cfg, max_member_mb: float = MAX_MEMBER_MB) -> dict:
                 or (((export or {}).get("input_config") or {}).get("loadgen") or {}).get("concurrency")
                 or _match(DIR_CONC_RE, cfg.rf))
         point["conc"] = int(conc) if conc is not None else None
+        point["timeline"] = timeline(files, notes)
     if cache is None and metrics and metrics.get("client_cache_hit") is not None:
         cache = {**_cache("client", None), "overall": metrics["client_cache_hit"]}
     gpus = agg.get("num_gpus") or serving_identity(serving).get("num_gpus")

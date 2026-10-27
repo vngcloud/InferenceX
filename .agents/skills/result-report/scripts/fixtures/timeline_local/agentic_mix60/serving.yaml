@@ -1,0 +1,23 @@
+
+
+
+
+name: qwen3-8b-mix-enterprise-h200
+runner: cluster:hcm-hgx02
+image: lmsysorg/sglang:v0.5.22
+model: Qwen/Qwen3-8B
+gpus: 1
+env:
+  SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN: "1"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path Qwen/Qwen3-8B --served-model-name Qwen/Qwen3-8B
+  --context-length 131072
+  --json-model-override-args '{"rope_scaling":{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768}}'
+  --mem-fraction-static 0.85 --page-size 64
+  --enable-hierarchical-cache --hicache-size 80 --hicache-write-policy write_through
+  --hicache-io-backend kernel --hicache-mem-layout page_first
+  --incremental-streaming-output --enable-metrics --enable-cache-report
+scenario: mix
+conc: [512]

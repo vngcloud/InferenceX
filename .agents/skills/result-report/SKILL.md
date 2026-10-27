@@ -88,6 +88,17 @@ A failed-job Note may start with `…` (GitHub truncates job names); the job URL
 
 If the process is killed, nothing is written to `<out>` except `.cache/`; re-run the same command and the partial cache is reused.
 
+## Over time
+
+A fixed run whose `scenario.yaml` has `sliceDuration` >= 30 s (the serving scenarios use 60 s) gets an
+"Over time" section: aiperf's own per-slice stats from `profile_export_aiperf_timeslices.json`, shown as
+exported, never re-aggregated. Markdown: a collapsed table per run (requests, RPS, input/output tok/s,
+in-flight, TTFT p50/p90/p99, ITL p50/p90, hit %) plus Mermaid lines for output tok/s and TTFT p90. HTML:
+SVG panels over minutes, one line per run. aiperf files a request under the slice it started in;
+throughput and in-flight are time-weighted. Runs with 1 s slices (older runs) get a note instead.
+Read it for trends a whole-run number hides: TTFT rising while throughput is flat and in-flight grows is
+a queue (saturation); TTFT rising while throughput falls is the server slowing (KV pressure, evictions).
+
 ## Reading the tables
 
 - Latency is ms; columns avg/p50/p90/p95/p99. `—` means the value does not exist, never zero.

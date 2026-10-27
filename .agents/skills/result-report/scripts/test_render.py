@@ -224,3 +224,19 @@ class FixRound1RenderTest(unittest.TestCase):
         md = render.to_markdown(render.build_blocks(self._two_configs()))
         self.assertIn("Error %", md)
         self.assertNotIn("| Errors", md)
+
+
+class TimelineRenderTest(unittest.TestCase):
+    def test_markdown_has_table_and_mermaid_html_has_svg(self):
+        data = data_for("timeline_local")
+        md = render.to_markdown(render.build_blocks(data))
+        self.assertIn("### Over time", md)
+        self.assertIn("```mermaid\nxychart-beta", md)
+        self.assertIn("| 4* |", md)
+        page = render.to_html(render.build_blocks(data, charts=True), "t")
+        self.assertIn("TTFT p90 over time", page)
+        self.assertNotIn("mermaid", page)
+
+    def test_no_timeline_no_section(self):
+        md = render.to_markdown(render.build_blocks(data_for("gh_fixed")))
+        self.assertNotIn("Over time", md)

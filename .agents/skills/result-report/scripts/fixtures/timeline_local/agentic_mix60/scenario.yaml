@@ -1,0 +1,32 @@
+schemaVersion: '2.0'
+benchmark:
+  scenario: inferencex-agentx-mvp
+  unsafeOverride: true
+  endpoint:
+    type: chat
+    path: /v1/chat/completions
+    streaming: true
+    useServerTokenCount: true
+  datasets:
+  - name: mix-enterprise-12000-1h
+    type: file
+    format: mooncake_trace
+    path: ${IX_CUSTOM_DATASET_FILE}
+    entries: 12679
+    blockSize: 64
+    randomSeed: 42
+  phases:
+  - name: profiling
+    kind: profiling
+    type: fixed_schedule
+    autoOffset: true
+    duration: 300.0
+    gracePeriod: 30.0
+    failedRequestThreshold: 0.1
+  artifacts:
+    sliceDuration: 60.0
+  tokenizer:
+    trustRemoteCode: true
+  runtime:
+    statsInterval: 30.0
+randomSeed: 42

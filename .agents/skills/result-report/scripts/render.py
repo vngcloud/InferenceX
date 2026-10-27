@@ -330,6 +330,9 @@ pre{background:#f6f8fa;padding:8px;overflow:auto}details{margin:8px 0}summary{cu
 svg{margin:8px 16px 8px 0}"""
 
 
+MAX_X_TICKS = 20
+
+
 def _tick(v: float) -> str:
     return f"{v:,.0f}" if abs(v) >= 10 or v == int(v) else f"{v:.2g}"
 
@@ -362,7 +365,10 @@ def line_chart(title, series, x_label, y_label, threshold=None, width=560, heigh
         y = y1 * i / 4
         parts.append(f'<line x1="{left}" x2="{width - right}" y1="{sy(y):.1f}" y2="{sy(y):.1f}" stroke="#e5e7eb"/>'
                      f'<text x="{left - 6}" y="{sy(y) + 4:.1f}" font-size="10" text-anchor="end">{_tick(y)}</text>')
-    for x in sorted(set(xs)):
+    x_ticks = sorted(set(xs))
+    if len(x_ticks) > MAX_X_TICKS:  # a time axis: ~10 evenly spaced labels, not one per slice
+        x_ticks = [x0 + (x1 - x0) * i / 10 for i in range(11)]
+    for x in x_ticks:
         parts.append(f'<text x="{sx(x):.1f}" y="{height - bottom + 14}" font-size="10" text-anchor="middle">{_tick(x)}</text>')
     mid_y = (top + height - bottom) / 2
     parts.append(f'<text x="{(left + width - right) / 2}" y="{height - 6}" font-size="11" text-anchor="middle">{esc(x_label)}</text>')
@@ -375,7 +381,8 @@ def line_chart(title, series, x_label, y_label, threshold=None, width=560, heigh
         values = sorted(values)
         coords = " ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in values)
         parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{coords}"/>')
-        parts += [f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="3" fill="{color}"/>' for x, y in values]
+        if len(values) <= MAX_X_TICKS:
+            parts += [f'<circle cx="{sx(x):.1f}" cy="{sy(y):.1f}" r="3" fill="{color}"/>' for x, y in values]
     for i, name, x, r in legend:
         y = 34 + 14 * r
         parts.append(f'<rect x="{x:.1f}" y="{y - 8}" width="10" height="10" fill="{PALETTE[i % len(PALETTE)]}"/>'
@@ -411,6 +418,56 @@ def chart_blocks(data, pts) -> list:
     return [b for b in blocks if b[1]]
 
 
+TIMELINE_COLUMNS = [("Requests", ("requests",), num), ("RPS", ("rps",), num),
+                    ("Input tok/s", ("input_tps",), num), ("Output tok/s", ("output_tps",), num),
+                    ("In-flight", ("in_flight",), num),
+                    ("TTFT p50", ("ttft", "p50"), num), ("TTFT p90", ("ttft", "p90"), num),
+                    ("TTFT p99", ("ttft", "p99"), num), ("ITL p50", ("itl", "p50"), num),
+                    ("ITL p90", ("itl", "p90"), num), ("Hit", ("hit",), pct)]
+TIMELINE_CHARTS = [("Output tok/s", ("output_tps",), "tok/s"), ("TTFT p90", ("ttft", "p90"), "ms"),
+                   ("In-flight requests", ("in_flight",), "requests"), ("Prompt cache hit %", ("hit",), "%")]
+
+
+def _minute(t_s: float) -> str:
+    return f"{t_s / 60:g}"
+
+
+def _mermaid_line(title: str, y_label: str, xs: list[str], ys: list[float]) -> str:
+    return (f'xychart-beta\n  title "{title}"\n  x-axis "minute" [{", ".join(xs)}]\n'
+            f'  y-axis "{y_label}"\n  line [{", ".join(f"{y:.1f}" for y in ys)}]')
+
+
+def timeline_blocks(data, pts, charts: bool) -> list:
+    """aiperf's per-slice stats over the run: a table (markdown + HTML), Mermaid (markdown) or SVG (HTML)."""
+    timed = [p for p in pts if get(p, "timeline", "slices")]
+    if not timed:
+        return []
+    blocks = [("h", 3, "Over time"),
+              ("p", f"aiperf time slices of {num(timed[0]['timeline']['slice_s'])} s, as exported: a request counts in "
+                    "the slice it started in; throughput and in-flight are time-weighted over the slice. "
+                    "`*` = partial last slice.")]
+    for p in timed:
+        slices = p["timeline"]["slices"]
+        rows = [[(_minute(s["t_s"]) + ("*" if s["partial"] else ""), None),
+                 *[(fmt(get(s, *path)), None) for _, path, fmt in TIMELINE_COLUMNS]] for s in slices]
+        table = ("table", Table(["Minute", *(h for h, _, _ in TIMELINE_COLUMNS)], rows))
+        name = f"{p['arm']} c{_conc(p)}"
+        body = []
+        for title, path, unit in TIMELINE_CHARTS[:2]:  # markdown: the two that show a growing queue
+            xy = [(_minute(s["t_s"]), get(s, *path)) for s in slices if get(s, *path) is not None]
+            if xy:
+                body.append(("mermaid", _mermaid_line(f"{name}: {title}", unit, [x for x, _ in xy], [y for _, y in xy])))
+        blocks.append(("details", f"{name}: {len(slices)} slices", body + [table]))
+    if charts:
+        for title, path, unit in TIMELINE_CHARTS:
+            scale = 100 if unit == "%" else 1
+            series = {f"{p['arm']} c{_conc(p)}": [(s["t_s"] / 60, get(s, *path) * scale)
+                                                  for s in p["timeline"]["slices"] if get(s, *path) is not None]
+                      for p in timed}
+            blocks.append(("chart", line_chart(f"{title} over time", series, "minute", unit)))
+    return [b for b in blocks if b[0] != "chart" or b[1]]
+
+
 def build_blocks(data, charts: bool = False) -> list:
     inputs = ", ".join(_link(i) for i in data["inputs"]) or DASH
     blocks = [
@@ -426,7 +483,8 @@ def build_blocks(data, charts: bool = False) -> list:
     for scen in sorted({p["scenario"] for p in data["points"]}, key=_scenario_sort):
         pts = sorted([p for p in data["points"] if p["scenario"] == scen],
                      key=lambda p: (p["conc"] if p["conc"] is not None else -1, order[p["arm"]]))
-        body = throughput_table(data, pts) + latency_tables(data, pts) + search_blocks(data, pts)
+        body = (throughput_table(data, pts) + latency_tables(data, pts) + search_blocks(data, pts)
+                + timeline_blocks(data, pts, charts))
         if charts:
             body += chart_blocks(data, pts)
         title = f"Scenario: {scen or '(unknown)'}"
@@ -457,9 +515,11 @@ def to_markdown(blocks) -> str:
             out.append(_md_table(block[1]))
         elif kind == "code":
             out.append(f"```{block[1]}\n{block[2].rstrip()}\n```")
+        elif kind == "mermaid":
+            out.append(f"```mermaid\n{block[1]}\n```")
         elif kind == "details":
             out.append(f"<details><summary>{block[1]}</summary>\n\n{to_markdown(block[2]).rstrip()}\n\n</details>")
-        # "chart" blocks are HTML-only
+        # "chart" blocks are HTML-only; "mermaid" blocks are markdown-only (HTML draws SVG)
     return "\n\n".join(out) + "\n"
 
 

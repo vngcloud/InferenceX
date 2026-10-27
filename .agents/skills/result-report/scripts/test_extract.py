@@ -375,3 +375,35 @@ class FixRound1Test(unittest.TestCase):
             self.assertTrue(any("winning probe export missing" in n for n in p["notes"]))
             data = extract.build_data([cfg], [])
             self.assertIn("c—", data["notes"][-1])
+
+
+class TimelineTest(unittest.TestCase):
+    """aiperf's 60 s time slices, read as exported (fixtures/timeline_local: a 5-minute local run)."""
+
+    def _point(self, root):
+        [cfg] = fetch.local_configs(fetch.parse_source(str(root)))
+        return extract.build_point(cfg)
+
+    def test_slices_are_aiperf_values(self):
+        root = FIX / "timeline_local"
+        p = self._point(root)
+        raw = load("timeline_local/agentic_mix60/aiperf_artifacts/profile_export_aiperf_timeslices.json")["timeslices"]
+        tl = p["timeline"]
+        self.assertEqual((tl["slice_s"], len(tl["slices"])), (60.0, 5))
+        self.assertEqual([s["t_s"] for s in tl["slices"][:2]], [0.0, 60.0])
+        self.assertEqual([s["partial"] for s in tl["slices"]], [False] * 4 + [True])
+        first = tl["slices"][0]
+        self.assertEqual(first["rps"], raw[0]["request_throughput"]["avg"])
+        self.assertEqual(first["in_flight"], raw[0]["effective_concurrency"]["avg"])
+        self.assertEqual(first["ttft"]["p90"], raw[0]["time_to_first_token"]["p90"])  # already ms
+        self.assertIsNone(first["hit"])  # the stub reports no cached tokens
+
+    def test_one_second_slices_get_a_note_not_a_timeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "r"
+            shutil.copytree(FIX / "timeline_local", root)
+            scenario = root / "agentic_mix60" / "scenario.yaml"
+            scenario.write_text(scenario.read_text().replace("sliceDuration: 60.0", "sliceDuration: 1.0"))
+            p = self._point(root)
+        self.assertIsNone(p["timeline"])
+        self.assertIn("no time view: aiperf slices are 1 s (needs sliceDuration >= 30 s)", p["notes"])
