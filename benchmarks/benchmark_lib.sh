@@ -4360,6 +4360,8 @@ PY
 #   GREENSPEC_SERVER_PID     stop the client if this server dies (server_watch).
 #   GREENSPEC_SERVER_LOG     server log the guard withholds; default /workspace/server.log.
 #   GREENSPEC_KEEP_LOG_DIR   runner-local dir to move that log to instead of dropping it.
+#   GREENSPEC_PROGRESS_INTERVAL  seconds between progress lines in the job log
+#                            (numbers only); default 60, 0 = off.
 #   GREENSPEC_META           whitespace-separated KEY=VALUE pairs copied into the result.
 #   SERVED_MODEL_NAME, AIPERF_TOKENIZER, AIPERF_GPU_TELEMETRY_URL, RESULT_DIR.
 run_greenspec_aiperf() {
@@ -4469,8 +4471,24 @@ plugins.get_dataset_loader_metadata(sys.argv[1])' "$preset" 2>/dev/null; then
         INFERENCEX_SERVER_PID="$GREENSPEC_SERVER_PID"
     fi
     # aiperf's console can print server error text; keep it off the job log.
-    local aiperf_rc=0
+    # A watcher reprints only the numbers of its progress bars, every
+    # GREENSPEC_PROGRESS_INTERVAL seconds (default 60, 0 = off).
+    local aiperf_rc=0 progress_pid=""
+    local progress_interval="${GREENSPEC_PROGRESS_INTERVAL:-60}"
+    if [ "$progress_interval" -gt 0 ]; then
+        (
+            set +x
+            while sleep "$progress_interval"; do
+                "${gs[@]}" progress --console-log "$tmp_dir/aiperf_console.log" || true
+            done
+        ) &
+        progress_pid=$!
+    fi
     run_server_client "${cmd[@]}" > "$tmp_dir/aiperf_console.log" 2>&1 || aiperf_rc=$?
+    if [ -n "$progress_pid" ]; then
+        kill "$progress_pid" 2>/dev/null
+        wait "$progress_pid" 2>/dev/null
+    fi
     echo "aiperf exited with code $aiperf_rc (console kept off the job log)"
 
     "${sb[@]}" snapshot --metrics-url "$metrics_url" --out "$artifact_dir/spec_metrics_after.json"

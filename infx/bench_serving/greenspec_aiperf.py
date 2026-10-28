@@ -11,6 +11,9 @@ module for three steps:
 ``prepare``  write the selection as an aiperf ``raw_payload`` file, for an aiperf
              without the ``greenspec_*`` presets or a selection no preset covers.
              It builds each body exactly like aiperf's ``GreenSpecLoader``.
+``progress`` print the numbers of aiperf's progress bars from its console log,
+             which the job log never sees (the console can echo server error
+             text), so a long cell can be followed.
 ``guard``    run after the client, before any upload. This repo is public and
              its artifacts are downloadable, so nothing derived from row content
              may leave the runner: keep only ``ALLOWLIST`` in the artifact dir,
@@ -24,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from collections.abc import Iterator
@@ -50,6 +54,13 @@ ALLOWLIST = (
     "benchmark_command.txt",
 )
 MAX_BYTES = 2 * 1024 * 1024
+# aiperf's tqdm bar: "{desc}: {n}/{total} |{bar}| {pct}% [{elapsed}<{remaining}]".
+PROGRESS_RE = re.compile(
+    r"([A-Za-z][A-Za-z _-]{0,30}): +([\d,]+)/([\d,]+) \|[^|]*\| *(\d+)% "
+    r"\[([\d:]+)<([\d:?]+)\]"
+)
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+PROGRESS_TAIL_BYTES = 64 * 1024
 SERVER_LOG_STUB = (
     "server log withheld: GreenSpec rows are internal and a server log can echo them\n"
 )
@@ -111,6 +122,24 @@ def payload(
         out["stream"] = True
         out["stream_options"] = {"include_usage": True}
     return out
+
+
+def progress(console_log: Path) -> list[str]:
+    """The latest state of each aiperf progress bar, rebuilt from its numbers only."""
+    if not console_log.is_file():
+        return []
+    with open(console_log, "rb") as f:
+        f.seek(max(0, console_log.stat().st_size - PROGRESS_TAIL_BYTES))
+        text = f.read().decode("utf-8", errors="replace")
+    latest: dict[str, str] = {}
+    for line in re.split(r"[\r\n]", ANSI_RE.sub("", text)):
+        m = PROGRESS_RE.search(line)
+        if m:
+            desc, n, total, pct, elapsed, remaining = m.groups()
+            latest[desc.strip()] = (
+                f"{desc.strip()} {n}/{total} ({pct}%) elapsed {elapsed} eta {remaining}"
+            )
+    return list(latest.values())
 
 
 def _redact_errors(export_path: Path) -> None:
@@ -190,6 +219,8 @@ def main() -> int:
     prep.add_argument("--mode", default="target-default", choices=("target-default", "recorded"))
     prep.add_argument("--extra", default="{}", help="JSON object, as --extra-inputs")
     prep.add_argument("--no-stream", action="store_true")
+    prog = commands.add_parser("progress", help="print aiperf progress-bar numbers")
+    prog.add_argument("--console-log", type=Path, required=True)
     grd = commands.add_parser("guard", help="prune, redact and scan before upload")
     grd.add_argument("--file", type=Path, required=True)
     grd.add_argument("--artifact-dir", type=Path, required=True)
@@ -217,6 +248,9 @@ def main() -> int:
                 )
                 f.write(json.dumps(body, ensure_ascii=False) + "\n")
         print(len(rows))
+    elif args.operation == "progress":
+        for state in progress(args.console_log):
+            print(f"GreenSpec progress: {state}")
     else:
         problems = guard(
             args.file, args.artifact_dir, args.upload, args.server_log, args.keep_log_dir

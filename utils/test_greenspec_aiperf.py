@@ -13,6 +13,7 @@ from infx.bench_serving.greenspec_aiperf import (
     guard,
     payload,
     preset,
+    progress,
     select,
 )
 
@@ -95,6 +96,21 @@ def test_payload_recorded_cap_only_lowers() -> None:
     assert low["max_completion_tokens"] == 2048 and "max_tokens" not in low
     high = payload(ROWS[0], "m", recorded=True, extra={"max_tokens": 8192})
     assert high["max_completion_tokens"] == 4096 and high["temperature"] == 0.6
+
+
+def test_progress_keeps_only_bar_numbers(tmp_path: Path) -> None:
+    console = tmp_path / "aiperf_console.log"
+    console.write_text(
+        "Error: 400 secret prompt text m/aaaa\n"
+        "\x1b[2KWarmup: 4/4 |\x1b[32m####\x1b[0m| 100% [00:03<00:00]\n"
+        "Profiling: 10/64 |##   | 16% [00:40<03:30]\r"
+        "Profiling: 33/64 |#####| 52% [02:10<02:00]\r"
+    )
+    assert progress(console) == [
+        "Warmup 4/4 (100%) elapsed 00:03 eta 00:00",
+        "Profiling 33/64 (52%) elapsed 02:10 eta 02:00",
+    ]
+    assert progress(tmp_path / "missing.log") == []
 
 
 def test_guard_prunes_redacts_and_withholds_server_log(dataset: Path, tmp_path: Path) -> None:

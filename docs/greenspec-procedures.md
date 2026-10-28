@@ -31,7 +31,7 @@ Use this guide to benchmark speculative decoding on GreenSpec: add a cell, pick 
 1. The recipe calls `resolve_greenspec_dataset` before starting the server. It installs the pinned aiperf venv and fetches `greenspec.jsonl` from `Green-Lab/GreenSpec` at the commit pinned in `GREENSPEC_HF_REVISION` (`HF_HUB_CACHE` first, then the network), then checks `SHA256SUMS`. A missing token or a bad pin fails here, before the GPU is held.
 2. The recipe starts the engine and calls `run_greenspec_aiperf` once the server is ready.
 3. `run_greenspec_aiperf` counts the selection (`greenspec_aiperf pool`) and fails on an empty one. It then picks the aiperf loader: the `greenspec_*` preset that covers the selection when the pinned aiperf has it, otherwise a pre-filtered `raw_payload` file written to a temp dir outside `results/`. Both paths send the same request bodies.
-4. aiperf replays the selection in file order (`--dataset-sampling-strategy sequential`, seed 42) at `CONC`, streaming, with `--use-server-token-count`. Output length is **not** forced: no `--osl`, no `ignore_eos`; each request stops on its own, capped by `GREENSPEC_MAX_TOKENS`. The engine's spec-decode counters are scraped from `/metrics` before and after.
+4. aiperf replays the selection in file order (`--dataset-sampling-strategy sequential`, seed 42) at `CONC`, streaming, with `--use-server-token-count`. Output length is **not** forced: no `--osl`, no `ignore_eos`; each request stops on its own, capped by `GREENSPEC_MAX_TOKENS`. The engine's spec-decode counters are scraped from `/metrics` before and after. aiperf's console goes to a temp file, since it can echo server error text; a watcher prints only the numbers of its progress bars to the job log as `GreenSpec progress: Profiling 33/64 (52%) elapsed 02:10 eta 02:00`.
 5. `speedbench_aiperf` writes `$RESULT_FILENAME.json` in the `benchmark_serving` shape, adds `acceptance_length` and `acceptance_rate` from the counters, and records the selection as `gs_*` keys. The cell then flows through the normal fixed-seq-len collect path.
 6. `greenspec_aiperf guard` runs last. It deletes everything in `results/greenspec_aiperf/` except the allowlist, replaces error messages in the aiperf export with `<withheld>`, replaces the server log with a stub (or moves it to `GREENSPEC_KEEP_LOG_DIR`), and fails the job if any GreenSpec `question_id` or any file over 2 MiB is left in what gets uploaded.
 
@@ -65,6 +65,7 @@ The release has four subsets. `diverse` is every use case across every input-len
 | `GREENSPEC_EXTRA_INPUTS` | `{}` | JSON object merged into every request body, e.g. `{"temperature": 0}` |
 | `GREENSPEC_NUM_PROMPTS` | whole selection | Requests per cell. Rows are interleaved across buckets, so any prefix stays balanced and every arm sees the same rows |
 | `GREENSPEC_WARMUP_REQUESTS` | `0` | Warmup requests excluded from the metrics |
+| `GREENSPEC_PROGRESS_INTERVAL` | `60` | Seconds between `GreenSpec progress:` lines in the job log; `0` turns them off |
 
 The full list, including `GREENSPEC_METRICS_URL`, `GREENSPEC_SERVER_PID`, `GREENSPEC_SERVER_LOG`, `GREENSPEC_KEEP_LOG_DIR`, and `GREENSPEC_META`, is in the comment above `run_greenspec_aiperf`.
 
