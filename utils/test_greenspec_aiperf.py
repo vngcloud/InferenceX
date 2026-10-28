@@ -74,6 +74,7 @@ def test_unknown_subset(dataset: Path) -> None:
         (("diverse", False, "agentic_coding__64k+", False), "greenspec_agentic_coding_64k_plus"),
         (("diverse", False, "llm_task__0-1k", False), "greenspec_llm_task_0_1k"),
         (("diverse", False, "llm_task__0-1k", True), None),  # no recorded bucket presets
+        (("diverse", True, "llm_task__0-1k", False), None),  # no lite bucket presets
     ],
 )
 def test_preset(args: tuple, expected: str | None) -> None:

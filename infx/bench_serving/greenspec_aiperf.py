@@ -79,7 +79,8 @@ def select(path: Path, subset: str, lite: bool, bucket: str | None) -> list[dict
 def preset(subset: str, lite: bool, bucket: str | None, recorded: bool) -> str | None:
     """The aiperf preset for a selection, or None when no preset covers it."""
     if bucket is not None:
-        if recorded:
+        # Bucket presets cover the full bucket only: no lite or recorded variants.
+        if lite or recorded:
             return None
         return "greenspec_" + bucket.replace("__", "_").replace("-", "_").replace("+", "_plus")
     name = "greenspec" if subset == "diverse" else f"greenspec_{subset}"
