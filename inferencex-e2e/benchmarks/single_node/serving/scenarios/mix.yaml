@@ -38,7 +38,7 @@ benchmark:
     gracePeriod: 300.0
     failedRequestThreshold: 0.1
   artifacts:
-    sliceDuration: 60.0
+    sliceDuration: 1.0
   tokenizer:
     trustRemoteCode: true
   runtime:

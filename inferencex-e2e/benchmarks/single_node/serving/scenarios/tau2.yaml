@@ -35,7 +35,7 @@ benchmark:
     warmupRequestsPerLane: 10
     agenticWarmupGracePeriod: 1800.0
   artifacts:
-    sliceDuration: 60.0
+    sliceDuration: 1.0
   tokenizer:
     trustRemoteCode: true
   runtime:
