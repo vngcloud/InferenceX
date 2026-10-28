@@ -2,6 +2,7 @@ import shlex
 import textwrap
 
 import pytest
+import yaml
 
 from infx.serving.render import infer_framework, render, split_serve
 from infx.serving.schema import RouterSpec, ServingError, ServingSpec
@@ -181,6 +182,8 @@ def test_single_quoted_json_flag_kept_verbatim():
     (["python", "-m", "sglang.launch_server"], "sglang"),
     (["sglang", "serve", "--model-path", "m"], "sglang"),
     (["python3", "-m", "dynamo.sglang", "--model-path=m"], "sglang"),
+    (["python3", "-m", "trtllm-serve", "--model", "m"], "trtllm"),
+    (["trtllm-serve", "--model", "m"], "trtllm"),
 ])
 def test_infer_framework(argv, framework):
     assert infer_framework(argv) == framework
@@ -188,7 +191,36 @@ def test_infer_framework(argv, framework):
 
 def test_unknown_engine_rejected():
     with pytest.raises(ServingError, match="serve: unknown engine"):
-        render(spec("trtllm-serve Qwen/Qwen3.8-27B"))
+        render(spec("llama-server --model Qwen/Qwen3.8-27B"))
+
+
+TRTLLM_ARGS = {
+    "trust_remote_code": True,
+    "attn_backend": "FLASHINFER",
+    "kv_cache_config": {"dtype": "auto", "enable_block_reuse": True},
+}
+
+
+def test_engine_args_append_flag_and_carry_yaml():
+    out = render(spec(
+        "python3 -m trtllm-serve --model Qwen/Qwen3.8-27B --served-model-name q38",
+        **{"engine-args": TRTLLM_ARGS},
+    ))
+    assert out["framework"] == "trtllm"
+    assert shlex.split(out["serve-cmd"])[-2:] == ["--extra-engine-args", "engine_args.yaml"]
+    assert out["served-model-name"] == "q38"
+    assert yaml.safe_load(out["engine-args"]) == TRTLLM_ARGS
+
+
+def test_engine_args_absent_leaves_command_and_field_empty():
+    out = render(spec("python3 -m trtllm-serve --model Qwen/Qwen3.8-27B"))
+    assert "--extra-engine-args" not in out["serve-cmd"]
+    assert out["engine-args"] == ""
+
+
+def test_engine_args_rejected_for_non_trtllm_engines():
+    with pytest.raises(ServingError, match=r"^engine-args: only python3 -m trtllm-serve"):
+        render(spec("vllm serve Qwen/Qwen3.8-27B", **{"engine-args": TRTLLM_ARGS}))
 
 
 def test_vllm_disable_log_stats_rejected():

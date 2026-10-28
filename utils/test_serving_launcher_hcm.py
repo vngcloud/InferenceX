@@ -7,7 +7,7 @@ LAUNCHER = Path(__file__).resolve().parents[1] / "runners/launch_hardware-hcm.sh
 ROUTER_IMAGE = "vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1"
 
 
-def run_launcher(tmp_path: Path, extra_env: dict[str, str]) -> tuple[list[list[str]], str]:
+def launch(tmp_path: Path, extra_env: dict[str, str]) -> subprocess.CompletedProcess:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log, envlog = tmp_path / "calls", tmp_path / "srun_env"
@@ -31,14 +31,36 @@ def run_launcher(tmp_path: Path, extra_env: dict[str, str]) -> tuple[list[list[s
         "HF_HUB_CACHE": "/mnt/hf_hub_cache/", "IX_SQUASH_DIR": str(tmp_path / "containers"),
         **extra_env,
     }
-    out = subprocess.run(["bash", str(LAUNCHER)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run(["bash", str(LAUNCHER)], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+
+
+def run_launcher(tmp_path: Path, extra_env: dict[str, str]) -> tuple[list[list[str]], str]:
+    out = launch(tmp_path, extra_env)
     assert out.returncode == 0, out.stderr[-2000:]
-    calls = [record.split("\x1f")[:-1] for record in log.read_text().split("\x1e")[:-1]]
-    return calls, envlog.read_text()
+    calls = [record.split("\x1f")[:-1] for record in (tmp_path / "calls").read_text().split("\x1e")[:-1]]
+    return calls, (tmp_path / "srun_env").read_text()
 
 
 def container_steps(calls):
     return [call for call in calls if call[0] == "srun" and any(a.startswith("--container-image=") for a in call)]
+
+
+def test_local_sqsh_engine_image_runs_as_is(tmp_path):
+    """A node-local .sqsh engine image starts directly: no enroot import, no cache copy."""
+    sqsh = tmp_path / "images" / "tensorrt-llm_1.4.0rc0.sqsh"
+    sqsh.parent.mkdir()
+    sqsh.write_text("squash")
+    calls, _ = run_launcher(tmp_path, {"IMAGE": str(sqsh), "SERVE_CMD": "python3 -m trtllm-serve --model m"})
+    imports = [c for c in calls if c[0] == "srun" and "enroot import" in c[-1]]
+    assert len(imports) == 1  # only the DCGM sidecar is imported from a registry
+    bench = [s for s in container_steps(calls) if s[-1] == "benchmarks/single_node/agentic/serve_generic.sh"]
+    assert f"--container-image={sqsh}" in bench[0]
+
+
+def test_local_sqsh_engine_image_missing_fails_fast(tmp_path):
+    out = launch(tmp_path, {"IMAGE": "/mnt/sqsh/missing.sqsh", "SERVE_CMD": "python3 -m trtllm-serve --model m"})
+    assert out.returncode == 1
+    assert "/mnt/sqsh/missing.sqsh is not on this node" in out.stderr
 
 
 @pytest.mark.parametrize("router", [True, False], ids=["dynamo", "engine-only"])

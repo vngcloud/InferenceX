@@ -1,6 +1,6 @@
 ---
 name: serving-bench
-description: Benchmark an LLM serving config with the AgentX agentic-coding scenario or the tau2 customer-service scenario (custom-agentic-tau2) on a VNG GPU runner, starting from a vllm/sglang launch command, a Dynamo frontend + engine pair, a docker-compose file or a k8s manifest. Use when the user says "benchmark agentx với config…", "chạy agentx cho config này", "bench agentx", "bench tau2", "chạy tau2 cho config…", or pastes a serve command and asks for a benchmark. Writes one serving YAML and dispatches it with one command.
+description: Benchmark an LLM serving config with the AgentX agentic-coding scenario or the tau2 customer-service scenario (custom-agentic-tau2) on a VNG GPU runner, starting from a vllm/sglang/trtllm-serve launch command, a Dynamo frontend + engine pair, a docker-compose file or a k8s manifest. Use when the user says "benchmark agentx với config…", "chạy agentx cho config này", "bench agentx", "bench tau2", "chạy tau2 cho config…", or pastes a serve command and asks for a benchmark. Writes one serving YAML and dispatches it with one command.
 ---
 
 # serving-bench
@@ -22,6 +22,8 @@ env:                                # optional, the engine's env vars; quote boo
 serve: |                            # the launch command, as given
   vllm serve Qwen/Qwen3.8-27B --tensor-parallel-size 1 --max-model-len 262144
   --default-chat-template-kwargs '{"enable_thinking": true}'
+engine-args:                         # optional: trtllm-serve only; written to engine_args.yaml and
+  attn_backend: FLASHINFER           # passed as --extra-engine-args (no such flag in serve:)
 router:                             # optional: any router in front of the engine (hardware-hcm runner)
   image: <router image>
   env: {}                           # the router's env vars
@@ -33,11 +35,12 @@ scenario: agentx-cc-062126-smoke    # a file name in scenarios/ (without .yaml);
 conc: [4, 8]                        # one benchmark job per value
 ```
 
-Full working examples: `serving/qwen38-bf16-tp1.yaml` (engine only), `serving/glm53-w4afp8-dynamo.yaml` (Dynamo router + engine) and `serving/glm53-w4afp8-sglang-router.yaml` (sglang-router + SGLang engine). Format references only: never dispatch them or copy their values for a user's request.
+Full working examples: `serving/qwen38-bf16-tp1.yaml` (engine only), `serving/glm53-w4afp8-dynamo.yaml` (Dynamo router + engine), `serving/glm53-w4afp8-sglang-router.yaml` (sglang-router + SGLang engine) and `serving/gemma4-31b-fp8-trtllm-tp2-livekit-v1.yaml` (trtllm-serve, node-local .sqsh image, engine-args). Format references only: never dispatch them or copy their values for a user's request.
 
 Translation rules:
 - **Model path → HF id.** `--model-path /models/<org>/<model>` becomes `--model-path <org>/<model>` and `model: <org>/<model>`. If you cannot tell the HF id from the path, ask.
 - **Host/port:** leave them or drop them; they are replaced by the benchmark's own.
+- **trtllm-serve** (`python3 -m trtllm-serve` or `trtllm-serve`): keep the flags as given. A pasted `--extra-engine-args <file.yaml>` does not survive (the file is not on the runner): move the file's keys into an `engine-args:` block; the benchmark writes them to `engine_args.yaml` next to the run and appends the flag itself.
 - **Router:** a router part goes under `router:` with its own `image`; the engine stays in `serve`. Engine env → `env:`, router env → `router.env:`.
   - **Replicas** (several copies of one engine, e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.
   - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang`): as before. Leave out discovery settings (`DYN_*`, `ETCD_ENDPOINTS`, NATS) and `--http-host/--http-port`: the benchmark wires them.
@@ -46,7 +49,7 @@ Translation rules:
   - Placeholders exist only in `router.serve` / `router.env`. No `$VAR` there either.
 - **Env vars** (lines like `NCCL_P2P_LEVEL=NVL`, compose `environment:`, k8s `env:`) go under `env:`.
 - No secrets in `env:` (the YAML is shown in the run inputs and saved as an artifact). Dataset access uses the runner's own `GREENLAB_HF_TOKEN`; never set it in the YAML.
-- Images: public ones and `vcr.vngcloud.vn` ones the runner's VCR account can read need nothing extra (the runner holds the pull credentials). Another private registry fails at `enroot import`; tell the user it needs infra (credentials on the runner user or a pre-imported squash), see `docs/serving-yaml-procedures.md`. Never put credentials in the YAML.
+- Images: public ones and `vcr.vngcloud.vn` ones the runner's VCR account can read need nothing extra (the runner holds the pull credentials). Another private registry fails at `enroot import`; tell the user it needs infra (credentials on the runner user or a pre-imported squash), see `docs/serving-yaml-procedures.md`. Never put credentials in the YAML. A `.sqsh` file already on the node runs as is: use its absolute path as `image:` and pin the runner to the node that holds it (`hardware-hcm-8x_*` or `hcm-rtx6000pro_*` only).
 - **gpus:** the number of GPUs the command needs, e.g. tensor-parallel size × pipeline-parallel size. If the flags do not make it clear, ask.
 - **Runner:** `gpus: 1` → `h200-greennode-slurm-1x_*`; `gpus: 8` → `hardware-hcm-8x_01` or `_02` (the two 8×H200 boxes, same env convention). Run `ssh slurm-client squeue -p hardware-hcm`, pick the free box; if both are held, pick one and tell the user the run waits in the Slurm queue. Never cancel another user's job. A router (`router:`) needs a `hardware-hcm-*` runner.
 - **docker-compose / k8s:** `image` from `image:`; `serve` from `command:` + `args:` joined; `env` from `environment:` / `env:`.

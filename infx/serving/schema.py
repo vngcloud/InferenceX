@@ -23,8 +23,9 @@ NAME_PATTERN = r"^[a-z0-9][a-z0-9.-]*$"
 LOCAL_PATH_MARKERS = ("/models/", "/mnt/", "/data/")
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # image is spliced into `bash -c` strings on the GPU node; model is word-split
-# into the replay command. Keep both to plain registry refs / HF repo ids.
-IMAGE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*")
+# into the replay command. Keep both to plain registry refs / HF repo ids, or an
+# absolute .sqsh path for a squash file already on the runner's node.
+IMAGE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*|/[A-Za-z0-9._/-]+\.sqsh")
 MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+")
 # Variables serve_generic.sh (and the helpers it calls) reads or sets itself;
 # exporting them from env: would change the recipe, not the engine.
@@ -41,6 +42,7 @@ RESERVED_ENV = (
     "SERVING_SCENARIO",
     "SERVING_LOADER",
     "SERVING_YAML",
+    "SERVING_ENGINE_ARGS",
     "WEKA_LOADER_OVERRIDE",
     "AIPERF_HF_CLI",
     "AIPERF_SERVER_METRICS_URLS",
@@ -159,11 +161,17 @@ class ServingSpec(BaseModel):
     precision: str = Field(default="bf16", pattern=r"^[a-z0-9]+$")
     env: dict[str, str] = Field(default_factory=dict)
     serve: str = Field(min_length=1)
+    engine_args: dict[str, Any] | None = Field(
+        default=None,
+        alias="engine-args",
+        description="Extra engine arguments; written next to the run as engine_args.yaml and "
+        "passed to the engine as --extra-engine-args (trtllm-serve only)",
+    )
     router: RouterSpec | None = None
     storage: StorageSpec | None = None
     scenario: str | list[Annotated[str, Field(pattern=NAME_PATTERN)]] = Field(
         min_length=1,
-        description="One scenario name, or a list: one benchmark job per scenario in a single run"
+        description="One scenario name, or a list: one benchmark job per scenario in a single run",
     )
     conc: list[Annotated[int, Field(gt=0)]] = Field(min_length=1)
 
@@ -199,6 +207,11 @@ def available_scenarios(repo: Path = REPO_ROOT) -> list[str]:
     return sorted(path.stem for path in (repo / "scenarios").glob("*.yaml"))
 
 
+def is_local_squash(image: str) -> bool:
+    """A squash file already on the runner's node; the launcher starts it as is."""
+    return image.startswith("/") and image.endswith(".sqsh")
+
+
 def _format_validation_error(error: ValidationError) -> str:
     lines = []
     for item in error.errors():
@@ -211,7 +224,8 @@ def _format_validation_error(error: ValidationError) -> str:
                 model = StorageSpec
             else:
                 model = ServingSpec
-            message = "unknown key (allowed: " + ", ".join(model.model_fields) + ")"
+            allowed = (field.alias or name for name, field in model.model_fields.items())
+            message = "unknown key (allowed: " + ", ".join(allowed) + ")"
         lines.append(f"{location}: {message}")
     return "\n".join(lines)
 
@@ -266,6 +280,13 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
         problems.append(
             "image: only letters, digits and ._/:@- are allowed (e.g. vllm/vllm-openai:v0.29.0)"
         )
+    if is_local_squash(spec.image) and not spec.runner.startswith(
+        ("hardware-hcm-8x_", "hcm-rtx6000pro_")
+    ):
+        problems.append(
+            "image: a .sqsh file needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "
+            "(only launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh start a local squash as is)"
+        )
     if spec.model.startswith("/"):
         problems.append("model: use the HF repo id (e.g. Qwen/Qwen3.8-27B), not a local path")
     elif not MODEL_PATTERN.fullmatch(spec.model):
@@ -290,6 +311,10 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             )
         if "--numa-node" in command:
             problems.append(f"{field}: drop --numa-node (benchmark convention)")
+        if field == "serve" and "--extra-engine-args" in command:
+            problems.append(
+                f"{field}: --extra-engine-args is staged from engine-args:; remove the flag"
+            )
     envs = (
         [("env", spec.env)]
         + ([("router.env", spec.router.env)] if spec.router else [])
@@ -308,6 +333,8 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
     if spec.router:
         if not IMAGE_PATTERN.fullmatch(spec.router.image):
             problems.append("router.image: only letters, digits and ._/:@- are allowed")
+        if is_local_squash(spec.router.image):
+            problems.append("router.image: a .sqsh path is engine-image only; use a registry ref")
         if not spec.runner.startswith(ROUTER_RUNNER_PREFIXES):
             problems.append(
                 "router: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "
@@ -326,6 +353,8 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
     if spec.storage:
         if not IMAGE_PATTERN.fullmatch(spec.storage.image):
             problems.append("storage.image: only letters, digits and ._/:@- are allowed")
+        if is_local_squash(spec.storage.image):
+            problems.append("storage.image: a .sqsh path is engine-image only; use a registry ref")
         if not spec.runner.startswith(STORAGE_RUNNER_PREFIXES):
             problems.append(
                 "storage: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "

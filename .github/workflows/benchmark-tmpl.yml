@@ -233,6 +233,9 @@ env:
   # rejects empty values, so '' would abort every non-sweep serving run in serve_generic.sh.
   SERVING_SEARCH: ${{ inputs.serving != '' && ((fromJSON(inputs.serving).scenario-map[fromJSON(inputs.config).exp-name].search || fromJSON(inputs.serving).search) && '1' || '0') }}
   SERVING_YAML: ${{ inputs.serving != '' && fromJSON(inputs.serving).yaml || '' }}
+  # Extra engine arguments (trtllm-serve --extra-engine-args); serve_generic.sh
+  # writes them to engine_args.yaml in the engine step's cwd before the engine starts.
+  SERVING_ENGINE_ARGS: ${{ inputs.serving != '' && fromJSON(inputs.serving).engine-args || '' }}
   # Router sidecar (any router, spec 2026-10-14); only runners/launch_hardware-hcm.sh reads these.
   ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}
   ROUTER_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-cmd || '' }}

@@ -13,6 +13,8 @@ import json
 import re
 import shlex
 
+import yaml
+
 from infx.serving.schema import ServingError, ServingSpec
 
 _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -55,9 +57,12 @@ def infer_framework(argv: list[str]) -> str:
         or _python_module(argv) == "dynamo.sglang"
     ):
         return "sglang"
+    if argv[0] == "trtllm-serve" or _python_module(argv) == "trtllm-serve":
+        return "trtllm"
     raise ServingError(
         "serve: unknown engine; the command must start with `vllm serve`, "
-        "`python3 -m sglang.launch_server`, `sglang serve` or `python3 -m dynamo.sglang`"
+        "`python3 -m sglang.launch_server`, `sglang serve`, `python3 -m dynamo.sglang` "
+        "or `python3 -m trtllm-serve`"
     )
 
 
@@ -107,15 +112,20 @@ def _render_router(spec: ServingSpec, engine_argv: list[str]) -> dict[str, str]:
                 "add a router block running python3 -m dynamo.frontend"
             )
         return {
-            "router-image": "", "router-cmd": "", "router-env": "",
-            "router-profile": "", "router-metrics-port": "",
+            "router-image": "",
+            "router-cmd": "",
+            "router-env": "",
+            "router-profile": "",
+            "router-metrics-port": "",
         }
     prefix_env, argv = _pop_env_prefix(split_serve(spec.router.serve, "router.serve"))
     if not argv:
         raise ServingError("router.serve: empty command")
     is_dynamo_router = _python_module(argv) == "dynamo.frontend"
     if is_dynamo_router and not is_dynamo_engine:
-        raise ServingError("serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine")
+        raise ServingError(
+            "serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine"
+        )
     if is_dynamo_engine and not is_dynamo_router:
         raise ServingError(
             "router.serve: a python3 -m dynamo.sglang engine needs python3 -m dynamo.frontend as its router"
@@ -134,7 +144,9 @@ def _render_router(spec: ServingSpec, engine_argv: list[str]) -> dict[str, str]:
         "router-cmd": shlex.join(argv),
         "router-env": "\n".join(f"{key}={value}" for key, value in env.items()),
         "router-profile": "dynamo" if is_dynamo_router else "generic",
-        "router-metrics-port": "" if spec.router.metrics_port is None else str(spec.router.metrics_port),
+        "router-metrics-port": ""
+        if spec.router.metrics_port is None
+        else str(spec.router.metrics_port),
     }
 
 
@@ -170,6 +182,11 @@ def render(spec: ServingSpec) -> dict[str, str]:
     _check_json_values("serve", argv)
     if framework == "vllm" and "--disable-log-stats" in argv:
         raise ServingError("serve: drop --disable-log-stats; the benchmark scrapes vLLM metrics")
+    if spec.engine_args is not None and framework != "trtllm":
+        raise ServingError(
+            "engine-args: only python3 -m trtllm-serve reads --extra-engine-args; "
+            "move the keys into the engine's own flags"
+        )
     router = _render_router(spec, argv)
     storage = _render_storage(spec)
     argv = _strip_flags(argv, _OWNED_FLAGS)
@@ -182,12 +199,19 @@ def render(spec: ServingSpec) -> dict[str, str]:
                 "(the metrics gate requires sglang:* series)"
             )
         argv.append("--enable-metrics")
+    if spec.engine_args is not None:
+        # serve_generic.sh writes engine_args.yaml in the engine step's cwd (/workspace)
+        # right before starting the engine, which inherits that cwd.
+        argv += ["--extra-engine-args", "engine_args.yaml"]
     env = {**prefix_env, **spec.env}
     return {
         "framework": framework,
         "serve-cmd": shlex.join(argv),
         "serve-env": "\n".join(f"{key}={value}" for key, value in env.items()),
         "served-model-name": _flag_value(argv, "--served-model-name") or "",
+        "engine-args": ""
+        if spec.engine_args is None
+        else yaml.safe_dump(spec.engine_args, sort_keys=False),
         **router,
         **storage,
     }

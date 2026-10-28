@@ -155,8 +155,17 @@ import_squash() {
         fi
     " >&2
 }
-SQUASH_FILE="$(squash_path "$IMAGE")"
-import_squash "$IMAGE"
+if [[ "$IMAGE" == /*.sqsh ]]; then
+    # a squash file already on this node runs as is; no registry import
+    if [[ ! -f "$IMAGE" ]]; then
+        echo "ERROR: engine image $IMAGE is not on this node" >&2
+        exit 1
+    fi
+    SQUASH_FILE="$IMAGE"
+else
+    SQUASH_FILE="$(squash_path "$IMAGE")"
+    import_squash "$IMAGE"
+fi
 
 FRAMEWORK_SUFFIX=$([[ "$FRAMEWORK" == "vllm" ]] && printf '' || printf "_%s" "$FRAMEWORK")
 case "$SPEC_DECODING" in

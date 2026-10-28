@@ -1,0 +1,34 @@
+# Gemma-4-31B FP8-block on trtllm-serve 1.4.0rc0 (node-local squash on hgx-h200-01),
+# TP2, FLASHINFER attention with KV prefix reuse, LiveKit 111868 v1 traces at the
+# production concurrencies (one job per conc).
+name: gemma4-31b-fp8-trtllm-tp2-livekit-v1
+runner: hardware-hcm-8x_01
+image: /mnt/sqsh/tensorrt-llm_1.4.0rc0.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 2
+precision: fp8
+serve: |
+  python3 -m trtllm-serve
+  --model RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name google/gemma-4-31b-it
+  --tensor-parallel-size 2
+  --max-batch-size 64
+  --max-num-tokens 2048
+  --max-seq-len 262144
+  --kv-block-size 64
+  --dyn-tool-call-parser gemma4
+  --dyn-reasoning-parser gemma4
+  --publish-kv-events
+engine-args:
+  trust_remote_code: true
+  enable_chunked_prefill: true
+  attn_backend: FLASHINFER
+  kv_cache_config:
+    dtype: auto
+    enable_block_reuse: true
+    free_gpu_memory_fraction: 0.92
+  cuda_graph_config:
+    enable_padding: true
+    max_batch_size: 64
+scenario: custom-agentic-livekit111868-v1
+conc: [150, 200]

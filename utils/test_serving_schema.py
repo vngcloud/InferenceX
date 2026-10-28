@@ -372,3 +372,45 @@ def test_non_sweep_scenario_keeps_conc_rule_unchanged(sweep_repo):
     text = with_line("conc: [4, 8]", "conc: [8, 16]")
     spec = load_serving(text, sweep_repo)
     assert spec.conc == [8, 16]
+
+
+SQSH = "/mnt/sqsh/tensorrt-llm_1.4.0rc0.sqsh"
+
+
+def test_local_sqsh_engine_image_loads_on_hcm_runner():
+    text = with_line("image: vllm/vllm-openai:v0.29.0", f"image: {SQSH}").replace(
+        "runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-8x_01"
+    )
+    assert load_serving(text).image == SQSH
+
+
+def test_local_sqsh_engine_image_needs_hcm_or_rtx_runner():
+    text = with_line("image: vllm/vllm-openai:v0.29.0", "image: /mnt/sqsh/x.sqsh")
+    assert "image: a .sqsh file needs a hardware-hcm-8x_*" in errors(text)
+
+
+def test_local_sqsh_router_image_rejected():
+    text = dynamo().replace(
+        "image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1",
+        "image: /mnt/sqsh/router.sqsh",
+    ).replace("image: vllm/vllm-openai:v0.29.0", f"image: {SQSH}")
+    assert "router.image: a .sqsh path is engine-image only" in errors(text)
+
+
+def test_extra_engine_args_flag_in_serve_rejected():
+    text = with_line(
+        "serve: vllm serve Qwen/Qwen3.8-27B --max-model-len 262144",
+        "serve: python3 -m trtllm-serve --model Qwen/Qwen3.8-27B --extra-engine-args /x/engine.yaml",
+    )
+    assert "serve: --extra-engine-args is staged from engine-args:" in errors(text)
+
+
+def test_engine_args_block_loads():
+    text = GOOD + "engine-args:\n  trust_remote_code: true\n  kv_cache_config: {enable_block_reuse: true}\n"
+    spec = load_serving(text)
+    assert spec.engine_args == {"trust_remote_code": True, "kv_cache_config": {"enable_block_reuse": True}}
+
+
+def test_engine_args_underscore_key_rejected():
+    text = GOOD + "engine_args:\n  trust_remote_code: true\n"
+    assert "engine_args: unknown key" in errors(text)

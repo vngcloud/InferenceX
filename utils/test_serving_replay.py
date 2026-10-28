@@ -85,8 +85,31 @@ def test_serve_generic_exports_env_without_tracing_values(tmp_path):
     assert out.returncode == 7
     assert (tmp_path / "seen").read_text() == "hf_secret123 a b\n"
     assert (tmp_path / "r/serving.yaml").read_text() == "env:\n  HF_TOKEN: hf_secret123"
+    assert not (tmp_path / "engine_args.yaml").exists()
     assert "hf_secret123" not in out.stdout + out.stderr
     assert out.stdout.splitlines()[:2] == ["serve env: HF_TOKEN", "serve env: FOO"]
+
+
+def test_serve_generic_writes_engine_args_file_in_cwd(tmp_path):
+    # The trtllm serve command carries --extra-engine-args engine_args.yaml; the
+    # recipe must write that file in its own cwd (the engine's cwd) before starting.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "nvidia-smi").write_text("#!/bin/sh\nexit 7\n")
+    (bin_dir / "nvidia-smi").chmod(0o755)
+    engine_args = "attn_backend: FLASHINFER\nkv_cache_config:\n  enable_block_reuse: true\n"
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin", "MODEL": "RedHatAI/gemma-4-31B-it-FP8-block", "CONC": "150",
+        "PORT": "8888", "RESULT_DIR": str(tmp_path / "r"), "FRAMEWORK": "trtllm",
+        "SERVE_CMD": "python3 -m trtllm-serve --model RedHatAI/gemma-4-31B-it-FP8-block",
+        "SERVING_SCENARIO": "agentx-cc-062126-smoke", "SERVING_LOADER": "x", "KV_OFFLOADING": "none",
+        "SERVING_SEARCH": "0", "SERVING_YAML": "name: x",
+        "SERVING_ENGINE_ARGS": engine_args,
+    }
+    out = subprocess.run(["bash", str(REPO / "benchmarks/single_node/agentic/serve_generic.sh")],
+                         cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert out.returncode == 7
+    assert (tmp_path / "engine_args.yaml").read_text() == engine_args
 
 
 def test_search_mode_drops_concurrency_and_writes_slo_override_copy(tmp_path):

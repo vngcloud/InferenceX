@@ -6,7 +6,7 @@
 
 </div>
 
-使用本页在 VNG GPU Runner 上对你自己的服务配置（`vllm serve` / `sglang` 命令，或 Dynamo frontend + `dynamo.sglang` 组合）进行基准测试，无需编写 recipe 或修改 `configs/`。输入一个 YAML 文件，产出一次 GitHub Actions 运行。[`infx/serving/schema.py`](../infx/serving/schema.py) 中的 Schema 与 Agent 技能 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) 为权威来源；本页说明谁可以运行，以及基础设施提供了什么。
+使用本页在 VNG GPU Runner 上对你自己的服务配置（`vllm serve` / `sglang` / `python3 -m trtllm-serve` 命令，或 Dynamo frontend + `dynamo.sglang` 组合）进行基准测试，无需编写 recipe 或修改 `configs/`。输入一个 YAML 文件，产出一次 GitHub Actions 运行。[`infx/serving/schema.py`](../infx/serving/schema.py) 中的 Schema 与 Agent 技能 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) 为权威来源；本页说明谁可以运行，以及基础设施提供了什么。
 
 ## 流程索引
 
@@ -50,7 +50,7 @@
 
 ## 编写并派发 serving YAML
 
-1. 创建 `serving/<name>.yaml`。字段说明与转换规则（模型路径 → HF ID、环境变量、Router 拆分、上下文长度）见 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md)。可用示例：[`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml)（仅引擎）、[`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml)（Dynamo Router + 引擎）与 [`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml)（sglang-router + SGLang 引擎）。
+1. 创建 `serving/<name>.yaml`。字段说明与转换规则（模型路径 → HF ID、环境变量、Router 拆分、上下文长度）见 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md)。可用示例：[`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml)（仅引擎）、[`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml)（Dynamo Router + 引擎）、[`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml)（sglang-router + SGLang 引擎）与 [`serving/gemma4-31b-fp8-trtllm-tp2-livekit-v1.yaml`](../serving/gemma4-31b-fp8-trtllm-tp2-livekit-v1.yaml)（trtllm-serve、节点本地 `.sqsh` 镜像、`engine-args:`）。
 2. 从 `scenarios/` 中选择场景（`agentx-cc-062126`、`agentx-cc-062126-smoke`、`custom-agentic-tau2`、`custom-agentic-tau2-smoke`）。新配置先用 `-smoke` 场景。生成的 `sweep-isl<isl>-osl<osl>-cache<cache>.yaml` 系列会自适应地搜索并发，且始终以 `conc: 1` 运行——见 [Sweep 场景](#sweep-场景)。
 3. 校验并派发：
 

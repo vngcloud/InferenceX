@@ -5,6 +5,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 from infx.serving.schema import ServingError, available_scenarios
 from infx.serving.to_matrix import build, is_sweep, scenario_facts
@@ -71,6 +72,7 @@ def test_serving_object():
             for exp_name in ("qwen38-bf16-tp1_c4", "qwen38-bf16-tp1_c8")
         },
         "yaml": YAML,
+        "engine-args": "",
         "router-image": "",
         "router-cmd": "",
         "router-env": "",
@@ -89,6 +91,7 @@ NEW_SERVING_FIELDS = (
     "storage-image", "storage-cmd", "storage-env",
     "search",  # sweep scenarios; the goldens predate it
     "scenario-map",  # per-row scenario payloads; the goldens predate it
+    "engine-args",  # trtllm-serve extra engine arguments; the goldens predate it
 )
 
 
@@ -366,3 +369,34 @@ def test_malformed_scenario_is_one_line_error(tmp_path, text):
     message = str(info.value)
     assert message.startswith("scenario: scenarios/s.yaml ")
     assert "\n" not in message
+
+
+TRTLLM_YAML = textwrap.dedent("""\
+    name: gemma4-trtllm-tp2
+    runner: hardware-hcm-8x_01
+    image: /mnt/sqsh/tensorrt-llm.sqsh
+    model: RedHatAI/gemma-4-31B-it-FP8-block
+    gpus: 2
+    serve: |
+      python3 -m trtllm-serve --model RedHatAI/gemma-4-31B-it-FP8-block
+      --served-model-name google/gemma-4-31b-it --tensor-parallel-size 2
+    engine-args:
+      attn_backend: FLASHINFER
+      kv_cache_config: {enable_block_reuse: true}
+    scenario: agentx-cc-062126-smoke
+    conc: [4]
+""")
+
+
+def test_trtllm_engine_args_flow_to_serving_json():
+    result = build(TRTLLM_YAML)
+    validate_matrix(result["matrix"])
+    row = result["matrix"][0]
+    assert row["framework"] == "trtllm"
+    assert row["tp"] == 2
+    serving = result["serving"]
+    assert serving["serve-cmd"].endswith("--extra-engine-args engine_args.yaml")
+    assert yaml.safe_load(serving["engine-args"]) == {
+        "attn_backend": "FLASHINFER",
+        "kv_cache_config": {"enable_block_reuse": True},
+    }

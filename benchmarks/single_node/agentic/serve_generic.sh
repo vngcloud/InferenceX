@@ -16,6 +16,8 @@ umask 0000
 #   SERVING_LOADER     dataset of that scenario: public loader alias, scenarios/datasets/lock.yaml key, or synthetic
 #   SERVING_SEARCH     1 for sweep scenarios (adaptive_search): the scenario YAML's sweep: block drives concurrency
 #   SERVING_YAML       the user's serving YAML, saved next to the results
+#   SERVING_ENGINE_ARGS extra engine arguments (trtllm-serve); written to engine_args.yaml in this
+#                      cwd right before the engine starts, which the --extra-engine-args flag reads
 #   ROUTER_CMD         set on the router path: the router runs in a sidecar (serve_router.sh); with ROUTER_PROFILE=dynamo the engine has no HTTP port, otherwise it listens on ENGINE_PORT
 #   ROUTER_PROFILE     dynamo | generic (launcher)
 #   ROUTER_METRICS_PORT generic router: its /metrics port, empty = the router port
@@ -31,6 +33,9 @@ mkdir -p "$RESULT_DIR"
 # log only the exported names.
 { set +x; } 2>/dev/null
 printf '%s' "${SERVING_YAML:-}" > "$RESULT_DIR/serving.yaml"
+if [[ -n "${SERVING_ENGINE_ARGS:-}" ]]; then
+    printf '%s' "$SERVING_ENGINE_ARGS" > engine_args.yaml
+fi
 if [[ -n "${SERVE_ENV:-}" ]]; then
     while IFS= read -r assignment; do
         if [[ -n "$assignment" ]]; then
@@ -89,7 +94,10 @@ fi
 case "$FRAMEWORK" in
     vllm) export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="vllm:" ;;
     sglang) export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:" ;;
-    *) echo "ERROR: serve_generic.sh supports vllm and sglang, got FRAMEWORK=$FRAMEWORK" >&2; exit 1 ;;
+    # trtllm-serve /metrics carries no stable vllm:/sglang:-style prefix; the
+    # required-prefix gate is opt-in, so leaving it unset keeps the run green.
+    trtllm) ;;
+    *) echo "ERROR: serve_generic.sh supports vllm, sglang and trtllm, got FRAMEWORK=$FRAMEWORK" >&2; exit 1 ;;
 esac
 
 SERVER_LOG="$RESULT_DIR/server.log"

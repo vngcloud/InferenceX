@@ -6,7 +6,7 @@
 
 </div>
 
-Use this page to benchmark your own serving config (a `vllm serve` / `sglang` command, or a Dynamo frontend + `dynamo.sglang` pair) on a VNG GPU runner without writing a recipe or editing `configs/`. One YAML file goes in, one GitHub Actions run comes out. The schema in [`infx/serving/schema.py`](../infx/serving/schema.py) and the agent skill [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) are authoritative; this page explains who can run it and what the infrastructure provides.
+Use this page to benchmark your own serving config (a `vllm serve` / `sglang` / `python3 -m trtllm-serve` command, or a Dynamo frontend + `dynamo.sglang` pair) on a VNG GPU runner without writing a recipe or editing `configs/`. One YAML file goes in, one GitHub Actions run comes out. The schema in [`infx/serving/schema.py`](../infx/serving/schema.py) and the agent skill [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) are authoritative; this page explains who can run it and what the infrastructure provides.
 
 ## Procedure index
 
@@ -50,7 +50,7 @@ The first run of a large model spends extra time downloading it and uses node di
 
 ## Write and dispatch a serving YAML
 
-1. Create `serving/<name>.yaml`. Field reference and translation rules (model path → HF id, env vars, router split, context length) are in [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md). Working examples: [`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml) (engine only), [`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml) (Dynamo router + engine) and [`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml) (sglang-router + SGLang engine).
+1. Create `serving/<name>.yaml`. Field reference and translation rules (model path → HF id, env vars, router split, context length) are in [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md). Working examples: [`serving/qwen38-bf16-tp1.yaml`](../serving/qwen38-bf16-tp1.yaml) (engine only), [`serving/glm53-w4afp8-dynamo.yaml`](../serving/glm53-w4afp8-dynamo.yaml) (Dynamo router + engine) [`serving/glm53-w4afp8-sglang-router.yaml`](../serving/glm53-w4afp8-sglang-router.yaml) (sglang-router + SGLang engine) and [`serving/gemma4-31b-fp8-trtllm-tp2-livekit-v1.yaml`](../serving/gemma4-31b-fp8-trtllm-tp2-livekit-v1.yaml) (trtllm-serve, node-local `.sqsh` image, `engine-args:`).
 2. Pick a scenario from `scenarios/` (`agentx-cc-062126`, `agentx-cc-062126-smoke`, `custom-agentic-tau2`, `custom-agentic-tau2-smoke`). Start with a `-smoke` scenario for a new config. The generated `sweep-isl<isl>-osl<osl>-cache<cache>.yaml` family searches concurrency adaptively and always runs with `conc: 1` — see [Sweep scenarios](#sweep-scenarios).
 3. Validate and dispatch:
 
