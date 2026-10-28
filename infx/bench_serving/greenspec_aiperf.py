@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -272,7 +273,11 @@ def guard(
             if keep_log_dir is not None:
                 keep_log_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(log), str(keep_log_dir / log.name))
-            log.write_text(SERVER_LOG_STUB)
+            # Swap in a new inode: the server may still hold the log open, and a truncate
+            # would let its next writes land in the stub (after a hole of NULs).
+            tmp = log.with_name(log.name + ".stub")
+            tmp.write_text(SERVER_LOG_STUB)
+            os.replace(tmp, log)
     qids = {r["question_id"] for r in iter_rows(dataset)}
     files = [p for p in artifact_dir.rglob("*") if p.is_file()] if artifact_dir.is_dir() else []
     files += [p for p in uploads if p.is_file()]
