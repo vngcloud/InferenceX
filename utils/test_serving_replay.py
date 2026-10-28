@@ -91,7 +91,7 @@ def test_serve_generic_exports_env_without_tracing_values(tmp_path):
 
 
 def test_serve_generic_writes_engine_args_file_in_cwd(tmp_path):
-    # The trtllm serve command carries --extra-engine-args engine_args.yaml; the
+    # The trtllm serve command carries --config engine_args.yaml; the
     # recipe must write that file in its own cwd (the engine's cwd) before starting.
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -101,7 +101,7 @@ def test_serve_generic_writes_engine_args_file_in_cwd(tmp_path):
     env = {
         "PATH": f"{bin_dir}:/usr/bin:/bin", "MODEL": "RedHatAI/gemma-4-31B-it-FP8-block", "CONC": "150",
         "PORT": "8888", "RESULT_DIR": str(tmp_path / "r"), "FRAMEWORK": "trtllm",
-        "SERVE_CMD": "python3 -m trtllm-serve --model RedHatAI/gemma-4-31B-it-FP8-block",
+        "SERVE_CMD": "trtllm-serve serve RedHatAI/gemma-4-31B-it-FP8-block",
         "SERVING_SCENARIO": "agentx-cc-062126-smoke", "SERVING_LOADER": "x", "KV_OFFLOADING": "none",
         "SERVING_SEARCH": "0", "SERVING_YAML": "name: x",
         "SERVING_ENGINE_ARGS": engine_args,
@@ -110,6 +110,40 @@ def test_serve_generic_writes_engine_args_file_in_cwd(tmp_path):
                          cwd=tmp_path, env=env, capture_output=True, text=True)
     assert out.returncode == 7
     assert (tmp_path / "engine_args.yaml").read_text() == engine_args
+
+
+def _run_serve_generic_with_env_dump(tmp_path: Path, framework: str) -> str:
+    # Stubbed nvidia-smi dumps the environment it runs with: everything the
+    # recipe exports, strips or keeps before the first command runs.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "nvidia-smi").write_text(f"#!/bin/sh\nenv > {tmp_path}/seen\nexit 7\n")
+    (bin_dir / "nvidia-smi").chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin", "MODEL": "RedHatAI/gemma-4-31B-it-FP8-block", "CONC": "150",
+        "PORT": "8888", "RESULT_DIR": str(tmp_path / "r"), "FRAMEWORK": framework,
+        "SERVE_CMD": "trtllm-serve serve RedHatAI/gemma-4-31B-it-FP8-block",
+        "SERVING_SCENARIO": "agentx-cc-062126-smoke", "SERVING_LOADER": "x", "KV_OFFLOADING": "none",
+        "SERVING_SEARCH": "0", "SERVING_YAML": "name: x",
+        "SLURM_JOB_ID": "6809", "SLURM_JOB_NODELIST": "hgx-h200-01", "SLURM_PROCID": "0",
+    }
+    out = subprocess.run(["bash", str(REPO / "benchmarks/single_node/agentic/serve_generic.sh")],
+                         cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert out.returncode == 7, out.stderr
+    return (tmp_path / "seen").read_text()
+
+
+def test_serve_generic_strips_slurm_env_for_trtllm_engine(tmp_path):
+    # trtllm-serve spawns TP workers with MPI_Spawn; PRRTE must not see the
+    # Slurm allocation env or it launches daemons via srun/ssh and the engine
+    # dies with MPI_ERR_UNKNOWN.
+    assert "SLURM_" not in _run_serve_generic_with_env_dump(tmp_path, "trtllm")
+
+
+def test_serve_generic_keeps_slurm_env_for_other_frameworks(tmp_path):
+    seen = _run_serve_generic_with_env_dump(tmp_path, "vllm")
+    assert "SLURM_JOB_ID=6809" in seen
+    assert "SLURM_JOB_NODELIST=hgx-h200-01" in seen
 
 
 def test_search_mode_drops_concurrency_and_writes_slo_override_copy(tmp_path):

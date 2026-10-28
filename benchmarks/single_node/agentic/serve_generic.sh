@@ -17,7 +17,7 @@ umask 0000
 #   SERVING_SEARCH     1 for sweep scenarios (adaptive_search): the scenario YAML's sweep: block drives concurrency
 #   SERVING_YAML       the user's serving YAML, saved next to the results
 #   SERVING_ENGINE_ARGS extra engine arguments (trtllm-serve); written to engine_args.yaml in this
-#                      cwd right before the engine starts, which the --extra-engine-args flag reads
+#                      cwd right before the engine starts, which the --config flag reads
 #   ROUTER_CMD         set on the router path: the router runs in a sidecar (serve_router.sh); with ROUTER_PROFILE=dynamo the engine has no HTTP port, otherwise it listens on ENGINE_PORT
 #   ROUTER_PROFILE     dynamo | generic (launcher)
 #   ROUTER_METRICS_PORT generic router: its /metrics port, empty = the router port
@@ -49,6 +49,16 @@ if [[ -n "${SERVE_ENV:-}" ]]; then
     done <<< "$SERVE_ENV"
 fi
 set -x
+
+# trtllm-serve spawns its TP workers with MPI_Spawn. PRRTE reads the Slurm
+# allocation env pyxis exports into the container and launches its daemons with
+# srun (absent in the image) or ssh (refused on compute nodes); without the
+# Slurm env it forks the workers locally (verified against the rc1 image).
+if [[ "$FRAMEWORK" == trtllm ]]; then
+    for var in ${!SLURM@}; do
+        unset "$var"
+    done
+fi
 
 nvidia-smi
 
