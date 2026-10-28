@@ -39,7 +39,8 @@ RUN_ENV=(
   # Optional read token for the private prepared SPEED-Bench repo; see
   # resolve_speedbench_dataset in benchmarks/benchmark_lib.sh.
   SPEEDBENCH_HF_TOKEN
-  # Optional read token for the private GreenSpec repo (resolve_greenspec_dataset).
+  # Optional read token for the private GreenSpec repo; see
+  # resolve_greenspec_dataset in benchmarks/benchmark_lib.sh.
   GREENSPEC_HF_TOKEN
   EXP_NAME MODEL MODEL_PREFIX IMAGE FRAMEWORK PRECISION TP EP_SIZE DP_ATTENTION
   PP_SIZE DCP_SIZE PCP_SIZE
