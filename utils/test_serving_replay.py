@@ -137,11 +137,12 @@ def test_serve_generic_strips_slurm_env_for_trtllm_engine(tmp_path):
     # trtllm-serve spawns TP workers with MPI_Spawn; PRRTE must not see the
     # Slurm allocation env or it launches daemons via srun/ssh and the engine
     # dies with MPI_ERR_UNKNOWN. UCX must stay off the RoCE transport (the
-    # runner's 8 MB memlock cannot hold its completion queue): shared memory
-    # covers the same-node ranks.
+    # runner's 8 MB memlock cannot hold its completion queue) and off sm/posix
+    # (no active-messages path for the workers' handshake): loopback TCP is
+    # the transport that passes the full handshake.
     seen = _run_serve_generic_with_env_dump(tmp_path, "trtllm")
     assert "SLURM_" not in seen
-    assert "UCX_TLS=sm,self" in seen
+    assert "UCX_TLS=tcp,self" in seen
 
 
 def test_serve_generic_keeps_slurm_env_for_other_frameworks(tmp_path):
