@@ -1,6 +1,6 @@
 name: glm53-uniboost-pw30-smoke
 runner: cluster:hcm-hgx02
-image: docker.io/phphlio1/sglang-uniboost:9108be6c9f
+image: docker.io/phphlio1/sglang-uniboost:9108be6c9f-r2
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8
 precision: w4afp8
