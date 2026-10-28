@@ -15,6 +15,10 @@ on:
       # recipe ignores it, and the SPEED-Bench path falls back to HF_TOKEN.
       SPEEDBENCH_HF_TOKEN:
         required: false
+      # Read-only token for the private GreenSpec repo pulled by
+      # resolve_greenspec_dataset (benchmark_lib.sh). Optional, falls back to HF_TOKEN.
+      GREENSPEC_HF_TOKEN:
+        required: false
     inputs:
       config:
         description: "Benchmark configuration as JSON"
@@ -169,6 +173,7 @@ env:
   HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
   HF_HUB_CACHE: '/mnt/hf_hub_cache/'
   SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+  GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
   EXP_NAME: ${{ fromJSON(inputs.config).exp-name }}
   RECIPE_FINGERPRINT: ${{ fromJSON(inputs.config).recipe-fingerprint || '' }}
   MODEL: ${{ fromJSON(inputs.config).model }}
@@ -533,6 +538,23 @@ jobs:
           path: |
             results/speedbench_aiperf/**
             !results/speedbench_aiperf/**/inputs.json
+          if-no-files-found: ignore
+
+      # GreenSpec recipes (run_greenspec_aiperf) hold internal prod traffic. The
+      # client's guard already pruned results/greenspec_aiperf to aggregate files
+      # and checked them for row ids; upload by allowlist all the same, so a file
+      # a future aiperf adds never ships by default.
+      - name: Upload GreenSpec aiperf artifacts
+        if: ${{ always() && inputs.scenario-type != 'agentic-coding' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: greenspec_aiperf_${{ env.RESULT_FILENAME }}
+          path: |
+            results/greenspec_aiperf/profile_export_aiperf.json
+            results/greenspec_aiperf/result.json
+            results/greenspec_aiperf/spec_metrics_before.json
+            results/greenspec_aiperf/spec_metrics_after.json
+            results/greenspec_aiperf/benchmark_command.txt
           if-no-files-found: ignore
 
       - name: Upload GPU metrics

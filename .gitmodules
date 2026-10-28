@@ -1,6 +1,7 @@
 [submodule "utils/aiperf"]
 	path = utils/aiperf
-	url = https://github.com/SemiAnalysisAI/aiperf.git
+	url = https://github.com/Noridom1/aiperf.git
+	branch = feat/greenspec-loader
 [submodule "utils/srt-slurm"]
 	path = utils/srt-slurm
 	url = https://github.com/NVIDIA/srt-slurm.git

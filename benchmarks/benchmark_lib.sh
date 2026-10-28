@@ -4271,3 +4271,250 @@ print(json.dumps(extra, separators=(",", ":")))') || return 1
     cp "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json" "$artifact_dir/result.json"
     return "$aiperf_rc"
 }
+
+
+# GreenSpec helpers (aiperf driver, natural-stop arms)
+#
+# GreenSpec is an internal speculative-decoding bench cut from production chat
+# traffic (tools, multi-turn history, real system prompts). One flat
+# greenspec.jsonl holds every subset; the pinned aiperf fork selects one through
+# its greenspec_* presets, and infx.bench_serving.speedbench_aiperf maps the
+# export onto the benchmark_serving keys as for SPEED-Bench. Unlike SPEED-Bench,
+# output length is not forced: no --osl and no ignore_eos, each request stops on
+# its own (capped by GREENSPEC_MAX_TOKENS).
+#
+# The data is internal and this repo's artifacts are public: the run ends with
+# `greenspec_aiperf guard`, which keeps only an allowlist of aggregate files,
+# withholds the server log and fails the job if a row id is left anywhere it
+# would be uploaded. Never add --export-level raw or vLLM request logging to a
+# GreenSpec recipe.
+
+# Private, pinned by commit (the v1.1.0 tag); SHA256SUMS in the repo is checked
+# after download.
+GREENSPEC_HF_REPO="${GREENSPEC_HF_REPO:-Green-Lab/GreenSpec}"
+GREENSPEC_HF_REVISION="${GREENSPEC_HF_REVISION:-f76978679a941e21eb701e7e046a0038a94efa7b}"
+
+# Resolve greenspec.jsonl and export GREENSPEC_FILE. A pre-staged $GREENSPEC_DIR
+# (holding greenspec.jsonl) wins; otherwise the pinned HF snapshot, cache first,
+# network second. Token: GREENSPEC_HF_TOKEN, falling back to HF_TOKEN.
+resolve_greenspec_dataset() {
+    local name="greenspec.jsonl"
+    if [ -n "${GREENSPEC_DIR:-}" ] && [ -f "$GREENSPEC_DIR/$name" ]; then
+        export GREENSPEC_FILE="$GREENSPEC_DIR/$name"
+        echo "GreenSpec: using pre-staged $GREENSPEC_FILE"
+        return 0
+    fi
+
+    install_agentic_deps || return $?
+    local snapshot_dir
+    # Subshell with tracing off so neither token reaches the job log.
+    snapshot_dir=$(
+        set +x
+        export HF_TOKEN="${GREENSPEC_HF_TOKEN:-${HF_TOKEN:-}}"
+        "$AIPERF_PYTHON" - "$GREENSPEC_HF_REPO" "$GREENSPEC_HF_REVISION" "$name" <<'PY'
+import sys
+from huggingface_hub import snapshot_download
+
+repo, revision, name = sys.argv[1:4]
+kwargs = dict(repo_id=repo, repo_type="dataset", revision=revision,
+              allow_patterns=[name, "SHA256SUMS"])
+try:
+    path = snapshot_download(local_files_only=True, **kwargs)
+except Exception:
+    path = snapshot_download(**kwargs)
+print(path)
+PY
+    ) || {
+        echo "ERROR: could not fetch $name from $GREENSPEC_HF_REPO@$GREENSPEC_HF_REVISION;" \
+             "check that GREENSPEC_HF_TOKEN (or HF_TOKEN) can read the repo" >&2
+        return 1
+    }
+
+    if ! (cd "$snapshot_dir" && grep -E "[[:space:]]\\*?${name}\$" SHA256SUMS | sha256sum -c -); then
+        echo "ERROR: $snapshot_dir/$name does not match SHA256SUMS" >&2
+        return 1
+    fi
+    export GREENSPEC_FILE="$snapshot_dir/$name"
+    echo "GreenSpec: $GREENSPEC_FILE ($GREENSPEC_HF_REPO@$GREENSPEC_HF_REVISION)"
+}
+
+# Run one GreenSpec cell with aiperf and write $RESULT_FILENAME.json in the
+# benchmark_serving shape. Call after the server is ready.
+#
+# Required: MODEL PORT CONC RESULT_FILENAME
+# Optional:
+#   GREENSPEC_SUBSET         diverse (default) | agentic_coding | agentic_tools | llm_task
+#   GREENSPEC_LITE           1 = the lite quarter of every bucket; default 0.
+#   GREENSPEC_BUCKET         one bucket, e.g. agentic_tools__4k-16k.
+#   GREENSPEC_MODE           target-default (default): messages, tools and
+#                            response_format only, decode params from the
+#                            server. recorded: each request's own prod params.
+#   GREENSPEC_MAX_TOKENS     output cap per request, default 8192 (lowers a
+#                            recorded cap, never raises it).
+#   GREENSPEC_EXTRA_INPUTS   JSON object merged into every request body.
+#   GREENSPEC_NUM_PROMPTS    requests to send; default the whole selection.
+#                            Rows are interleaved across buckets, so a prefix
+#                            stays balanced and every arm sees the same rows.
+#   GREENSPEC_WARMUP_REQUESTS  default 0.
+#   GREENSPEC_METRICS_URL    Prometheus endpoint; default http://localhost:$PORT/metrics.
+#   GREENSPEC_SERVER_PID     stop the client if this server dies (server_watch).
+#   GREENSPEC_SERVER_LOG     server log the guard withholds; default /workspace/server.log.
+#   GREENSPEC_KEEP_LOG_DIR   runner-local dir to move that log to instead of dropping it.
+#   GREENSPEC_META           whitespace-separated KEY=VALUE pairs copied into the result.
+#   SERVED_MODEL_NAME, AIPERF_TOKENIZER, AIPERF_GPU_TELEMETRY_URL, RESULT_DIR.
+run_greenspec_aiperf() {
+    if [ "${EVAL_ONLY}" = "true" ]; then
+        echo "EVAL_ONLY mode: skipping GreenSpec benchmark"
+        return 0
+    fi
+    check_env_vars MODEL PORT CONC RESULT_FILENAME INFMAX_CONTAINER_WORKSPACE
+    resolve_greenspec_dataset || return $?
+
+    local subset="${GREENSPEC_SUBSET:-diverse}"
+    local lite="${GREENSPEC_LITE:-0}"
+    local bucket="${GREENSPEC_BUCKET:-}"
+    local mode="${GREENSPEC_MODE:-target-default}"
+    local max_tokens="${GREENSPEC_MAX_TOKENS:-8192}"
+    local model_name="${SERVED_MODEL_NAME:-$MODEL}"
+    local py=(env "PYTHONPATH=$INFERENCEX_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$AIPERF_PYTHON")
+    local gs=("${py[@]}" -m infx.bench_serving.greenspec_aiperf)
+    local sel=(--file "$GREENSPEC_FILE" --subset "$subset" --lite "$lite" --bucket "$bucket")
+
+    local pool
+    pool=$("${gs[@]}" pool "${sel[@]}") || return 1
+    if [ "$pool" -le 0 ]; then
+        echo "ERROR: GreenSpec subset=$subset lite=$lite bucket=$bucket matches no rows" >&2
+        return 1
+    fi
+    local num_prompts="${GREENSPEC_NUM_PROMPTS:-$pool}"
+    if [ "$num_prompts" -gt "$pool" ]; then num_prompts="$pool"; fi
+
+    local extra_inputs
+    extra_inputs=$(GREENSPEC_MAX_TOKENS="$max_tokens" "$AIPERF_PYTHON" -c '
+import json, os
+extra = {"max_tokens": int(os.environ["GREENSPEC_MAX_TOKENS"])}
+extra.update(json.loads(os.environ.get("GREENSPEC_EXTRA_INPUTS") or "{}"))
+print(json.dumps(extra, separators=(",", ":")))') || return 1
+
+    local result_dir="${RESULT_DIR:-$INFMAX_CONTAINER_WORKSPACE/results}"
+    local artifact_dir="$result_dir/greenspec_aiperf"
+    local metrics_url="${GREENSPEC_METRICS_URL:-http://localhost:$PORT/metrics}"
+    local tmp_dir
+    tmp_dir=$(mktemp -d /tmp/greenspec.XXXXXX) || return 1
+    mkdir -p "$artifact_dir"
+
+    # The preset when the pinned aiperf has it; otherwise a pre-filtered
+    # raw_payload copy in a temp dir that never reaches results/.
+    local preset input_file loader
+    preset=$("${gs[@]}" preset --subset "$subset" --lite "$lite" --bucket "$bucket" --mode "$mode") || return 1
+    if [ -n "$preset" ] && "$AIPERF_PYTHON" -c 'import sys
+from aiperf.plugin import plugins
+plugins.get_dataset_loader_metadata(sys.argv[1])' "$preset" 2>/dev/null; then
+        loader="$preset"
+        input_file="$GREENSPEC_FILE"
+    else
+        loader="raw_payload"
+        input_file="$tmp_dir/greenspec_selection.jsonl"
+        "${gs[@]}" prepare "${sel[@]}" --out "$input_file" --model "$model_name" \
+            --mode "$mode" --extra "$extra_inputs" >/dev/null || { rm -rf "$tmp_dir"; return 1; }
+    fi
+
+    local -a cmd=(
+        "$AIPERF_CLI" profile
+        --model "$model_name"
+        --tokenizer "${AIPERF_TOKENIZER:-$MODEL}"
+        --tokenizer-trust-remote-code
+        --url "http://localhost:$PORT"
+        --endpoint-type chat
+        --streaming
+        --custom-dataset-type "$loader"
+        --input-file "$input_file"
+        --dataset-sampling-strategy sequential
+        --conversation-num "$num_prompts"
+        --concurrency "$CONC"
+        --extra-inputs "$extra_inputs"
+        --random-seed 42
+        --use-server-token-count
+        --server-metrics "$metrics_url"
+        --ui-type simple
+        --output-artifact-dir "$artifact_dir"
+    )
+    if [ "${GREENSPEC_WARMUP_REQUESTS:-0}" -gt 0 ]; then
+        cmd+=(--warmup-request-count "$GREENSPEC_WARMUP_REQUESTS")
+    fi
+    if [ -n "${AIPERF_GPU_TELEMETRY_URL:-}" ]; then
+        cmd+=(--gpu-telemetry "$AIPERF_GPU_TELEMETRY_URL")
+    else
+        cmd+=(--no-gpu-telemetry)
+    fi
+
+    echo "===== GreenSpec cell ====="
+    echo "subset=$subset lite=$lite bucket=${bucket:-all} mode=$mode loader=$loader"
+    echo "pool=$pool num_prompts=$num_prompts conc=$CONC extra_inputs=$extra_inputs"
+    echo "=========================="
+    write_command "$artifact_dir/benchmark_command.txt" "${cmd[@]}" >/dev/null
+
+    local -a meta_args=()
+    local pair
+    for pair in ${GREENSPEC_META:-}; do
+        meta_args+=(--meta "$pair")
+    done
+    local sb=("${py[@]}" -m infx.bench_serving.speedbench_aiperf)
+    "${sb[@]}" snapshot --metrics-url "$metrics_url" --out "$artifact_dir/spec_metrics_before.json"
+
+    if [[ -n "${GREENSPEC_SERVER_PID:-}" && "$GREENSPEC_SERVER_PID" != "${INFERENCEX_SERVER_PID:-}" ]]; then
+        INFERENCEX_SERVER_STATE=$(mktemp /tmp/inferencex-server-state.XXXXXX) || return 1
+        PYTHONPATH="$INFERENCEX_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -m infx.bench_serving.server_watch capture --pid "$GREENSPEC_SERVER_PID" \
+            > "$INFERENCEX_SERVER_STATE" || return 1
+        INFERENCEX_SERVER_PID="$GREENSPEC_SERVER_PID"
+    fi
+    # aiperf's console can print server error text; keep it off the job log.
+    local aiperf_rc=0
+    run_server_client "${cmd[@]}" > "$tmp_dir/aiperf_console.log" 2>&1 || aiperf_rc=$?
+    echo "aiperf exited with code $aiperf_rc (console kept off the job log)"
+
+    "${sb[@]}" snapshot --metrics-url "$metrics_url" --out "$artifact_dir/spec_metrics_after.json"
+
+    local rc=0
+    if [ ! -f "$artifact_dir/profile_export_aiperf.json" ]; then
+        echo "ERROR: aiperf exited with code $aiperf_rc and wrote no profile_export_aiperf.json" >&2
+        rc=$(( aiperf_rc != 0 ? aiperf_rc : 1 ))
+    else
+        "${sb[@]}" convert \
+            --aiperf-json "$artifact_dir/profile_export_aiperf.json" \
+            --before "$artifact_dir/spec_metrics_before.json" \
+            --after "$artifact_dir/spec_metrics_after.json" \
+            --out "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json" \
+            --model "$MODEL" \
+            --concurrency "$CONC" \
+            --meta "gs_subset=\"$subset\"" \
+            --meta "gs_lite=$lite" \
+            --meta "gs_bucket=\"$bucket\"" \
+            --meta "gs_mode=\"$mode\"" \
+            --meta "gs_aiperf_loader=\"$loader\"" \
+            --meta "gs_num_requests=$num_prompts" \
+            --meta "gs_max_tokens=$max_tokens" \
+            --meta "gs_dataset_repo=\"$GREENSPEC_HF_REPO@$GREENSPEC_HF_REVISION\"" \
+            --meta "gs_extra_inputs=$extra_inputs" \
+            "${meta_args[@]}" || rc=$?
+        [ -f "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json" ] \
+            && cp "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json" "$artifact_dir/result.json"
+        [ "$rc" -eq 0 ] && rc="$aiperf_rc"
+    fi
+
+    local -a guard_args=(
+        --file "$GREENSPEC_FILE" --artifact-dir "$artifact_dir"
+        --upload "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json"
+        --server-log "${GREENSPEC_SERVER_LOG:-$INFMAX_CONTAINER_WORKSPACE/server.log}"
+    )
+    if [ -n "${GREENSPEC_KEEP_LOG_DIR:-}" ]; then
+        guard_args+=(--keep-log-dir "$GREENSPEC_KEEP_LOG_DIR")
+    fi
+    "${gs[@]}" guard "${guard_args[@]}" || {
+        echo "ERROR: GreenSpec guard failed; nothing from this run may be uploaded" >&2
+        rm -rf "$artifact_dir" "$INFMAX_CONTAINER_WORKSPACE/$RESULT_FILENAME.json"
+        rc=1
+    }
+    rm -rf "$tmp_dir"
+    return "$rc"
+}

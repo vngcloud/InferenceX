@@ -118,6 +118,8 @@ on: # zizmor: ignore[concurrency-limits]
             required: false
           SPEEDBENCH_HF_TOKEN:
             required: false
+          GREENSPEC_HF_TOKEN:
+            required: false
         inputs:
             generate-cli-command:
                 description: "Command passed to generate matrix script"
@@ -438,6 +440,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             serving: ${{ needs.get-jobs.outputs.serving }}
@@ -468,6 +471,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -566,6 +570,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -592,6 +597,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
