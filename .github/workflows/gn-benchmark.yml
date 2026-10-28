@@ -71,12 +71,13 @@ jobs:
     # One report over every point of the run (.agents/skills/result-report), on the run's summary
     # page; report.html is a separate artifact that opens without unzipping.
     report:
+        name: report
         needs: [plan, bench]
         if: ${{ always() && (needs.plan.result == 'success' || inputs.report-run != '') }}
         runs-on: ubuntu-latest
         permissions:
-            contents: read
-            actions: read
+            contents: read # sparse checkout of the result-report skill
+            actions: read # list the run's jobs and read its artifacts
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
