@@ -186,6 +186,16 @@ def test_guard_prunes_redacts_and_withholds_server_log(dataset: Path, tmp_path: 
     assert (keep / "server.log").read_text() == "engine output"
 
 
+def test_guard_stub_survives_a_server_still_writing(dataset: Path, tmp_path: Path) -> None:
+    log = tmp_path / "server.log"
+    log.write_text("engine output")
+    with log.open("r+") as server:  # like `> server.log`: no O_APPEND
+        server.seek(0, 2)
+        assert guard(dataset, tmp_path / "none", [], [log]) == []
+        server.write("late engine output")
+    assert log.read_text() == SERVER_LOG_STUB
+
+
 def test_guard_fails_on_a_row_id_or_a_big_file(dataset: Path, tmp_path: Path) -> None:
     art = tmp_path / "greenspec_aiperf"
     art.mkdir()
