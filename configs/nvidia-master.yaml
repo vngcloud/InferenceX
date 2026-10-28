@@ -8989,3 +8989,19 @@ gemma4gsatlmtp-fp8block-h200-greennode-slurm-vllm:
       osl: 8192
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [8] }
+
+# Full diverse GreenSpec set (3072 rows), native MTP depth 6, conc 16.
+gemma4gsdvmtp6-fp8block-hardware-hcm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4gsdvmtp6
+  runner: cluster:hardware-hcm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 8192
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [16] }

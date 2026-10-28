@@ -8080,3 +8080,11 @@
   description:
     - "First GreenSpec cells: Gemma-4 31B FP8-block on vllm/vllm-openai:v0.30.0, base and native MTP depth 4 (google/gemma-4-31B-it-assistant), agentic_tools lite subset of the private GreenSpec release (pinned commit, read with GREENSPEC_HF_TOKEN), conc 8, aiperf greenspec_agentic_tools_lite preset, target-default decode params, output cap 8192. Engine config as gemma4sba_body.sh except max-model-len 262144. Only aggregate result files are uploaded; the server log is withheld."
   pr-link: https://github.com/vngcloud/InferenceX/compare/feat/greenspec-aiperf...bench/gemma4-greenspec-hcm
+
+- config-keys:
+    - gemma4gsdvmtp6-fp8block-hardware-hcm-vllm
+  scenario-type:
+    - fixed-seq-len
+  description:
+    - "GreenSpec full diverse subset (all buckets, no lite cut), Gemma-4 31B FP8-block on vllm/vllm-openai:v0.30.0 with native MTP depth 6 (google/gemma-4-31B-it-assistant), conc 16, aiperf greenspec preset, target-default decode params, output cap 8192. Only aggregate result files are uploaded; the server log is withheld."
+  pr-link: https://github.com/vngcloud/InferenceX/compare/feat/greenspec-aiperf...bench/gemma4-greenspec-hcm
