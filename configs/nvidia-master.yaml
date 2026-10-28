@@ -8974,3 +8974,18 @@ gemma4gsatlmtp-fp8block-hardware-hcm-vllm:
       osl: 8192
       search-space:
       - { tp: 1, spec-decoding: mtp, conc-list: [8] }
+
+gemma4gsatlmtp-fp8block-h200-greennode-slurm-vllm:
+  image: vllm/vllm-openai:v0.30.0
+  model: RedHatAI/gemma-4-31B-it-FP8-block
+  model-prefix: gemma4gsatlmtp
+  runner: cluster:h200-greennode-slurm
+  precision: fp8block
+  framework: vllm
+  multinode: false
+  scenarios:
+    fixed-seq-len:
+    - isl: 8192
+      osl: 8192
+      search-space:
+      - { tp: 1, spec-decoding: mtp, conc-list: [8] }
