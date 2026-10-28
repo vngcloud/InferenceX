@@ -23,6 +23,7 @@ The repository source, workflow YAML, launcher scripts, and result collectors ar
 | Dispatch or monitor a run | [CI procedures](./ci-procedures.md#manual-end-to-end-dispatch) | `e2e-tests.yml`, run logs, artifacts |
 | Prepare a PR sweep | [CI procedures](./ci-procedures.md#pr-primary-and-modifier-labels) | `run-sweep.yml`, labels, changelog delta |
 | Reuse a green sweep | [CI procedures](./ci-procedures.md#artifact-reuse-and-merge-with-reuse) | reuse gate, source artifacts, merge helper |
+| Run a GreenSpec cell | [GreenSpec procedures](./greenspec-procedures.md#add-a-greenspec-cell) | `run_greenspec_aiperf`, `greenspec_aiperf.py`, guard allowlist |
 | Add or debug evals | [Eval and AgentX procedures](./eval-agentx-procedures.md#2-add-a-graded-eval) | `EVALS.md`, eval templates, score validator |
 | Run AgentX | [Eval and AgentX procedures](./eval-agentx-procedures.md#7-run-agentx-fast-feedback-versus-canonical-evidence) | agentic config, trace source, live-run skill |
 | Inspect a result or ingest | [Recovery and results procedures](./recovery-results-procedures.md#result-pipeline-know-what-should-exist) | artifact schema, collector, app ingest workflow |
