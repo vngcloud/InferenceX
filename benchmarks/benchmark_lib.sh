@@ -4470,26 +4470,17 @@ plugins.get_dataset_loader_metadata(sys.argv[1])' "$preset" 2>/dev/null; then
             > "$INFERENCEX_SERVER_STATE" || return 1
         INFERENCEX_SERVER_PID="$GREENSPEC_SERVER_PID"
     fi
-    # aiperf's console can print server error text; keep it off the job log.
-    # A watcher reprints only the numbers of its progress bars, every
-    # GREENSPEC_PROGRESS_INTERVAL seconds (default 60, 0 = off).
-    local aiperf_rc=0 progress_pid=""
-    local progress_interval="${GREENSPEC_PROGRESS_INTERVAL:-60}"
-    if [ "$progress_interval" -gt 0 ]; then
-        (
-            set +x
-            while sleep "$progress_interval"; do
-                "${gs[@]}" progress --console-log "$tmp_dir/aiperf_console.log" || true
-            done
-        ) &
-        progress_pid=$!
-    fi
-    run_server_client "${cmd[@]}" > "$tmp_dir/aiperf_console.log" 2>&1 || aiperf_rc=$?
-    if [ -n "$progress_pid" ]; then
-        kill "$progress_pid" 2>/dev/null
-        wait "$progress_pid" 2>/dev/null
-    fi
-    echo "aiperf exited with code $aiperf_rc (console kept off the job log)"
+    # aiperf's console reaches the job log through `greenspec_aiperf console`,
+    # which drops what can echo server error text (the Error Summary table,
+    # ERROR records) and prints each progress bar at most every
+    # GREENSPEC_PROGRESS_INTERVAL seconds (default 60). Unbuffered, so the job
+    # log follows the run.
+    local aiperf_rc=0
+    { run_server_client env PYTHONUNBUFFERED=1 "${cmd[@]}" 2>&1 \
+        || echo "$?" > "$tmp_dir/aiperf_rc"; } \
+        | "${gs[@]}" console --interval "${GREENSPEC_PROGRESS_INTERVAL:-60}" || true
+    if [ -f "$tmp_dir/aiperf_rc" ]; then aiperf_rc=$(<"$tmp_dir/aiperf_rc"); fi
+    echo "aiperf exited with code $aiperf_rc"
 
     "${sb[@]}" snapshot --metrics-url "$metrics_url" --out "$artifact_dir/spec_metrics_after.json"
 

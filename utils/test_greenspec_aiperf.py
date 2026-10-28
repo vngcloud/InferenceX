@@ -10,10 +10,10 @@ from infx.bench_serving.greenspec_aiperf import (
     MAX_BYTES,
     META_KEYS,
     SERVER_LOG_STUB,
+    ConsoleFilter,
     guard,
     payload,
     preset,
-    progress,
     select,
 )
 
@@ -98,19 +98,71 @@ def test_payload_recorded_cap_only_lowers() -> None:
     assert high["max_completion_tokens"] == 4096 and high["temperature"] == 0.6
 
 
-def test_progress_keeps_only_bar_numbers(tmp_path: Path) -> None:
-    console = tmp_path / "aiperf_console.log"
-    console.write_text(
-        "Error: 400 secret prompt text m/aaaa\n"
-        "\x1b[2KWarmup: 4/4 |\x1b[32m####\x1b[0m| 100% [00:03<00:00]\n"
-        "Profiling: 10/64 |##   | 16% [00:40<03:30]\r"
-        "Profiling: 33/64 |#####| 52% [02:10<02:00]\r"
-    )
-    assert progress(console) == [
-        "Warmup 4/4 (100%) elapsed 00:03 eta 00:00",
-        "Profiling 33/64 (52%) elapsed 02:10 eta 02:00",
+CONSOLE = (
+    "14:27:38.612 INFO     Starting AIPerf System (_single_run.py:64)\n"
+    "Profiling:   0% |          | [00:00<?]\r"
+    "Profiling:  40% |####      | [00:20<00:30]\r"
+    "Profiling:  90% |######### | [00:50<00:05]14:27:46.424 WARNING  OSL mismatch: got 18 tokens\n"
+    "14:27:46.500 ERROR    Error in SSE response: ValueError('secret prompt m/aaaa')\n"
+    "Traceback (most recent call last):\n"
+    "  ValueError: secret prompt m/aaaa\n"
+    "\x1b[32mProfiling: 100% |##########| [00:55<00:00]\x1b[0m\r"
+    "Processing Records: 40/40 |##########| 100% [00:01<00:00]\n"
+    "                     NVIDIA AIPerf | Error Summary                     \n"
+    "┏━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓\n"
+    "┃ Code ┃        Type ┃ Message                      ┃ Count ┃\n"
+    "┡━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩\n"
+    "│  400 │ Bad Request │ {\"input_value\": \"secret m/b │ 1,203 │\n"
+    "│      │             │ bbb\"}                        │       │\n"
+    "│  N/A │         N/A │ timeout                      │     2 │\n"
+    "└──────┴─────────────┴──────────────────────────────┴───────┘\n"
+    "            NVIDIA AIPerf | LLM Metrics            \n"
+    "│ Request Latency (ms) │ 12.00 │\n"
+)
+
+
+def _filtered(text: str, interval: float) -> list[str]:
+    out: list[str] = []
+    ticks = iter(range(0, 1000, 10))  # each bar line is 10 s after the previous one
+    console = ConsoleFilter(out.append, interval, clock=lambda: next(ticks))
+    for segment in text.replace("\r", "\n").split("\n"):
+        console.feed(segment)
+    console.close()
+    return out
+
+
+def test_console_withholds_error_text_and_throttles_bars() -> None:
+    out = _filtered(CONSOLE, interval=15)
+    assert "secret" not in "\n".join(out) and "aaaa" not in "\n".join(out)
+    assert out == [
+        "14:27:38.612 INFO     Starting AIPerf System (_single_run.py:64)",
+        "GreenSpec progress: Profiling (0%) elapsed 00:00 eta ?",
+        "GreenSpec progress: Profiling (90%) elapsed 00:50 eta 00:05",
+        "14:27:46.424 WARNING  OSL mismatch: got 18 tokens",
+        "14:27:46.500 ERROR    <withheld: may echo server error text>",
+        "GreenSpec progress: Profiling (100%) elapsed 00:55 eta 00:00",
+        "GreenSpec progress: Processing Records 40/40 (100%) elapsed 00:01 eta 00:00",
+        "GreenSpec: aiperf error summary withheld (messages can echo requests): 400 x1203, N/A x2",
+        "            NVIDIA AIPerf | LLM Metrics",
+        "│ Request Latency (ms) │ 12.00 │",
     ]
-    assert progress(tmp_path / "missing.log") == []
+
+
+def test_console_keeps_an_unterminated_error_table_dropped() -> None:
+    cut = CONSOLE[: CONSOLE.index("│  N/A")]
+    out = _filtered(cut, interval=0)
+    assert "secret" not in "\n".join(out)
+    assert out[-1] == "GreenSpec: aiperf error summary withheld (messages can echo requests): 400 x1203"
+
+
+def test_cli_console_filters_stdin() -> None:
+    cmd = [sys.executable, "-m", "infx.bench_serving.greenspec_aiperf", "console", "--interval", "0"]
+    res = subprocess.run(cmd, input=CONSOLE.encode(), capture_output=True, check=True,
+                         cwd=Path(__file__).resolve().parents[1])
+    lines = res.stdout.decode().splitlines()
+    assert "secret" not in res.stdout.decode()
+    assert "GreenSpec progress: Profiling (40%) elapsed 00:20 eta 00:30" in lines
+    assert lines[-1] == "│ Request Latency (ms) │ 12.00 │"
 
 
 def test_guard_prunes_redacts_and_withholds_server_log(dataset: Path, tmp_path: Path) -> None:

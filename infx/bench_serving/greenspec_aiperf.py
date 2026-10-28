@@ -11,9 +11,9 @@ module for three steps:
 ``prepare``  write the selection as an aiperf ``raw_payload`` file, for an aiperf
              without the ``greenspec_*`` presets or a selection no preset covers.
              It builds each body exactly like aiperf's ``GreenSpecLoader``.
-``progress`` print the numbers of aiperf's progress bars from its console log,
-             which the job log never sees (the console can echo server error
-             text), so a long cell can be followed.
+``console``  pass aiperf's console through to the job log, minus what can echo
+             server error text (the Error Summary table and ERROR records),
+             with each progress bar printed at most once per interval.
 ``guard``    run after the client, before any upload. This repo is public and
              its artifacts are downloadable, so nothing derived from row content
              may leave the runner: keep only ``ALLOWLIST`` in the artifact dir,
@@ -30,7 +30,8 @@ import json
 import re
 import shutil
 import sys
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -54,13 +55,17 @@ ALLOWLIST = (
     "benchmark_command.txt",
 )
 MAX_BYTES = 2 * 1024 * 1024
-# aiperf's tqdm bar: "{desc}: {n}/{total} |{bar}| {pct}% [{elapsed}<{remaining}]".
-PROGRESS_RE = re.compile(
-    r"([A-Za-z][A-Za-z _-]{0,30}): +([\d,]+)/([\d,]+) \|[^|]*\| *(\d+)% "
-    r"\[([\d:]+)<([\d:?]+)\]"
+# aiperf's tqdm bars: "{desc}: {n}/{total} |{bar}| {pct}% [{elapsed}<{remaining}]", or
+# "{desc}: {pct}% |{bar}| [{elapsed}<{remaining}]" when the total is unknown.
+BAR_RE = re.compile(
+    r"(?P<desc>[A-Za-z][A-Za-z _-]{0,30}): +(?:(?P<n>[\d,]+)/(?P<total>[\d,]+) +)?"
+    r"(?:(?P<pct0>\d+)% +)?\|[^|]*\| *(?:(?P<pct>\d+)% +)?"
+    r"\[(?P<elapsed>[\d:]+)<(?P<eta>[\d:?]+)\]"
 )
+# aiperf's log record: "14:27:38.612 INFO     message (file.py:64)".
+LOG_RE = re.compile(r"\d\d:\d\d:\d\d\.\d{3} +([A-Z]+) +")
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-PROGRESS_TAIL_BYTES = 64 * 1024
+WITHHELD_LEVELS = ("ERROR", "CRITICAL")
 SERVER_LOG_STUB = (
     "server log withheld: GreenSpec rows are internal and a server log can echo them\n"
 )
@@ -124,22 +129,114 @@ def payload(
     return out
 
 
-def progress(console_log: Path) -> list[str]:
-    """The latest state of each aiperf progress bar, rebuilt from its numbers only."""
-    if not console_log.is_file():
-        return []
-    with open(console_log, "rb") as f:
-        f.seek(max(0, console_log.stat().st_size - PROGRESS_TAIL_BYTES))
-        text = f.read().decode("utf-8", errors="replace")
-    latest: dict[str, str] = {}
-    for line in re.split(r"[\r\n]", ANSI_RE.sub("", text)):
-        m = PROGRESS_RE.search(line)
-        if m:
-            desc, n, total, pct, elapsed, remaining = m.groups()
-            latest[desc.strip()] = (
-                f"{desc.strip()} {n}/{total} ({pct}%) elapsed {elapsed} eta {remaining}"
-            )
-    return list(latest.values())
+class ConsoleFilter:
+    """aiperf's console for the job log, minus what can echo server error text.
+
+    The Error Summary table is dropped (its Message column is the raw server
+    response) and replaced by its codes and counts; an ERROR or CRITICAL record
+    keeps its timestamp and level and loses its text and continuation lines (a
+    traceback, wrapped text). An unterminated table stays dropped. Each progress
+    bar is rebuilt from its numbers and printed at most once per ``interval``
+    seconds, plus once at 100%.
+    """
+
+    def __init__(
+        self,
+        write: Callable[[str], None],
+        interval: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._write = write
+        self._interval = interval
+        self._clock = clock
+        self._bars: dict[str, tuple[float, str]] = {}
+        self._in_table = False
+        self._dropping = False
+        self._errors: list[str] = []
+
+    def feed(self, segment: str) -> None:
+        text = ANSI_RE.sub("", segment).rstrip()
+        if not text:  # tqdm's \r next to a record's \n leaves empty segments
+            return
+        bar = BAR_RE.match(text.lstrip())
+        if bar:
+            self._dropping = False  # a bar ends the continuation of an ERROR record
+            self._bar(bar)
+            # tqdm writes no newline, so a log record can follow on the same line.
+            text = text.lstrip()[bar.end():]
+            if not text.strip():
+                return
+        if self._in_table:
+            self._table_line(text)
+            return
+        log = LOG_RE.match(text)
+        if log:
+            self._dropping = log.group(1) in WITHHELD_LEVELS
+            if self._dropping:
+                self._write(f"{text[:log.end()]}<withheld: may echo server error text>")
+                return
+        elif "Error Summary" in text:
+            self._in_table, self._dropping = True, False
+            return
+        elif self._dropping:
+            return
+        self._write(text)
+
+    def close(self) -> None:
+        if self._in_table:
+            self._in_table = False
+            self._report_errors()
+
+    def _bar(self, m: re.Match[str]) -> None:
+        desc, pct = m["desc"].strip(), m["pct"] or m["pct0"]
+        now, last = self._clock(), self._bars.get(desc)
+        if last and (last[1] == pct == "100" or (pct != "100" and now - last[0] < self._interval)):
+            return
+        self._bars[desc] = (now, pct)
+        count = f" {m['n']}/{m['total']}" if m["n"] else ""
+        self._write(
+            f"GreenSpec progress: {desc}{count} ({pct}%) elapsed {m['elapsed']} eta {m['eta']}"
+        )
+
+    def _table_line(self, text: str) -> None:
+        if text.lstrip().startswith(("└", "╰")):
+            self._in_table = False
+            self._report_errors()
+            return
+        cells = [c.strip() for c in text.split("│")]
+        if len(cells) >= 4 and (cells[1].isdigit() or cells[1] == "N/A"):
+            count = cells[-2].replace(",", "")
+            if count.isdigit():
+                self._errors.append(f"{cells[1]} x{count}")
+
+    def _report_errors(self) -> None:
+        listed = ", ".join(self._errors) or "no rows parsed"
+        self._write(f"GreenSpec: aiperf error summary withheld (messages can echo requests): {listed}")
+        self._errors = []
+
+
+def filter_console(stream: Any, write: Callable[[str], None], interval: float) -> None:
+    """Feed a binary stream to ``ConsoleFilter`` one \\r- or \\n-delimited segment at a time.
+
+    A segment the filter fails on is dropped rather than ending the read: aiperf
+    writes into this pipe and would die of a broken pipe.
+    """
+    console = ConsoleFilter(write, interval)
+
+    def feed(raw: bytes) -> None:
+        try:
+            console.feed(raw.decode("utf-8", errors="replace"))
+        except Exception:  # noqa: BLE001
+            write("GreenSpec: console line dropped (filter error)")
+
+    pending = b""
+    while chunk := stream.read1(65536):
+        *segments, pending = re.split(rb"[\r\n]", pending + chunk)
+        for segment in segments:
+            feed(segment)
+    if pending:
+        feed(pending)
+    console.close()
 
 
 def _redact_errors(export_path: Path) -> None:
@@ -219,8 +316,8 @@ def main() -> int:
     prep.add_argument("--mode", default="target-default", choices=("target-default", "recorded"))
     prep.add_argument("--extra", default="{}", help="JSON object, as --extra-inputs")
     prep.add_argument("--no-stream", action="store_true")
-    prog = commands.add_parser("progress", help="print aiperf progress-bar numbers")
-    prog.add_argument("--console-log", type=Path, required=True)
+    cons = commands.add_parser("console", help="filter aiperf's console (stdin) for the job log")
+    cons.add_argument("--interval", type=float, default=60.0, help="seconds between bar lines")
     grd = commands.add_parser("guard", help="prune, redact and scan before upload")
     grd.add_argument("--file", type=Path, required=True)
     grd.add_argument("--artifact-dir", type=Path, required=True)
@@ -248,9 +345,8 @@ def main() -> int:
                 )
                 f.write(json.dumps(body, ensure_ascii=False) + "\n")
         print(len(rows))
-    elif args.operation == "progress":
-        for state in progress(args.console_log):
-            print(f"GreenSpec progress: {state}")
+    elif args.operation == "console":
+        filter_console(sys.stdin.buffer, lambda line: print(line, flush=True), args.interval)
     else:
         problems = guard(
             args.file, args.artifact_dir, args.upload, args.server_log, args.keep_log_dir
