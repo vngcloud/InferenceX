@@ -12,13 +12,10 @@ set -x
 # shared as-is between the 8x and 4x runner identities on a box -- no
 # per-flavor branching needed since Slurm's own gres accounting (no
 # --exclusive) queues a job if not enough GPUs are free.
-# Adapted from launch_h200-greennode-slurm.sh, which
-# is for a *different* cluster/partition ("test"/"greennode" account) --
-# copy-pasting that launcher's partition/account here silently allocated
-# against an account (greennode) with zero associations on this cluster
-# (`sacctmgr show account greennode` -> no users), so jobs would fail at
-# salloc. Real jobs on hgx-h200-01/02 use account "dev" (verified via
-# `sacct -j <id>` on manually-submitted jobs).
+# The runner daemon (stackops) holds only the greennode account on this
+# cluster (`sacctmgr show assoc where user=stackops`); dev belongs to human
+# users' manually-submitted jobs and fails at salloc with
+# "Invalid account or account/partition combination".
 #
 # No 1x-node redirect here (unlike launch_h200-greennode-slurm.sh): these are
 # normal 8x boxes with a normal filesystem/user setup, so none of the
@@ -30,7 +27,7 @@ set -x
 # sidecar) lives here too:
 # docs/superpowers/specs/2026-10-13-serving-router-dynamo-design.md §4.
 SLURM_PARTITION="hardware-hcm"
-SLURM_ACCOUNT="dev"
+SLURM_ACCOUNT="greennode"
 # Pin the allocation to this box's own Slurm node name. Without --nodelist,
 # salloc is free to land on either node in the partition -- caught for real
 # when a concurrent hardware-hcm-2x_02 job (running on hgx-h200-02) was
