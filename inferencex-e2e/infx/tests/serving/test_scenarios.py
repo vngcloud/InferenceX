@@ -60,6 +60,14 @@ def test_kinds_and_datasets():
     assert (sweep.kind, sweep.search) == ("synthetic", True)
 
 
+def test_seed_override_sets_both_seeds_and_the_label():
+    rendered = render("agentx", {"dataset": "semianalysis_cc_traces_weka_062126_256k", "seed": 77188,
+                                 "duration": 180})
+    assert rendered.doc["randomSeed"] == 77188
+    assert rendered.doc["benchmark"]["datasets"][0]["randomSeed"] == 77188
+    assert rendered.label == "agentx-cc-062126-256k-seed77188-smoke"
+
+
 def test_slo_replaces_the_sweep_filters():
     doc = render("synthetic", point=Point("8k", "1k", 0), search=True,
                  slo="time_to_first_token:p95:lt:500;inter_token_latency:p50:lt:50").doc
@@ -74,6 +82,8 @@ def test_slo_replaces_the_sweep_filters():
     (("agentx", {"dataset": "tau2-cs"}), "overrides.dataset: agentx takes a public"),
     (("tau2", {"dataset": "semianalysis_cc_traces_weka_062126"}), "is not in the dataset lock"),
     (("agentx", {"duration": 0}), "overrides.duration"),
+    (("agentx", {"seed": "77188"}), "overrides.seed"),
+    (("agentx", {"seed": True}), "overrides.seed"),
     (("agentx", {"generation": {"top_k": 5}}), "overrides.generation"),
     (("synthetic", {}), "workload: synthetic needs"),
     (("synthetic", {"dataset": "x"}, Point("8k", "1k", 0)), "overrides: synthetic only takes duration"),

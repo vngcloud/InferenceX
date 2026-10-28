@@ -1,0 +1,52 @@
+name: glm53-uniboost-pw30-smoke
+runner: cluster:hcm-hgx02
+image: docker.io/phphlio1/sglang-uniboost:9108be6c9f
+model: PhalaCloud/GLM-5.3-W4AFP8
+gpus: 8
+precision: w4afp8
+env:
+  # Image layers: the uniboost venv (torch 2.14.1) first on PATH; sglang 9108be6c9f; dynamo 1.5.0 shim.
+  PATH: /mnt/loipp/venv-dynamo/lib/python3.12/site-packages/nvidia/cu13/bin:/mnt/loipp/venv-dynamo/bin:/usr/local/bin/etcd:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  PYTHONPATH: /workspace:/mnt/loipp/sglang-e2/python:/opt/uniboost/dynamo150
+  CUDA_HOME: /mnt/loipp/venv-dynamo/lib/python3.12/site-packages/nvidia/cu13
+  TORCH_EXTENSIONS_DIR: /tmp/torch_extensions_uniboost
+  NVCC_PREPEND_FLAGS: -DCCCL_DISABLE_CTK_COMPATIBILITY_CHECK
+  FLASHINFER_EXTRA_CUDAFLAGS: -DCCCL_DISABLE_CTK_COMPATIBILITY_CHECK
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  SGLANG_DP_USE_GATHERV: "1"
+  NCCL_P2P_LEVEL: NVL
+  HF_HUB_OFFLINE: "1"
+  NVSHMEM_REMOTE_TRANSPORT: none
+  SGLANG_ENABLE_METRICS_DP_ATTENTION: "1"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+  SGLANG_ENABLE_STRICT_MEM_CHECK_DURING_IDLE: "0"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path=PhalaCloud/GLM-5.3-W4AFP8
+  --served-model-name=zai-org/GLM-5.3
+  --quantization=w4afp8 --tp=8 --dp=8 --ep=8
+  --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+  --dist-init-addr=127.0.0.1:10888
+  --moe-a2a-backend=deepep --chunked-prefill-size=32768
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --mem-fraction-static=0.75 --max-running-requests=256 --context-length=300000
+  --kv-cache-dtype=fp8_e4m3 --dsa-prefill-backend=flashmla_sparse_q8 --allow-auto-truncate
+  --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
+  --enable-hierarchical-cache --hicache-size=128 --hicache-io-backend=direct --hicache-write-policy=write_back
+  --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
+  --enable-prefill-delayer --page-size=64
+  --schedule-policy=boost --boost-bin-size=256 --boost-clock=wall --boost-adaptive-gamma --boost-adaptive-max-jump-s=50
+  --boost-preempt-wait-s=30 --boost-preempt-quantum-tokens=512 --boost-preempt-max-per-req=2
+  --in-batch-prefix-caching-max-pin-s=60
+  --log-schedule-eval-path=/workspace/results/schedule_eval.jsonl
+  --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
+router:
+  image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --dyn-chat-processor=sglang --dyn-preprocess-workers=8
+    --tool-call-parser=glm47 --reasoning-parser=glm45
+scenario: agentx
+overrides: {dataset: semianalysis_cc_traces_weka_062126_256k, seed: 77188, duration: 180}
+conc: [64]

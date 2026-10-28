@@ -18,7 +18,7 @@ from infx.serving.slo import SLOError, parse_slo
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[2] / "benchmarks/single_node/serving/scenarios"
 FAMILIES = ("agentx", "tau2", "livekit", "shared-prefix-e2", "hidden-prefix-e3", "synthetic")
-OVERRIDE_KEYS = ("duration", "dataset", "max_context_length", "generation", "trace_idle_gap_cap")
+OVERRIDE_KEYS = ("duration", "dataset", "max_context_length", "generation", "trace_idle_gap_cap", "seed")
 SYNTHETIC_OVERRIDES = ("duration",)
 GENERATION_KEYS = ("top_p", "temperature")
 ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
@@ -127,6 +127,13 @@ def _apply(doc: dict[str, Any], family: str, overrides: dict[str, Any],
             raise ScenarioError(f"overrides.trace_idle_gap_cap: seconds >= 0, got {value!r}")
         dataset["traceIdleGapCapSeconds"] = float(value)
         suffixes.append("-nothink" if value == 0 else f"-idle{value:g}")
+    if "seed" in overrides:
+        value = overrides["seed"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ScenarioError(f"overrides.seed: an integer >= 0, got {value!r}")
+        # aiperf reads both: the run-level seed and the dataset sampler's own.
+        doc["randomSeed"] = dataset["randomSeed"] = value
+        suffixes.append(f"-seed{value}")
     if "duration" in overrides:
         value = _positive("overrides.duration", overrides["duration"])
         _profiling(doc)["duration"] = value
