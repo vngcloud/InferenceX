@@ -136,14 +136,19 @@ def _run_serve_generic_with_env_dump(tmp_path: Path, framework: str) -> str:
 def test_serve_generic_strips_slurm_env_for_trtllm_engine(tmp_path):
     # trtllm-serve spawns TP workers with MPI_Spawn; PRRTE must not see the
     # Slurm allocation env or it launches daemons via srun/ssh and the engine
-    # dies with MPI_ERR_UNKNOWN.
-    assert "SLURM_" not in _run_serve_generic_with_env_dump(tmp_path, "trtllm")
+    # dies with MPI_ERR_UNKNOWN. UCX must stay off the RoCE transport (the
+    # runner's 8 MB memlock cannot hold its completion queue): shared memory
+    # covers the same-node ranks.
+    seen = _run_serve_generic_with_env_dump(tmp_path, "trtllm")
+    assert "SLURM_" not in seen
+    assert "UCX_TLS=sm,self" in seen
 
 
 def test_serve_generic_keeps_slurm_env_for_other_frameworks(tmp_path):
     seen = _run_serve_generic_with_env_dump(tmp_path, "vllm")
     assert "SLURM_JOB_ID=6809" in seen
     assert "SLURM_JOB_NODELIST=hgx-h200-01" in seen
+    assert "UCX_TLS" not in seen
 
 
 def test_search_mode_drops_concurrency_and_writes_slo_override_copy(tmp_path):

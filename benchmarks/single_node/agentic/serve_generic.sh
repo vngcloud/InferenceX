@@ -54,10 +54,16 @@ set -x
 # allocation env pyxis exports into the container and launches its daemons with
 # srun (absent in the image) or ssh (refused on compute nodes); without the
 # Slurm env it forks the workers locally (verified against the rc1 image).
+# UCX then picks the RoCE ibverbs transport by default, whose completion queue
+# needs pinned memory the runner daemon's 8 MB memlock ulimit cannot hold
+# (ibv_create_cq: Cannot allocate memory) — the workers spin forever on the
+# half-built transport. Both TP ranks share the node, so shared memory covers
+# all MPI traffic; NCCL keeps NVLink for the tensor collectives.
 if [[ "$FRAMEWORK" == trtllm ]]; then
     for var in ${!SLURM@}; do
         unset "$var"
     done
+    export UCX_TLS=sm,self
 fi
 
 nvidia-smi
