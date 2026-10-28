@@ -377,33 +377,43 @@ class FixRound1Test(unittest.TestCase):
             self.assertIn("c—", data["notes"][-1])
 
 
+
 class TimelineTest(unittest.TestCase):
-    """aiperf's 60 s time slices, read as exported (fixtures/timeline_local: a 5-minute local run)."""
+    """fixtures/timeline_local: the first 2 minutes of run 40478619956 (mix, 1x H200), trimmed."""
 
-    def _point(self, root):
-        [cfg] = fetch.local_configs(fetch.parse_source(str(root)))
-        return extract.build_point(cfg)
+    ROOT = FIX / "timeline_local"
+    SLICES = "timeline_local/agentic_mix_h200/aiperf_artifacts/profile_export_aiperf_timeslices.json"
 
-    def test_slices_are_aiperf_values(self):
-        root = FIX / "timeline_local"
-        p = self._point(root)
-        raw = load("timeline_local/agentic_mix60/aiperf_artifacts/profile_export_aiperf_timeslices.json")["timeslices"]
-        tl = p["timeline"]
-        self.assertEqual((tl["slice_s"], len(tl["slices"])), (60.0, 5))
-        self.assertEqual([s["t_s"] for s in tl["slices"][:2]], [0.0, 60.0])
-        self.assertEqual([s["partial"] for s in tl["slices"]], [False] * 4 + [True])
-        first = tl["slices"][0]
-        self.assertEqual(first["rps"], raw[0]["request_throughput"]["avg"])
-        self.assertEqual(first["in_flight"], raw[0]["effective_concurrency"]["avg"])
-        self.assertEqual(first["ttft"]["p90"], raw[0]["time_to_first_token"]["p90"])  # already ms
-        self.assertIsNone(first["hit"])  # the stub reports no cached tokens
+    def _files(self):
+        [cfg] = fetch.local_configs(fetch.parse_source(str(self.ROOT)))
+        return cfg.files
 
-    def test_one_second_slices_get_a_note_not_a_timeline(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "r"
-            shutil.copytree(FIX / "timeline_local", root)
-            scenario = root / "agentic_mix60" / "scenario.yaml"
-            scenario.write_text(scenario.read_text().replace("sliceDuration: 60.0", "sliceDuration: 1.0"))
-            p = self._point(root)
-        self.assertIsNone(p["timeline"])
-        self.assertIn("no time view: aiperf slices are 1 s (needs sliceDuration >= 30 s)", p["notes"])
+    def test_one_second_windows_reproduce_aiperfs_own_slices(self):
+        tl = extract.timeline(self._files(), [], bucket_s=1)
+        mine = {round(r["t_s"]): r for r in tl["slices"]}
+        raw = load(self.SLICES)["timeslices"]
+        t0 = raw[0]["start_ns"]
+        close = lambda a, b: abs(a - b) <= 1e-6 * max(1.0, abs(b))
+        for s in raw:
+            r = mine[round((s["start_ns"] - t0) / 1e9)]
+            with self.subTest(t=r["t_s"]):
+                self.assertEqual(r["requests"], s["request_count"]["avg"])
+                for key, tag in (("rps", "request_throughput"), ("input_tps", "input_token_throughput"),
+                                 ("output_tps", "output_token_throughput"), ("in_flight", "effective_concurrency")):
+                    self.assertTrue(close(r[key], s[tag]["avg"]), (key, r[key], s[tag]["avg"]))
+                for q in ("p50", "p90", "p99"):
+                    self.assertTrue(close(r["ttft"][q], s["time_to_first_token"][q]), q)
+                    if "inter_token_latency" in s:
+                        self.assertTrue(close(r["itl"][q], s["inter_token_latency"][q]), q)
+                self.assertTrue(close(r["hit"] * 100, s["overall_usage_prompt_cache_read_pct"]["avg"]))
+        self.assertEqual(len(mine), len(raw) + sum(1 for t in mine if t >= round((raw[-1]["start_ns"] - t0) / 1e9) + 1))
+
+    def test_default_width_targets_about_60_windows(self):
+        self.assertEqual([extract.bucket_width(s) for s in (120, 180, 1200, 3600, 7200)], [2, 5, 30, 60, 120])
+        tl = extract.timeline(self._files(), [])
+        self.assertEqual(tl["bucket_s"], 2)  # ~2:15 with the requests still running at 2:00: 60 windows + slack
+        self.assertEqual((tl["slices"][-1]["t_s"], tl["slices"][-1]["partial"]), (118, False))  # later windows have no starts
+
+    def test_no_records_no_timeline(self):
+        [cfg] = fetch.local_configs(fetch.parse_source(str(FIX / "gh_fixed")))
+        self.assertIsNone(extract.timeline(cfg.files, []))

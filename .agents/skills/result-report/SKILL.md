@@ -90,12 +90,14 @@ If the process is killed, nothing is written to `<out>` except `.cache/`; re-run
 
 ## Over time
 
-A fixed run whose `scenario.yaml` has `sliceDuration` >= 30 s (the serving scenarios use 60 s) gets an
-"Over time" section: aiperf's own per-slice stats from `profile_export_aiperf_timeslices.json`, shown as
-exported, never re-aggregated. Markdown: a collapsed table per run (requests, RPS, input/output tok/s,
-in-flight, TTFT p50/p90/p99, ITL p50/p90, hit %) plus Mermaid lines for output tok/s and TTFT p90. HTML:
-SVG panels over minutes, one line per run. aiperf files a request under the slice it started in;
-throughput and in-flight are time-weighted. Runs with 1 s slices (older runs) get a note instead.
+Every fixed run with `aiperf_artifacts/profile_export.jsonl` gets an "Over time" section: windows of
+1-600 s (about 60 per run: 2 s for a 2-minute smoke, 60 s for 1 h), built from aiperf's per-request
+records with aiperf's own time-slice rules. A request counts in the window it started in (requests, RPS,
+input/output tok/s, TTFT/ITL percentiles numpy-linear, hit = cache-read / prompt tokens); in-flight is
+every request's time inside the window over the window. At 1 s this reproduces aiperf's own
+`profile_export_aiperf_timeslices.json` exactly (`test_extract.TimelineTest`). The artifacts keep aiperf's
+1 s slices; the report reads only the records file (~21 MB compressed per hour at 3.5 req/s, cap 100 MB).
+Markdown: a collapsed table per run plus Mermaid lines for output tok/s and TTFT p90. HTML: SVG panels.
 Read it for trends a whole-run number hides: TTFT rising while throughput is flat and in-flight grows is
 a queue (saturation); TTFT rising while throughput falls is the server slowing (KV pressure, evictions).
 

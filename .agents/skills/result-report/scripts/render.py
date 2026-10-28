@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import math
 import re
 from dataclasses import dataclass
 
@@ -333,6 +334,12 @@ svg{margin:8px 16px 8px 0}"""
 MAX_X_TICKS = 20
 
 
+def _nice_step(raw: float) -> float:
+    """The smallest 1, 2 or 5 x 10^k at or above raw."""
+    exp = 10 ** math.floor(math.log10(raw)) if raw > 0 else 1
+    return next(m * exp for m in (1, 2, 5, 10) if m * exp >= raw)
+
+
 def _tick(v: float) -> str:
     return f"{v:,.0f}" if abs(v) >= 10 or v == int(v) else f"{v:.2g}"
 
@@ -366,8 +373,9 @@ def line_chart(title, series, x_label, y_label, threshold=None, width=560, heigh
         parts.append(f'<line x1="{left}" x2="{width - right}" y1="{sy(y):.1f}" y2="{sy(y):.1f}" stroke="#e5e7eb"/>'
                      f'<text x="{left - 6}" y="{sy(y) + 4:.1f}" font-size="10" text-anchor="end">{_tick(y)}</text>')
     x_ticks = sorted(set(xs))
-    if len(x_ticks) > MAX_X_TICKS:  # a time axis: ~10 evenly spaced labels, not one per slice
-        x_ticks = [x0 + (x1 - x0) * i / 10 for i in range(11)]
+    if len(x_ticks) > MAX_X_TICKS:  # a time axis: ~10 labels on a round step, not one per point
+        step = _nice_step((x1 - x0) / 10)
+        x_ticks = [i * step for i in range(int(x0 // step), int(x1 // step) + 1) if x0 <= i * step <= x1]
     for x in x_ticks:
         parts.append(f'<text x="{sx(x):.1f}" y="{height - bottom + 14}" font-size="10" text-anchor="middle">{_tick(x)}</text>')
     mid_y = (top + height - bottom) / 2
@@ -418,7 +426,7 @@ def chart_blocks(data, pts) -> list:
     return [b for b in blocks if b[1]]
 
 
-TIMELINE_COLUMNS = [("Requests", ("requests",), num), ("RPS", ("rps",), num),
+TIMELINE_COLUMNS = [("Requests", ("requests",), lambda v: DASH if v is None else f"{v:,.0f}"), ("RPS", ("rps",), num),
                     ("Input tok/s", ("input_tps",), num), ("Output tok/s", ("output_tps",), num),
                     ("In-flight", ("in_flight",), num),
                     ("TTFT p50", ("ttft", "p50"), num), ("TTFT p90", ("ttft", "p90"), num),
@@ -428,45 +436,48 @@ TIMELINE_CHARTS = [("Output tok/s", ("output_tps",), "tok/s"), ("TTFT p90", ("tt
                    ("In-flight requests", ("in_flight",), "requests"), ("Prompt cache hit %", ("hit",), "%")]
 
 
-def _minute(t_s: float) -> str:
-    return f"{t_s / 60:g}"
+def _clock(t_s: float) -> str:
+    """Window start as m:ss (windows go down to a few seconds on short runs)."""
+    return f"{int(t_s) // 60}:{int(t_s) % 60:02d}"
 
 
 def _mermaid_line(title: str, y_label: str, xs: list[str], ys: list[float]) -> str:
     # y from 0: Mermaid's auto range turns a 9% change into a full-height climb
     top = max(ys) * 1.1 or 1.0
-    return (f'xychart-beta\n  title "{title}"\n  x-axis "minute (slice start)" [{", ".join(xs)}]\n'
+    return (f'xychart-beta\n  title "{title}"\n  x-axis "window start (m:ss)" [{", ".join(f'"{x}"' for x in xs)}]\n'
             f'  y-axis "{y_label}" 0 --> {top:.1f}\n  line [{", ".join(f"{y:.1f}" for y in ys)}]')
 
 
 def timeline_blocks(data, pts, charts: bool) -> list:
-    """aiperf's per-slice stats over the run: a table (markdown + HTML), Mermaid (markdown) or SVG (HTML)."""
+    """The run over time (extract.timeline): a table (markdown + HTML), Mermaid (markdown) or SVG (HTML)."""
     timed = [p for p in pts if get(p, "timeline", "slices")]
     if not timed:
         return []
+    widths = sorted({p["timeline"]["bucket_s"] for p in timed})
     blocks = [("h", 3, "Over time"),
-              ("p", f"aiperf time slices of {num(timed[0]['timeline']['slice_s'])} s, as exported: a request counts in "
-                    "the slice it started in; throughput and in-flight are time-weighted over the slice. "
-                    "`*` = partial last slice.")]
+              ("p", f"{' / '.join(map(str, widths))} s windows built from aiperf's per-request records with "
+                    "aiperf's time-slice rules: a request counts in the window it started in (requests, RPS, "
+                    "tok/s, percentiles, hit); in-flight is time-weighted over the window. "
+                    "`*` = partial last window.")]
     for p in timed:
         slices = p["timeline"]["slices"]
-        rows = [[(_minute(s["t_s"]) + ("*" if s["partial"] else ""), None),
+        rows = [[(_clock(s["t_s"]) + ("*" if s["partial"] else ""), None),
                  *[(fmt(get(s, *path)), None) for _, path, fmt in TIMELINE_COLUMNS]] for s in slices]
-        table = ("table", Table(["Minute", *(h for h, _, _ in TIMELINE_COLUMNS)], rows))
+        table = ("table", Table(["Start (m:ss)", *(h for h, _, _ in TIMELINE_COLUMNS)], rows))
         name = f"{p['arm']} c{_conc(p)}"
         body = []
         for title, path, unit in TIMELINE_CHARTS[:2]:  # markdown: the two that show a growing queue
-            xy = [(_minute(s["t_s"]), get(s, *path)) for s in slices if get(s, *path) is not None]
+            xy = [(_clock(s["t_s"]), get(s, *path)) for s in slices if get(s, *path) is not None]
             if xy:
                 body.append(("mermaid", _mermaid_line(f"{name}: {title}", unit, [x for x, _ in xy], [y for _, y in xy])))
-        blocks.append(("details", f"{name}: {len(slices)} slices", body + [table]))
+        blocks.append(("details", f"{name}: {len(slices)} windows of {p['timeline']['bucket_s']} s", body + [table]))
     if charts:
         for title, path, unit in TIMELINE_CHARTS:
             scale = 100 if unit == "%" else 1
             series = {f"{p['arm']} c{_conc(p)}": [(s["t_s"] / 60, get(s, *path) * scale)
                                                   for s in p["timeline"]["slices"] if get(s, *path) is not None]
                       for p in timed}
-            blocks.append(("chart", line_chart(f"{title} over time", series, "minute (slice start)", unit)))
+            blocks.append(("chart", line_chart(f"{title} over time", series, "minute (window start)", unit)))
     return [b for b in blocks if b[0] != "chart" or b[1]]
 
 

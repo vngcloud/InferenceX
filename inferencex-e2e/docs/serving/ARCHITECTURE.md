@@ -291,8 +291,8 @@ of section 6 (`agentx-cc-062126-smoke`,
 
 `.agents/skills/result-report` turns run links into `report.md` / `data.json`. The workflow's
 `report` job runs it over the whole run: `report.md` on the run's summary page, `report.html` as an
-artifact that opens without unzipping. Scenarios export aiperf time slices of 60 s, which the
-report shows as an "Over time" section (aiperf's per-slice stats, as exported). It reads the
+artifact that opens without unzipping. Its "Over time" section rebuilds aiperf's time slices at about
+60 windows per run from `profile_export.jsonl`; the artifacts keep aiperf's 1 s slices. It reads the
 scenario from the aggregate first (`scenario_of` in `scripts/extract.py`).
 
 ## 8. Syncing upstream

@@ -1,0 +1,1 @@
+/tmp/inferencex-agentic-6670/venv/bin/agentx profile --config /workspace/results/scenario.yaml --url http://localhost:30437 --model Qwen/Qwen3-8B --tokenizer Qwen/Qwen3-8B --concurrency 512 --gpu-telemetry http://localhost:32271/metrics --server-metrics http://localhost:30437/metrics --output-artifact-dir /workspace/results/aiperf_artifacts

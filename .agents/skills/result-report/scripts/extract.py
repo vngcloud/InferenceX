@@ -223,10 +223,10 @@ SLA_NAMES = {"time_to_first_token": "TTFT", "inter_token_latency": "ITL", "reque
 SLA_OPS = {"lt": "<", "le": "≤", "gt": ">", "ge": "≥"}
 MAX_MEMBER_MB = 40  # largest compressed server_metrics_export.json read (real probes run 25-35 MB each)
 PROBE_DIR = "aiperf_artifacts/search_iter_{:04d}/profile_runs/run_0001/"
-TIMESLICES = "aiperf_artifacts/profile_export_aiperf_timeslices.json"
-SLICE_RE = re.compile(r"^\s*sliceDuration:\s*([\d.]+)", re.M)
-MIN_SLICE_S = 30  # 1 s slices (AgentX's default) are unreadable over an hour and ~80 MB raw
-MAX_TIMESLICES_MB = 10
+RECORDS = "aiperf_artifacts/profile_export.jsonl"
+MAX_RECORDS_MB = 100  # compressed; a 1 h mix run at 3.5 req/s is ~21 MB
+BUCKETS_S = (1, 2, 5, 10, 30, 60, 120, 300, 600)
+TARGET_BUCKETS = 60
 
 
 def summarize_search(history: dict) -> dict:
@@ -342,40 +342,85 @@ def search_summary(history: dict, files, notes: list[str] | None = None,
     return search, win_metrics, win_cache
 
 
-def timeline(files, notes: list[str]) -> dict | None:
-    """aiperf's per-slice stats (profile_export_aiperf_timeslices.json) as exported: no re-aggregation.
+def _percentile(values: list[float], q: float) -> float:
+    """numpy.percentile's default (linear) on sorted values: what aiperf's slices use."""
+    pos = (len(values) - 1) * q / 100
+    lo = int(pos)
+    hi = min(lo + 1, len(values) - 1)
+    return values[lo] + (values[hi] - values[lo]) * (pos - lo)
 
-    aiperf files a request under the slice it started in; throughput and in-flight are time-weighted
-    over the slice. Runs with slices under MIN_SLICE_S get a note instead of a time view."""
-    slice_s = _match(SLICE_RE, _read_text(files, "scenario.yaml"))
-    if slice_s is None:
+
+def _bucket_stats(values: list[float]) -> dict:
+    values = sorted(values)
+    out = dict.fromkeys(PCTS)
+    if values:
+        out.update(avg=sum(values) / len(values), p50=_percentile(values, 50), p90=_percentile(values, 90),
+                   p95=_percentile(values, 95), p99=_percentile(values, 99))
+    return out
+
+
+def _record(line: bytes) -> tuple | None:
+    doc = json.loads(line)
+    md, m = doc.get("metadata") or {}, doc.get("metrics") or {}
+    if md.get("benchmark_phase") != "profiling" or md.get("request_start_ns") is None:
         return None
-    if float(slice_s) < MIN_SLICE_S:
-        notes.append(f"no time view: aiperf slices are {float(slice_s):g} s (needs sliceDuration >= {MIN_SLICE_S} s)")
-        return None
-    size = files.size(TIMESLICES) if files else None
+
+    def value(tag, ms=False):
+        entry = m.get(tag) or {}
+        v = entry.get("value")
+        return v * TO_MS.get(entry.get("unit", "ms"), 1.0) if ms and v is not None else v
+
+    return (md["request_start_ns"], md.get("request_end_ns") or md["request_start_ns"],
+            value("time_to_first_token", True), value("inter_token_latency", True),
+            value("input_sequence_length"), value("output_sequence_length"),
+            value("usage_prompt_tokens"), value("usage_prompt_cache_read_tokens"))
+
+
+def bucket_width(span_s: float) -> int:
+    # 25% slack: requests still running after a 1 h trace ends must not push it to 120 s windows
+    return next((w for w in BUCKETS_S if span_s / w <= TARGET_BUCKETS * 1.25), BUCKETS_S[-1])
+
+
+def timeline(files, notes: list[str], bucket_s: int | None = None) -> dict | None:
+    """The run over time, from aiperf's per-request records with aiperf's own time-slice rules.
+
+    aiperf's 1 s slices are too fine to read, so this rebuilds them at a coarser width (about
+    TARGET_BUCKETS per run) from profile_export.jsonl, exactly as aiperf builds a slice: a request
+    counts in the window it started in; rps and tok/s are those requests' count and tokens over the
+    window; in-flight is every request's time inside the window over the window; percentiles are
+    numpy-linear over those requests; hit is their cache-read over prompt tokens."""
+    size = files.size(RECORDS) if files else None
     if size is None:
         return None
-    if size > MAX_TIMESLICES_MB * 1e6:
-        notes.append(f"no time view: {TIMESLICES} is {size / 1e6:.0f} MB (cap {MAX_TIMESLICES_MB} MB)")
+    if size > MAX_RECORDS_MB * 1e6:
+        notes.append(f"no time view: {RECORDS} is {size / 1e6:.0f} MB (cap {MAX_RECORDS_MB} MB)")
         return None
-    slices = (_read_json(files, TIMESLICES) or {}).get("timeslices") or []
-    if not slices:
+    recs = [r for line in (files.read(RECORDS) or b"").splitlines() if line.strip() and (r := _record(line))]
+    if not recs:
         return None
-    t0 = slices[0]["start_ns"]
+    t0 = min(r[0] for r in recs)
+    t_end = max(max(r[0], r[1]) for r in recs)
+    width = bucket_s or bucket_width((t_end - t0) / 1e9)
+    w_ns = width * 1e9
     rows = []
-    for s in slices:
-        hit = _avg(s, "overall_usage_prompt_cache_read_pct")
+    for b in range(int((t_end - t0) // w_ns) + 1):
+        lo = t0 + b * w_ns
+        hi = min(lo + w_ns, t_end)
+        started = [r for r in recs if lo <= r[0] < lo + w_ns]
+        if not started or hi <= lo:
+            continue  # aiperf skips empty slices too
+        dur = (hi - lo) / 1e9
+        prompt = sum(r[6] or 0 for r in started)
         rows.append({
-            "t_s": (s["start_ns"] - t0) / 1e9, "dur_s": (s["end_ns"] - s["start_ns"]) / 1e9,
-            "partial": s.get("is_complete") is False,
-            "requests": _avg(s, "request_count"), "rps": _avg(s, "request_throughput"),
-            "input_tps": _avg(s, "input_token_throughput"), "output_tps": _avg(s, "output_token_throughput"),
-            "in_flight": _avg(s, "effective_concurrency"),
-            "ttft": ms_stats(s.get("time_to_first_token")), "itl": ms_stats(s.get("inter_token_latency")),
-            "hit": hit / 100 if hit is not None else None,
+            "t_s": b * width, "dur_s": dur, "partial": hi < lo + w_ns,
+            "requests": len(started), "rps": len(started) / dur,
+            "input_tps": sum(r[4] or 0 for r in started) / dur, "output_tps": sum(r[5] or 0 for r in started) / dur,
+            "in_flight": sum(max(0.0, min(r[1], hi) - max(r[0], lo)) for r in recs) / (hi - lo),
+            "ttft": _bucket_stats([r[2] for r in started if r[2] is not None]),
+            "itl": _bucket_stats([r[3] for r in started if r[3] is not None]),
+            "hit": sum(r[7] or 0 for r in started) / prompt if prompt else None,
         })
-    return {"slice_s": float(slice_s), "slices": rows}
+    return {"bucket_s": width, "slices": rows}
 
 
 def scenario_of(agg: dict, config: dict) -> str | None:

@@ -1,9 +1,5 @@
-
-
-
-
 name: qwen3-8b-mix-enterprise-h200
-runner: cluster:hcm-hgx02
+runner: cluster:hcm-hgx01
 image: lmsysorg/sglang:v0.5.22
 model: Qwen/Qwen3-8B
 gpus: 1
