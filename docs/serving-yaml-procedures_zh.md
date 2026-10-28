@@ -6,7 +6,7 @@
 
 </div>
 
-使用本页在 VNG GPU Runner 上对你自己的服务配置（`vllm serve` / `sglang` / `python3 -m trtllm-serve` 命令，或 Dynamo frontend + `dynamo.sglang` 组合）进行基准测试，无需编写 recipe 或修改 `configs/`。输入一个 YAML 文件，产出一次 GitHub Actions 运行。[`infx/serving/schema.py`](../infx/serving/schema.py) 中的 Schema 与 Agent 技能 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) 为权威来源；本页说明谁可以运行，以及基础设施提供了什么。
+使用本页在 VNG GPU Runner 上对你自己的服务配置（`vllm serve` / `sglang` / `trtllm-serve serve` 命令，或 Dynamo frontend + `dynamo.sglang` 组合）进行基准测试，无需编写 recipe 或修改 `configs/`。输入一个 YAML 文件，产出一次 GitHub Actions 运行。[`infx/serving/schema.py`](../infx/serving/schema.py) 中的 Schema 与 Agent 技能 [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) 为权威来源；本页说明谁可以运行，以及基础设施提供了什么。
 
 ## 流程索引
 

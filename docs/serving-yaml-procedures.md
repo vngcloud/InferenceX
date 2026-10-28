@@ -6,7 +6,7 @@
 
 </div>
 
-Use this page to benchmark your own serving config (a `vllm serve` / `sglang` / `python3 -m trtllm-serve` command, or a Dynamo frontend + `dynamo.sglang` pair) on a VNG GPU runner without writing a recipe or editing `configs/`. One YAML file goes in, one GitHub Actions run comes out. The schema in [`infx/serving/schema.py`](../infx/serving/schema.py) and the agent skill [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) are authoritative; this page explains who can run it and what the infrastructure provides.
+Use this page to benchmark your own serving config (a `vllm serve` / `sglang` / `trtllm-serve serve` command, or a Dynamo frontend + `dynamo.sglang` pair) on a VNG GPU runner without writing a recipe or editing `configs/`. One YAML file goes in, one GitHub Actions run comes out. The schema in [`infx/serving/schema.py`](../infx/serving/schema.py) and the agent skill [`.agents/skills/serving-bench/SKILL.md`](../.agents/skills/serving-bench/SKILL.md) are authoritative; this page explains who can run it and what the infrastructure provides.
 
 ## Procedure index
 

@@ -23,7 +23,7 @@ serve: |                            # the launch command, as given
   vllm serve Qwen/Qwen3.8-27B --tensor-parallel-size 1 --max-model-len 262144
   --default-chat-template-kwargs '{"enable_thinking": true}'
 engine-args:                         # optional: trtllm-serve only; written to engine_args.yaml and
-  attn_backend: FLASHINFER           # passed as --extra-engine-args (no such flag in serve:)
+  attn_backend: FLASHINFER           # passed as --config (no such flag in serve:)
 router:                             # optional: any router in front of the engine (hardware-hcm runner)
   image: <router image>
   env: {}                           # the router's env vars
@@ -40,7 +40,7 @@ Full working examples: `serving/qwen38-bf16-tp1.yaml` (engine only), `serving/gl
 Translation rules:
 - **Model path → HF id.** `--model-path /models/<org>/<model>` becomes `--model-path <org>/<model>` and `model: <org>/<model>`. If you cannot tell the HF id from the path, ask.
 - **Host/port:** leave them or drop them; they are replaced by the benchmark's own.
-- **trtllm-serve** (`python3 -m trtllm-serve` or `trtllm-serve`): keep the flags as given. A pasted `--extra-engine-args <file.yaml>` does not survive (the file is not on the runner): move the file's keys into an `engine-args:` block; the benchmark writes them to `engine_args.yaml` next to the run and appends the flag itself.
+- **trtllm-serve** (`trtllm-serve serve`): the 1.4.x CLI takes the MODEL as a positional argument and spells its flags snake_case (`--tensor_parallel_size`, `--served_model_name`, `--tool_parser`, `--reasoning_parser`) — translate pasted kebab-case flags (`--tensor-parallel-size` → `--tensor_parallel_size`, `--dyn-tool-call-parser` → `--tool_parser`, `--dyn-reasoning-parser` → `--reasoning_parser`); `--kv-block-size N` → `kv_cache_config.tokens_per_block: N` and `--publish-kv-events` → `kv_cache_config.kv_events_config.enable_kv_cache_events: true` go under `engine-args:`. A pasted `--extra-engine-args <file.yaml>` / `--config <file.yaml>` does not survive (the file is not on the runner): move the file's keys into an `engine-args:` block; the benchmark writes them to `engine_args.yaml` next to the run and appends `--config engine_args.yaml` itself.
 - **Router:** a router part goes under `router:` with its own `image`; the engine stays in `serve`. Engine env → `env:`, router env → `router.env:`.
   - **Replicas** (several copies of one engine, e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.
   - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang`): as before. Leave out discovery settings (`DYN_*`, `ETCD_ENDPOINTS`, NATS) and `--http-host/--http-port`: the benchmark wires them.

@@ -165,7 +165,7 @@ class ServingSpec(BaseModel):
         default=None,
         alias="engine-args",
         description="Extra engine arguments; written next to the run as engine_args.yaml and "
-        "passed to the engine as --extra-engine-args (trtllm-serve only)",
+        "passed to the engine as --config (trtllm-serve 1.4.x LlmArgs YAML, trtllm-serve only)",
     )
     router: RouterSpec | None = None
     storage: StorageSpec | None = None
@@ -311,9 +311,13 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
             )
         if "--numa-node" in command:
             problems.append(f"{field}: drop --numa-node (benchmark convention)")
-        if field == "serve" and "--extra-engine-args" in command:
+        if field == "serve" and any(
+            staged_flag in command
+            for staged_flag in ("--extra-engine-args", "--config", "--extra_llm_api_options")
+        ):
             problems.append(
-                f"{field}: --extra-engine-args is staged from engine-args:; remove the flag"
+                f"{field}: the engine-args YAML flag (--extra-engine-args, --config or "
+                "--extra_llm_api_options) is staged from engine-args:; remove the flag"
             )
     envs = (
         [("env", spec.env)]

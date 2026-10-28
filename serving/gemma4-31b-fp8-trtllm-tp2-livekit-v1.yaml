@@ -1,6 +1,12 @@
 # Gemma-4-31B FP8-block on trtllm-serve 1.4.0rc1 (node-local squash on the hgx boxes),
-# TP2, FLASHINFER attention with KV prefix reuse, LiveKit 111868 v1 traces at the
-# production concurrencies (one job per conc).
+# TP2, FLASHINFER attention with KV prefix reuse and KV event publishing, LiveKit
+# 111868 v1 traces at the production concurrencies (one job per conc).
+# CLI notes for the 1.4.0rc1 image: MODEL is positional, flags are snake_case
+# (--tensor_parallel_size, --tool_parser, --reasoning_parser), and the staged
+# engine-args YAML is passed as --config (rc1's --extra-engine-args equivalent).
+# --kv-block-size and --publish-kv-events have no rc1 CLI flags; they ride the
+# engine-args YAML as kv_cache_config.tokens_per_block and
+# kv_cache_config.kv_events_config.enable_kv_cache_events.
 name: gemma4-31b-fp8-trtllm-tp2-livekit-v1
 runner: hardware-hcm-8x_01
 image: /mnt/sqsh/tensorrt-llm-1.4.0rc1.sqsh
@@ -8,17 +14,15 @@ model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 2
 precision: fp8
 serve: |
-  python3 -m trtllm-serve
-  --model RedHatAI/gemma-4-31B-it-FP8-block
-  --served-model-name google/gemma-4-31b-it
-  --tensor-parallel-size 2
-  --max-batch-size 64
-  --max-num-tokens 2048
-  --max-seq-len 262144
-  --kv-block-size 64
-  --dyn-tool-call-parser gemma4
-  --dyn-reasoning-parser gemma4
-  --publish-kv-events
+  trtllm-serve serve
+  RedHatAI/gemma-4-31B-it-FP8-block
+  --served_model_name google/gemma-4-31b-it
+  --tensor_parallel_size 2
+  --max_batch_size 64
+  --max_num_tokens 2048
+  --max_seq_len 262144
+  --tool_parser gemma4
+  --reasoning_parser gemma4
 engine-args:
   trust_remote_code: true
   enable_chunked_prefill: true
@@ -27,6 +31,9 @@ engine-args:
     dtype: auto
     enable_block_reuse: true
     free_gpu_memory_fraction: 0.92
+    tokens_per_block: 64
+    kv_events_config:
+      enable_kv_cache_events: true
   cuda_graph_config:
     enable_padding: true
     max_batch_size: 64

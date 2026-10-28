@@ -203,23 +203,23 @@ TRTLLM_ARGS = {
 
 def test_engine_args_append_flag_and_carry_yaml():
     out = render(spec(
-        "python3 -m trtllm-serve --model Qwen/Qwen3.8-27B --served-model-name q38",
+        "trtllm-serve serve Qwen/Qwen3.8-27B --served_model_name q38",
         **{"engine-args": TRTLLM_ARGS},
     ))
     assert out["framework"] == "trtllm"
-    assert shlex.split(out["serve-cmd"])[-2:] == ["--extra-engine-args", "engine_args.yaml"]
+    assert shlex.split(out["serve-cmd"])[-2:] == ["--config", "engine_args.yaml"]
     assert out["served-model-name"] == "q38"
     assert yaml.safe_load(out["engine-args"]) == TRTLLM_ARGS
 
 
 def test_engine_args_absent_leaves_command_and_field_empty():
-    out = render(spec("python3 -m trtllm-serve --model Qwen/Qwen3.8-27B"))
-    assert "--extra-engine-args" not in out["serve-cmd"]
+    out = render(spec("trtllm-serve serve Qwen/Qwen3.8-27B"))
+    assert "--config" not in out["serve-cmd"]
     assert out["engine-args"] == ""
 
 
 def test_engine_args_rejected_for_non_trtllm_engines():
-    with pytest.raises(ServingError, match=r"^engine-args: only python3 -m trtllm-serve"):
+    with pytest.raises(ServingError, match=r"^engine-args: only trtllm-serve"):
         render(spec("vllm serve Qwen/Qwen3.8-27B", **{"engine-args": TRTLLM_ARGS}))
 
 

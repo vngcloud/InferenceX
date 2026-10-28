@@ -62,7 +62,7 @@ def infer_framework(argv: list[str]) -> str:
     raise ServingError(
         "serve: unknown engine; the command must start with `vllm serve`, "
         "`python3 -m sglang.launch_server`, `sglang serve`, `python3 -m dynamo.sglang` "
-        "or `python3 -m trtllm-serve`"
+        "or `trtllm-serve serve` (1.4.0rc1 CLI: positional MODEL, snake_case flags)"
     )
 
 
@@ -166,11 +166,14 @@ def _render_storage(spec: ServingSpec) -> dict[str, str]:
 
 
 def _flag_value(argv: list[str], flag: str) -> str | None:
-    for index, arg in enumerate(argv):
-        if arg == flag and index + 1 < len(argv):
-            return argv[index + 1]
-        if arg.startswith(f"{flag}="):
-            return arg.split("=", 1)[1]
+    # trtllm-serve 1.4.x spells its flags snake_case (--served_model_name) while
+    # vllm/sglang use kebab-case; accept either spelling for shared lookups.
+    for flag_name in (flag, "--" + flag.lstrip("-").replace("-", "_")):
+        for index, arg in enumerate(argv):
+            if arg == flag_name and index + 1 < len(argv):
+                return argv[index + 1]
+            if arg.startswith(f"{flag_name}="):
+                return arg.split("=", 1)[1]
     return None
 
 
@@ -184,7 +187,7 @@ def render(spec: ServingSpec) -> dict[str, str]:
         raise ServingError("serve: drop --disable-log-stats; the benchmark scrapes vLLM metrics")
     if spec.engine_args is not None and framework != "trtllm":
         raise ServingError(
-            "engine-args: only python3 -m trtllm-serve reads --extra-engine-args; "
+            "engine-args: only trtllm-serve reads the staged YAML (as --config); "
             "move the keys into the engine's own flags"
         )
     router = _render_router(spec, argv)
@@ -201,8 +204,9 @@ def render(spec: ServingSpec) -> dict[str, str]:
         argv.append("--enable-metrics")
     if spec.engine_args is not None:
         # serve_generic.sh writes engine_args.yaml in the engine step's cwd (/workspace)
-        # right before starting the engine, which inherits that cwd.
-        argv += ["--extra-engine-args", "engine_args.yaml"]
+        # right before starting the engine, which inherits that cwd. trtllm-serve 1.4.x
+        # takes the LlmArgs YAML as --config (alias --extra_llm_api_options).
+        argv += ["--config", "engine_args.yaml"]
     env = {**prefix_env, **spec.env}
     return {
         "framework": framework,

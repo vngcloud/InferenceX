@@ -378,8 +378,8 @@ TRTLLM_YAML = textwrap.dedent("""\
     model: RedHatAI/gemma-4-31B-it-FP8-block
     gpus: 2
     serve: |
-      python3 -m trtllm-serve --model RedHatAI/gemma-4-31B-it-FP8-block
-      --served-model-name google/gemma-4-31b-it --tensor-parallel-size 2
+      trtllm-serve serve RedHatAI/gemma-4-31B-it-FP8-block
+      --served_model_name google/gemma-4-31b-it --tensor_parallel_size 2
     engine-args:
       attn_backend: FLASHINFER
       kv_cache_config: {enable_block_reuse: true}
@@ -395,7 +395,8 @@ def test_trtllm_engine_args_flow_to_serving_json():
     assert row["framework"] == "trtllm"
     assert row["tp"] == 2
     serving = result["serving"]
-    assert serving["serve-cmd"].endswith("--extra-engine-args engine_args.yaml")
+    assert serving["serve-cmd"].endswith("--config engine_args.yaml")
+    assert serving["served-model-name"] == "google/gemma-4-31b-it"
     assert yaml.safe_load(serving["engine-args"]) == {
         "attn_backend": "FLASHINFER",
         "kv_cache_config": {"enable_block_reuse": True},

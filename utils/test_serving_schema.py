@@ -400,9 +400,17 @@ def test_local_sqsh_router_image_rejected():
 def test_extra_engine_args_flag_in_serve_rejected():
     text = with_line(
         "serve: vllm serve Qwen/Qwen3.8-27B --max-model-len 262144",
-        "serve: python3 -m trtllm-serve --model Qwen/Qwen3.8-27B --extra-engine-args /x/engine.yaml",
+        "serve: trtllm-serve serve Qwen/Qwen3.8-27B --extra-engine-args /x/engine.yaml",
     )
-    assert "serve: --extra-engine-args is staged from engine-args:" in errors(text)
+    assert "serve: the engine-args YAML flag" in errors(text)
+
+
+def test_config_flag_in_serve_rejected():
+    text = with_line(
+        "serve: vllm serve Qwen/Qwen3.8-27B --max-model-len 262144",
+        "serve: trtllm-serve serve Qwen/Qwen3.8-27B --config /x/engine.yaml",
+    )
+    assert "serve: the engine-args YAML flag" in errors(text)
 
 
 def test_engine_args_block_loads():
