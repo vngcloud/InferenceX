@@ -1,6 +1,6 @@
 name: glm53-uniboost-pw30
 runner: cluster:hcm-hgx02
-image: docker.io/phphlio1/sglang-uniboost:9108be6c9f-r2
+image: docker.io/phphlio1/sglang-uniboost:9108be6c9f-r3
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8
 precision: w4afp8
@@ -10,6 +10,10 @@ env:
   PYTHONPATH: /workspace:/mnt/loipp/sglang-e2/python:/opt/uniboost/dynamo150
   CUDA_HOME: /mnt/loipp/venv-dynamo/lib/python3.12/site-packages/nvidia/cu13
   TORCH_EXTENSIONS_DIR: /tmp/torch_extensions_uniboost
+  SGLANG_CACHE_DIR: /tmp/sglang_cache
+  FLASHINFER_WORKSPACE_BASE: /tmp/flashinfer_ws
+  TRITON_CACHE_DIR: /tmp/triton_cache
+  XDG_CACHE_HOME: /tmp/xdg_cache
   NVCC_PREPEND_FLAGS: -DCCCL_DISABLE_CTK_COMPATIBILITY_CHECK
   FLASHINFER_EXTRA_CUDAFLAGS: -DCCCL_DISABLE_CTK_COMPATIBILITY_CHECK
   PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
