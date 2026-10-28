@@ -1,8 +1,8 @@
-# Gemma-4-31B FP8-block on trtllm-serve 1.4.0rc0 (node-local squash on hgx-h200-01),
+# Gemma-4-31B FP8-block on trtllm-serve 1.4.0rc0 (node-local squash on the hgx boxes),
 # TP2, FLASHINFER attention with KV prefix reuse, LiveKit 111868 v1 traces at the
 # production concurrencies (one job per conc).
 name: gemma4-31b-fp8-trtllm-tp2-livekit-v1
-runner: hardware-hcm-8x_01
+runner: hardware-hcm-8x_02
 image: /mnt/sqsh/tensorrt-llm_1.4.0rc0.sqsh
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 2
