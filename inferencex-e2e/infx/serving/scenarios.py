@@ -18,7 +18,8 @@ from infx.serving.slo import SLOError, parse_slo
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[2] / "benchmarks/single_node/serving/scenarios"
 FAMILIES = ("agentx", "tau2", "livekit", "shared-prefix-e2", "hidden-prefix-e3", "synthetic")
-OVERRIDE_KEYS = ("duration", "dataset", "max_context_length", "generation", "trace_idle_gap_cap", "seed")
+OVERRIDE_KEYS = ("duration", "dataset", "max_context_length", "generation", "trace_idle_gap_cap", "seed",
+                 "trajectory_start", "warmup_requests_per_lane", "grace_period")
 SYNTHETIC_OVERRIDES = ("duration",)
 GENERATION_KEYS = ("top_p", "temperature")
 ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
@@ -123,10 +124,36 @@ def _apply(doc: dict[str, Any], family: str, overrides: dict[str, Any],
         suffixes.append("-topp95" if value == {"top_p": 0.95, "temperature": 1.0} else "-gen")
     if "trace_idle_gap_cap" in overrides:
         value = overrides["trace_idle_gap_cap"]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-            raise ScenarioError(f"overrides.trace_idle_gap_cap: seconds >= 0, got {value!r}")
-        dataset["traceIdleGapCapSeconds"] = float(value)
-        suffixes.append("-nothink" if value == 0 else f"-idle{value:g}")
+        if value is None:
+            dataset.pop("traceIdleGapCapSeconds", None)  # aiperf default: no per-trace idle cap
+            suffixes.append("-noidlecap")
+        elif isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            raise ScenarioError(f"overrides.trace_idle_gap_cap: seconds >= 0 or null, got {value!r}")
+        else:
+            dataset["traceIdleGapCapSeconds"] = float(value)
+            suffixes.append("-nothink" if value == 0 else f"-idle{value:g}")
+    if "trajectory_start" in overrides:
+        value = overrides["trajectory_start"]
+        if (not isinstance(value, list) or len(value) != 2
+                or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in value)
+                or not 0 <= value[0] <= value[1] <= 1):
+            raise ScenarioError(f"overrides.trajectory_start: [min, max] with 0 <= min <= max <= 1, got {value!r}")
+        phase = _profiling(doc)
+        phase["trajectoryStartMinRatio"], phase["trajectoryStartMaxRatio"] = float(value[0]), float(value[1])
+        suffixes.append(f"-traj{value[0]:g}-{value[1]:g}")
+    if "warmup_requests_per_lane" in overrides:
+        value = overrides["warmup_requests_per_lane"]
+        if value is None:
+            _profiling(doc).pop("warmupRequestsPerLane", None)  # snapshot primers only
+            suffixes.append("-wu0")
+        elif isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ScenarioError(f"overrides.warmup_requests_per_lane: an integer > 0 or null, got {value!r}")
+        else:
+            _profiling(doc)["warmupRequestsPerLane"] = value
+            suffixes.append(f"-wu{value}")
+    if "grace_period" in overrides:
+        _profiling(doc)["gracePeriod"] = _positive("overrides.grace_period", overrides["grace_period"])
+        suffixes.append(f"-grace{int(overrides['grace_period'])}")
     if "seed" in overrides:
         value = overrides["seed"]
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:

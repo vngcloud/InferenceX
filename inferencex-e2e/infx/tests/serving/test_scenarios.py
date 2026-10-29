@@ -68,6 +68,19 @@ def test_seed_override_sets_both_seeds_and_the_label():
     assert rendered.label == "agentx-cc-062126-256k-seed77188-smoke"
 
 
+def test_replay_overrides_reach_the_profiling_phase():
+    rendered = render("agentx", {"trace_idle_gap_cap": None, "trajectory_start": [0, 1],
+                                 "warmup_requests_per_lane": None, "grace_period": 300, "duration": 3600})
+    dataset = rendered.doc["benchmark"]["datasets"][0]
+    [phase] = [p for p in rendered.doc["benchmark"]["phases"] if p["kind"] == "profiling"]
+    assert "traceIdleGapCapSeconds" not in dataset
+    assert (phase["trajectoryStartMinRatio"], phase["trajectoryStartMaxRatio"]) == (0.0, 1.0)
+    assert "warmupRequestsPerLane" not in phase
+    assert (phase["gracePeriod"], phase["duration"]) == (300.0, 3600.0)
+    assert rendered.label == "agentx-cc-062126-noidlecap-traj0-1-wu0-grace300-d3600"
+    assert render("agentx", {"warmup_requests_per_lane": 2}).doc["benchmark"]["phases"][0]["warmupRequestsPerLane"] == 2
+
+
 def test_slo_replaces_the_sweep_filters():
     doc = render("synthetic", point=Point("8k", "1k", 0), search=True,
                  slo="time_to_first_token:p95:lt:500;inter_token_latency:p50:lt:50").doc
@@ -84,6 +97,9 @@ def test_slo_replaces_the_sweep_filters():
     (("agentx", {"duration": 0}), "overrides.duration"),
     (("agentx", {"seed": "77188"}), "overrides.seed"),
     (("agentx", {"seed": True}), "overrides.seed"),
+    (("agentx", {"trajectory_start": [0.8, 0.2]}), "overrides.trajectory_start"),
+    (("agentx", {"warmup_requests_per_lane": 0}), "overrides.warmup_requests_per_lane"),
+    (("agentx", {"grace_period": 0}), "overrides.grace_period"),
     (("agentx", {"generation": {"top_k": 5}}), "overrides.generation"),
     (("synthetic", {}), "workload: synthetic needs"),
     (("synthetic", {"dataset": "x"}, Point("8k", "1k", 0)), "overrides: synthetic only takes duration"),
