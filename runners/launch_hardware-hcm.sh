@@ -30,7 +30,8 @@ set -x
 # sidecar) lives here too:
 # docs/superpowers/specs/2026-10-13-serving-router-dynamo-design.md §4.
 SLURM_PARTITION="hardware-hcm"
-SLURM_ACCOUNT="dev"
+SLURM_ACCOUNT="ai"   # was "dev": thanglq5 lost its dev association (sacctmgr show assoc user=thanglq5 -> ai only,
+# verified 2026-10-29: sbatch -A dev fails "Invalid account", -A ai is accepted)
 # Pin the allocation to this box's own Slurm node name. Without --nodelist,
 # salloc is free to land on either node in the partition -- caught for real
 # when a concurrent hardware-hcm-2x_02 job (running on hgx-h200-02) was
