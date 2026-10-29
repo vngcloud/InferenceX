@@ -121,10 +121,17 @@ scancel --name="$RUNNER_NAME" 2>/dev/null || true
 # model inside this allocation (gemma-4 FP8 ~33G at ~2MB/s measured on node 02;
 # run 39107314182 was SIGTERMed by the 180-min limit mid-download), and 490
 # stays under the workflow's 500-min job timeout so GitHub cancels first.
+# Slurm CPUs for the allocation: the serving YAML's cpus: (SERVING_CPUS) when it
+# sets one, else the per-GPU default (23/GPU on this pool).
+if [[ -n "${SERVING_CPUS:-}" ]]; then
+    JOB_CPUS="$SERVING_CPUS"
+else
+    JOB_CPUS=$((GPU_COUNT * 23))
+fi
 sbatch --partition="$SLURM_PARTITION" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 23)) --mem=$((GPU_COUNT * 110))G \
+    --cpus-per-task="$JOB_CPUS" --mem=$((GPU_COUNT * 110))G \
     --time=490 --job-name="$RUNNER_NAME" \
     --output=/dev/null --error=/dev/null \
     --wrap "sleep $((490 * 60))"

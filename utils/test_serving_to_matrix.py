@@ -79,6 +79,7 @@ def test_serving_object():
         "router-profile": "",
         "router-metrics-port": "",
         "replicas": "1",
+        "cpus": "",
         "storage-image": "",
         "storage-cmd": "",
         "storage-env": "",
@@ -92,6 +93,7 @@ NEW_SERVING_FIELDS = (
     "search",  # sweep scenarios; the goldens predate it
     "scenario-map",  # per-row scenario payloads; the goldens predate it
     "engine-args",  # trtllm-serve extra engine arguments; the goldens predate it
+    "cpus",  # Slurm CPUs for the job allocation (SERVING_CPUS); the goldens predate it
 )
 
 
@@ -377,6 +379,7 @@ TRTLLM_YAML = textwrap.dedent("""\
     image: /mnt/sqsh/tensorrt-llm.sqsh
     model: RedHatAI/gemma-4-31B-it-FP8-block
     gpus: 2
+    cpus: 96
     serve: |
       trtllm-serve serve RedHatAI/gemma-4-31B-it-FP8-block
       --served_model_name google/gemma-4-31b-it --tensor_parallel_size 2
@@ -401,3 +404,4 @@ def test_trtllm_engine_args_flow_to_serving_json():
         "attn_backend": "FLASHINFER",
         "kv_cache_config": {"enable_block_reuse": True},
     }
+    assert serving["cpus"] == "96"

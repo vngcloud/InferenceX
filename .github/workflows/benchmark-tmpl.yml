@@ -236,6 +236,9 @@ env:
   # Extra engine arguments (trtllm-serve --extra-engine-args); serve_generic.sh
   # writes them to engine_args.yaml in the engine step's cwd before the engine starts.
   SERVING_ENGINE_ARGS: ${{ inputs.serving != '' && fromJSON(inputs.serving).engine-args || '' }}
+  # Slurm CPUs for the job's allocation; empty = the launcher's per-GPU default
+  # (launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh only).
+  SERVING_CPUS: ${{ inputs.serving != '' && fromJSON(inputs.serving).cpus || '' }}
   # Router sidecar (any router, spec 2026-10-14); only runners/launch_hardware-hcm.sh reads these.
   ROUTER_IMAGE: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-image || '' }}
   ROUTER_CMD: ${{ inputs.serving != '' && fromJSON(inputs.serving).router-cmd || '' }}

@@ -77,6 +77,8 @@ SERVING_RUNNERS = {
 # Only launch_hardware-hcm.sh and launch_hcm-rtx6000pro.sh start the router / storage sidecars.
 ROUTER_RUNNER_PREFIXES = ("hardware-hcm-", "hcm-rtx6000pro_")
 STORAGE_RUNNER_PREFIXES = ("hardware-hcm-", "hcm-rtx6000pro_")
+# Only launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh size the salloc from cpus:.
+CPUS_RUNNER_PREFIXES = ("hardware-hcm-", "hcm-rtx6000pro_")
 # {{name}} (lowercase, no spaces) placeholders expanded at runtime by benchmarks/benchmark_lib.sh.
 # {{ x }} (with spaces) is inline Jinja and stays literal.
 # router.* can reference the router/engine ports and either storage port if the router
@@ -157,6 +159,12 @@ class ServingSpec(BaseModel):
     image: str = Field(min_length=1)
     model: str = Field(min_length=1)
     gpus: int = Field(gt=0)
+    cpus: int | None = Field(
+        default=None,
+        gt=0,
+        description="Slurm CPUs for the job's allocation (SERVING_CPUS; unset = the launcher's "
+        "per-GPU default), honored by launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh",
+    )
     replicas: int = Field(default=1, ge=1)
     precision: str = Field(default="bf16", pattern=r"^[a-z0-9]+$")
     env: dict[str, str] = Field(default_factory=dict)
@@ -334,6 +342,11 @@ def load_serving(text: str, repo: Path = REPO_ROOT) -> ServingSpec:
                 )
             if "\n" in value:
                 problems.append(f"{prefix}.{key}: value must be a single line")
+    if spec.cpus and not spec.runner.startswith(CPUS_RUNNER_PREFIXES):
+        problems.append(
+            "cpus: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "
+            "(only launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh size the salloc from cpus:)"
+        )
     if spec.router:
         if not IMAGE_PATTERN.fullmatch(spec.router.image):
             problems.append("router.image: only letters, digits and ._/:@- are allowed")

@@ -161,3 +161,10 @@ def test_salloc_leaves_room_on_the_node(tmp_path, serve_cmd, serve_env, mem):
     calls, _ = run_launcher(tmp_path, {"SERVE_CMD": serve_cmd, "SERVE_ENV": serve_env})
     salloc = next(c for c in calls if c[0] == "salloc")
     assert "--cpus-per-task=64" in salloc and f"--mem={mem}" in salloc, salloc
+
+
+def test_serving_cpus_replaces_the_per_gpu_default(tmp_path):
+    """SERVING_CPUS (the serving YAML's cpus:) sizes the salloc instead of 8/GPU."""
+    calls, _ = run_launcher(tmp_path, {"SERVE_CMD": "vllm serve m", "SERVING_CPUS": "96"})
+    salloc = next(c for c in calls if c[0] == "salloc")
+    assert "--cpus-per-task=96" in salloc, salloc

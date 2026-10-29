@@ -71,6 +71,19 @@ def test_router_needs_hardware_hcm_runner():
     assert "router: needs a hardware-hcm-8x_* runner (only launch_hardware-hcm.sh starts the router)" in errors(text)
 
 
+def test_cpus_needs_hcm_runner():
+    text = GOOD + "cpus: 96\n"
+    assert (
+        "cpus: needs a hardware-hcm-8x_* or hcm-rtx6000pro_* runner "
+        "(only launch_hardware-hcm.sh / launch_hcm-rtx6000pro.sh size the salloc from cpus:)"
+    ) in errors(text)
+
+
+def test_cpus_loads_on_hcm_runner():
+    text = GOOD.replace("runner: h200-greennode-slurm-1x_01", "runner: hardware-hcm-8x_02") + "cpus: 96\n"
+    assert load_serving(text).cpus == 96
+
+
 @pytest.mark.parametrize("field, text", [
     ("serve", GOOD.replace("--max-model-len 262144", "--max-model-len 262144 --numa-node 0 0 1 1")),
     ("router.serve", dynamo().replace("--router-mode=kv", "--router-mode=kv --numa-node 0")),

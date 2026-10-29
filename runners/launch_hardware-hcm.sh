@@ -115,10 +115,17 @@ alloc_mem_gb() {
     total=$(( GPU_COUNT * (64 + hicache + segment) ))
     echo $(( total > 1950 ? 1950 : total ))
 }
+# Slurm CPUs for the allocation: the serving YAML's cpus: (SERVING_CPUS) when it
+# sets one, else the per-GPU default (8/GPU, sized from measured use).
+if [[ -n "${SERVING_CPUS:-}" ]]; then
+    JOB_CPUS="$SERVING_CPUS"
+else
+    JOB_CPUS=$((GPU_COUNT * 8))
+fi
 salloc --partition="$SLURM_PARTITION" --account="$SLURM_ACCOUNT" \
     --nodelist="$SLURM_NODELIST" \
     --gres=gpu:"$GPU_COUNT" \
-    --cpus-per-task=$((GPU_COUNT * 8)) --mem="$(alloc_mem_gb)"G \
+    --cpus-per-task="$JOB_CPUS" --mem="$(alloc_mem_gb)"G \
     --time=1200 --no-shell --job-name="$RUNNER_NAME"
 # --time 1200 (was 180): long runs (max-CCU searches, 1M-context AgentX replay) outlive 180 min; cut runs 39583069057 / 39583087151.
 JOB_ID=$(squeue --name="$RUNNER_NAME" -u "$USER" -h -o %A | head -n1)

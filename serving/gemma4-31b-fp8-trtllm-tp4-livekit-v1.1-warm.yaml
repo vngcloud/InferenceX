@@ -3,7 +3,9 @@
 # CUDA graphs follow to 128) and the MAX_UTILIZATION capacity scheduler policy
 # (default GUARANTEED_NO_EVICT), FLASHINFER attention with KV prefix reuse and KV
 # event publishing, LiveKit 111868 v1.1-warm traces across the CCU sweep
-# (one job per conc).
+# (one job per conc). cpus 96 (SERVING_CPUS; default 8/GPU = 32) feeds the
+# tokenizer/detokenizer workers: --num_input_processor_workers 16 (default 8),
+# --num_postprocess_workers 8 (default 0).
 # CLI notes for the 1.4.0rc1 image: MODEL is positional, flags are snake_case
 # (--tensor_parallel_size, --tool_parser, --reasoning_parser), and the staged
 # engine-args YAML is passed as --config (rc1's --extra-engine-args equivalent).
@@ -16,6 +18,7 @@ runner: hardware-hcm-8x_01
 image: /mnt/sqsh/tensorrt-llm-1.4.0rc1.sqsh
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 4
+cpus: 96
 precision: fp8
 serve: |
   trtllm-serve serve
@@ -27,6 +30,8 @@ serve: |
   --max_seq_len 262144
   --tool_parser gemma4
   --reasoning_parser gemma4
+  --num_input_processor_workers 16
+  --num_postprocess_workers 8
 engine-args:
   trust_remote_code: true
   enable_chunked_prefill: true
