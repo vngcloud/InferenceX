@@ -29,3 +29,10 @@ livekit-111868-v2:
   revision: 7e36287967360851a1b05ba05730ff1d256b60c7
   file: trace.v2-observed.jsonl
   sha256: 190af677563ea782d060456bbc44f92e802e1d63e4322b147ef0290a49efd4f3
+# V1.1-warm: V1-warm restricted to rooms with >= 4 real requests (671 rooms, 12279
+# real requests + 601 dial warm-ups).
+livekit-111868-v1.1-warm:
+  repo: Green-Lab/2026-10-16-111868-agentic-traces
+  revision: 6e0934c957565a42d52cafac096ec758a4302355
+  file: trace.v1.1-append-ideal-warm.jsonl
+  sha256: e26542392a202764849c05018f2f8ea3f9574277ffa3400615f0b4df23b0eb2f
