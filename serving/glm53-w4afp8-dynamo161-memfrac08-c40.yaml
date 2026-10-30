@@ -6,8 +6,10 @@
 # after the first boot (read router.log on failure). Same env incl. NVSHMEM_REMOTE_TRANSPORT=none.
 # Dispatch: utils/serving/dispatch.sh serving/glm53-w4afp8-dynamo161-memfrac08-c40.yaml
 name: glm53-w4afp8-dynamo161-memfrac08-c40
-runner: hardware-hcm-8x_01   # node 02's GPU driver wedges enroot starts (nvidia-container-cli driver rpc
-# timeout killed runs 40992150885 + 41112129312); hgx-h200-01 idle when dispatched
+runner: hardware-hcm-8x_02   # back to node 02: node 01 is unusable (out-of-slurm vLLM gemma-4 server
+# from stackops holds GPUs + RAM, slurm FreeMem 538G < 1536G request). Node 02's enroot driver-rpc
+# timeouts (runs 40992150885, 41112129312) are a transient start race after another tenant's container
+# teardown -- 2 of 4 node-02 starts succeeded; retry until it lands.
 image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1   # engine image, bundles SGLang v0.5.21
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8
