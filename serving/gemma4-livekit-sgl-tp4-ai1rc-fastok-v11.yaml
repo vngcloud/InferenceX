@@ -1,0 +1,38 @@
+# One TP4 server, no router, on the v0.5.22-ai.1 release candidate image: lmsysorg/sglang:v0.5.22 (baa9befa) + the full
+# Gemma-4 patch stack merged in one tree (cdce95199f): per-layer FA3/FA4 routing (sgl-project/sglang#44399), FA4 SM90 FP8
+# e4m3 KV for head_dim 512, SM90 FP8 head_dim-512 attention kernels, frozen-KV MTP target pool fix (MTP off here) and
+# Gemma4TextModel accepting input_ids with input_embeds, so the prefill CUDA graph captures without a shim.
+# The kernels turn on by themselves for fp8_e4m3 KV + page size 64 + no speculative decoding.
+# Flags = gemma4-livekit-sgl-tp4-fp8kv-v11 + prefill CUDA graph + fastokens.
+# sqsh sha256 c36b245091c4eee8..., node-local on hgx-h200-01 only, so this YAML must run on hardware-hcm-8x_01.
+name: gemma4-livekit-sgl-tp4-ai1rc-fastok-v11
+runner: hardware-hcm-8x_01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 160
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [100, 128]
