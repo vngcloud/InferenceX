@@ -3583,7 +3583,9 @@ build_replay_cmd_yaml() {
     REPLAY_CMD+=" --tokenizer $MODEL"
     if [ "$SERVING_SEARCH" != "1" ]; then
         check_env_vars CONC
-        REPLAY_CMD+=" --concurrency $CONC"
+        # open-loop scenarios: CONC is the target number of concurrent calls (it sets the arrival rate in
+        # openloop_trace); --concurrency only caps open sessions, so it is set well above it there
+        REPLAY_CMD+=" --concurrency ${IX_CLIENT_CONCURRENCY:-$CONC}"
     fi
     # else: adaptive_search sweeps the concurrency itself (scenario YAML's sweep:
     # block; SLOs come from sweep.sla_filters, optionally overridden above).
@@ -3599,6 +3601,25 @@ build_replay_cmd_yaml() {
         REPLAY_CMD+=" --server-metrics ${AIPERF_SERVER_METRICS_URLS//,/ }"
     fi
     REPLAY_CMD+=" --output-artifact-dir $result_dir/aiperf_artifacts"
+}
+
+# Open-loop scenarios (scenarios/*-openloop.yaml): rewrite the fetched LiveKit trace so calls arrive by the clock
+# at CONC / call duration per second (utils/serving/livekit_openloop.py), point IX_CUSTOM_DATASET_FILE at it and
+# lift aiperf's session cap above CONC. Settings: IX_OPENLOOP_{CALL_DURATION_S,RAMP_S,TAIL_S,SEED} (serving-YAML
+# env), defaults in the script. The trace goes to node-local disk; openloop.json (arrivals, scoring window) to
+# the run dir for utils/serving/livekit_ttft.py.
+openloop_trace() {
+    check_env_vars INFMAX_CONTAINER_WORKSPACE AIPERF_PYTHON IX_CUSTOM_DATASET_FILE CONC SERVING_SCENARIO
+    local result_dir="$1" dir="${IX_OPENLOOP_DIR:-$INFMAX_CONTAINER_WORKSPACE/.openloop}" derived
+    mkdir -p "$dir"
+    derived="$dir/${SERVING_SCENARIO}-c${CONC}.jsonl"
+    "$AIPERF_PYTHON" "$INFMAX_CONTAINER_WORKSPACE/utils/serving/livekit_openloop.py" \
+        "$IX_CUSTOM_DATASET_FILE" "$derived" "$result_dir/openloop.json" --ccu "$CONC" \
+        --scenario "$INFMAX_CONTAINER_WORKSPACE/scenarios/${SERVING_SCENARIO}.yaml" \
+        ${IX_OPENLOOP_CALL_DURATION_S:+--call-duration-s "$IX_OPENLOOP_CALL_DURATION_S"} \
+        ${IX_OPENLOOP_RAMP_S:+--ramp-s "$IX_OPENLOOP_RAMP_S"} ${IX_OPENLOOP_TAIL_S:+--tail-s "$IX_OPENLOOP_TAIL_S"} \
+        ${IX_OPENLOOP_SEED:+--seed "$IX_OPENLOOP_SEED"} || return 1
+    export IX_CUSTOM_DATASET_FILE="$derived" IX_CLIENT_CONCURRENCY=$(( CONC * 4 ))
 }
 
 # Exit 0 when <name> is a lock-pinned file dataset (scenarios/datasets/lock.yaml),
