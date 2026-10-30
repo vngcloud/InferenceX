@@ -434,6 +434,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             # Only same-repository PRs owned by Klaud receive background priority.
@@ -525,6 +526,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with: &single-node-inputs
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
@@ -559,6 +561,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with: *single-node-inputs
 
     sweep-agentic:
@@ -583,6 +586,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
@@ -656,6 +660,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
@@ -695,6 +700,7 @@ jobs:
             MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
             MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
             SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
+            GREENSPEC_HF_TOKEN: ${{ secrets.GREENSPEC_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: *klaud-run
