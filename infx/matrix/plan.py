@@ -28,13 +28,14 @@ from .generate import (
     trim_conc,
 )
 from .validation import (
+    QUALITY_SCENARIO_TYPES,
     ChangelogEntry,
     ChangelogMatrixEntry,
     load_config_files,
     load_runner_file,
 )
 
-SCENARIO_TYPES = ("fixed-seq-len", "agentic-coding")
+SCENARIO_TYPES = ("fixed-seq-len", "agentic-coding", *QUALITY_SCENARIO_TYPES)
 
 
 @dataclass(frozen=True)
@@ -444,6 +445,7 @@ def build_plan(
             "agentic_evals": [],
             "multinode_evals": [],
             "multinode_agentic_evals": [],
+            "quality_evals": [],
             "changelog_metadata": {
                 "base_ref": base_ref,
                 "head_ref": head_ref,
@@ -558,6 +560,10 @@ def build_plan(
             all_benchmark_results = trim_conc(all_benchmark_results)
 
         for result in all_benchmark_results:
+            # Quality evals carry endpoint inputs, not isl/osl; run-sweep.yml has a job for them.
+            if result.get("scenario-type") in QUALITY_SCENARIO_TYPES:
+                final_results["quality_evals"].append(result)
+                continue
             result["recipe-fingerprint"] = recipe_fingerprint(result)
             node_type = "multi_node" if result.get("prefill") is not None else "single_node"
             scenario = (
@@ -569,6 +575,9 @@ def build_plan(
 
         # Fixed-sequence and AgentX eval jobs have different workflow inputs.
         for result in all_eval_results:
+            if result.get("scenario-type") in QUALITY_SCENARIO_TYPES:
+                final_results["quality_evals"].append(result)
+                continue
             prefix = "multinode_" if result.get("prefill") is not None else ""
             suffix = "agentic_evals" if result.get("scenario-type") == "agentic-coding" else "evals"
             final_results[prefix + suffix].append(result)

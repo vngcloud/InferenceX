@@ -10,9 +10,37 @@ import math
 import os
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 CONC_SUFFIX_RE = re.compile(r"_conc(\d+)(?:_\d+)?\.json$")
+
+# Quality harnesses do not share lm-eval's ``exact_match,*`` metric naming.
+# Keep the primary metric explicit so auxiliary/per-sample values are not
+# accidentally treated as release gates.
+QUALITY_PRIMARY_METRICS = {
+    "gpqa": {"exact_match,strict-match"},
+    "mmlu_pro": {"exact_match,custom-extract"},
+    "hle": {"exact_match,custom-extract"},
+    "livecodebench": {"pass@1"},
+    "scicode": {"mean", "sub_problem_correctness", "Problem Correctness/mean"},
+    "swebench_pro": {"exact_match,resolved"},
+}
+
+QUALITY_PRIMARY_TASKS = {
+    "gpqa": "gpqa_diamond_cot_n_shot",
+    "mmlu_pro": "mmlu_pro",
+    "hle": "hle",
+    "livecodebench": "livecodebench",
+    "scicode": "scicode/scicode_scorer",
+    "swebench_pro": "swebench_pro",
+}
+
+QUALITY_THRESHOLD_KEYS = {
+    # The workflow uses the short launcher name while thresholds retain the
+    # canonical lm-eval task name.
+    "gpqa": "gpqa_diamond_cot_n_shot",
+}
 
 
 def load_config(path: str) -> dict:
@@ -58,6 +86,75 @@ def detect_model_prefix(meta_env_path: str, override: str | None) -> str | None:
     if env_prefix and env_prefix != "unknown":
         return env_prefix
     return None
+
+
+def detect_benchmark(meta_env_path: str) -> str | None:
+    """Return the quality benchmark recorded by the launcher, if present."""
+    try:
+        with open(meta_env_path) as f:
+            benchmark = json.load(f).get("benchmark")
+        return benchmark if isinstance(benchmark, str) and benchmark else None
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return None
+
+
+def _numeric_score(value: object) -> float | None:
+    """Parse numeric and percentage values emitted by external harnesses."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    try:
+        if text.endswith("%"):
+            return float(text[:-1]) / 100.0
+        return float(text)
+    except ValueError:
+        return None
+
+
+def native_quality_scores(data: dict, benchmark: str | None) -> Iterator[tuple[str, str, float]]:
+    """Yield primary scores from harness-native result structures."""
+    if benchmark == "bfcl":
+        subset = data.get("subset")
+        if isinstance(subset, dict):
+            value = _numeric_score(subset.get("overall_accuracy"))
+            if value is not None:
+                yield "bfcl", "subset_overall_accuracy", value
+                return
+        for row in data.get("scores", []):
+            if not isinstance(row, dict):
+                continue
+            value = _numeric_score(row.get("Overall Acc"))
+            if value is not None:
+                yield "bfcl", "overall_accuracy", value
+                return
+    elif benchmark == "deepswe":
+        evals = data.get("stats", {}).get("evals", {})
+        if not isinstance(evals, dict):
+            return
+        for eval_data in evals.values():
+            if not isinstance(eval_data, dict):
+                continue
+            for metrics in eval_data.get("metrics", []):
+                if not isinstance(metrics, dict):
+                    continue
+                value = _numeric_score(metrics.get("reward"))
+                if value is not None:
+                    yield "deepswe", "reward", value
+    elif benchmark == "swebench_pro":
+        # The upstream SWE-bench Pro evaluator writes eval_results.json as a
+        # bare {instance_id: resolved_bool} mapping. Accept that native format
+        # as well as the normalized lm-eval-shaped wrapper produced by our
+        # runner, so old/resumed artifacts validate correctly too.
+        if data and all(isinstance(value, bool) for value in data.values()):
+            yield (
+                "swebench_pro",
+                "exact_match,resolved",
+                sum(data.values()) / len(data),
+            )
 
 
 def resolve_threshold(
@@ -216,6 +313,49 @@ def validate_batch_manifest(
     return errors
 
 
+def _nested_nonempty_strings(value: object) -> list[str]:
+    """Return non-empty strings from nested lm-eval response containers."""
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if isinstance(value, (list, tuple)):
+        return [item for child in value for item in _nested_nonempty_strings(child)]
+    return []
+
+
+def validate_smoke_artifacts(meta_env_path: str) -> list[str]:
+    """Reject operationally invalid outputs that a score-only smoke test hides."""
+    try:
+        with open(meta_env_path) as f:
+            benchmark = json.load(f).get("benchmark")
+    except (json.JSONDecodeError, OSError, AttributeError):
+        return []
+
+    errors = []
+    if benchmark == "hle":
+        sample_files = sorted(glob.glob("sample*.jsonl"))
+        if not sample_files:
+            return ["HLE smoke test produced no sample logs"]
+        total = 0
+        empty = 0
+        for path in sample_files:
+            try:
+                with open(path) as fh:
+                    for line in fh:
+                        if not line.strip():
+                            continue
+                        total += 1
+                        sample = json.loads(line)
+                        if not _nested_nonempty_strings(sample.get("resps", [])):
+                            empty += 1
+            except (json.JSONDecodeError, OSError) as exc:
+                errors.append(f"could not inspect HLE sample log {path}: {exc}")
+        if total == 0:
+            errors.append("HLE sample logs contain no records")
+        elif empty:
+            errors.append(f"HLE produced {empty}/{total} empty completions")
+    return errors
+
+
 def main() -> int:
     # Keep merged CI logs ordered.
     for _stream in (sys.stdout, sys.stderr):
@@ -259,6 +399,11 @@ def main() -> int:
         default=None,
         help="Space-separated concurrencies requested by the workflow",
     )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Smoke-test mode: verify result artifacts exist without checking thresholds",
+    )
     args = parser.parse_args()
 
     expected_concs = None
@@ -297,6 +442,7 @@ def main() -> int:
 
     # Identify the model so per-model thresholds can apply
     prefix = detect_model_prefix(args.meta_env, args.model_prefix)
+    benchmark = detect_benchmark(args.meta_env)
     if prefix and prefix in config.get("models", {}):
         print(f"Model prefix: {prefix} (per-model thresholds apply)")
     elif prefix:
@@ -307,6 +453,11 @@ def main() -> int:
     failed = False
     checked = 0
     result_files = sorted(glob.glob(args.results_glob))
+
+    if args.smoke:
+        for error in validate_smoke_artifacts(args.meta_env):
+            print(f"FAIL: {error}", file=sys.stderr)
+            failed = True
 
     manifest_errors = validate_batch_manifest(
         args.meta_env,
@@ -341,6 +492,8 @@ def main() -> int:
             failed = True
             continue
         for task, metrics in data.get("results", {}).items():
+            if not isinstance(metrics, dict):
+                continue
             invalid_effective, effective = invalid_effective_count(data, task)
             if invalid_effective:
                 print(
@@ -352,12 +505,30 @@ def main() -> int:
             min_score, source = resolve_threshold(config, prefix, task, args.min_score)
             prefixes = metric_prefixes(data, task, args.metric_prefix)
             for name, val in metrics.items():
-                if not name.startswith(prefixes) or "stderr" in name:
+                primary_metrics = QUALITY_PRIMARY_METRICS.get(benchmark)
+                if primary_metrics is not None:
+                    if task != QUALITY_PRIMARY_TASKS[benchmark]:
+                        continue
+                    if name not in primary_metrics:
+                        continue
+                elif not name.startswith(prefixes) or "stderr" in name:
                     continue
                 if not isinstance(val, (int, float)):
                     continue
+                if primary_metrics is not None:
+                    min_score, source = resolve_threshold(
+                        config,
+                        prefix,
+                        QUALITY_THRESHOLD_KEYS.get(benchmark, benchmark),
+                        args.min_score,
+                    )
                 checked += 1
-                if val < min_score:
+                if args.smoke:
+                    print(
+                        f"PASS (smoke): {conc_label}{task} {name} = {val:.4f} "
+                        f"(threshold check skipped)"
+                    )
+                elif val < min_score:
                     print(
                         f"FAIL: {conc_label}{task} {name} = {val:.4f} (< {min_score} from {source})",
                         file=sys.stderr,
@@ -368,8 +539,37 @@ def main() -> int:
                         f"PASS: {conc_label}{task} {name} = {val:.4f} (>= {min_score} from {source})"
                     )
 
+        for task, name, val in native_quality_scores(data, benchmark):
+            min_score, source = resolve_threshold(
+                config,
+                prefix,
+                QUALITY_THRESHOLD_KEYS.get(benchmark, benchmark),
+                args.min_score,
+            )
+            checked += 1
+            if args.smoke:
+                print(
+                    f"PASS (smoke): {conc_label}{task} {name} = {val:.4f} (threshold check skipped)"
+                )
+            elif val < min_score:
+                print(
+                    f"FAIL: {conc_label}{task} {name} = {val:.4f} (< {min_score} from {source})",
+                    file=sys.stderr,
+                )
+                failed = True
+            else:
+                print(f"PASS: {conc_label}{task} {name} = {val:.4f} (>= {min_score} from {source})")
+
     if checked == 0:
         selector = args.metric_prefix or "declared task metrics"
+        if args.smoke:
+            if not result_files:
+                print("FAIL: smoke test produced no result artifacts", file=sys.stderr)
+                return 1
+            print(
+                f"PASS (smoke): no metrics matched {selector!r} but result artifacts are parseable"
+            )
+            return 1 if failed else 0
         print(f"WARN: no metrics matched {selector!r}", file=sys.stderr)
 
     return 1 if (failed or checked == 0) else 0

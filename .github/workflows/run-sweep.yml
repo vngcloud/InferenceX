@@ -794,6 +794,42 @@ jobs:
             eval-conc: ${{ matrix.config['eval-conc'] }}
             scenario-type: agentic-coding
 
+    # Quality-eval rows carry the quality-eval input shape (benchmark-name,
+    # quality-endpoint, quality-model-name, smoke), so they are dispatched
+    # with their own job rather than sweep-evals' fixed-seq-len inputs.
+    sweep-quality-evals:
+        needs: [setup, canary-select, canary-sweep]
+        if: >-
+            ${{
+              !cancelled() &&
+              needs.setup.result == 'success' &&
+              needs.setup.outputs.reuse-enabled != 'true' &&
+              (needs.canary-sweep.result == 'success' || needs.canary-sweep.result == 'skipped') &&
+              toJson(fromJson(needs.setup.outputs.search-space-config).quality_evals) != '[]' &&
+              toJson(fromJson(needs.setup.outputs.search-space-config).quality_evals) != 'null'
+            }}
+        uses: $/.github/workflows/benchmark-tmpl.yml
+        name: quality eval /
+        strategy:
+            fail-fast: ${{ contains(github.event.pull_request.labels.*.name, 'full-sweep-fail-fast') || contains(github.event.pull_request.labels.*.name, 'full-sweep-fail-fast-no-canary') }}
+            matrix:
+                config: ${{ fromJson(needs.setup.outputs.search-space-config).quality_evals }}
+        secrets:
+            REPO_PAT: ${{ secrets.REPO_PAT }}
+            INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
+            GREENNODE_API_KEY: ${{ secrets.GREENNODE_API_KEY }}
+        with:
+            config: ${{ toJSON(matrix.config) }}
+            klaud-run: *klaud-run
+            runner: ${{ matrix.config.runner }}
+            priority: ${{ matrix.config.priority }}
+            queue-token: ${{ matrix.config['queue-token'] }}
+            skip-queue-pr: ${{ matrix.config['skip-queue-pr'] || '' }}
+            run-eval: true
+            eval-only: true
+            eval-limit: ${{ matrix.config.eval-limit || (contains(github.event.pull_request.labels.*.name, 'sweep-enabled') && '10' || '') }}
+            scenario-type: ${{ matrix.config.scenario-type }}
+
     collect-results:
         name: collect-results
         needs:
@@ -825,8 +861,8 @@ jobs:
 
     collect-evals:
         name: collect-evals
-        needs: [sweep-evals, sweep-agentic-evals, sweep-multi-node-evals, sweep-multi-node-agentic-evals, setup]
-        if: ${{ always() && needs.setup.result != 'skipped' && (needs.sweep-evals.result != 'skipped' || needs.sweep-agentic-evals.result != 'skipped' || needs.sweep-multi-node-evals.result != 'skipped' || needs.sweep-multi-node-agentic-evals.result != 'skipped') }}
+        needs: [sweep-evals, sweep-agentic-evals, sweep-multi-node-evals, sweep-multi-node-agentic-evals, sweep-quality-evals, setup]
+        if: ${{ always() && needs.setup.result != 'skipped' && (needs.sweep-evals.result != 'skipped' || needs.sweep-agentic-evals.result != 'skipped' || needs.sweep-multi-node-evals.result != 'skipped' || needs.sweep-multi-node-agentic-evals.result != 'skipped' || needs.sweep-quality-evals.result != 'skipped') }}
         uses: $/.github/workflows/collect-evals.yml
 
     upload-changelog-metadata:
