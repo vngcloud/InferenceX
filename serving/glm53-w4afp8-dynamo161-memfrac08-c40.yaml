@@ -36,7 +36,10 @@ serve: |
   --schedule-policy=dfs-weight --enable-prefill-delayer
   --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
 router:
-  image: nvcr.io/nvidia/ai-dynamo/dynamo-frontend:1.6.1
+  # same image as the engine: dynamo-frontend:1.6.1 has no sglang module, and the frontend's
+  # sglang chat processor imports sglang.srt (run 40901247613 router.log: ModuleNotFoundError).
+  # The old VCR stack ran the router from the sglang-runtime image for the same reason.
+  image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1
   env: {}
   serve: |
     python3 -m dynamo.frontend
