@@ -1,87 +1,159 @@
 ---
 name: serving-bench
-description: Benchmark an LLM serving config with the AgentX agentic-coding scenario or the tau2 customer-service scenario (custom-agentic-tau2) on a VNG GPU runner, starting from a vllm/sglang launch command, a Dynamo frontend + engine pair, a docker-compose file or a k8s manifest. Use when the user says "benchmark agentx với config…", "chạy agentx cho config này", "bench agentx", "bench tau2", "chạy tau2 cho config…", or pastes a serve command and asks for a benchmark. Writes one serving YAML and dispatches it with one command.
+description: Benchmark an LLM serving config on a VNG GPU node with the AgentX coding scenario, the tau2 or LiveKit agent traces, the E2/E3 prefix traces, or the synthetic ISL/OSL/cache grid (fixed concurrency or SLO search), starting from a vllm/sglang launch command, a Dynamo frontend + engine pair, a docker-compose file or a k8s manifest. Use when the user says "benchmark agentx với config…", "chạy agentx/tau2/livekit cho config này", "bench sweep", "tìm max CCU", or pastes a serve command and asks for a benchmark. Writes one serving YAML and dispatches it with one command.
 ---
 
 # serving-bench
 
-You turn the user's serving config into **one YAML file** and run **one command**. Do not write recipes, edit configs, or call `gh workflow run` yourself.
+You turn the user's serving config into **one YAML file** and run **one command**. Do not write recipes, edit `configs/runners.yaml`, or call `gh workflow run` yourself. How it runs end to end: `inferencex-e2e/docs/serving/ARCHITECTURE.md`.
 
-## 1. Write `serving/<name>.yaml`
+## 1. Write `inferencex-e2e/configs/serving/<name>.yaml`
 
 ```yaml
-name: qwen38-bf16-tp1               # [a-z0-9.-], no "_"; becomes the artifact name prefix
-runner: h200-greennode-slurm-1x_01  # see "Runner" below
-image: vllm/vllm-openai:v0.29.0     # required
+name: qwen38-bf16-tp1               # [a-z0-9.-], no "_"; prefixes the artifact names
+runner: cluster:hcm-hgx02           # see "Runner" below
+image: vllm/vllm-openai:v0.29.0     # required; or /abs/path.sqsh on the runner's node
 model: Qwen/Qwen3.8-27B             # HF repo id, never a local path
 gpus: 1                             # GPUs the command needs
-replicas: 1                         # optional: N engine copies, gpus/N GPUs each; N > 1 needs router: with {{engine_urls}}
+replicas: 1                         # optional: N engine copies, gpus/N each; N > 1 needs router: with {{engine_urls}}
 precision: bf16                     # optional (bf16 default), naming only
 env:                                # optional, the engine's env vars; quote booleans
   PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
 serve: |                            # the launch command, as given
   vllm serve Qwen/Qwen3.8-27B --tensor-parallel-size 1 --max-model-len 262144
-  --default-chat-template-kwargs '{"enable_thinking": true}'
-router:                             # optional: any router in front of the engine (hardware-hcm runner)
+router:                             # optional: any router in front of the engine(s)
   image: <router image>
-  env: {}                           # the router's env vars
-  metrics_port: 18888               # optional: the router's /metrics port; default = the router port
-  serve: |                          # {{router_port}} = the port the benchmark calls, {{engine_url}} = the engine
-    python3 -m sglang_router.launch_router --host=0.0.0.0 --port={{router_port}}
-    --worker-urls={{engine_url}} --policy=cache_aware
-scenario: agentx-cc-062126-smoke    # a file name in scenarios/ (without .yaml); or a list — one job per scenario in one run (needs exactly one conc)
+  env: {}
+  # router /metrics on its own port: put {{router_metrics_port}} in serve (picked free at run time)
+  serve: |                          # {{router_port}} = the port the benchmark calls, {{engine_url(s)}} = the engine(s)
+    python3 -m sglang_router.launch_router --host=0.0.0.0 --port={{router_port}} --worker-urls={{engine_url}}
+storage:                            # optional: a non-GPU sidecar started first (e.g. Mooncake master)
+  image: <image>
+  serve: mooncake_master --port={{storage_master_port}} --http_metadata_server_port={{storage_meta_port}}
+arms:                               # optional: engine variants in one run, e.g. base vs speculative (see ARCHITECTURE.md, Arms)
+  base: {}
+  mtp6: {append: "--speculative-config '...'"}
+scenario: agentx                    # agentx | tau2 | livekit | shared-prefix-e2 | hidden-prefix-e3 | synthetic | greenspec | speedbench
+overrides: {duration: 180}          # optional variant, see the table below
 conc: [4, 8]                        # one benchmark job per value
 ```
 
-Full working examples: `serving/qwen38-bf16-tp1.yaml` (engine only), `serving/glm53-w4afp8-dynamo.yaml` (Dynamo router + engine) and `serving/glm53-w4afp8-sglang-router.yaml` (sglang-router + SGLang engine). Format references only: never dispatch them or copy their values for a user's request.
+Working examples, one per pattern: `inferencex-e2e/configs/serving/*.yaml`. They are format references: never dispatch them or copy their values for a user's request.
 
-Translation rules:
+### Scenarios
+
+| `scenario:` | Workload | Default length |
+|---|---|---|
+| `agentx` | SemiAnalysis coding traces (weka 062126), needs 262144 context | 3600 s |
+| `tau2` | tau2 customer-service agent traces | 1200 s |
+| `livekit` | LiveKit voice-agent traces, V1.1 warm (dial warm-ups count in TTFT) | 1200 s |
+| `shared-prefix-e2` / `hidden-prefix-e3` | prefix-cache A/B traces (HiCache L2 vs Mooncake L3) | 1800 s |
+| `synthetic` | synthetic ISL/OSL with a shared-prefix cache hit, needs `workload:` | 300 s per point |
+| `greenspec` | speculative-decoding bench from production chat traffic (private; result has `spec_decode.acceptance_length`) | the whole selection, no duration |
+| `speedbench` | SPEED-Bench acceptance-length prompts (private copy of public data; result has `spec_decode.acceptance_length`) | the whole selection, no duration |
+
+Variants (`overrides:`, only these keys):
+
+| You want | Write |
+|---|---|
+| a smoke run | `overrides: {duration: 180}` |
+| the 256k AgentX corpus | `overrides: {dataset: semianalysis_cc_traces_weka_062126_256k}` |
+| AgentX without the 262144 cap | `overrides: {max_context_length: null}` |
+| sampling instead of greedy | `overrides: {generation: {top_p: 0.95, temperature: 1.0}}` |
+| LiveKit V1 / V2 trace | `overrides: {dataset: livekit-111868-v1}` (or `-v2`) |
+| a different trace idle-gap cap | `overrides: {trace_idle_gap_cap: 1}` |
+| GreenSpec subset, lite, bucket, cap | `scenario: greenspec` + `overrides: {subset: agentic_tools, lite: true, max_tokens: 4096, requests: 200}` (only these keys; no `duration`) |
+| SPEED-Bench config, category, cap | `scenario: speedbench` + `overrides: {config: qualitative, category: coding, requests: 40}` (config: `qualitative` or `throughput_{1k,2k,8k,16k,32k}`; no `duration`) |
+
+Synthetic grid, one job per point, all in one run:
+
+```yaml
+scenario: synthetic
+workload: {isl: [8k, 32k, 64k, 128k], osl: [512, 1k], cache: [0, 50, 90], search: true}
+slo: "time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"   # optional; this is the default
+conc: 1                             # search: true finds the concurrency itself
+```
+
+`search: false` runs each point at every `conc` value instead (then only one point, or one `conc`).
+
+Old scenario names (`agentx-cc-062126-smoke`, `custom-agentic-tau2`, `sweep-isl8k-osl1k-cache50`, …) map as in the table of `docs/serving/ARCHITECTURE.md` § Scenarios. Results keep the old names.
+
+### Remote endpoint (no engine)
+
+To benchmark an endpoint already running (GreenNode MaaS, a k8s service, OpenAI/Anthropic/Gemini
+via an OpenAI-compatible API), write `endpoint:` instead of `image`/`model`/`gpus`/`serve`
+(example: `inferencex-e2e/configs/serving/remote-openai-agentx-smoke.yaml`):
+
+- `url`: base URL; a trailing `/v1` is fine. `model`: the served name as the API expects it.
+- `api-key-secret`: the GitHub secret holding the key (`gh secret set <NAME> --repo vngcloud/InferenceX`).
+  Never put the key in the YAML. Omit for an open endpoint.
+- `tokenizer`: `builtin` (default; exact for OpenAI GPT-4o/GPT-5, approximate for other closed
+  models), `cl100k_base`/`o200k_harmony`, or the HF repo id of an open model.
+- `runner`: any VNG runner; the job takes 16 CPUs and 64 GB, no GPU.
+- No server metrics or GPU telemetry in the result. ISL/OSL come from the API's `usage`; if it
+  streams none, the job counts client-side and the aggregate says `token_count_source: client`.
+- A probe request runs first: 401/404/400 fail the job in seconds with the fix. A 400 naming
+  `ignore_eos` means the API rejects the field the AgentX scenario always sends; tell the user,
+  there is no workaround yet.
+
+### Translation rules
+
 - **Model path → HF id.** `--model-path /models/<org>/<model>` becomes `--model-path <org>/<model>` and `model: <org>/<model>`. If you cannot tell the HF id from the path, ask.
-- **Host/port:** leave them or drop them; they are replaced by the benchmark's own.
-- **Router:** a router part goes under `router:` with its own `image`; the engine stays in `serve`. Engine env → `env:`, router env → `router.env:`.
-  - **Replicas** (several copies of one engine, e.g. 2× TP1): set `replicas: N` and `gpus` = N × per-engine GPUs; the router command lists the engines as `{{engine_urls}}` (space-separated URLs). Not with the Dynamo frontend.
-  - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang`): as before. Leave out discovery settings (`DYN_*`, `ETCD_ENDPOINTS`, NATS) and `--http-host/--http-port`: the benchmark wires them.
-  - **Any other router** (sglang-router and others): keep the user's flags verbatim except the wiring. Listen host/port flags → `--host=0.0.0.0 --port={{router_port}}`. A worker/backend URL (k8s service, hostname) → `{{engine_url}}` (or `{{engine_port}}` where only a port fits). A literal metrics/prometheus port flag → also `router.metrics_port: <port>`. The engine's own `--host/--port` are dropped, as for any engine.
-  - **Router command missing** (only flags + image): infer it from the flag family and say so in the reply so the user can correct it. `--worker-urls`, `--policy=cache_aware`, `--dp-aware`, `--prometheus-port` → `python3 -m sglang_router.launch_router`. Unknown family → ask. The command must match the image: slim/compiled images (no python3) run a binary path (e.g. `/work/target/release/smg launch`), not `python3 -m …`.
-  - Placeholders exist only in `router.serve` / `router.env`. No `$VAR` there either.
-- **Env vars** (lines like `NCCL_P2P_LEVEL=NVL`, compose `environment:`, k8s `env:`) go under `env:`.
-- No secrets in `env:` (the YAML is shown in the run inputs and saved as an artifact). Dataset access uses the runner's own `GREENLAB_HF_TOKEN`; never set it in the YAML.
-- Images: public ones and `vcr.vngcloud.vn` ones the runner's VCR account can read need nothing extra (the runner holds the pull credentials). Another private registry fails at `enroot import`; tell the user it needs infra (credentials on the runner user or a pre-imported squash), see `docs/serving-yaml-procedures.md`. Never put credentials in the YAML.
-- **gpus:** the number of GPUs the command needs, e.g. tensor-parallel size × pipeline-parallel size. If the flags do not make it clear, ask.
-- **Runner:** `gpus: 1` → `h200-greennode-slurm-1x_*`; `gpus: 8` → `hardware-hcm-8x_01` or `_02` (the two 8×H200 boxes, same env convention). Run `ssh slurm-client squeue -p hardware-hcm`, pick the free box; if both are held, pick one and tell the user the run waits in the Slurm queue. Never cancel another user's job. A router (`router:`) needs a `hardware-hcm-*` runner.
-- **docker-compose / k8s:** `image` from `image:`; `serve` from `command:` + `args:` joined; `env` from `environment:` / `env:`.
-- No shell variables (`$X`) in `serve`: write literal values.
-- **Drop `--numa-node …`** (with all its values). Benchmark convention.
-- **DeepEP on `hardware-hcm-*`** (`--moe-a2a-backend deepep`): add `NVSHMEM_REMOTE_TRANSPORT: none` to `env:`. The container sees InfiniBand devices and single-node NVSHMEM would segfault on IBGDA/IBRC.
-- **JSON in a flag must be single-quoted:** `--kv-events-config='{"publisher":"zmq",…}'`. A pasted `--x={"a":"b"}` loses its quotes.
-- **Context length:** agentx scenarios need 262144 context (`maxContextLength: 262144`; `--max-model-len 262144` / `--context-length 262144`), ask if the config cannot; tau2 scenarios set none (turns p95 ~25k tokens), the model default is fine unless below 32k.
+- **Host/port:** leave them or drop them; the benchmark picks its own free ports.
+- **Router:** the router part goes under `router:` with its own `image`; the engine stays in `serve`. Engine env → `env:`, router env → `router.env:`.
+  - **Replicas** (e.g. 2× TP1): `replicas: N`, `gpus` = N × per-engine GPUs, the router lists `{{engine_urls}}`. Not with the Dynamo frontend.
+  - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang`): leave out `DYN_*`, `ETCD_ENDPOINTS`, NATS and `--http-host/--http-port`; the benchmark wires them.
+  - **Any other router:** keep the user's flags except the wiring. Listen flags → `--host=0.0.0.0 --port={{router_port}}`. A worker URL → `{{engine_url}}` (or `{{engine_port}}`). A metrics port flag (`--prometheus-port=18888`) → `--prometheus-port={{router_metrics_port}}`, picked free at run time like every other port. Never a literal port: two jobs on one node would collide. (`router.metrics_port: <port>` still exists for a port the user cannot change.)
+  - **Router command missing** (only flags + image): infer it from the flag family and say so. `--worker-urls`, `--policy=cache_aware`, `--prometheus-port` → `python3 -m sglang_router.launch_router`. Unknown family → ask. Slim images without python3 run a binary path.
+  - Placeholders exist only in `router.*`, `storage.*` and (storage ports only) `env:`. No `$VAR` anywhere.
+- **Env vars** (`NCCL_P2P_LEVEL=NVL`, compose `environment:`, k8s `env:`) go under `env:`. No secrets: the YAML is a run input and an artifact. Dataset access uses the runner's `GREENLAB_HF_TOKEN`.
+- **Images:** public ones and `vcr.vngcloud.vn` ones the runner can read need nothing. Another private registry fails at `enroot import`: tell the user it needs infra (credentials for `stackops` or a pre-imported squash).
+- **A `.sqsh` file** (an image built with enroot, e.g. `/data/<user>-enroot/images/x.sqsh`): use the absolute path as `image:`; it runs as is, never imported. It exists on one node only, so ask which node holds it and set `runner: cluster:<id>` of that node; a pool label fails validation. The file and its directories must be readable by `stackops`; the driver checks that and `unsquashfs -l` before submitting. An image several nodes need belongs in a registry instead.
+- **gpus:** tensor-parallel × pipeline-parallel (× replicas). If unclear, ask.
+- **Runner** (each VNG node is one cluster; the job takes only its GPUs, 16 CPUs and a memory share per GPU, the rest of the node stays usable by the team):
+
+  | Node | `runner:` | GPUs |
+  |---|---|---|
+  | hgx-h200-01 | `cluster:hcm-hgx01` | 4 (until infra declares all 8) |
+  | hgx-h200-02 | `cluster:hcm-hgx02` | 8 |
+  | either hgx | `h200-hcm` | up to 4 |
+  | RTX PRO 6000 node 1 / 2 | `cluster:hcm-rtx01` / `cluster:hcm-rtx02` | 2 |
+  | either RTX node | `rtx6000pro-hcm` | up to 2 |
+  | HAN H200 node 1 / 2 / 4 | `cluster:han-h200-01` / `-02` / `-04` | 1 (16 CPU, ~110 GB RAM) |
+  | either HAN node | `h200-han` | 1 |
+
+  Any value outside this table (e.g. the legacy `hardware-hcm-8x_01`-style labels) is out-of-scheme: dispatch rejects it, and it would pin the whole run to one runner slot.
+
+  Check load first: `ssh slurm-client squeue -p hardware-hcm` (or `-p rtx6000pro-hcm`, `-p test` for HAN). If the node is busy, tell the user the job waits in the Slurm queue. Never cancel another user's job.
+- **docker-compose / k8s:** `image` from `image:`; `serve` from `command:` + `args:`; `env` from `environment:` / `env:`.
+- **Drop `--numa-node …`.**
+- **DeepEP on hgx** (`--moe-a2a-backend deepep`): add `NVSHMEM_REMOTE_TRANSPORT: none` to `env:`.
+- **JSON in a flag must be single-quoted:** `--kv-events-config='{"publisher":"zmq"}'`.
+- **Context length:** `agentx` needs 262144 (`--max-model-len 262144` / `--context-length 262144`); ask if the config cannot. Trace scenarios are fine with the model default unless it is below 32k.
 
 ## 2. Ask the user (do not guess) when
 
-Asking means: stop, write nothing, dispatch nothing, and end your reply with the question. This holds even when you run non-interactively — then your reply is the question, and the user answers in the next turn. Never replace a missing answer with an assumption.
+Asking means: stop, write nothing, dispatch nothing, and end your reply with the question.
 
-- the image is not given and no version either → ask for the exact image tag. Only the user's message counts: never take the image from `serving/*.yaml`, the example above or past runs, and never reuse an existing `serving/` file for a new request — write a new one;
-- a **version** is given but no image (e.g. "SGLang 0.5.18") → resolve a public image yourself, do not ask: SGLang → `lmsysorg/sglang:v<ver>`, vLLM → `vllm/vllm-openai:v<ver>`. Verify the tag exists before writing the YAML: `curl -s "https://hub.docker.com/v2/repositories/<repo>/tags?name=<tag>&page_size=50"` and check the exact tag is in `results[].name`. Variants (`-cu129`, `-cu130`, `-runtime`) exist → take the bare tag and name it in the reply. Tag not found → stop and ask. A router image is never resolved this way (it is the user's own build): use it as given; a bare name with no registry prefix → ask for the full reference;
-- the scenario is not given → run `ls scenarios/*.yaml`, list the names, ask which: `agentx-cc-062126` (Weka coding traces, 3600 s), `agentx-cc-062126-smoke` (180 s), `custom-agentic-tau2` (tau2 customer-service agent traces, 1200 s), `custom-agentic-tau2-smoke` (180 s). `scenarios/datasets/` is not a scenario;
-- `gpus` is neither 1 nor 8 → ask which runner.
-- a Dynamo router paired with a non-Dynamo engine, or the reverse → the validator rejects it; tell the user the Dynamo frontend only works with `dynamo.sglang`, and ask.
+- No image and no version → ask for the exact tag. Never take it from `configs/serving/*.yaml` or past runs.
+- A **version** but no image → resolve it: SGLang → `lmsysorg/sglang:v<ver>`, vLLM → `vllm/vllm-openai:v<ver>`. Verify the tag exists: `curl -s "https://hub.docker.com/v2/repositories/<repo>/tags?name=<tag>&page_size=50"`. Not found → ask. Router images are never resolved this way.
+- No scenario → list the six with their lengths and ask.
+- `gpus` fits no node in the runner table → ask.
+- A Dynamo router with a non-Dynamo engine, or the reverse → the validator rejects it; explain and ask.
 
 ## 3. Dispatch
 
 ```bash
-utils/serving/dispatch.sh serving/<name>.yaml
+inferencex-e2e/utils/serving/dispatch.sh inferencex-e2e/configs/serving/<name>.yaml
 ```
 
-It validates first. On `ERROR <field>: <fix>` lines, fix the YAML and rerun; nothing was dispatched. On success it prints the run URL. The current git branch must be pushed (the script says so if not); do not push without the user's OK.
+It validates first. On `ERROR <field>: <fix>` lines, fix the YAML and rerun; nothing was dispatched. On success it prints the run URL. The branch must be pushed (the script says so); do not push without the user's OK.
 
 ## 4. Results
 
-- Status: `gh run view <run-id> --repo vngcloud/InferenceX`. One job per `conc`. Expect roughly 20 min of image pull, model load and warmup on top of the scenario duration (180 s smoke ≈ 25 min).
-- Artifacts (`gh run download <run-id> --repo vngcloud/InferenceX -n <artifact>`), names start with `<name>_c<conc>`:
-  - `agentic_<name>_c<conc>_…`: `results/` with `serving.yaml`, `router_command.txt`, `router.log`, `server_command.txt`, `server.log`, `benchmark_command.txt`, `benchmark.log`, `aiperf_artifacts/`
-  - `bmk_agentic_<name>_c<conc>_…`: aggregate result JSON
-  - `server_logs_<name>_c<conc>_…`: server logs
-- Dataset errors appear as `ERROR dataset <name>: …` lines in the job log (`gh run view <id> --repo vngcloud/InferenceX --log-failed`); the first tau2 run downloads ~1.1 GB.
-- A failed job: read `server.log` first (engine flags, OOM, parser errors), then `benchmark.log` (aiperf). Router path: read `router.log` first when the job fails before aiperf starts. `gh run view <run-id> --repo vngcloud/InferenceX --log-failed | tail -100` shows the launcher side (slurm, enroot).
-- If the engine crashes or the job fails, report the error and the config as given. Do not change flags or env, or redispatch a modified config, on your own: the config is the user's, a change is their decision.
-- Report to the user: run URL, per-conc success/failure, and where the artifacts are.
+- Status: `gh run view <run-id> --repo vngcloud/InferenceX`. One job per point (`conc` value or grid point). Expect about 20 min of image import, model load and warmup on top of the scenario length.
+- Artifacts: `agentic_<exp-name>_…` (`results/`: `serving.yaml`, `scenario.yaml`, `server_command.txt`, `server.log`, `router.log`, `storage.log`, `benchmark_command.txt`, `benchmark.log`, `aiperf_artifacts/`) and `bmk_agentic_<exp-name>_…` (the aggregate JSON). For a report, use the `result-report` skill.
+- A search point's aggregate carries `state` (`ok`, `cliff`, `no_pass_in_range`, `no_failure_in_range`, `max_iterations`, `no_data`), `max_conc` and the metrics at `max_conc`. Every state is a result, not a failure.
+- A failed job: `server.log` first, then `benchmark.log`; `router.log` / `storage.log` when it fails before aiperf starts. `gh run view <id> --repo vngcloud/InferenceX --log-failed | tail -100` shows the Slurm/enroot side.
+- If the engine crashes, report the error and the config as given. Do not change flags or redispatch a modified config on your own.
+- Report: run URL, per-point success/failure, where the artifacts are.

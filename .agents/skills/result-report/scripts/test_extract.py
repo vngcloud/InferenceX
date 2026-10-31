@@ -207,6 +207,16 @@ class ServingFallbackTest(unittest.TestCase):
         self.assertEqual(p["model"], _cfg("gh_fixed").agg["model"])
 
 
+class ScenarioOfTest(unittest.TestCase):
+    def test_new_style_run_takes_the_scenario_from_the_aggregate(self):
+        # serving-path runs (refactor/vng-benchmark) run aiperf with --config results/scenario.yaml
+        # and serving.yaml says only the family; the label lives in the aggregate.
+        agg = {"scenario": "agentx-cc-062126-smoke", "conc": 8}
+        config = {"serving.yaml": "name: x\nscenario: agentx\n",
+                  "benchmark_command.txt": "agentx profile --config /workspace/results/scenario.yaml"}
+        self.assertEqual(extract.scenario_of(agg, config), "agentx-cc-062126-smoke")
+
+
 if __name__ == "__main__":
     unittest.main()
 

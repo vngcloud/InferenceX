@@ -338,12 +338,18 @@ def search_summary(history: dict, files, notes: list[str] | None = None,
     return search, win_metrics, win_cache
 
 
+def scenario_of(agg: dict, config: dict) -> str | None:
+    """Scenario label: the aggregate's, else the scenario file in the aiperf command, else serving.yaml's."""
+    return (agg.get("scenario") or _match(SCENARIO_CMD_RE, config["benchmark_command.txt"])
+            or _match(SERVING_SCENARIO_RE, config["serving.yaml"]))
+
+
 def build_point(cfg, max_member_mb: float = MAX_MEMBER_MB) -> dict:
     agg, files = cfg.agg or {}, cfg.files
     config = {name: _read_text(files, name) for name in CONFIG_FILES}
     serving, bench_cmd = config["serving.yaml"], config["benchmark_command.txt"]
     history = _read_json(files, "aiperf_artifacts/search_history.json", "search_history.json")
-    scenario = agg.get("scenario") or _match(SCENARIO_CMD_RE, bench_cmd) or _match(SERVING_SCENARIO_RE, serving)
+    scenario = scenario_of(agg, config)
     notes: list[str] = []
     point = {"rf": cfg.rf, "source": cfg.source.link, "scenario": scenario, "grid": parse_grid(scenario),
              "identity": {k: agg.get(k) for k in IDENTITY_KEYS}, "config": config, "notes": notes,

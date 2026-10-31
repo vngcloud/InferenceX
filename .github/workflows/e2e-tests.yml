@@ -4,7 +4,6 @@ run-name: e2e Test - ${{ inputs.test-name || inputs.generate-cli-command || gith
 permissions:
     contents: read
 
-# Independent GPU dispatches queue through the priority scheduler; newer runs must not cancel them.
 on: # zizmor: ignore[concurrency-limits]
     workflow_dispatch:
         inputs:
@@ -13,11 +12,6 @@ on: # zizmor: ignore[concurrency-limits]
                 required: false
                 type: string
                 default: ""
-            serving:
-                description: "Serving YAML (serving-yaml path, see .agents/skills/serving-bench). When set, replaces generate-cli-command; duration comes from the scenario."
-                required: false
-                type: string
-                default: ""
             klaud-run:
                 description: "Run Klaud Cold benchmarks at background priority"
                 required: false
@@ -37,7 +31,7 @@ on: # zizmor: ignore[concurrency-limits]
                 type: string
                 default: ""
             require-power:
-                description: "Fail benchmark jobs when GPU power is invalid"
+                description: "Fail multi-node benchmark jobs when GPU power is invalid"
                 required: false
                 type: boolean
                 default: false
@@ -52,22 +46,17 @@ on: # zizmor: ignore[concurrency-limits]
                 type: boolean
                 default: false
             eval-limit:
-                description: "Eval instance count: empty/full = whole split (default); N = first-N smoke slice"
+                description: "Eval instance count: empty = whole split (default); N = first-N smoke slice"
                 required: false
                 type: string
                 default: ""
             eval-framework:
-                description: "Eval runner override (auto uses model-aware selection; lm-eval, swebench, kimi-vendor, minimax-vendor, or bfcl)"
+                description: "Eval runner override (auto uses model-aware selection; lm-eval, kimi-vendor, minimax-vendor, or bfcl)"
                 required: false
                 type: string
                 default: "auto"
             eval-suite:
-                description: "Eval suite (kimi_tool_call_schema, kimi_tool_call_schema_full, minimax_m3_smoke, minimax_m3_full, bfcl_smoke, bfcl_vllm_minimax_m3, or bfcl_vllm_kimi); empty for lm-eval and swebench"
-                required: false
-                type: string
-                default: ""
-            swebench-gen-mode:
-                description: "SWE-bench generation mode (single-shot | agentic). Empty = agentic (single-shot is an explicit debugging escape hatch)."
+                description: "Eval suite (kimi_tool_call_schema, kimi_tool_call_schema_full, minimax_m3_smoke, minimax_m3_full, bfcl_smoke, bfcl_vllm_minimax_m3, or bfcl_vllm_kimi); empty for lm-eval"
                 required: false
                 type: string
                 default: ""
@@ -87,7 +76,7 @@ on: # zizmor: ignore[concurrency-limits]
                 type: boolean
                 default: false
             all-evals:
-                description: "Expand evaluation selection to every fixed-sequence configuration"
+                description: "Expand eval selection to every eligible 8k1k fixed-sequence and agentic config; eval-only with generate-cli-command, changelog mode keeps throughput unless evals-only"
                 required: false
                 type: boolean
                 default: false
@@ -97,38 +86,20 @@ on: # zizmor: ignore[concurrency-limits]
                 type: boolean
                 default: false
             fail-fast:
-                description: "Cancel the rest of each matrix after its first failure"
+                description: "Cancel the rest of each matrix after its first failure (always on for klaud-run)"
                 required: false
                 type: boolean
                 default: false
-            pr-labels-json:
-                description: "Labels from the source PR for priority scoring"
-                required: false
-                type: string
-                default: "[]"
     workflow_call:
         secrets:
-          REPO_PAT:
-            required: true
           INFERENCEX_OFFICIAL_RO_HF_TOKEN:
             required: true
-          MODAL_TOKEN_ID:
-            required: false
-          MODAL_TOKEN_SECRET:
-            required: false
-          SPEEDBENCH_HF_TOKEN:
-            required: false
         inputs:
             generate-cli-command:
                 description: "Command passed to generate matrix script"
                 required: false
                 type: string
                 default: ""
-            serving:
-                description: "Serving YAML (serving-yaml path, see .agents/skills/serving-bench). When set, replaces generate-cli-command; duration comes from the scenario."
-                required: false
-                type: string
-                default: ""
             klaud-run:
                 description: "Run Klaud Cold benchmarks at background priority"
                 required: false
@@ -148,7 +119,7 @@ on: # zizmor: ignore[concurrency-limits]
                 type: string
                 default: ""
             require-power:
-                description: "Fail benchmark jobs when GPU power is invalid"
+                description: "Fail multi-node benchmark jobs when GPU power is invalid"
                 required: false
                 type: boolean
                 default: false
@@ -163,22 +134,17 @@ on: # zizmor: ignore[concurrency-limits]
                 type: boolean
                 default: false
             eval-limit:
-                description: "Eval instance count: empty/full = whole split (default); N = first-N smoke slice"
+                description: "Eval instance count: empty = whole split (default); N = first-N smoke slice"
                 required: false
                 type: string
                 default: ""
             eval-framework:
-                description: "Eval runner override (auto uses model-aware selection; lm-eval, swebench, kimi-vendor, minimax-vendor, or bfcl)"
+                description: "Eval runner override (auto uses model-aware selection; lm-eval, kimi-vendor, minimax-vendor, or bfcl)"
                 required: false
                 type: string
                 default: "auto"
             eval-suite:
-                description: "Eval suite (kimi_tool_call_schema, kimi_tool_call_schema_full, minimax_m3_smoke, minimax_m3_full, bfcl_smoke, bfcl_vllm_minimax_m3, or bfcl_vllm_kimi); empty for lm-eval and swebench"
-                required: false
-                type: string
-                default: ""
-            swebench-gen-mode:
-                description: "SWE-bench generation mode (single-shot | agentic). Empty = agentic (single-shot is an explicit debugging escape hatch)."
+                description: "Eval suite (kimi_tool_call_schema, kimi_tool_call_schema_full, minimax_m3_smoke, minimax_m3_full, bfcl_smoke, bfcl_vllm_minimax_m3, or bfcl_vllm_kimi); empty for lm-eval"
                 required: false
                 type: string
                 default: ""
@@ -198,7 +164,7 @@ on: # zizmor: ignore[concurrency-limits]
                 type: boolean
                 default: false
             all-evals:
-                description: "Expand evaluation selection to every fixed-sequence configuration"
+                description: "Expand eval selection to every eligible 8k1k fixed-sequence and agentic config; eval-only with generate-cli-command, changelog mode keeps throughput unless evals-only"
                 required: false
                 type: boolean
                 default: false
@@ -208,21 +174,21 @@ on: # zizmor: ignore[concurrency-limits]
                 type: boolean
                 default: false
             fail-fast:
-                description: "Cancel the rest of each matrix after its first failure"
+                description: "Cancel the rest of each matrix after its first failure (always on for klaud-run)"
                 required: false
                 type: boolean
                 default: false
-            pr-labels-json:
-                description: "Labels from the source PR for priority scoring"
-                required: false
-                type: string
-                default: "[]"
+
+env:
+  PYTHONPATH: ${{ github.workspace }}/inferencex-e2e
 
 jobs:
     get-jobs:
         name: get-jobs
         runs-on: ubuntu-latest
         outputs:
+            benchmark-ref: ${{ steps.checkout-ref.outputs.commit || steps.checkout-default.outputs.commit }}
+            tooling-ref: ${{ steps.tooling.outputs.result }}
             single-node-config: ${{ steps.get-jobs.outputs.single-node-config }}
             multi-node-config: ${{ steps.get-jobs.outputs.multi-node-config }}
             eval-config: ${{ steps.get-jobs.outputs.eval-config }}
@@ -231,9 +197,9 @@ jobs:
             agentic-eval-config: ${{ steps.get-jobs.outputs.agentic-eval-config }}
             multi-node-agentic-config: ${{ steps.get-jobs.outputs.multi-node-agentic-config }}
             multi-node-agentic-eval-config: ${{ steps.get-jobs.outputs.multi-node-agentic-eval-config }}
-            serving: ${{ steps.get-jobs.outputs.serving }}
         steps:
             - name: Checkout code (ref)
+              id: checkout-ref
               if: ${{ inputs.ref && inputs.ref != '' }}
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -242,11 +208,28 @@ jobs:
                 persist-credentials: false
 
             - name: Checkout code (default)
+              id: checkout-default
               if: ${{ !inputs.ref || inputs.ref == '' }}
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                 ref: ${{ github.sha }}
                 persist-credentials: false
+            - name: Resolve workflow tooling
+              id: tooling
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+              env:
+                CHECKOUT_SHA: ${{ steps.checkout-ref.outputs.commit || steps.checkout-default.outputs.commit }}
+              with:
+                result-encoding: string
+                script: |
+                  const { data } = await github.rest.repos.getCommit({
+                    ...context.repo, ref: context.payload.repository.default_branch,
+                  });
+                  await core.summary.addHeading('Revisions', 2).addTable([
+                    ['Setup checkout', process.env.CHECKOUT_SHA],
+                    ['infx tooling', data.sha],
+                  ]).write();
+                  return data.sha;
             - name: Checkout workflow tooling
               if: ${{ inputs.ref && inputs.ref != '' }}
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -259,38 +242,23 @@ jobs:
             - id: get-jobs
               env:
                   GENERATE_COMMAND: ${{ inputs.generate-cli-command || github.event.inputs.generate-cli-command }}
-                  PR_LABELS: ${{ inputs.pr-labels-json || toJson(github.event.pull_request.labels.*.name) }}
                   CHANGELOG_BASE_REF: ${{ inputs.changelog-base-ref }}
                   CHANGELOG_HEAD_REF: ${{ inputs.changelog-head-ref }}
                   TRIM_CONC: ${{ inputs.trim-conc }}
                   ALL_EVALS: ${{ inputs.all-evals }}
                   EVALS_ONLY: ${{ inputs.evals-only }}
-                  SERVING_YAML: ${{ inputs.serving }}
-                  DURATION_OVERRIDE: ${{ inputs.duration-override }}
-                  AGENTX_FAST: ${{ inputs.agentx-fast }}
               run: |
+                  if [[ -f inferencex-e2e/configs/runners.yaml ]]; then cd inferencex-e2e; fi
+                  MEASURED_ROOT="$PWD"
                   PRIORITY_ROOT="${GITHUB_WORKSPACE}"
                   if [ -d "${GITHUB_WORKSPACE}/.ci-priority" ]; then
                     PRIORITY_ROOT="${GITHUB_WORKSPACE}/.ci-priority"
                   fi
-                  SERVING_JSON=""
-                  if [ -n "$SERVING_YAML" ]; then
-                    if [ -n "$DURATION_OVERRIDE" ]; then
-                      echo "duration-override cannot be combined with serving: the scenario fixes the duration" >&2
-                      exit 1
-                    fi
-                    if [ "$AGENTX_FAST" = "true" ]; then
-                      echo "agentx-fast cannot be combined with serving: the scenario fixes the duration" >&2
-                      exit 1
-                    fi
-                    SERVING_FILE="${RUNNER_TEMP}/serving.yaml"
-                    printf '%s\n' "$SERVING_YAML" > "$SERVING_FILE"
-                    SERVING_OUT=$(env PYTHONPATH="$GITHUB_WORKSPACE" \
-                      uv run --no-project --exclude-newer PT12H --python 3.12 --with pydantic --with pyyaml \
-                      python -P -m infx.serving.to_matrix "$SERVING_FILE")
-                    CONFIG_JSON=$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["matrix"]))' <<<"$SERVING_OUT")
-                    SERVING_JSON=$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["serving"]))' <<<"$SERVING_OUT")
-                  elif [ -n "$CHANGELOG_BASE_REF" ] || [ -n "$CHANGELOG_HEAD_REF" ]; then
+                  if [[ -f "$PRIORITY_ROOT/inferencex-e2e/configs/runners.yaml" ]]; then
+                    PRIORITY_ROOT="$PRIORITY_ROOT/inferencex-e2e"
+                  fi
+                  env PYTHONPATH="$PRIORITY_ROOT" python3 -P -m infx.workflows.require_launcher "$GITHUB_WORKSPACE"
+                  if [ -n "$CHANGELOG_BASE_REF" ] || [ -n "$CHANGELOG_HEAD_REF" ]; then
                     if [ -z "$CHANGELOG_BASE_REF" ] || [ -z "$CHANGELOG_HEAD_REF" ]; then
                       echo "Both changelog-base-ref and changelog-head-ref are required" >&2
                       exit 1
@@ -298,8 +266,8 @@ jobs:
                     CMD=(
                       env PYTHONPATH="$PRIORITY_ROOT"
                       uv run --no-project --exclude-newer PT12H --python 3.12 --with pydantic --with pyyaml
-                      python -P -m infx.matrix.plan
-                      --changelog-file "${GITHUB_WORKSPACE}/perf-changelog.yaml"
+                      python -P -m infx.matrix.revision plan "$MEASURED_ROOT"
+                      --changelog-file "${MEASURED_ROOT}/perf-changelog.yaml"
                       --base-ref "$CHANGELOG_BASE_REF"
                       --head-ref "$CHANGELOG_HEAD_REF"
                     )
@@ -329,9 +297,9 @@ jobs:
                     if [ "$EVALS_ONLY" = "true" ]; then
                       GENERATE_ARGS+=(--evals-only)
                     fi
-                    CONFIG_JSON=$(uv run --no-project --exclude-newer PT12H --python 3.12 --with pydantic --with pyyaml \
-                      python "${GITHUB_WORKSPACE}/utils/matrix_logic/generate_sweep_configs.py" \
-                      "${GENERATE_ARGS[@]}")
+                    CONFIG_JSON=$(env PYTHONPATH="$PRIORITY_ROOT" \
+                      uv run --no-project --exclude-newer PT12H --python 3.12 --with pydantic --with pyyaml \
+                      python -P -m infx.matrix.revision generate "$MEASURED_ROOT" "${GENERATE_ARGS[@]}")
                   fi
                   CONFIG_JSON=$(printf '%s' "$CONFIG_JSON" | env PYTHONPATH="$PRIORITY_ROOT" \
                     uv run --no-project --exclude-newer PT12H --python 3.12 --with pydantic --with pyyaml \
@@ -339,11 +307,10 @@ jobs:
                   score_matrix() {
                     local family="$1"
                     env PYTHONPATH="$PRIORITY_ROOT" uv run --no-project --exclude-newer PT12H --python 3.12 --with pyyaml \
-                      python -P "${PRIORITY_ROOT}/utils/ci_priority.py" \
+                      python -P -m infx.workflows.ci_priority \
                       --policy "${PRIORITY_ROOT}/configs/ci-priority.yaml" \
                       --event-name "${GITHUB_EVENT_NAME}" \
-                      --queue-namespace "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${family}" \
-                      --labels-json "$PR_LABELS"
+                      --queue-namespace "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${family}"
                   }
                   AGENTIC=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' not in x and not x.get('eval-only', False)]))" | score_matrix agentic)
                   AGENTIC_EVAL=$(echo "$CONFIG_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps([x for x in d if x.get('scenario-type') == 'agentic-coding' and 'prefill' not in x and x.get('run-eval', False)]))" | score_matrix agentic-eval)
@@ -362,7 +329,6 @@ jobs:
                     echo "multi-node-config=$MULTI"
                     echo "eval-config=$EVALS"
                     echo "multi-node-eval-config=$MULTI_EVAL"
-                    echo "serving=${SERVING_JSON:-}"
                   } >> "$GITHUB_OUTPUT"
 
     test-sweep-multi-node:
@@ -371,14 +337,11 @@ jobs:
         uses: $/.github/workflows/benchmark-multinode-tmpl.yml
         name: multi-node /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.multi-node-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -390,7 +353,8 @@ jobs:
             run-eval: false
             require-power: ${{ inputs.require-power || (matrix.config['require-power'] == true && matrix.config['eval-only'] != true) }}
             power-producer-sha: ${{ inputs.power-producer-sha }}
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-multi-node-evals:
         needs: get-jobs
@@ -398,14 +362,11 @@ jobs:
         uses: $/.github/workflows/benchmark-multinode-tmpl.yml
         name: multi-node eval /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.multi-node-eval-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -420,8 +381,8 @@ jobs:
             eval-limit: ${{ inputs.eval-limit }}
             eval-framework: ${{ inputs.eval-framework == 'auto' && (matrix.config['eval-framework'] || 'lm-eval') || inputs.eval-framework }}
             eval-suite: ${{ inputs.eval-suite != '' && inputs.eval-suite || (inputs.eval-framework == 'auto' && matrix.config['eval-suite'] || '') }}
-            swebench-gen-mode: ${{ inputs.swebench-gen-mode }}
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-agentic:
         needs: get-jobs
@@ -429,18 +390,14 @@ jobs:
         uses: $/.github/workflows/benchmark-tmpl.yml
         name: agentic /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.agentic-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
+            require-power: ${{ inputs.require-power }}
             config: ${{ toJSON(matrix.config) }}
-            serving: ${{ needs.get-jobs.outputs.serving }}
             klaud-run: ${{ inputs.klaud-run }}
             runner: ${{ matrix.config.runner }}
             priority: ${{ matrix.config.priority }}
@@ -449,9 +406,9 @@ jobs:
             duration: ${{ inputs.agentx-fast && '1200' || (inputs.duration-override != '' && inputs.duration-override || matrix.config.duration) }}
             agentx-fast: ${{ inputs.agentx-fast }}
             run-eval: false
-            require-power: ${{ inputs.require-power }}
             scenario-type: agentic-coding
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-agentic-evals:
         needs: get-jobs
@@ -459,15 +416,11 @@ jobs:
         uses: $/.github/workflows/benchmark-tmpl.yml
         name: agentic eval /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.agentic-eval-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -480,11 +433,11 @@ jobs:
             run-eval: true
             eval-only: true
             eval-limit: ${{ inputs.eval-limit }}
-            swebench-gen-mode: ${{ inputs.swebench-gen-mode }}
             eval-framework: ${{ inputs.eval-framework == 'auto' && (matrix.config['eval-framework'] || 'lm-eval') || inputs.eval-framework }}
             eval-suite: ${{ inputs.eval-suite != '' && inputs.eval-suite || (inputs.eval-framework == 'auto' && matrix.config['eval-suite'] || '') }}
             scenario-type: agentic-coding
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-multi-node-agentic:
         needs: get-jobs
@@ -492,14 +445,11 @@ jobs:
         uses: $/.github/workflows/benchmark-multinode-tmpl.yml
         name: multi-node agentic /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.multi-node-agentic-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -515,7 +465,8 @@ jobs:
             require-power: ${{ inputs.require-power }}
             power-producer-sha: ${{ inputs.power-producer-sha }}
             scenario-type: agentic-coding
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-multi-node-agentic-evals:
         needs: get-jobs
@@ -523,14 +474,11 @@ jobs:
         uses: $/.github/workflows/benchmark-multinode-tmpl.yml
         name: multi-node agentic eval /
         strategy:
-            fail-fast: false
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.multi-node-agentic-eval-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -545,11 +493,11 @@ jobs:
             eval-only: true
             eval-conc: ${{ matrix.config['eval-conc'] }}
             eval-limit: ${{ inputs.eval-limit }}
-            swebench-gen-mode: ${{ inputs.swebench-gen-mode }}
             eval-framework: ${{ inputs.eval-framework == 'auto' && (matrix.config['eval-framework'] || 'lm-eval') || inputs.eval-framework }}
             eval-suite: ${{ inputs.eval-suite != '' && inputs.eval-suite || (inputs.eval-framework == 'auto' && matrix.config['eval-suite'] || '') }}
             scenario-type: agentic-coding
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-single-node:
         needs: get-jobs
@@ -557,16 +505,13 @@ jobs:
         uses: $/.github/workflows/benchmark-tmpl.yml
         name: single-node /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.single-node-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
+            require-power: ${{ inputs.require-power }}
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
             runner: ${{ matrix.config.runner }}
@@ -574,8 +519,8 @@ jobs:
             queue-token: ${{ matrix.config['queue-token'] }}
             dp-attn: ${{ matrix.config.dp-attn }}
             run-eval: false
-            require-power: ${{ inputs.require-power || (matrix.config['require-power'] == true && matrix.config['eval-only'] != true) }}
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     test-sweep-evals:
         needs: get-jobs
@@ -583,15 +528,11 @@ jobs:
         uses: $/.github/workflows/benchmark-tmpl.yml
         name: eval /
         strategy:
-            fail-fast: ${{ inputs.fail-fast }}
+            fail-fast: ${{ inputs.fail-fast || inputs.klaud-run }}
             matrix:
                 config: ${{ fromJson(needs.get-jobs.outputs.eval-config) }}
         secrets:
-            REPO_PAT: ${{ secrets.REPO_PAT }}
             INFERENCEX_OFFICIAL_RO_HF_TOKEN: ${{ secrets.INFERENCEX_OFFICIAL_RO_HF_TOKEN }}
-            MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-            MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-            SPEEDBENCH_HF_TOKEN: ${{ secrets.SPEEDBENCH_HF_TOKEN }}
         with:
             config: ${{ toJSON(matrix.config) }}
             klaud-run: ${{ inputs.klaud-run }}
@@ -604,39 +545,56 @@ jobs:
             eval-limit: ${{ inputs.eval-limit }}
             eval-framework: ${{ inputs.eval-framework == 'auto' && (matrix.config['eval-framework'] || 'lm-eval') || inputs.eval-framework }}
             eval-suite: ${{ inputs.eval-suite != '' && inputs.eval-suite || (inputs.eval-framework == 'auto' && matrix.config['eval-suite'] || '') }}
-            swebench-gen-mode: ${{ inputs.swebench-gen-mode }}
-            ref: ${{ inputs.ref }}
+            ref: ${{ needs.get-jobs.outputs.benchmark-ref }}
+            test-name: ${{ inputs.test-name }}
 
     collect-results:
         name: collect-results
-        needs: [test-sweep-multi-node, test-sweep-single-node, test-sweep-agentic, test-sweep-multi-node-agentic]
+        needs: [get-jobs, test-sweep-multi-node, test-sweep-single-node, test-sweep-agentic, test-sweep-multi-node-agentic]
         if: ${{ always() && (needs.test-sweep-multi-node.result != 'skipped' || needs.test-sweep-single-node.result != 'skipped' || needs.test-sweep-agentic.result != 'skipped' || needs.test-sweep-multi-node-agentic.result != 'skipped') }}
         uses: $/.github/workflows/collect-results.yml
         with:
             result-prefix: "bmk"
+            tooling-ref: ${{ needs.get-jobs.outputs.tooling-ref }}
 
     collect-evals:
         name: collect-evals
-        needs: [test-sweep-evals, test-sweep-multi-node-evals, test-sweep-agentic-evals, test-sweep-multi-node-agentic-evals]
+        needs: [get-jobs, test-sweep-evals, test-sweep-multi-node-evals, test-sweep-agentic-evals, test-sweep-multi-node-agentic-evals]
         if: ${{ always() && (needs.test-sweep-evals.result != 'skipped' || needs.test-sweep-multi-node-evals.result != 'skipped' || needs.test-sweep-agentic-evals.result != 'skipped' || needs.test-sweep-multi-node-agentic-evals.result != 'skipped') }}
         uses: $/.github/workflows/collect-evals.yml
+        with:
+            tooling-ref: ${{ needs.get-jobs.outputs.tooling-ref }}
+
+    collect-job-events:
+        name: collect-job-events
+        needs: [get-jobs, test-sweep-multi-node, test-sweep-multi-node-evals, test-sweep-agentic, test-sweep-agentic-evals, test-sweep-multi-node-agentic, test-sweep-multi-node-agentic-evals, test-sweep-single-node, test-sweep-evals]
+        if: ${{ !cancelled() && needs.get-jobs.result == 'success' }}
+        permissions:
+            actions: read # List the run's jobs to record the jobs that wrote no event.
+            contents: read
+        uses: $/.github/workflows/collect-job-events.yml
+        with:
+            tooling-ref: ${{ needs.get-jobs.outputs.tooling-ref }}
 
     calc-success-rate:
         name: calc-success-rate
-        needs: [collect-results, collect-evals]
-        if: ${{ always() }}
+        needs: [get-jobs, collect-results, collect-evals]
+        if: ${{ always() && needs.get-jobs.outputs.tooling-ref != '' }}
         runs-on: ubuntu-latest
+        permissions:
+            actions: read # Read job timings for run statistics.
+            contents: read
 
         env:
             RESULTS_DIR: "results/"
             STATS_FILENAME: "run_stats"
-            GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+            GITHUB_TOKEN: ${{ github.token }}
 
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  token: ${{ secrets.REPO_PAT }}
-                  fetch-depth: 0
+                  ref: ${{ needs.get-jobs.outputs.tooling-ref }}
+                  fetch-depth: 1
                   persist-credentials: false
 
             - name: Download results artifacts
@@ -645,12 +603,27 @@ jobs:
                   path: ${{ env.RESULTS_DIR }}
                   pattern: results_*
 
+            - name: Select Python project
+              run: |
+                python_project="$GITHUB_WORKSPACE"
+                if [[ -f "$python_project/inferencex-e2e/pyproject.toml" ]]; then
+                  python_project="$python_project/inferencex-e2e"
+                fi
+                test -f "$python_project/pyproject.toml"
+                echo "INFERENCEX_PYTHON_PROJECT=$python_project" >> "$GITHUB_ENV"
+
             - name: Set up uv
               uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+              with:
+                  cache-dependency-glob: |
+                      pyproject.toml
+                      uv.lock
+                      inferencex-e2e/pyproject.toml
+                      inferencex-e2e/uv.lock
 
             - name: Calculate success rate
               run: >-
-                  uv run --no-project --exclude-newer PT12H --python 3.12 --with PyGithub --with pyyaml
+                  uv run --project "$INFERENCEX_PYTHON_PROJECT" --locked --extra workflows
                   python -m infx.workflows.calc_success_rate "$STATS_FILENAME"
 
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
