@@ -65,7 +65,7 @@ As `stackops` on the node, with a registration token from https://github.com/vng
 ```bash
 ID=hcm-hgx02; BASE=/mnt/gharunners/$ID          # rtx: ID=hcm-rtx01; BASE=/data/gharunners/$ID   HAN: ID=han-h200-01
 mkdir -p $BASE && cd $BASE
-curl -fsSLO https://raw.githubusercontent.com/vngcloud/InferenceX/refactor/vng-benchmark/inferencex-e2e/utils/runner_setup/setup.sh
+curl -fsSLO https://raw.githubusercontent.com/vngcloud/InferenceX/vng-benchmark/inferencex-e2e/utils/runner_setup/setup.sh
 bash setup.sh <TOKEN> https://github.com/actions/runner/releases/download/v2.338.1/actions-runner-linux-x64-2.338.1.tar.gz \
   0 3 $BASE $ID slurm,h200,h200-hcm,cluster:$ID https://github.com/vngcloud/InferenceX   # rtx: 0 1 ... slurm,rtx6000pro,rtx6000pro-hcm,cluster:$ID   HAN: 0 0 ... slurm,h200,h200-han,cluster:$ID
 for d in $BASE/gharunner0*/actions-runner; do (cd "$d" && sudo ./svc.sh install stackops && sudo ./svc.sh start); done
