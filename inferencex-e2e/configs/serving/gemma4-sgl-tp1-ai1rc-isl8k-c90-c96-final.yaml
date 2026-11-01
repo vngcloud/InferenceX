@@ -1,0 +1,40 @@
+# Final max-throughput TP1 config from the 2026-11-02 tuning pass on the ai1rc engine image
+# (sglang v0.5.22 baa9befa + Gemma-4 patch stack cdce95199f), synthetic ISL 8k / OSL 1k / 90%
+# prefix-cache workload. The tuning grid (chunked-prefill 8k/16k, swa ratio 0.15, hicache recipe)
+# found no flag above the base at the throughput peak; concurrency is the only lever. Search
+# curve (run 41332987213): c64 2,069 -> c80 2,116 -> c96 2,134 (peak, ITL p90 42.5 ms) ->
+# c103 1,887 (SLO boundary, throughput collapses) -> c105+ infeasible. So max-running-requests
+# pins 96. The bmk aggregate reports the max-SLO-feasible conc, not the throughput argmax; read
+# search_history.json per-iteration for the real peak.
+name: gemma4-sgl-tp1-ai1rc-isl8k-c90-c96-final
+runner: cluster:hcm-hgx01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 96
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [96]
