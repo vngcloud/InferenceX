@@ -1,0 +1,58 @@
+# Pattern: Dynamo frontend (KV router) + dynamo.sglang engine. GLM-5.3 W4AFP8 on 8xH200, AgentX (full duration).
+# Best Dynamo router arm of the DP4 study (ATRA P01 routing, #33510): dynamo-two-tier-cost-fn with the prod smg
+# thresholds (cache 0.3, balance 100000/2.0) plus host_cache_weight 1.0, so the router counts HiCache
+# host-pinned blocks as hits. Stock Dynamo only sees the device tier and sends follow-ups whose prefix was
+# offloaded to host to cold ranks.
+# Engine is DP4 (--tp=8 --dp=4 --ep=8) like prod GLM-5.3, not DP8 like glm53-w4afp8-dynamo.yaml.
+# Image: vcr .../sglang-runtime:1.5.0-2tier-lockstep = sglang-runtime:1.5.0 + patched ai-dynamo-runtime
+# (https://github.com/DinhKhangHoang/dynamo/tree/vng/two-tier-host-tier, v1.5.0 + e47ede0cfc) + the policy
+# files in /opt/rbench/router-policies/ + the frontend sampling fix (unset fields from generation_config:
+# top_p 0.95; stock 1.5.0 sends top_p 1.0 and EAGLE accept length falls ~2.5 -> ~2.1). The stock
+# 1.5.0 runtime rejects host_cache_weight at startup.
+# Results (Slurm 8xH200, same engine flags, AgentX full, input tok/s/GPU):
+#   c48: 9310 (job 6710), 9218 (job 7723, rerun); smg cache_aware --dp-aware 9391; Dynamo kv ps16 (prod) ~7100
+#   c64: 10173 (job 7844), hit 0.952, TTFT p50 9.8 s, ITL p50 34.4 ms
+name: glm53-w4afp8-dynamo-2tier-prod-host
+runner: cluster:hcm-hgx02
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:1.5.0-2tier-lockstep  # engine image
+model: PhalaCloud/GLM-5.3-W4AFP8
+gpus: 8
+precision: w4afp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  SGLANG_DP_USE_GATHERV: "1"
+  NCCL_P2P_LEVEL: NVL
+  HF_HUB_OFFLINE: "1"
+  NVSHMEM_REMOTE_TRANSPORT: none
+  SGLANG_ENABLE_METRICS_DP_ATTENTION: "1"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path=PhalaCloud/GLM-5.3-W4AFP8
+  --served-model-name=zai-org/GLM-5.3
+  --quantization=w4afp8 --tp=8 --dp=4 --ep=8
+  --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+  --dist-init-addr=127.0.0.1:10888
+  --moe-a2a-backend=deepep --chunked-prefill-size=32768
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --mem-fraction-static=0.75 --max-running-requests=256 --context-length=300000
+  --kv-cache-dtype=fp8_e4m3 --dsa-prefill-backend=flashmla_sparse_q8 --allow-auto-truncate
+  --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
+  --enable-hierarchical-cache --hicache-size=128 --hicache-io-backend=direct --hicache-write-policy=write_back
+  --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
+  --schedule-policy=dfs-weight --enable-prefill-delayer
+  --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
+router:
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:1.5.0-2tier-lockstep
+  env:
+    # one debug row per rank per routing decision (every cost term) in router.log
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --http-host=0.0.0.0 --http-port=8888
+    --router-mode=kv --router-min-initial-workers=1
+    --dyn-chat-processor=sglang --dyn-preprocess-workers=8
+    --tool-call-parser=glm47 --reasoning-parser=glm45
+    --router-policy-config=/opt/rbench/router-policies/two-tier-prod-host.yaml
+scenario: agentx
+conc: [48, 64]
