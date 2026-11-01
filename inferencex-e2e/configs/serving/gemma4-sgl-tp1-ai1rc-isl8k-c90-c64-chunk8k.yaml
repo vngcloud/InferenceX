@@ -1,0 +1,34 @@
+# Tuning arm: base (gemma4-sgl-tp1-ai1rc-isl8k-c90-c64) with chunked-prefill-size 4096 -> 8192.
+# Isolates bigger prefill chunks: fewer prefill/decode interleaves at the same fixed conc 64.
+name: gemma4-sgl-tp1-ai1rc-isl8k-c90-c64-chunk8k
+runner: cluster:hcm-hgx01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 64
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 8192
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [64]

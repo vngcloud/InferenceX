@@ -1,0 +1,31 @@
+# Tuning arm: the repo's hicache recipe (gemma4-hicache-fixed-isl8k) on the ai1rc engine image at
+# fixed conc 64. HiCache needs page-size 1, so the FA4 SM90 hd512 fp8-e4m3-KV fast path (page 64)
+# does not apply here; this arm tests the hierarchical-cache recipe as a whole against the base.
+name: gemma4-sgl-tp1-ai1rc-isl8k-c90-c64-hicache
+runner: cluster:hcm-hgx01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 64
+  --attention-backend fa4
+  --page-size 1
+  --chunked-prefill-size 16384
+  --max-prefill-tokens 32768
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.15
+  --mem-fraction-static 0.90
+  --enable-hierarchical-cache --hicache-size 40
+  --enable-metrics --enable-cache-report
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [64]
