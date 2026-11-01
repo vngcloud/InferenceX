@@ -32,4 +32,4 @@ serve: |
   --tokenizer-backend fastokens
 scenario: synthetic
 workload: {isl: [8k], osl: [1k], cache: [90], search: true}
-conc: [64]
+conc: 1
