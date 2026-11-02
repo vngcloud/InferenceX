@@ -36,6 +36,7 @@ RESERVED_ENV = (
     "SERVING_ENGINE_IMAGE", "SERVING_DCGM_IMAGE", "SERVING_HF_CACHE_HOST", "IX_CUSTOM_DATASET_FILE",
     "AIPERF_SERVER_METRICS_URLS", "AIPERF_GPU_TELEMETRY_URL",
     "DYN_DISCOVERY_BACKEND", "DYN_FILE_KV", "DYN_SYSTEM_ENABLED", "DYN_SYSTEM_PORT",
+    "DYN_SYSTEM_PORTS", "DYN_KV_EVENT_PORTS",
     "ROUTER_IMAGE", "ROUTER_CMD", "ROUTER_ENV", "ROUTER_PROFILE", "ROUTER_METRICS_PORT",
     "ENGINE_PORT", "ENGINE_PORTS", "REPLICAS",
     "STORAGE_IMAGE", "STORAGE_CMD", "STORAGE_ENV", "STORAGE_MASTER_PORT", "STORAGE_META_PORT",
@@ -452,9 +453,16 @@ def _engine_problems(spec: ServingSpec) -> list[str]:
                 "replicas: more than 1 replica needs a router: block whose serve lists {{engine_urls}}"
             )
         elif "dynamo.frontend" in spec.router.serve:
-            problems.append(
-                "replicas: the Dynamo frontend discovers its engines itself; use replicas: 1"
-            )
+            if "dynamo.vllm" not in spec.serve:
+                problems.append(
+                    "replicas: more than 1 replica behind the Dynamo frontend needs "
+                    "python3 -m dynamo.vllm engines; use replicas: 1 for dynamo.sglang"
+                )
+            elif "--kv-events-config" in spec.serve:
+                problems.append(
+                    "replicas: drop --kv-events-config from serve; "
+                    "each dynamo.vllm replica gets its own KV event port"
+                )
     return problems
 
 

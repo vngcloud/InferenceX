@@ -27,8 +27,13 @@ python3 -m infx.serving.client prepare
 dynamo=""
 [[ -n "${ROUTER_CMD:-}" && "${ROUTER_PROFILE:-}" == dynamo ]] && dynamo=1
 if [[ -n "$dynamo" ]]; then
-    ports=("$PORT")  # one engine without an HTTP port; the frontend serves $PORT
-    export AIPERF_SERVER_METRICS_URLS="http://localhost:$PORT/metrics,http://localhost:$DYN_SYSTEM_PORT/metrics"
+    # Dynamo engines have no HTTP port: each replica serves /health and /metrics on its system
+    # port, and the frontend serves $PORT.
+    read -r -a ports <<< "$DYN_SYSTEM_PORTS"
+    read -r -a kv_ports <<< "$DYN_KV_EVENT_PORTS"
+    urls="http://localhost:$PORT/metrics"
+    for port in "${ports[@]}"; do urls+=",http://localhost:$port/metrics"; done
+    export AIPERF_SERVER_METRICS_URLS="$urls"
 elif [[ -n "${ROUTER_CMD:-}" ]]; then
     read -r -a ports <<< "$ENGINE_PORTS"
     urls="http://localhost:${ROUTER_METRICS_PORT:-$PORT}/metrics"
@@ -59,17 +64,23 @@ for ((replica = 0; replica < replicas; replica++)); do
     (( replica == 0 )) || suffix=".$replica"
     if [[ -n "$dynamo" ]]; then
         command=("$@")
+        # vLLM's KV event publisher binds a fixed port unless told otherwise: one per replica.
+        if [[ "$3" == dynamo.vllm && " $* " != *" --kv-events-config"[\ =]* ]]; then
+            command+=(--kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+        fi
     else
         command=("$@" --host 0.0.0.0 --port "${ports[replica]}")
     fi
     printf '%q ' "${command[@]}" > "$RESULT_DIR/server_command$suffix.txt"
     printf '\n' >> "$RESULT_DIR/server_command$suffix.txt"
-    CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${gpus[*]:replica*per:per}")" \
+    DYN_SYSTEM_PORT="${ports[replica]}" CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${gpus[*]:replica*per:per}")" \
         "${command[@]}" > "$RESULT_DIR/server$suffix.log" 2>&1 &
     pids+=("$!")
 done
 
-if [[ -z "$dynamo" ]]; then
+# A Dynamo frontend lists the model once the first engine registered: with several Dynamo
+# replicas, wait for each one's system port /health too.
+if [[ -z "$dynamo" ]] || (( replicas > 1 )); then
     for ((replica = 0; replica < replicas; replica++)); do
         suffix=""
         (( replica == 0 )) || suffix=".$replica"

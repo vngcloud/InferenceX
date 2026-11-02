@@ -104,13 +104,22 @@ def test_dynamo_engine_without_router_rejected():
 
 
 def test_dynamo_router_with_plain_engine_rejected():
-    with pytest.raises(ServingError, match=r"^serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang engine"):
+    with pytest.raises(ServingError, match=r"^serve: python3 -m dynamo.frontend needs a python3 -m dynamo.sglang or python3 -m dynamo.vllm engine"):
         render(dyn(engine="python3 -m sglang.launch_server --model-path Qwen/Qwen3.8-27B"))
 
 
 def test_dynamo_engine_with_other_router_rejected():
-    with pytest.raises(ServingError, match=r"^router.serve: a python3 -m dynamo.sglang engine needs python3 -m dynamo.frontend as its router"):
-        render(dyn(router="python3 -m sglang_router.launch_router --port={{router_port}}"))
+    with pytest.raises(ServingError, match=r"^router.serve: a python3 -m dynamo.vllm engine needs python3 -m dynamo.frontend as its router"):
+        render(dyn(engine="python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B",
+                   router="python3 -m sglang_router.launch_router --port={{router_port}}"))
+
+
+def test_dynamo_vllm_engine_renders_as_vllm_behind_the_frontend():
+    out = render(dyn(engine="python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --served-model-name q38"))
+    assert out["framework"] == "vllm"
+    assert out["router-profile"] == "dynamo"
+    assert out["served-model-name"] == "q38"
+    assert "--enable-metrics" not in shlex.split(out["serve-cmd"])
 
 
 def test_dynamo_router_rejects_metrics_port():
@@ -181,6 +190,7 @@ def test_single_quoted_json_flag_kept_verbatim():
     (["python", "-m", "sglang.launch_server"], "sglang"),
     (["sglang", "serve", "--model-path", "m"], "sglang"),
     (["python3", "-m", "dynamo.sglang", "--model-path=m"], "sglang"),
+    (["python3", "-m", "dynamo.vllm", "--model", "m"], "vllm"),
 ])
 def test_infer_framework(argv, framework):
     assert infer_framework(argv) == framework
