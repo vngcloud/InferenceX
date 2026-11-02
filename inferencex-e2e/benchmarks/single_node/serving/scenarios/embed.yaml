@@ -1,0 +1,21 @@
+schemaVersion: "2.0"
+benchmark:
+  endpoint:
+    type: embeddings
+    path: /v1/embeddings
+  datasets:
+  - name: main
+    type: synthetic
+    entries: 1000
+    randomSeed: 42
+    prompts:
+      isl: 512
+      batchSize: 1
+  phases:
+  - name: profiling
+    kind: profiling
+    type: concurrency
+    duration: 300.0
+    gracePeriod: 30.0
+    failedRequestThreshold: 0.1
+randomSeed: 42
