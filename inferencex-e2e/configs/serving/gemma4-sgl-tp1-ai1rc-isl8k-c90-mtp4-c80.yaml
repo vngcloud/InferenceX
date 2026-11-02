@@ -1,6 +1,9 @@
 # MTP probe arm: the mtp4 config (NEXTN, gemma-4 assistant draft, steps 4, draft 5) at fixed conc 64.
-# mtp4 at c48 beat its base arm by +16% (1,759 vs 1,516 tok/s) while mtp4 at c96 lost 11% under the
-# saturated GPU; this arm and the c64 one bracket the crossover to find the MTP throughput peak.
+# FINAL max-throughput config of the 2026-11-02 TP1 tuning pass (clean curve, run 41388585984):
+# c48 2,349 / c64 2,469 / c80 2,630 (peak) / c96 2,469 / c112 2,206 / c128 2,121 tok/s with ITL p90
+# 24 / 32 / 39 / 51 / 73 / 89 ms. c80 is the throughput argmax that still holds ITL p90 < 50 ms:
+# 2,630 tok/s (~158K TPM), +23% over the best non-MTP point (base c96, 2,134 tok/s). At c48 the same
+# config is the low-latency point: TTFT p90 0.33 s, ITL p90 24 ms, 2,349 tok/s.
 name: gemma4-sgl-tp1-ai1rc-isl8k-c90-mtp4-c80
 runner: cluster:hcm-hgx02
 image: /mnt/thanglq5-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
