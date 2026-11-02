@@ -6,8 +6,8 @@
 # mem-fraction drops to 0.90 for the draft weights. Radix cache stays on: the frozen-KV MTP
 # target pool fix (sgl-project/sglang#42565) is in this image.
 name: gemma4-sgl-tp1-ai1rc-isl8k-c90-mtp4-c96
-runner: cluster:hcm-hgx01
-image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+runner: cluster:hcm-hgx02
+image: /mnt/thanglq5-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 1
 precision: fp8
