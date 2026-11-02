@@ -15,6 +15,7 @@ from infx.serving.client import (
     online,
     probe,
     redacted,
+    scenario_family,
     with_requests,
     with_token_source,
 )
@@ -296,3 +297,42 @@ def test_guard_scans_the_release_and_prunes_the_result_dir(tmp_path, monkeypatch
     assert (output / client.PRIVATE_LOGS / "server.log").read_text() == "engine output"
     aggregate.write_text('{"note": "m/secret"}')
     assert client.guard({"SERVING_DATASET": "greenspec-v1.1.1"}, result_dir, aggregate, output) == 1
+
+
+@pytest.mark.parametrize(
+    "family, path, body",
+    [
+        ("embed", "/v1/embeddings", {"model": "bge-m3", "input": ["OK"]}),
+        ("rerank", "/v1/rerank", {"model": "bge-m3", "query": "OK", "documents": ["OK"]}),
+    ],
+)
+def test_pooling_probe_posts_the_family_body_and_counts_on_the_client(family, path, body):
+    url, seen, server = serve(200, b'{"data": []}')
+    try:
+        assert probe(url, "bge-m3", "sk-1", family=family) == "client"
+    finally:
+        server.shutdown()
+    [(got_path, headers, got_body)] = seen
+    assert (got_path, got_body) == (path, body)
+    assert headers["Authorization"] == "Bearer sk-1"
+
+
+def test_pooling_probe_failure_names_the_fix():
+    url, _, server = serve(404, b'{"error": {"message": "no such model"}}')
+    try:
+        with pytest.raises(ProbeError, match="HTTP 404"):
+            probe(url, "bge-m3", "", family="rerank")
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.parametrize(
+    "label, family",
+    [
+        ("sweep-embed-isl2k-b32", "embed"),
+        ("fixed-rerank-p512-n40-d60", "rerank"),
+        ("sweep-isl8k-osl1k-cache50", ""),
+    ],
+)
+def test_scenario_family_reads_the_label(label, family):
+    assert scenario_family(label) == family
