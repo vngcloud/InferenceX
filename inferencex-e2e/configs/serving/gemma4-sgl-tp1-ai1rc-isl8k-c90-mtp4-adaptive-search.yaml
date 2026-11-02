@@ -1,0 +1,47 @@
+# Adaptive-steps search arm: the mtp4-c80 static winner (NEXTN, gemma-4 assistant draft -> FROZEN_KV_MTP) plus
+# --speculative-adaptive. Image v0.5.22 has no adaptive support for FROZEN_KV_MTP, so
+# overlays/frozen-adaptive/ (sitecustomize import hook, PYTHONPATH below) swaps in two patched sglang modules.
+# Slots in adaptive-config.json: batch size 1..87 -> steps {3,4,5}; >=88 -> {2,3,4}; start at steps 4.
+# max-running-requests 128 so the search is not clamped (static curve points ran with max-running = conc).
+# Compare per-iteration points in search_history.json with the static d4 curve
+# (c48 2,349 / c64 2,469 / c80 2,630 / c96 2,469 / c112 2,206 / c128 2,121 tok/s) and the static search control.
+name: gemma4-sgl-tp1-ai1rc-isl8k-c90-mtp4-adaptive-search
+runner: cluster:hcm-hgx01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+  PYTHONPATH: /workspace/inferencex-e2e/overlays/frozen-adaptive/site
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 128
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.90
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+  --speculative-algorithm NEXTN
+  --speculative-draft-model-path google/gemma-4-31B-it-assistant
+  --speculative-num-steps 4
+  --speculative-eagle-topk 1
+  --speculative-num-draft-tokens 5
+  --speculative-adaptive
+  --speculative-adaptive-config /workspace/inferencex-e2e/overlays/frozen-adaptive/adaptive-config.json
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: true}
+conc: 1
