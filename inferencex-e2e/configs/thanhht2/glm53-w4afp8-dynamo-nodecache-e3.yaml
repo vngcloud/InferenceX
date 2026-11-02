@@ -1,0 +1,71 @@
+# E3 hidden-prefix run of glm53-w4afp8-dynamo-mooncake-e3 with the L3 swapped for sglang-node-cache, to pick
+# the L31 (node-shared DRAM) implementation. Everything else is copied unchanged from that config: engine image,
+# engine flags, HiCache L2 buffer_only 48 GB/rank, write_through, anchor-lock cap 0.2, router, trace, 1800 s.
+# What differs, and why:
+# - L3 = one node-cache daemon (vendor/sglang-node-cache) holding a 768 GiB memfd arena, the same capacity as the
+#   Mooncake run (96 GiB segment x 8 ranks). No SSD tier: this compares the DRAM layer only. Ranks map the arena
+#   and memcpy pages in and out; the daemon only exchanges keys and offsets over a Unix socket.
+# - The backend loads as --hicache-storage-backend=dynamic (no sglang change). sglang only switches built-in
+#   backends to a page-first layout, so --hicache-mem-layout=page_first_direct is set explicitly; it is the layout
+#   the Mooncake run got from that automatic switch (direct io backend).
+# - The socket is abstract (@name): pyxis containers share the host network namespace, so the storage and engine
+#   containers reach it without a shared filesystem. The daemon rejects peers run by another user.
+# - The daemon opens {{storage_master_port}} as its readiness port for job.sh; the meta port is unused.
+name: glm53-w4afp8-dynamo-nodecache-e3
+runner: cluster:hcm-hgx02
+image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0  # engine image (sglang v0.5.21)
+model: PhalaCloud/GLM-5.3-W4AFP8
+gpus: 8
+precision: w4afp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  SGLANG_DP_USE_GATHERV: "1"
+  SGLANG_ENABLE_METRICS_DP_ATTENTION: "1"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+  NCCL_P2P_LEVEL: NVL
+  HF_HUB_OFFLINE: "1"
+  NVSHMEM_REMOTE_TRANSPORT: none
+  NVSHMEM_IB_ENABLE_IBGDA: "0"
+  # Buffer-mode anchor locks may pin up to this fraction of the L1 pool (default 0.5); see sglang issue #45989.
+  SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP: "0.2"
+  # bench.sh sets PYTHONPATH=/workspace before exporting this env; keep /workspace for the client.
+  PYTHONPATH: /workspace:/workspace/vendor/sglang-node-cache
+  NODE_CACHE_SOCKET: "@sglang_node_cache_{{storage_master_port}}"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path=PhalaCloud/GLM-5.3-W4AFP8
+  --served-model-name=zai-org/GLM-5.3
+  --quantization=w4afp8 --tp=8 --dp=8 --ep=8
+  --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+  --dist-init-addr=127.0.0.1:10888
+  --moe-a2a-backend=deepep --chunked-prefill-size=32768
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --mem-fraction-static=0.75 --max-running-requests=256 --context-length=300000
+  --kv-cache-dtype=fp8_e4m3 --dsa-prefill-backend=flashmla_sparse_q8 --allow-auto-truncate
+  --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
+  --enable-hierarchical-cache --hicache-size=48 --hicache-io-backend=direct --hicache-write-policy=write_through
+  --hicache-mem-layout=page_first_direct --hicache-host-memory-mode=buffer_only
+  --hicache-storage-backend=dynamic
+  --hicache-storage-backend-extra-config='{"backend_name":"node_cache","module_path":"sglang_node_cache.backend","class_name":"NodeCacheStorage","interface_v1":1}'
+  --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
+  --schedule-policy=dfs-weight --schedule-conservativeness=3.33 --enable-prefill-delayer
+  --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
+storage:
+  image: lmsysorg/sglang:v0.5.21
+  env:
+    PYTHONPATH: /workspace/vendor/sglang-node-cache
+  serve: |
+    python3 -m sglang_node_cache.daemon
+    --socket=@sglang_node_cache_{{storage_master_port}}
+    --shm-size-gb=768
+    --health-port={{storage_master_port}}
+router:
+  image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1
+  serve: |
+    python3 -m dynamo.frontend
+    --http-host=0.0.0.0 --http-port=8888
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --dyn-chat-processor=sglang --dyn-preprocess-workers=8
+    --tool-call-parser=glm47 --reasoning-parser=glm45
+scenario: hidden-prefix-e3
+conc: [32]

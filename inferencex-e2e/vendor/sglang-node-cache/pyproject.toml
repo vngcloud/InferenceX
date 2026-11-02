@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sglang-node-cache"
+version = "0.1.0"
+description = "Node-shared HiCache L3 storage for SGLang: /dev/shm hot tier over an SSD cold tier"
+requires-python = ">=3.10"
+dependencies = ["msgspec"]
+
+[project.scripts]
+sglang-node-cache = "sglang_node_cache.daemon:main"
+
+[tool.setuptools]
+packages = ["sglang_node_cache"]
