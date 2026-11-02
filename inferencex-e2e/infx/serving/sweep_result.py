@@ -35,6 +35,7 @@ REQUIRED_PROBE_METRICS = (
     "time_to_first_token",
     "inter_token_latency",
 )
+POOLING_PROBE_METRICS = ("request_throughput", "input_token_throughput", "request_latency")
 
 
 def identity_fields(env: Mapping[str, str]) -> dict:
@@ -102,7 +103,13 @@ def _stat(metrics: dict, tag: str, stat: str) -> float | None:
     return float(value) if value is not None else None
 
 
-def probe_metrics(probe_export: dict, conc: int) -> dict:  # noqa: ARG001
+def items_per_request(label: str) -> int | None:
+    """Inputs (embed batch) or passages (rerank docs) per request, read off the scenario label."""
+    match = re.search(r"-embed-isl[^-]+-b(\d+)|-rerank-p[^-]+-n(\d+)", label)
+    return int(match.group(1) or match.group(2)) if match else None
+
+
+def probe_metrics(probe_export: dict, conc: int, items: int | None = None) -> dict:  # noqa: ARG001
     """Metrics of the winning probe (the search's winning concurrency).
 
     ``conc`` is kept for interface stability (the brief's signature) but is
@@ -111,6 +118,8 @@ def probe_metrics(probe_export: dict, conc: int) -> dict:  # noqa: ARG001
     there is no combo/parameter list left to match a concurrency against.
     Raises KeyError only when a required metric tag is genuinely absent.
     """
+    if items is not None:
+        return _pooling_probe_metrics(probe_export, items)
     missing = [tag for tag in REQUIRED_PROBE_METRICS if tag not in probe_export]
     if missing:
         raise KeyError(f"probe export is missing required metric(s): {missing}")
@@ -123,6 +132,23 @@ def probe_metrics(probe_export: dict, conc: int) -> dict:  # noqa: ARG001
         "ttft_p90_ms": _stat(probe_export, "time_to_first_token", "p90"),
         "itl_avg_ms": _stat(probe_export, "inter_token_latency", "avg"),
         "itl_p90_ms": _stat(probe_export, "inter_token_latency", "p90"),
+    }
+
+
+def _pooling_probe_metrics(probe_export: dict, items: int) -> dict:
+    """Embed/rerank metrics: no output tokens; throughput in items (inputs or passages) per second."""
+    missing = [tag for tag in POOLING_PROBE_METRICS if tag not in probe_export]
+    if missing:
+        raise KeyError(f"probe export is missing required metric(s): {missing}")
+    rps = _stat(probe_export, "request_throughput", "avg")
+    return {
+        "rps": rps,
+        "items_per_s": rps * items if rps is not None else None,
+        "input_tps": _stat(probe_export, "input_token_throughput", "avg"),
+        **{
+            f"latency_{stat}_ms": _stat(probe_export, "request_latency", stat)
+            for stat in ("avg", "p50", "p90", "p99")
+        },
     }
 
 
@@ -151,7 +177,8 @@ def build_sweep_result(
     """Build the unrounded sweep result; the caller owns rounding and I/O."""
     result = summarize_search(history)
     if result["max_conc"] is not None:
-        result.update(probe_metrics(probe_export, result["max_conc"]))
+        items = items_per_request(env.get("SERVING_SCENARIO_LABEL", ""))
+        result.update(probe_metrics(probe_export, result["max_conc"], items))
     result.update(identity_fields(env))
     # Serving-sweep runs may not set KV_OFFLOADING (the serving-YAML path does
     # not require it); validate only when present so the schema stays stable.
