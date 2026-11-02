@@ -255,3 +255,35 @@ def test_arms_do_not_combine_with_a_remote_endpoint():
     text = ("name: r\nrunner: cluster:hcm-hgx01\nendpoint: {url: 'http://h:8000/v1', model: m}\n"
             "arms: {a: {}}\nscenario: agentx\nconc: 4\n")
     assert "arms: not used with endpoint:" in errors(text)
+
+
+def test_embed_workload_expands_to_one_search_variant_per_point():
+    spec = load_serving(
+        yaml_of("scenario: embed\nworkload: {isl: [512, 2k], batch: [1, 32], search: true}\nconc: 1\n")
+    )
+    assert [v.label for v in variants(spec)] == [
+        "sweep-embed-isl512-b1",
+        "sweep-embed-isl512-b32",
+        "sweep-embed-isl2k-b1",
+        "sweep-embed-isl2k-b32",
+    ]
+
+
+def test_rerank_workload_runs_fixed_concurrencies_on_one_point():
+    spec = load_serving(
+        yaml_of("scenario: rerank\nworkload: {passage: 512, docs: 40}\nconc: [4, 16]\n")
+    )
+    assert [v.label for v in variants(spec)] == ["fixed-rerank-p512-n40"]
+    assert spec.conc == [4, 16]
+
+
+def test_an_embed_workload_under_scenario_rerank_names_the_right_fields():
+    message = errors(yaml_of("scenario: rerank\nworkload: {isl: 2k, batch: 1}\nconc: 4\n"))
+    assert message == "workload: rerank takes passage, docs and search"
+
+
+def test_an_unknown_rerank_workload_key_lists_the_rerank_keys_only():
+    message = errors(
+        yaml_of("scenario: rerank\nworkload: {passage: 512, docs: 10, isl: 512}\nconc: 4\n")
+    )
+    assert message == "workload.isl: unknown key (allowed: passage, docs, search)"
