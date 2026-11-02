@@ -1,0 +1,44 @@
+# MTP arm on the final max-throughput config (gemma4-sgl-tp1-ai1rc-isl8k-c90-c96-final):
+# NEXTN speculative decoding with the gemma-4 assistant draft module, fixed conc 48.
+# Depth 4 / draft 5: the repo mtp6 greenspec run measured accept length mean 1.96 /
+# p50 3.05 / p90 3.70, so depth 4 covers most acceptance mass for half the verify cost.
+# Caveats: the SM90 FP8 hd512 kernels switch off under speculative decoding (ai1rc note), and
+# mem-fraction drops to 0.90 for the draft weights. Radix cache stays on: the frozen-KV MTP
+# target pool fix (sgl-project/sglang#42565) is in this image.
+name: gemma4-sgl-tp1-ai1rc-isl8k-c90-mtp4-c48
+runner: cluster:hcm-hgx01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 48
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.90
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+  --speculative-algorithm NEXTN
+  --speculative-draft-model-path google/gemma-4-31B-it-assistant
+  --speculative-num-steps 4
+  --speculative-eagle-topk 1
+  --speculative-num-draft-tokens 5
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [48]
