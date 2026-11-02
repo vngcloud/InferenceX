@@ -4,7 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from infx.serving.sweep_result import build_sweep_result, cache_check, probe_metrics, summarize_search
+import pytest
+
+from infx.serving.sweep_result import (
+    build_sweep_result,
+    cache_check,
+    items_per_request,
+    probe_metrics,
+    summarize_search,
+)
 
 FIX = Path(__file__).parent / "fixtures" / "sweep"
 
@@ -126,3 +134,47 @@ def test_build_sweep_result_without_winner_needs_no_probe_export():
     assert "rps" not in out
     # No cacheNN suffix -> no cache axis in the result.
     assert "cache_mismatch" not in out
+
+
+POOLING_EXPORT = {
+    "request_throughput": {"avg": 10.0},
+    "input_token_throughput": {"avg": 655360.0},
+    "request_latency": {"avg": 80.0, "p50": 75.0, "p90": 120.0, "p99": 200.0},
+}
+
+
+def test_pooling_probe_metrics_count_items_not_output_tokens():
+    assert probe_metrics(POOLING_EXPORT, conc=64, items=32) == {
+        "rps": 10.0,
+        "items_per_s": 320.0,
+        "input_tps": 655360.0,
+        "latency_avg_ms": 80.0,
+        "latency_p50_ms": 75.0,
+        "latency_p90_ms": 120.0,
+        "latency_p99_ms": 200.0,
+    }
+
+
+def test_pooling_probe_metrics_need_request_latency():
+    with pytest.raises(KeyError):
+        probe_metrics({"request_throughput": {"avg": 1.0}}, conc=1, items=1)
+
+
+@pytest.mark.parametrize(
+    "label, items",
+    [
+        ("sweep-embed-isl2k-b32", 32),
+        ("sweep-rerank-p512-n40-d60", 40),
+        ("sweep-isl8k-osl1k-cache50", None),
+    ],
+)
+def test_items_per_request_reads_the_label(label, items):
+    assert items_per_request(label) == items
+
+
+def test_build_sweep_result_for_embed_reports_items_per_second():
+    out = build_sweep_result(
+        _fixture_history(), POOLING_EXPORT, _env(SERVING_SCENARIO_LABEL="sweep-embed-isl2k-b32")
+    )
+    assert (out["max_conc"], out["items_per_s"]) == (256, 320.0)
+    assert "output_tps" not in out
