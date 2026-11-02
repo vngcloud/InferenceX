@@ -1,0 +1,18 @@
+name: qwen3-embedding-8b-sglang-embed
+runner: rtx6000pro-hcm
+image: lmsysorg/sglang:v0.5.22-cu130
+model: Qwen/Qwen3-Embedding-8B
+gpus: 1
+serve: |
+  python3 -m sglang.launch_server
+  --model-path Qwen/Qwen3-Embedding-8B
+  --served-model-name qwen3-embedding-8b
+  --is-embedding
+  --dtype bfloat16
+  --context-length 32768
+  --mem-fraction-static 0.85
+  --enable-metrics
+scenario: embed
+workload: {isl: [2k], batch: [32]}
+overrides: {duration: 60}
+conc: 4
