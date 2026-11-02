@@ -1,0 +1,67 @@
+# E3 hidden-prefix run of the Dynamo stack with Mooncake L3: engine flags and env from
+# serving/glm53-w4afp8-router-mooncake-e3.yaml (old branch; HiCache L2 buffer_only 48 GB/rank + Mooncake L3 768 GiB,
+# write_through, anchor-lock cap 0.2, conservativeness 3.33), run as dynamo.sglang with KV events published over ZMQ.
+# Engine image: NGC Dynamo 1.6.0 (sglang v0.5.21-runtime base), since buffer_only and SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP
+# need sglang >= v0.5.20 and the Dynamo 1.5.0 images ship v0.5.18. Router image and flags copied unchanged from
+# glm53-w4afp8-dynamo-baseline-e3.yaml (Dynamo 1.5.0 frontend KV router with the VNG kv-overlap-counters patch).
+# Same trace and ladder as that baseline: hidden-prefix-e3 (1800 s) at CCU 16/24/32/40.
+# Dropped from the sglang-router version: --tokenizer-worker-num (dynamo.frontend tokenizes) and the smg router.
+# NVSHMEM_REMOTE_TRANSPORT=none / IBGDA=0: single-node DeepEP over NVLink only.
+name: glm53-w4afp8-dynamo-mooncake-e3
+runner: cluster:hcm-hgx02
+image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0  # engine image (sglang v0.5.21)
+model: PhalaCloud/GLM-5.3-W4AFP8
+gpus: 8
+precision: w4afp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  SGLANG_DP_USE_GATHERV: "1"
+  SGLANG_ENABLE_METRICS_DP_ATTENTION: "1"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+  NCCL_P2P_LEVEL: NVL
+  HF_HUB_OFFLINE: "1"
+  NVSHMEM_REMOTE_TRANSPORT: none
+  NVSHMEM_IB_ENABLE_IBGDA: "0"
+  MOONCAKE_MASTER: "127.0.0.1:{{storage_master_port}}"
+  MOONCAKE_TE_META_DATA_SERVER: "http://127.0.0.1:{{storage_meta_port}}/metadata"
+  # sglang divides this by attn_tp_size*pp_size (tp8/dp8 -> 1): 96 GiB mounted per rank, 768 GiB total.
+  MOONCAKE_GLOBAL_SEGMENT_SIZE: "103079215104"
+  # Buffer-mode anchor locks may pin up to this fraction of the L1 pool (default 0.5); see sglang issue #45989.
+  SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP: "0.2"
+  MOONCAKE_PROTOCOL: tcp
+  MOONCAKE_LOCAL_HOSTNAME: 127.0.0.1
+serve: |
+  python3 -m dynamo.sglang
+  --model-path=PhalaCloud/GLM-5.3-W4AFP8
+  --served-model-name=zai-org/GLM-5.3
+  --quantization=w4afp8 --tp=8 --dp=8 --ep=8
+  --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+  --dist-init-addr=127.0.0.1:10888
+  --moe-a2a-backend=deepep --chunked-prefill-size=32768
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --mem-fraction-static=0.75 --max-running-requests=256 --context-length=300000
+  --kv-cache-dtype=fp8_e4m3 --dsa-prefill-backend=flashmla_sparse_q8 --allow-auto-truncate
+  --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
+  --enable-hierarchical-cache --hicache-size=48 --hicache-io-backend=direct --hicache-write-policy=write_through
+  --hicache-host-memory-mode=buffer_only --hicache-storage-backend=mooncake
+  --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
+  --schedule-policy=dfs-weight --schedule-conservativeness=3.33 --enable-prefill-delayer
+  --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
+storage:
+  image: lmsysorg/sglang:v0.5.21
+  serve: |
+    mooncake_master
+    --port={{storage_master_port}}
+    --enable_http_metadata_server=true
+    --http_metadata_server_port={{storage_meta_port}}
+    --eviction_high_watermark_ratio=0.95
+router:
+  image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1
+  serve: |
+    python3 -m dynamo.frontend
+    --http-host=0.0.0.0 --http-port=8888
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --dyn-chat-processor=sglang --dyn-preprocess-workers=8
+    --tool-call-parser=glm47 --reasoning-parser=glm45
+scenario: hidden-prefix-e3
+conc: [40]
