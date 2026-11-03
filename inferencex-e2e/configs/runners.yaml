@@ -913,7 +913,7 @@ clusters:
       account: greennode  # stackops' only association (Slurm enforces associations since 2026-10-25)
       exclusive: false
       gres: "gpu:nvidia_h200:{gpus}"
-      salloc-args: [--nodelist=hgx-h200-02, --cpus-per-gpu=16, --mem-per-gpu=240000M]
+      salloc-args: [--nodelist=hgx-h200-02, --cpus-per-gpu=8, --mem-per-gpu=200000M]  # GLM-5.3 TP8 (8x128 GB HiCache): ~1.28 TiB peak, ~16 busy cores
       volumes:
         hf-hub-cache: {path: /mnt/hf_hub_cache}
       squash:
