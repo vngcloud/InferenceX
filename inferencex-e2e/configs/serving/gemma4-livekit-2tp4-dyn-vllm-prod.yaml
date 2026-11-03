@@ -1,0 +1,54 @@
+# Gemma 4 LiveKit prod setup on one 8x H200 node: 2x TP4 dynamo.vllm workers behind the Dynamo
+# frontend KV router (prefill load scale 16, hard session affinity 30 min), on the LiveKit
+# v1.1-warm trace (the livekit scenario's default dataset). Prod sizing for 300 CCU is two such
+# nodes (4 workers) behind one frontend; this is one node, so c150 is the per-node prod load.
+# Image vllm-runtime:0.31.0-dyn1.6.0-g4p2-prod (public pull), engine and router:
+# - vLLM 0.31.0 + vllm-project/vllm#57613 (keeps one more alignment block below each
+#   sliding-window replay boundary, so Gemma 4's SWA groups lose fewer prefix hits).
+# - ai-dynamo 1.6.0 + ai-dynamo/dynamo#17486 backported (Gemma 4 reasoning leaking into content).
+# - DYN_PARSER_VERSION=2 baked in. router.env sets it too, so the route doesn't depend on the image:
+#   the frontend parses on the unified route, which fixes reasoning after a tool response and
+#   tool-call markup with tool_choice none on the legacy route (1.6.x default). router.log shows
+#   "Selected model parser route ... parser_version=V2".
+# Session affinity needs x-dynamo-session-id on every request of a call; aiperf sends its
+# per-conversation correlation id there (AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID).
+# --max-num-batched-tokens 8192 --long-prefill-token-threshold 2048: smaller prefill steps cut the
+# later-turn TTFT tail. --prefix-cache-retention-interval 4096 keeps SWA blocks at 4k-token
+# checkpoints, so a later turn has a replay point. The selector debug log has every routing
+# decision's per-worker cost terms in router.log.
+name: gemma4-livekit-2tp4-dyn-vllm-prod
+runner: cluster:hcm-hgx02
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0-g4p2-prod
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 8
+replicas: 2
+precision: fp8
+env:
+  VLLM_DISABLE_COMPILE_CACHE: "1"
+  NCCL_P2P_LEVEL: NVL
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+serve: |
+  python3 -m dynamo.vllm
+  --model RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tensor-parallel-size 4
+  --gpu-memory-utilization 0.92
+  --max-model-len 262144
+  --max-num-seqs 64
+  --max-num-batched-tokens 8192
+  --enable-chunked-prefill
+  --long-prefill-token-threshold 2048
+  --prefix-cache-retention-interval 4096
+  --kv-cache-metrics
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0-g4p2-prod
+  env:
+    DYN_PARSER_VERSION: "2"
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=2
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+scenario: livekit
+conc: [96, 150]

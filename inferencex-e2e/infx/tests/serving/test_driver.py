@@ -1,5 +1,6 @@
 import json
 import shutil
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -107,3 +108,21 @@ def test_remote_sbatch_args_keep_the_node_pin_only():
 
     assert remote_sbatch_args(["--nodelist=n1", "--cpus-per-gpu=16", "--mem-per-gpu=110000M"]) == [
         "--ntasks=1", "--cpus-per-task=16", "--mem=64G", "--nodelist=n1"]
+
+
+def test_dynamo_replicas_get_a_system_and_kv_event_port_each(harness):
+    srun = '#!/bin/bash\nprintf "%s|%s|%s|%s\\n" "$*" "$DYN_SYSTEM_PORT" "$DYN_SYSTEM_PORTS" "$DYN_KV_EVENT_PORTS" >> "$FAKE_LOG_DIR/srun.log"\n'
+    srun_path = next(path for path in harness.env["PATH"].split(":") if (Path(path) / "srun").exists())
+    (Path(srun_path) / "srun").write_text(srun)
+    env = {**harness.env, "SERVING_JSON": serving_json(
+        framework="vllm", serve_cmd="python3 -m dynamo.vllm --model org/model", router_image="img",
+        router_cmd="python3 -m dynamo.frontend", router_profile="dynamo", replicas=2)}
+    result = launch(env, harness.config, harness.workspace)
+    assert result.returncode == 0, result.stdout + result.stderr
+    steps = lines(harness.logs, "srun")
+    [router] = [step for step in steps if "sidecar.sh router" in step]
+    assert router.split("|")[1:] == ["", "", ""]  # the frontend must not inherit the engines' ports
+    [bench] = [step for step in steps if "bench.sh" in step]  # the router step logs in the background
+    _, first, system, kv = bench.split("|")
+    ports = system.split() + kv.split()
+    assert len(ports) == 4 and len(set(ports)) == 4 and first == system.split()[0]

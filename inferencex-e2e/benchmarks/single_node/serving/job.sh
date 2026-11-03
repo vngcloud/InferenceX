@@ -84,7 +84,16 @@ export PORT
 if [[ -n "${ROUTER_CMD:-}" ]]; then
     if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
         export DYN_DISCOVERY_BACKEND=file DYN_FILE_KV=/workspace/results/.dynkv DYN_SYSTEM_ENABLED=true
-        pick DYN_SYSTEM_PORT  # Dynamo parses it as i16: 20000-32767 fits
+        # One system port (Dynamo parses it as i16: 20000-32767 fits) and one KV event port
+        # (dynamo.vllm's ZMQ publisher) per engine replica; DYN_SYSTEM_PORT is replica 0's.
+        DYN_SYSTEM_PORTS="" DYN_KV_EVENT_PORTS=""
+        for ((replica = 0; replica < ${REPLICAS:-1}; replica++)); do
+            pick port
+            DYN_SYSTEM_PORTS+="${DYN_SYSTEM_PORTS:+ }$port"
+            pick port
+            DYN_KV_EVENT_PORTS+="${DYN_KV_EVENT_PORTS:+ }$port"
+        done
+        DYN_SYSTEM_PORT="${DYN_SYSTEM_PORTS%% *}"
     else
         ENGINE_PORTS=""
         for ((replica = 0; replica < ${REPLICAS:-1}; replica++)); do
@@ -106,7 +115,7 @@ if [[ -n "${ROUTER_CMD:-}" ]]; then
     SIDECARS+=("$!")
     # exported after the router step forked, so the frontend does not inherit the engine's port
     if [[ "${ROUTER_PROFILE:-}" == dynamo ]]; then
-        export DYN_SYSTEM_PORT
+        export DYN_SYSTEM_PORT DYN_SYSTEM_PORTS DYN_KV_EVENT_PORTS
     fi
 fi
 
