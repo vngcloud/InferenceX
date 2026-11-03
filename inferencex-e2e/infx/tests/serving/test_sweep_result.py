@@ -178,3 +178,9 @@ def test_build_sweep_result_for_embed_reports_items_per_second():
     )
     assert (out["max_conc"], out["items_per_s"]) == (256, 320.0)
     assert "output_tps" not in out
+
+
+def test_rerank_probe_metrics_without_input_tokens_leave_input_tps_empty():
+    export = {key: POOLING_EXPORT[key] for key in ("request_throughput", "request_latency")}
+    got = probe_metrics(export, conc=4, items=40)
+    assert (got["items_per_s"], got["input_tps"]) == (400.0, None)

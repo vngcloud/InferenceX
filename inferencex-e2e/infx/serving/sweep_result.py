@@ -35,7 +35,8 @@ REQUIRED_PROBE_METRICS = (
     "time_to_first_token",
     "inter_token_latency",
 )
-POOLING_PROBE_METRICS = ("request_throughput", "input_token_throughput", "request_latency")
+# input_token_throughput is absent for rerank: aiperf does not tokenize ranking payloads.
+POOLING_PROBE_METRICS = ("request_throughput", "request_latency")
 
 
 def identity_fields(env: Mapping[str, str]) -> dict:
