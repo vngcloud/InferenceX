@@ -184,13 +184,22 @@ def test_rerank_search_uses_its_own_default_slo_and_accepts_an_override():
     ]
 
 
+def test_pooling_sizes_beyond_the_nim_grid_render():
+    embed = render("embed", {}, EmbedPoint("2k", 16), search=True)
+    assert embed.doc["benchmark"]["datasets"][0]["prompts"] == {"isl": 2048, "batchSize": 16}
+    assert embed.label == "sweep-embed-isl2k-b16"
+    rerank = render("rerank", {}, RerankPoint("512", 100), search=True)
+    assert rerank.doc["benchmark"]["datasets"][0]["rankings"]["passages"] == 100
+    assert rerank.label == "sweep-rerank-p512-n100"
+
+
 @pytest.mark.parametrize(
     "family, point, slo, message",
     [
         ("embed", EmbedPoint("4k", 1), None, "workload.isl: '4k'"),
-        ("embed", EmbedPoint("2k", 8), None, "workload.batch: 8"),
+        ("embed", EmbedPoint("2k", 0), None, "workload.batch: 0"),
         ("rerank", RerankPoint("1k", 10), None, "workload.passage: '1k'"),
-        ("rerank", RerankPoint("512", 7), None, "workload.docs: 7"),
+        ("rerank", RerankPoint("512", 0), None, "workload.docs: 0"),
         ("embed", EmbedPoint("2k", 1), "request_latency:p90:lt:5", "slo: only applies"),
         ("rerank", EmbedPoint("2k", 1), None, "workload: rerank takes passage, docs"),
         ("embed", None, None, "workload: embed takes isl, batch"),

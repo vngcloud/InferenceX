@@ -45,9 +45,7 @@ OSL = {"512": 512, "1k": 1024}
 CACHE = (0, 50, 90)
 POOLING = ("embed", "rerank")
 EMBED_ISL = {"512": 512, "2k": 2048, "8k": 8192, "32k": 32768}
-EMBED_BATCH = (1, 32)
 RERANK_PASSAGE = {"512": 512, "2k": 2048}
-RERANK_DOCS = (10, 40)
 RERANK_QUERY_TOKENS = 32
 POOLING_SLO = {"embed": "request_latency:p90:lt:500", "rerank": "request_latency:p90:lt:1000"}
 DEFAULT_SLO = "time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"
@@ -264,10 +262,8 @@ def _pooling(
             raise ScenarioError("workload: embed takes isl, batch and search")
         if point.isl not in EMBED_ISL:
             raise ScenarioError(f"workload.isl: {point.isl!r} is not one of {', '.join(EMBED_ISL)}")
-        if point.batch not in EMBED_BATCH:
-            raise ScenarioError(
-                f"workload.batch: {point.batch!r} is not one of {', '.join(map(str, EMBED_BATCH))}"
-            )
+        if point.batch < 1:
+            raise ScenarioError(f"workload.batch: {point.batch!r} is not a positive integer")
         dataset["prompts"] = {"isl": EMBED_ISL[point.isl], "batchSize": point.batch}
     else:
         if not isinstance(point, RerankPoint):
@@ -276,10 +272,8 @@ def _pooling(
             raise ScenarioError(
                 f"workload.passage: {point.passage!r} is not one of {', '.join(RERANK_PASSAGE)}"
             )
-        if point.docs not in RERANK_DOCS:
-            raise ScenarioError(
-                f"workload.docs: {point.docs!r} is not one of {', '.join(map(str, RERANK_DOCS))}"
-            )
+        if point.docs < 1:
+            raise ScenarioError(f"workload.docs: {point.docs!r} is not a positive integer")
         dataset["rankings"] = {
             "queryTokens": RERANK_QUERY_TOKENS,
             "passages": point.docs,
