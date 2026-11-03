@@ -11,6 +11,7 @@ from infx.serving.sweep_result import (
     cache_check,
     items_per_request,
     probe_metrics,
+    rerank_request_tokens,
     summarize_search,
 )
 
@@ -148,6 +149,7 @@ def test_pooling_probe_metrics_count_items_not_output_tokens():
         "rps": 10.0,
         "items_per_s": 320.0,
         "input_tps": 655360.0,
+        "tpm": 39321600,
         "latency_avg_ms": 80.0,
         "latency_p50_ms": 75.0,
         "latency_p90_ms": 120.0,
@@ -183,4 +185,24 @@ def test_build_sweep_result_for_embed_reports_items_per_second():
 def test_rerank_probe_metrics_without_input_tokens_leave_input_tps_empty():
     export = {key: POOLING_EXPORT[key] for key in ("request_throughput", "request_latency")}
     got = probe_metrics(export, conc=4, items=40)
-    assert (got["items_per_s"], got["input_tps"]) == (400.0, None)
+    assert (got["items_per_s"], got["input_tps"], got["tpm"]) == (400.0, None, None)
+
+
+@pytest.mark.parametrize(
+    "label, tokens",
+    [
+        ("sweep-rerank-p512-n10", 5440),
+        ("sweep-rerank-p512-n100-d60", 54400),
+        ("sweep-embed-isl2k-b16", None),
+    ],
+)
+def test_rerank_request_tokens_count_the_query_per_passage(label, tokens):
+    assert rerank_request_tokens(label) == tokens
+
+
+def test_rerank_tpm_comes_from_the_request_size_when_aiperf_counts_no_tokens():
+    export = {"request_throughput": {"avg": 2.0}, "request_latency": POOLING_EXPORT["request_latency"]}
+    out = build_sweep_result(
+        _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
+    )
+    assert (out["input_tps"], out["tpm"]) == (None, 2 * 10 * 544 * 60)
