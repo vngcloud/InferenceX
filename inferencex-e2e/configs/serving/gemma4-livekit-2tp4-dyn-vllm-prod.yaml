@@ -6,8 +6,10 @@
 # - vLLM 0.31.0 + vllm-project/vllm#57613 (keeps one more alignment block below each
 #   sliding-window replay boundary, so Gemma 4's SWA groups lose fewer prefix hits).
 # - ai-dynamo 1.6.0 + ai-dynamo/dynamo#17486 backported (Gemma 4 reasoning leaking into content).
-# - DYN_PARSER_VERSION=2 baked in: the frontend parses on the unified route, which fixes reasoning
-#   after a tool response and tool-call markup with tool_choice none on the legacy route.
+# - DYN_PARSER_VERSION=2 baked in. router.env sets it too, so the route doesn't depend on the image:
+#   the frontend parses on the unified route, which fixes reasoning after a tool response and
+#   tool-call markup with tool_choice none on the legacy route (1.6.x default). router.log shows
+#   "Selected model parser route ... parser_version=V2".
 # Session affinity needs x-dynamo-session-id on every request of a call; aiperf sends its
 # per-conversation correlation id there (AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID).
 # --max-num-batched-tokens 8192 --long-prefill-token-threshold 2048: smaller prefill steps cut the
@@ -42,6 +44,7 @@ serve: |
 router:
   image: vcr.vngcloud.vn/108942-public69/dynamo-stack/vllm-runtime:0.31.0-dyn1.6.0-g4p2-prod
   env:
+    DYN_PARSER_VERSION: "2"
     DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
   serve: |
     python3 -m dynamo.frontend
