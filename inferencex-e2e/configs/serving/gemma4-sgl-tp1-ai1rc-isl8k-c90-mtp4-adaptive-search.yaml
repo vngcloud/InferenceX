@@ -16,7 +16,7 @@ env:
   NCCL_P2P_LEVEL: NVL
   FASTOKENS_BPE_THREADS: "4"
   SGLANG_PARALLEL_PROMPT_ENCODE: "0"
-  PYTHONPATH: /workspace/inferencex-e2e/overlays/frozen-adaptive/site
+  PYTHONPATH: /workspace/overlays/frozen-adaptive/site
 serve: |
   python3 -m sglang.launch_server
   --model-path RedHatAI/gemma-4-31B-it-FP8-block
@@ -41,7 +41,7 @@ serve: |
   --speculative-eagle-topk 1
   --speculative-num-draft-tokens 5
   --speculative-adaptive
-  --speculative-adaptive-config /workspace/inferencex-e2e/overlays/frozen-adaptive/adaptive-config.json
+  --speculative-adaptive-config /workspace/overlays/frozen-adaptive/adaptive-config.json
 scenario: synthetic
 workload: {isl: [8k], osl: [1k], cache: [90], search: true}
 conc: 1
