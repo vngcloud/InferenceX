@@ -26,6 +26,22 @@ class Health(http.server.BaseHTTPRequestHandler):
         pass
 http.server.HTTPServer(("127.0.0.1", port), Health).serve_forever()
 """
+# Stands in for vllm serve: records its env, then serves /health on --port.
+FAKE_VLLM = """\
+#!/usr/bin/env python3
+import http.server, json, os, sys
+port = int(sys.argv[sys.argv.index("--port") + 1])
+record = {"gpus": os.environ["CUDA_VISIBLE_DEVICES"], "dyn_port": os.environ.get("DYN_SYSTEM_PORT")}
+with open(os.path.join(os.environ["RESULT_DIR"], f"engine-{port}.json"), "w") as out:
+    json.dump(record, out)
+class Health(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+http.server.HTTPServer(("127.0.0.1", port), Health).serve_forever()
+"""
 FAKE_CLIENT = """\
 import json, os, sys
 with open(os.path.join(os.environ["RESULT_DIR"], f"client-{sys.argv[1]}.json"), "w") as out:
@@ -59,7 +75,8 @@ def frontend(port: int, model: str) -> ThreadingHTTPServer:
     return server
 
 
-def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
+def workspace(tmp_path: Path) -> tuple[Path, Path]:
+    """bench.sh's cwd with a fake client and dynamo.vllm, and a bin dir with a fake nvidia-smi."""
     workspace = tmp_path / "ws"
     (workspace / "infx/serving").mkdir(parents=True)
     (workspace / "dynamo").mkdir()
@@ -77,6 +94,11 @@ def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
         exit 0
     """))
     (fakes / "nvidia-smi").chmod(0o755)
+    return workspace, fakes
+
+
+def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
+    workspace_dir, fakes = workspace(tmp_path)
     results = tmp_path / "results"
     port, *system_and_kv = free_ports(5)
     system_ports, kv_ports = system_and_kv[:2], system_and_kv[2:]
@@ -89,7 +111,7 @@ def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
         "DYN_KV_EVENT_PORTS": " ".join(map(str, kv_ports)),
     }  # fmt: skip
     try:
-        out = subprocess.run(["bash", str(BENCH)], cwd=workspace, env=env, capture_output=True,
+        out = subprocess.run(["bash", str(BENCH)], cwd=workspace_dir, env=env, capture_output=True,
                              text=True, check=False, timeout=120)
     finally:
         server.shutdown()
@@ -101,3 +123,20 @@ def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
         assert json.loads(engine["argv"][flag + 1])["endpoint"] == f"tcp://*:{kv_port}"
     metrics = json.loads((results / "client-run.json").read_text())["metrics"].split(",")
     assert metrics == [f"http://localhost:{p}/metrics" for p in (port, *system_ports)]
+
+
+def test_engines_without_dynamo_get_no_dynamo_system_port(tmp_path):
+    workspace_dir, fakes = workspace(tmp_path)
+    (fakes / "vllm").write_text(FAKE_VLLM)
+    (fakes / "vllm").chmod(0o755)
+    results = tmp_path / "results"
+    (port,) = free_ports(1)
+    env = {
+        "PATH": f"{fakes}:{os.environ['PATH']}", "RESULT_DIR": str(results), "MODEL": "org/model",
+        "PORT": str(port), "SERVE_CMD": shlex.join(["vllm", "serve", "org/model"]),
+    }  # fmt: skip
+    out = subprocess.run(["bash", str(BENCH)], cwd=workspace_dir, env=env, capture_output=True,
+                         text=True, check=False, timeout=120)  # fmt: skip
+    assert out.returncode == 0, out.stdout + out.stderr
+    engine = json.loads((results / f"engine-{port}.json").read_text())
+    assert engine == {"gpus": "0,1,2,3,4,5,6,7", "dyn_port": None}

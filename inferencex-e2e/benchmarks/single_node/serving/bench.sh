@@ -62,7 +62,9 @@ trap 'kill "${pids[@]}" 2>/dev/null || true' EXIT
 for ((replica = 0; replica < replicas; replica++)); do
     suffix=""
     (( replica == 0 )) || suffix=".$replica"
+    launch_env=(CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${gpus[*]:replica*per:per}")")
     if [[ -n "$dynamo" ]]; then
+        launch_env+=(DYN_SYSTEM_PORT="${ports[replica]}")
         command=("$@")
         # vLLM's KV event publisher binds a fixed port unless told otherwise: one per replica.
         if [[ "$3" == dynamo.vllm && " $* " != *" --kv-events-config"[\ =]* ]]; then
@@ -73,8 +75,7 @@ for ((replica = 0; replica < replicas; replica++)); do
     fi
     printf '%q ' "${command[@]}" > "$RESULT_DIR/server_command$suffix.txt"
     printf '\n' >> "$RESULT_DIR/server_command$suffix.txt"
-    DYN_SYSTEM_PORT="${ports[replica]}" CUDA_VISIBLE_DEVICES="$(IFS=,; echo "${gpus[*]:replica*per:per}")" \
-        "${command[@]}" > "$RESULT_DIR/server$suffix.log" 2>&1 &
+    env "${launch_env[@]}" "${command[@]}" > "$RESULT_DIR/server$suffix.log" 2>&1 &
     pids+=("$!")
 done
 
