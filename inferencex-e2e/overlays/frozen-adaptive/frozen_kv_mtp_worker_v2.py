@@ -215,10 +215,15 @@ class FrozenKVMTPDraftWorker(EagleDraftWorkerBase, TpModelWorker):
             self._bind_kv_context()
 
     def init_attention_backend(self):
-        # Adaptive build_adaptive_runtime_state hook: the topk=1 draft backend does not
-        # depend on speculative_num_steps, so this just re-binds it.
-        self.draft_attn_backend = self._init_draft_attn_backend()
-        self.draft_model_runner.draft_attn_backend = self.draft_attn_backend
+        # Adaptive build_adaptive_runtime_state hook. Each step tier needs its OWN draft
+        # backend: the draft CUDA graph runner calls init_cuda_graph_state() on it, which
+        # reallocates the backend's graph buffers; sharing one backend across tiers leaves
+        # earlier tiers' captured graphs pointing at freed buffers (illegal memory access
+        # in run 41593707145 on the first decode batch).
+        runner = self.draft_model_runner
+        self.draft_attn_backend = runner._get_attention_backend(init_new_workspace=True)
+        runner.kv_index_translator.bind_and_verify_backends([self.draft_attn_backend])
+        runner.draft_attn_backend = self.draft_attn_backend
 
     def init_attention_backends(self):
         with (
