@@ -1,6 +1,6 @@
 name: bge-m3-vllm-embed
 runner: rtx6000pro-hcm
-image: vllm/vllm-openai:v0.25.1
+image: vllm/vllm-openai:v0.30.0
 model: BAAI/bge-m3
 gpus: 1
 serve: |

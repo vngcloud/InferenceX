@@ -1,6 +1,6 @@
 name: qwen3-embedding-8b-vllm-embed
 runner: rtx6000pro-hcm
-image: vllm/vllm-openai:v0.25.1
+image: vllm/vllm-openai:v0.30.0
 model: Qwen/Qwen3-Embedding-8B
 gpus: 1
 serve: |

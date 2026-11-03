@@ -1,6 +1,6 @@
 name: bge-reranker-v2-m3-vllm-rerank
 runner: rtx6000pro-hcm
-image: vllm/vllm-openai:v0.25.1
+image: vllm/vllm-openai:v0.30.0
 model: BAAI/bge-reranker-v2-m3
 gpus: 1
 serve: |
