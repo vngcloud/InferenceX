@@ -1,6 +1,6 @@
 # Remote MaaS endpoint (Basic auth key in GitHub secret MAAS_BGE_M3_AUTH); TPM @ SLO for PTU sizing.
 name: maas-bge-m3-embed-isl2k-b16
-runner: rtx6000pro-hcm
+runner: cluster:hcm-rtx01
 endpoint:
   url: https://103.196.238.5.nip.io/v3/maas/baai/bge-m3
   model: bge-m3
