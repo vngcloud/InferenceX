@@ -99,7 +99,9 @@ esac
 
 SERVER_LOG="$RESULT_DIR/server.log"
 eval "set -- $SERVE_CMD"
-if [[ "${REPLICAS:-1}" -gt 1 && "${ROUTER_PROFILE:-}" == dynamo ]]; then
+# e2B: a single Dynamo worker also takes this branch, so its engine gets the
+# --port/--kv-events-config that replica 0 gets in a multi-replica run.
+if [[ "${REPLICAS:-1}" -ge 1 && "${ROUTER_PROFILE:-}" == dynamo ]]; then
     # Dynamo replicas (dynamo.vllm / dynamo.sglang): N engines, each on its own GPU slice, Dynamo
     # system port (health + metrics, DYN_SYSTEM_PORTS) and KV event port (DYN_KV_EVENT_PORTS);
     # the frontend finds them through file discovery. Replica 0 keeps server.log, as below.
