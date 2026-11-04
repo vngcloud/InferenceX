@@ -1,0 +1,47 @@
+# sglang v3: one TP4 SGLang engine on the v0.5.22-ai.1 RC image + the fused TP all-reduce/epilogue kernel
+# (SGLANG_GEMMA4_RSAG=1), behind the Dynamo KV router with the fastokens frontend tokenizer, on the LiveKit
+# v1.1-warm trace (the livekit scenario's default dataset, 1200 s).
+# The image ships ai-dynamo 1.6.0 and the prefill CUDA graph fix for Gemma-4, so no sglang_gemma4_bcg shim.
+# It exists on hgx-h200-01 only. Engine flags = the ai1rc-fastok TP4 reference (CI 41034775398, c100/c128).
+# Edit conc/scenario as needed and dispatch:
+#   inferencex-e2e/utils/serving/dispatch.sh inferencex-e2e/configs/serving/gemma4-livekit-tp4-dyn-sglang-v3.yaml --ref bench/gemma4-sglang-v3-dyn
+name: gemma4-livekit-tp4-dyn-sglang-v3
+runner: cluster:hcm-hgx01
+image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rsag-220ada1b7a-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  SGLANG_GEMMA4_RSAG: "1"
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 160
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rsag-220ada1b7a-amd64.sqsh
+  env:
+    FASTOKENS_BPE_THREADS: "4"
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+    --tokenizer fastokens
+scenario: livekit
+conc: [100, 128]
