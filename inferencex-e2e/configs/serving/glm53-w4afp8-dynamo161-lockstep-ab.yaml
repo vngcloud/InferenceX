@@ -9,7 +9,7 @@
 # generation_config sampling fix (1.6.1 still hardcodes top_p 1.0 in the sglang chat processor).
 # Router runs from the same runtime image: dynamo-frontend:1.6.1 has no sglang module.
 name: glm53-w4afp8-dynamo161-lockstep-ab
-runner: cluster:hcm-hgx02
+runner: cluster:hcm-hgx01
 image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:1.6.1-2tier-lockstep  # engine image, SGLang v0.5.21
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8
@@ -51,4 +51,4 @@ router:
     --tool-call-parser=glm47 --reasoning-parser=glm45
     --router-policy-config=/opt/rbench/router-policies/lockstep-ab.yaml
 scenario: agentx
-conc: [48, 64]
+conc: [32, 48]

@@ -87,17 +87,15 @@ def test_runner_must_be_a_vng_cluster_slot_or_pool():
     inventory = load_inventory()
     assert runner_gpus("cluster:hcm-hgx02", inventory) == 8
     assert runner_gpus("hcm-hgx02_01", inventory) == 8
-    assert runner_gpus("h200-hcm", inventory) == 4  # the smallest node of the pool
+    assert runner_gpus("h200-hcm", inventory) == 8  # the smallest node of the pool
     assert runner_gpus("h200-han", inventory) == 1
     with pytest.raises(ServingError, match="runner: h100-cw_00 is not a VNG serving runner"):
         runner_gpus("h100-cw_00", inventory)
 
 
 def test_gpus_above_the_node_fail():
-    text = BASE.replace("runner: cluster:hcm-hgx02", "runner: cluster:hcm-hgx01").replace(
-        "gpus: 1", "gpus: 8"
-    )
-    assert "gpus: 8 > 4 GPUs per node" in errors(text + "scenario: agentx\nconc: 8\n")
+    text = BASE.replace("gpus: 1", "gpus: 16")
+    assert "gpus: 16 > 8 GPUs per node" in errors(text + "scenario: agentx\nconc: 8\n")
 
 
 ROUTER = """\
