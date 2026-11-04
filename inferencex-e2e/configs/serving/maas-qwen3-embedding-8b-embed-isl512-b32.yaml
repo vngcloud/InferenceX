@@ -1,4 +1,3 @@
-# Remote MaaS endpoint (Basic auth key in GitHub secret MAAS_QWEN3_EMBEDDING_8B_AUTH); TPM @ SLO for PTU sizing.
 name: maas-qwen3-embedding-8b-embed-isl512-b32
 runner: cluster:hcm-rtx01
 endpoint:

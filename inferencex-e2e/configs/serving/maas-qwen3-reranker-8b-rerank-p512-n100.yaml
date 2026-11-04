@@ -1,4 +1,3 @@
-# Remote MaaS endpoint (Basic auth key in GitHub secret MAAS_QWEN3_RERANKER_8B_AUTH); TPM @ SLO for PTU sizing.
 name: maas-qwen3-reranker-8b-rerank-p512-n100
 runner: cluster:hcm-rtx01
 endpoint:
