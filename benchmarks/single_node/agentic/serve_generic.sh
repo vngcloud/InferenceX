@@ -93,7 +93,8 @@ else
 fi
 case "$FRAMEWORK" in
     vllm) export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="vllm:" ;;
-    sglang) export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:" ;;
+    # sglang's Rust frontend (SGLANG_RUST_SERVER=1) serves no /metrics, so nothing to require.
+    sglang) [[ "${SGLANG_RUST_SERVER:-}" == 1 ]] || export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:" ;;
     *) echo "ERROR: serve_generic.sh supports vllm and sglang, got FRAMEWORK=$FRAMEWORK" >&2; exit 1 ;;
 esac
 
