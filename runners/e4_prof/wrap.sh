@@ -30,9 +30,8 @@ case "$mode" in
         ;;
     nsys)
         export SGLANG_ENABLE_NVTX_SCHEDULER=1
-        # perf_event_paranoid=4 on these nodes: no CPU sampling or context-switch tracing.
-        launch=(nsys launch --session-new=e4prof --trace=cuda,nvtx,osrt --sample=none
-                --cpuctxsw=none --cuda-graph-trace=node "$@")
+        # Tracing options go to launch; --sample/--cpuctxsw only to `nsys start` (agent.py).
+        launch=(nsys launch --session-new=e4prof --trace=cuda,nvtx,osrt --cuda-graph-trace=node "$@")
         ;;
 esac
 

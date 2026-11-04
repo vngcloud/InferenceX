@@ -187,8 +187,10 @@ def _open_window(mode, args, sampler, events):
                  "--format", "chrometrace", "-o", os.path.join(args.out, f"pyspy.{pid}.chrometrace.json")],
                 stdout=events, stderr=events))
     elif mode == "nsys":
+        # perf_event_paranoid=4 on these nodes: no CPU sampling or context-switch tracing.
         subprocess.run(["nsys", "start", "--session=e4prof", "-o", os.path.join(args.out, "nsys"),
-                        "--force-overwrite=true"], stdout=events, stderr=events)
+                        "--force-overwrite=true", "--sample=none", "--cpuctxsw=none"],
+                       stdout=events, stderr=events)
     elif mode == "gdbpmp":
         # Scheduler TP0 hosts the Rust listener threads in the nrust arm; the same process in npy.
         targets = _engine_pids(sampler, "sglang::scheduler_TP0") or [args.server_pid]
