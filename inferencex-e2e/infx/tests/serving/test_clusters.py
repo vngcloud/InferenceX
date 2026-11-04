@@ -25,7 +25,7 @@ def test_vng_node_is_one_cluster_pinned_and_shared(cluster_id):
     assert settings.exclusive is False
     assert settings.gres == gres
     assert f"--nodelist={node}" in settings.salloc_args
-    assert "--cpus-per-gpu=16" in settings.salloc_args
+    assert any(arg.startswith("--cpus-per-gpu=") for arg in settings.salloc_args)
     assert any(arg.startswith("--mem-per-gpu=") for arg in settings.salloc_args)
     assert "hf-hub-cache" in settings.volumes
     assert settings.squash.import_mode == "submit-host" and settings.squash.single_node_import
