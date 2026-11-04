@@ -12,6 +12,23 @@ RESULTS="$WS/results"
 mkdir -p "$RESULTS"
 rm -rf "$RESULTS/.dynkv" "$RESULTS/.router_exited" "$RESULTS/.storage_exited"
 
+# Host disks and memory, to size an SSD or DRAM storage tier: containers only see /workspace and the
+# HF cache. With HOST_DISK_PROBE_ONLY=1 in the serving env, the job stops after this report.
+{
+    date -u; hostname; echo
+    df -hT /mnt /mnt/* 2>&1; echo
+    for dir in /mnt/storage-sglang; do
+        echo "$dir:"; ls -ld "$dir" 2>&1; findmnt -T "$dir" 2>&1
+        [[ -w "$dir" ]] && echo "writable by $(id -un)" || echo "not writable by $(id -un)"
+    done; echo
+    lsblk -e7 -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,ROTA,MODEL 2>&1; echo
+    free -g 2>&1
+} > "$RESULTS/host_disk.log" 2>&1 || true
+if grep -qx 'HOST_DISK_PROBE_ONLY=1' <<< "${SERVE_ENV:-}"; then
+    cat "$RESULTS/host_disk.log"
+    exit 0
+fi
+
 PICKED=()
 pick() {  # pick <var>: a free TCP port in 20000-32767 (below the ephemeral range), not picked before
     local _free  # not "port": a caller's `pick port` must set its own variable
