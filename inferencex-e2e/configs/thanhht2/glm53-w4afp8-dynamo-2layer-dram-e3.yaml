@@ -1,0 +1,68 @@
+# E3 hidden-prefix run of glm53-w4afp8-dynamo-nodecache-e3 with the L3 swapped for sglang-2layer-cache, layer 1
+# (the node-shared DRAM arena) only. Everything else is copied unchanged from that config: engine image, engine
+# flags, HiCache L2 buffer_only 48 GB/rank, write_through, anchor-lock cap 0.2, router, trace, 1800 s, c40.
+# What differs, and why:
+# - L3 = one two-layer cache daemon (vendor/sglang-2layer-cache) with --layer2=none: a 768 GiB memfd arena and no
+#   layer 2, so it checks that the two-layer code path matches sglang-node-cache before layer 2 (Mooncake/SSD) is on.
+#   With no layer 2 a committed page is clean at once and the arena evicts LRU, as node-cache does.
+# - Backend sglang_2layer_cache.backend.TwoLayerCacheStorage, socket env TWO_LAYER_CACHE_SOCKET; the socket is
+#   abstract (@name) and the daemon opens {{storage_master_port}} as its readiness port for job.sh.
+name: glm53-w4afp8-dynamo-2layer-dram-e3
+runner: cluster:hcm-hgx02
+image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0  # engine image (sglang v0.5.21)
+model: PhalaCloud/GLM-5.3-W4AFP8
+gpus: 8
+precision: w4afp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  SGLANG_DP_USE_GATHERV: "1"
+  SGLANG_ENABLE_METRICS_DP_ATTENTION: "1"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+  NCCL_P2P_LEVEL: NVL
+  HF_HUB_OFFLINE: "1"
+  NVSHMEM_REMOTE_TRANSPORT: none
+  NVSHMEM_IB_ENABLE_IBGDA: "0"
+  # Buffer-mode anchor locks may pin up to this fraction of the L1 pool (default 0.5); see sglang issue #45989.
+  SGLANG_HICACHE_BUFFER_ANCHOR_LOCK_CAP: "0.2"
+  # bench.sh sets PYTHONPATH=/workspace before exporting this env; keep /workspace for the client.
+  PYTHONPATH: /workspace:/workspace/vendor/sglang-2layer-cache
+  TWO_LAYER_CACHE_SOCKET: "@sglang_2layer_cache_{{storage_master_port}}"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path=PhalaCloud/GLM-5.3-W4AFP8
+  --served-model-name=zai-org/GLM-5.3
+  --quantization=w4afp8 --tp=8 --dp=8 --ep=8
+  --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+  --dist-init-addr=127.0.0.1:10888
+  --moe-a2a-backend=deepep --chunked-prefill-size=32768
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --mem-fraction-static=0.75 --max-running-requests=256 --context-length=300000
+  --kv-cache-dtype=fp8_e4m3 --dsa-prefill-backend=flashmla_sparse_q8 --allow-auto-truncate
+  --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
+  --enable-hierarchical-cache --hicache-size=48 --hicache-io-backend=direct --hicache-write-policy=write_through
+  --hicache-mem-layout=page_first_direct --hicache-host-memory-mode=buffer_only
+  --hicache-storage-backend=dynamic
+  --hicache-storage-backend-extra-config='{"backend_name":"two_layer_cache","module_path":"sglang_2layer_cache.backend","class_name":"TwoLayerCacheStorage","interface_v1":1}'
+  --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
+  --schedule-policy=dfs-weight --schedule-conservativeness=3.33 --enable-prefill-delayer
+  --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
+storage:
+  image: lmsysorg/sglang:v0.5.21
+  env:
+    PYTHONPATH: /workspace/vendor/sglang-2layer-cache
+  serve: |
+    python3 -m sglang_2layer_cache.daemon
+    --socket=@sglang_2layer_cache_{{storage_master_port}}
+    --shm-size-gb=768
+    --layer2=none
+    --health-port={{storage_master_port}}
+router:
+  image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.5.0-kvoverlap1
+  serve: |
+    python3 -m dynamo.frontend
+    --http-host=0.0.0.0 --http-port=8888
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --dyn-chat-processor=sglang --dyn-preprocess-workers=8
+    --tool-call-parser=glm47 --reasoning-parser=glm45
+scenario: hidden-prefix-e3
+conc: [40]

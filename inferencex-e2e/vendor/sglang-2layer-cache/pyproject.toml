@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sglang-2layer-cache"
+version = "0.1.0"
+description = "Two-layer HiCache L3 for SGLang: a node-shared DRAM arena over SSD or Mooncake (TCP/RDMA)"
+requires-python = ">=3.10"
+dependencies = ["msgspec"]
+
+[project.scripts]
+sglang-2layer-cache = "sglang_2layer_cache.daemon:main"
+
+[tool.setuptools]
+packages = ["sglang_2layer_cache"]
