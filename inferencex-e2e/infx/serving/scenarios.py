@@ -42,6 +42,9 @@ ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
 OSL = {"512": 512, "1k": 1024}
 CACHE = (0, 50, 90)
 DEFAULT_SLO = "time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"
+# Searches score sustainable capacity: an excluded warmup absorbs the start burst of N clients.
+# 120 s drains it for 8k-class prompts; long-ISL configs set more, 0 scores from t = 0.
+DEFAULT_SEARCH_WARMUP = 120.0
 PUBLIC_DATASET = "semianalysis_cc_traces_weka_062126"
 LABELS = {
     "agentx": "agentx-cc-062126",
@@ -312,10 +315,18 @@ def render(
                 f"overrides: synthetic only takes {', '.join(SYNTHETIC_OVERRIDES)}, not {', '.join(extra)}"
             )
         doc = _synthetic(point, search, slo)
-        warmup = overrides.pop("warmup", None)
+        default = DEFAULT_SEARCH_WARMUP if search else 0.0
+        warmup = overrides.pop("warmup", default)
+        if isinstance(warmup, bool) or not isinstance(warmup, (int, float)) or warmup < 0:
+            raise ScenarioError(
+                f"overrides.warmup: seconds >= 0 (0 scores from t = 0), got {warmup!r}"
+            )
         suffixes = _apply(doc, family, overrides, lock)
-        if warmup is not None:
-            _warmup(doc, _positive("overrides.warmup", warmup))
+        if warmup:
+            _warmup(doc, float(warmup))
+        elif search:
+            doc["sweep"]["sla_warmup_seconds"] = 0  # no aiperf warmup either
+        if warmup != default:
             suffixes.append(f"-w{warmup:g}")
         label = f"{'sweep' if search else 'fixed'}-{point.label}{''.join(suffixes)}"
         return Rendered(doc, label, "synthetic", "synthetic", search, _profiling(doc)["duration"])
