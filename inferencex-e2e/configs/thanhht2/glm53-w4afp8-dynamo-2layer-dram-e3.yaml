@@ -8,7 +8,7 @@
 # - Backend sglang_2layer_cache.backend.TwoLayerCacheStorage, socket env TWO_LAYER_CACHE_SOCKET; the socket is
 #   abstract (@name) and the daemon opens {{storage_master_port}} as its readiness port for job.sh.
 name: glm53-w4afp8-dynamo-2layer-dram-e3
-runner: cluster:hcm-hgx02
+runner: cluster:hcm-hgx01
 image: nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.0  # engine image (sglang v0.5.21)
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8
