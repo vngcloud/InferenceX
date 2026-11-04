@@ -76,7 +76,8 @@ def test_slo_replaces_the_sweep_filters():
     (("agentx", {"duration": 0}), "overrides.duration"),
     (("agentx", {"generation": {"top_k": 5}}), "overrides.generation"),
     (("synthetic", {}), "workload: synthetic needs"),
-    (("synthetic", {"dataset": "x"}, Point("8k", "1k", 0)), "overrides: synthetic only takes duration"),
+    (("synthetic", {"dataset": "x"}, Point("8k", "1k", 0)), "overrides: synthetic only takes duration, warmup"),
+    (("synthetic", {"warmup": 0}, Point("8k", "1k", 0)), "overrides.warmup"),
     (("synthetic", {}, Point("16k", "1k", 0)), "workload.isl"),
     (("synthetic", {}, Point("8k", "1k", 0), False, "time_to_first_token:avg:lt:1"), "slo: only applies"),
     (("agentx", {}, Point("8k", "1k", 0)), "workload/slo: only for scenario synthetic"),
@@ -149,3 +150,15 @@ def test_warmup_requests_per_lane_override():
 def test_families_have_base_files():
     from infx.serving.scenarios import SCENARIOS_DIR
     assert {path.stem for path in SCENARIOS_DIR.glob("*.yaml")} == set(FAMILIES)
+
+
+def test_synthetic_warmup_is_excluded_and_hands_off_seamlessly():
+    slo = "time_to_first_token:p95:lt:8000"
+    rendered = render("synthetic", {"warmup": 120}, Point("8k", "1k", 50), True, slo)
+    warmup, profiling = rendered.doc["benchmark"]["phases"]
+    assert (warmup["kind"], warmup["duration"]) == ("warmup", 120.0)
+    assert profiling["kind"] == "profiling" and profiling["seamless"] is True
+    assert rendered.doc["sweep"]["sla_warmup_seconds"] == 120.0
+    assert rendered.label == "sweep-isl8k-osl1k-cache50-w120"
+    fixed = render("synthetic", {"duration": 180, "warmup": 120}, Point("8k", "1k", 0))
+    assert "sweep" not in fixed.doc and fixed.label == "fixed-isl8k-osl1k-cache0-smoke-w120"

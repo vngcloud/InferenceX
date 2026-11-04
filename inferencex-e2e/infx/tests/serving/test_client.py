@@ -17,6 +17,7 @@ from infx.serving.client import (
     redacted,
     with_requests,
     with_token_source,
+    with_warmup_concurrency,
 )
 
 ENV = {
@@ -296,3 +297,14 @@ def test_guard_scans_the_release_and_prunes_the_result_dir(tmp_path, monkeypatch
     assert (output / client.PRIVATE_LOGS / "server.log").read_text() == "engine output"
     aggregate.write_text('{"note": "m/secret"}')
     assert client.guard({"SERVING_DATASET": "greenspec-v1.1.1"}, result_dir, aggregate, output) == 1
+
+
+def test_with_warmup_concurrency_follows_the_run_and_leaves_no_warmup_alone():
+    scenario = yaml.safe_dump({"benchmark": {"phases": [
+        {"name": "warmup", "kind": "warmup", "concurrency": 1, "duration": 120},
+        {"name": "profiling", "kind": "profiling", "concurrency": 1, "seamless": True},
+    ]}})
+    phases = yaml.safe_load(with_warmup_concurrency(scenario, "64"))["benchmark"]["phases"]
+    assert [p["concurrency"] for p in phases] == [64, 1]
+    plain = yaml.safe_dump({"benchmark": {"phases": [{"name": "profiling", "kind": "profiling"}]}})
+    assert with_warmup_concurrency(plain, "64") == plain

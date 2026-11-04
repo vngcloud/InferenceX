@@ -36,7 +36,7 @@ OVERRIDE_KEYS = (
     "trace_idle_gap_cap",
     "warmup_requests_per_lane",
 )
-SYNTHETIC_OVERRIDES = ("duration",)
+SYNTHETIC_OVERRIDES = ("duration", "warmup")
 GENERATION_KEYS = ("top_p", "temperature")
 ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
 OSL = {"512": 512, "1k": 1024}
@@ -217,6 +217,30 @@ def _synthetic(point: Point, search: bool, slo: str | None) -> dict[str, Any]:
     return doc
 
 
+def _warmup(doc: dict[str, Any], seconds: float) -> None:
+    """Run ``seconds`` of excluded warmup at the probed concurrency, then profile without a drain.
+
+    The profiling phase is seamless, so the first scored requests join a loaded server instead of
+    landing as one burst of N simultaneous prefills. Under search, aiperf replaces this warmup
+    each probe with one at the probed concurrency (sla_warmup_seconds long); a fixed run sets the
+    warmup's concurrency to CONC in the client.
+    """
+    phases = doc["benchmark"]["phases"]
+    phases.insert(
+        0,
+        {
+            "name": "warmup",
+            "kind": "warmup",
+            "type": "concurrency",
+            "concurrency": 1,
+            "duration": seconds,
+        },
+    )
+    _profiling(doc)["seamless"] = True
+    if "sweep" in doc:
+        doc["sweep"]["sla_warmup_seconds"] = seconds
+
+
 def _greenspec(
     overrides: dict[str, Any],
     point: Point | None,
@@ -288,7 +312,11 @@ def render(
                 f"overrides: synthetic only takes {', '.join(SYNTHETIC_OVERRIDES)}, not {', '.join(extra)}"
             )
         doc = _synthetic(point, search, slo)
+        warmup = overrides.pop("warmup", None)
         suffixes = _apply(doc, family, overrides, lock)
+        if warmup is not None:
+            _warmup(doc, _positive("overrides.warmup", warmup))
+            suffixes.append(f"-w{warmup:g}")
         label = f"{'sweep' if search else 'fixed'}-{point.label}{''.join(suffixes)}"
         return Rendered(doc, label, "synthetic", "synthetic", search, _profiling(doc)["duration"])
     if point is not None or search or slo:
