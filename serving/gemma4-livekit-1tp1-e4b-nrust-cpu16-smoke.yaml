@@ -1,0 +1,38 @@
+# e4B frontend A/B arm (nrust, 16 CPUs): the mentor's Gemma4 engine/env/scenario
+# (run 40085686661) on 1 GPU of hgx-h200-02, --tp 1 and --max-running-requests 64 as the
+# 1-GPU production config of run 39116780188. No router (1 worker); only the frontend
+# differs within the npy/nrust pair, host_cpus is the CPU-budget axis.
+name: gemma4-livekit-1tp1-e4b-nrust-cpu16-smoke
+runner: hardware-hcm-8x_02
+image: /mnt/loipp/enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-e4a-rusttext-908ad09983-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+replicas: 1
+host_cpus: 16
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  PYTHONPATH: /workspace/runners/sglang_gemma4_bcg
+  SGLANG_RUST_SERVER: "1"
+  SGLANG_RUST_TEXT_ONLY: "1"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 64
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+scenario: custom-agentic-livekit111868-smoke
+conc: [16]
