@@ -1,4 +1,3 @@
-# Remote MaaS endpoint (Basic auth key in GitHub secret MAAS_BGE_RERANKER_V2_M3_AUTH); TPM @ SLO for PTU sizing.
 name: maas-bge-reranker-v2-m3-rerank-p512-n40
 runner: cluster:hcm-rtx01
 endpoint:
