@@ -175,12 +175,17 @@ def _open_window(mode, args, sampler, events):
     if mode == "torch":
         open(os.environ["E4_TORCH_TRIGGER"], "w").close()
     elif mode == "pyspy":
-        # One recording of the whole engine tree; nonblocking keeps the engine running between samples.
-        procs.append(subprocess.Popen(
-            ["py-spy", "record", "--pid", str(args.server_pid), "--subprocesses", "--idle", "--nonblocking",
-             "--rate", "100", "--duration", str(window), "--format", "chrometrace",
-             "-o", os.path.join(args.out, "pyspy.chrometrace.json")],
-            stdout=events, stderr=events))
+        # The whole TP4 tree at 100 Hz fell 13 s behind (S2 run 41891713093); TP1-3 repeat TP0, so
+        # record only the frontend side: main process (TokenizerManager in npy), detokenizer, TP0.
+        targets = [args.server_pid] + _engine_pids(sampler, "sglang::detokenizer") \
+            + _engine_pids(sampler, "sglang::scheduler_TP0")
+        for pid in targets:
+            # nonblocking keeps the engine running between samples.
+            procs.append(subprocess.Popen(
+                ["py-spy", "record", "--pid", str(pid), "--idle", "--nonblocking",
+                 "--rate", os.environ.get("E4_PYSPY_RATE", "50"), "--duration", str(window),
+                 "--format", "chrometrace", "-o", os.path.join(args.out, f"pyspy.{pid}.chrometrace.json")],
+                stdout=events, stderr=events))
     elif mode == "nsys":
         subprocess.run(["nsys", "start", "--session=e4prof", "-o", os.path.join(args.out, "nsys"),
                         "--force-overwrite=true"], stdout=events, stderr=events)
