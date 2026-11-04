@@ -24,7 +24,9 @@ rm -rf "$RESULTS/.dynkv" "$RESULTS/.router_exited" "$RESULTS/.storage_exited"
         [[ -w "$dir" ]] && echo "writable by $(id -un)" || echo "not writable by $(id -un)"
     done; echo
     lsblk -e7 -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,ROTA,MODEL 2>&1; echo
-    free -g 2>&1
+    free -g 2>&1; echo
+    echo "GPUs in this allocation:"; nvidia-smi -L 2>&1; echo
+    echo "HF cache $SERVING_HF_CACHE_HOST:"; ls -d "$SERVING_HF_CACHE_HOST"/models--* 2>&1
 } > "$RESULTS/host_disk.log" 2>&1 || true
 if grep -qx 'HOST_DISK_PROBE_ONLY=1' <<< "${SERVE_ENV:-}"; then
     cat "$RESULTS/host_disk.log"
