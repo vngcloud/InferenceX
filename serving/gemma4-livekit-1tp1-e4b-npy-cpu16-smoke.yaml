@@ -32,5 +32,6 @@ serve: |
   --trust-remote-code
   --cuda-graph-backend-prefill breakable
   --tool-call-parser gemma4 --reasoning-parser gemma4
+  --chat-template=/workspace/runners/chat_templates/gemma4_31b_it_fp8_block.jinja
 scenario: custom-agentic-livekit111868-smoke
 conc: [16]

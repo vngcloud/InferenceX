@@ -35,6 +35,7 @@ serve: |
   --trust-remote-code
   --cuda-graph-backend-prefill breakable
   --tool-call-parser gemma4 --reasoning-parser gemma4
+  --chat-template=/workspace/runners/chat_templates/gemma4_31b_it_fp8_block.jinja
 router:
   image: /mnt/ngoctg2-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
   env:
