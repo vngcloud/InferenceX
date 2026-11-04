@@ -3539,6 +3539,9 @@ build_replay_cmd() {
             fi
             REPLAY_CMD+=" $metrics_url"
         done
+    elif [ "${INFX_SERVER_METRICS:-on}" = off ]; then
+        # Without the flag aiperf still scrapes <url>/metrics on its own.
+        REPLAY_CMD+=" --no-server-metrics"
     fi
     REPLAY_CMD+=" --output-artifact-dir $result_dir/aiperf_artifacts"
     # The scenario enforces a 900s minimum duration; shorter smoke tests need
@@ -3597,6 +3600,8 @@ build_replay_cmd_yaml() {
     fi
     if [ -n "${AIPERF_SERVER_METRICS_URLS:-}" ]; then
         REPLAY_CMD+=" --server-metrics ${AIPERF_SERVER_METRICS_URLS//,/ }"
+    elif [ "${INFX_SERVER_METRICS:-on}" = off ]; then
+        REPLAY_CMD+=" --no-server-metrics"
     fi
     REPLAY_CMD+=" --output-artifact-dir $result_dir/aiperf_artifacts"
 }
