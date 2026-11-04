@@ -10,7 +10,10 @@
 # Image: same as glm53-w4afp8-dynamo-2tier-prod-host.yaml (vcr .../sglang-runtime:1.5.0-2tier-lockstep,
 # https://github.com/DinhKhangHoang/dynamo/tree/vng/two-tier-host-tier, policy in /opt/rbench/router-policies/).
 # Results (Slurm 8xH200, same engine flags, AgentX full, input tok/s/GPU):
-#   c48: 9145 (job 7694); 2tier-prod-host 9310/9218; smg cache_aware --dp-aware 9391; Dynamo kv ps16 (prod) ~7100
+#   c48: 9145 (job 7694), 9257 (job 8835); 2tier-prod-host 9310/9218; smg cache_aware --dp-aware 9391; Dynamo kv ps16 (prod) ~7100
+# Device timer (job 8835 vs 2tier job 7723, c48): prefill passes take 38% vs 36% of each rank's time and ranks sit
+# idle in 57% of it in both; 54% of prefill tokens still run in passes where only one rank prefills. The policy
+# evens the hourly prefill per rank (max/mean 1.09 vs 1.22) but can't line prefills up within a pass.
 name: glm53-w4afp8-dynamo-lockstep-ab
 runner: cluster:hcm-hgx02
 image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:1.5.0-2tier-lockstep  # engine image

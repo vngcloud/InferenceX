@@ -11,7 +11,7 @@
 # 1.5.0 runtime rejects host_cache_weight at startup.
 # Results (Slurm 8xH200, same engine flags, AgentX full, input tok/s/GPU):
 #   c48: 9310 (job 6710), 9218 (job 7723, rerun); smg cache_aware --dp-aware 9391; Dynamo kv ps16 (prod) ~7100
-#   c64: 10173 (job 7844), hit 0.952, TTFT p50 9.8 s, ITL p50 34.4 ms
+#   c64: no DP4 number yet (job 7844's 10173 ran DP8 by mistake)
 name: glm53-w4afp8-dynamo-2tier-prod-host
 runner: cluster:hcm-hgx02
 image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:1.5.0-2tier-lockstep  # engine image
