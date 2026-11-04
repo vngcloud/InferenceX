@@ -97,12 +97,17 @@ case "$FRAMEWORK" in
     sglang) [[ "${SGLANG_RUST_SERVER:-}" == 1 ]] || export AIPERF_REQUIRED_SERVER_METRIC_PREFIX="sglang:" ;;
     *) echo "ERROR: serve_generic.sh supports vllm and sglang, got FRAMEWORK=$FRAMEWORK" >&2; exit 1 ;;
 esac
+# env: INFX_SERVER_METRICS=off drops Prometheus scraping and its gate, for A/B arms where the
+# scrape would load one frontend (sglang's Python /metrics) but not the other (Rust has none).
+if [[ "${INFX_SERVER_METRICS:-on}" == off ]]; then
+    unset AIPERF_SERVER_METRICS_URLS AIPERF_REQUIRED_SERVER_METRIC_PREFIX
+fi
 
 SERVER_LOG="$RESULT_DIR/server.log"
 eval "set -- $SERVE_CMD"
-# e2B: a single Dynamo worker also takes this branch, so its engine gets the
-# --port/--kv-events-config that replica 0 gets in a multi-replica run.
-if [[ "${REPLICAS:-1}" -ge 1 && "${ROUTER_PROFILE:-}" == dynamo ]]; then
+# A single Dynamo worker whose launcher allocated its KV event port also takes this branch,
+# so its engine gets the --port/--kv-events-config that replica 0 gets in a multi-replica run.
+if [[ "${ROUTER_PROFILE:-}" == dynamo && ( "${REPLICAS:-1}" -gt 1 || -n "${DYN_KV_EVENT_PORTS:-}" ) ]]; then
     # Dynamo replicas (dynamo.vllm / dynamo.sglang): N engines, each on its own GPU slice, Dynamo
     # system port (health + metrics, DYN_SYSTEM_PORTS) and KV event port (DYN_KV_EVENT_PORTS);
     # the frontend finds them through file discovery. Replica 0 keeps server.log, as below.
