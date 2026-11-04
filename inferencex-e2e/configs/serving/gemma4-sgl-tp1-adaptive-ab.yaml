@@ -1,0 +1,54 @@
+name: gemma4-sgl-tp1-adaptive-ab
+runner: cluster:han-h200-01         # HAN 1xH200 (hgx01 driver wedged since 2026-11-02)
+image: /mnt/thanglq5-enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --context-length 262144
+  --max-running-requests 128
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.90
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+arms:
+  nospec: {}
+  d3:
+    append: |
+      --speculative-algorithm NEXTN --speculative-draft-model-path google/gemma-4-31B-it-assistant
+      --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
+  d4:
+    append: |
+      --speculative-algorithm NEXTN --speculative-draft-model-path google/gemma-4-31B-it-assistant
+      --speculative-num-steps 4 --speculative-eagle-topk 1 --speculative-num-draft-tokens 5
+  d5:
+    append: |
+      --speculative-algorithm NEXTN --speculative-draft-model-path google/gemma-4-31B-it-assistant
+      --speculative-num-steps 5 --speculative-eagle-topk 1 --speculative-num-draft-tokens 6
+  adaptive-v1:                       # overlay patch: per-slot log + min-dwell; slots refined after static results
+    env:
+      PYTHONPATH: /workspace/overlays/frozen-adaptive/site
+    append: |
+      --speculative-algorithm NEXTN --speculative-draft-model-path google/gemma-4-31B-it-assistant
+      --speculative-num-steps 4 --speculative-eagle-topk 1 --speculative-num-draft-tokens 5
+      --speculative-adaptive
+      --speculative-adaptive-config /workspace/overlays/frozen-adaptive/adaptive-config-v1.json
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [48, 80, 96, 128]              # 5 arms x 4 CCU = 20 jobs (each its own engine boot)

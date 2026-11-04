@@ -164,6 +164,10 @@ class AdaptiveStepSlot:
         self.down_hysteresis = cfg.get("down_hysteresis", -0.25)
         self.up_hysteresis = cfg.get("up_hysteresis", 0.0)
         self.ceiling_coeff = cfg.get("ceiling_coeff", 0)
+        # Minimum number of verify batches a tier must stay active before the next switch.
+        self.min_dwell = cfg.get("min_dwell", 0)
+        self.slot = cfg.get("slot")
+        self._batches_since_switch = 0
 
         if initial_steps in self.candidate_steps:
             self.current_steps = initial_steps
@@ -192,6 +196,7 @@ class AdaptiveStepSlot:
             ) * self.ema_accept_len + self.ema_alpha * batch_avg
 
         self._batch_count += 1
+        self._batches_since_switch += 1
         if self._batch_count <= self.warmup_batches:
             return False
 
@@ -252,10 +257,13 @@ class AdaptiveStepSlot:
 
     def _apply_target_steps(self, old_steps: int, target: int) -> bool:
         if target != old_steps:
+            if self._batches_since_switch < self.min_dwell:
+                return False
             self.current_steps = target
+            self._batches_since_switch = 0
             log_info_on_rank0(
                 logger,
-                f"Adaptive spec params updated: steps {old_steps} -> {target} "
+                f"Adaptive spec params updated: slot={self.slot} steps {old_steps} -> {target} "
                 f"(ema_accept_len={self.ema_accept_len:.2f})",
             )
             return True
@@ -281,7 +289,7 @@ class AdaptiveSpeculativeParams:
         for bs, entry in sorted(bs_entries.items()):
             self._slots[bs] = AdaptiveStepSlot(
                 initial_steps=initial_steps,
-                cfg={**cfg, **entry},
+                cfg={**cfg, **entry, "slot": bs},
             )
 
         first_slot = self._slots[self._bs_list[0]]

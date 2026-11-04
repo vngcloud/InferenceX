@@ -1,0 +1,11 @@
+{
+  "ema_alpha": 0.05,
+  "update_interval": 20,
+  "warmup_batches": 20,
+  "min_dwell": 100,
+  "up_hysteresis": 0.4,
+  "down_hysteresis": -0.5,
+  "1": {"candidate_steps": [3, 4, 5]},
+  "24": {"candidate_steps": [4, 5]},
+  "88": {"candidate_steps": [3, 4]}
+}
