@@ -360,7 +360,8 @@ labels:
     - hcm-rtx01_01
     - hcm-rtx02_00
     - hcm-rtx02_01
-  # HAN 1xH200 nodes (partition test): one slot per node, no /data disk, so caches live on /mnt (on /).
+  # HAN 1xH200 nodes (partition test): one slot per node. han-1 has /data (2T since
+  # 2026-11-04) so its caches live there; han-2 has no /data disk, caches on /mnt (on /).
   cluster:han-h200-01:
     - han-h200-01_00
   cluster:han-h200-02:
@@ -957,7 +958,7 @@ clusters:
         visibility: shared
         import: submit-host
         single-node-import: true
-  han-h200-01:
+  han-h200-01:  # /data expanded to 2T 2026-11-04; caches moved to /data (root disk stays for the OS)
     gpus-per-node: 1
     available-cpu-dram-mib: 120_741
     arch: x86_64
@@ -969,9 +970,9 @@ clusters:
       gres: "gpu:{gpus}"
       salloc-args: [--nodelist=hoanq3-h200-1x-han-1, --cpus-per-gpu=16, --mem-per-gpu=110000M]
       volumes:
-        hf-hub-cache: {path: /mnt/hf_hub_cache}
+        hf-hub-cache: {path: /data/hf_hub_cache}
       squash:
-        dir: /mnt/containers
+        dir: /data/containers
         visibility: shared
         import: submit-host
         single-node-import: true
