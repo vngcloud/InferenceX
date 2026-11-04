@@ -206,3 +206,24 @@ def test_rerank_tpm_comes_from_the_request_size_when_aiperf_counts_no_tokens():
         _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
     )
     assert (out["input_tps"], out["tpm"]) == (None, 2 * 10 * 544 * 60)
+
+
+def test_rerank_tpm_keeps_the_formula_when_aiperf_counts_query_once_tokens():
+    export = {
+        "request_throughput": {"avg": 2.0},
+        "input_token_throughput": {"avg": 64.0},
+        "request_latency": POOLING_EXPORT["request_latency"],
+    }
+    out = build_sweep_result(
+        _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
+    )
+    assert out["input_tps"] == 64.0
+    assert out["tpm"] == 2 * 10 * 544 * 60
+
+
+def test_rerank_tpm_is_zero_not_missing_at_zero_rps():
+    export = {"request_throughput": {"avg": 0.0}, "request_latency": POOLING_EXPORT["request_latency"]}
+    out = build_sweep_result(
+        _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
+    )
+    assert out["tpm"] == 0
