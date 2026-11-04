@@ -21,7 +21,6 @@ env:
   # bench.sh sets PYTHONPATH=/workspace before exporting this env; keep /workspace for the client.
   PYTHONPATH: /workspace:/workspace/vendor/sglang-2layer-cache
   HOST_DISK_PROBE_ONLY: "1"
-  TWO_LAYER_CACHE_SOCKET: "@sglang_2layer_cache_{{storage_master_port}}"
 serve: |
   python3 -m dynamo.sglang
   --model-path=PhalaCloud/GLM-5.3-W4AFP8
