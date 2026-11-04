@@ -161,11 +161,12 @@ def _pooling_probe_metrics(probe_export: dict, items: int, request_tokens: int |
         raise KeyError(f"probe export is missing required metric(s): {missing}")
     rps = _stat(probe_export, "request_throughput", "avg")
     input_tps = _stat(probe_export, "input_token_throughput", "avg")
-    tok_s = (
-        input_tps
-        if input_tps is not None
-        else (rps * request_tokens if rps and request_tokens else None)
-    )
+    # rerank keeps the formula even once aiperf#1516 ships an upstream count: that count
+    # is query-once and lower than the server's per-passage count.
+    if request_tokens is not None:
+        tok_s = rps * request_tokens if rps is not None else None
+    else:
+        tok_s = input_tps
     return {
         "rps": rps,
         "items_per_s": rps * items if rps is not None else None,
