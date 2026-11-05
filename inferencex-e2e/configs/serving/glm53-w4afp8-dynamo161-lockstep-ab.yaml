@@ -2,7 +2,9 @@
 # Dynamo 1.6.1 / SGLang v0.5.21 version of glm53-w4afp8-dynamo-lockstep-ab.yaml (same engine flags, same router
 # policy); see that file for the policy and the 1.5.0 results. The 1.5.0 numbers do not carry over automatically
 # (new SGLang and Dynamo).
-# Not yet run on GPU.
+# GPU runs (input tok/s/GPU, hgx-01): c32 8159 (gn-benchmark run 41995546871), c48 9007 (run 42060975212); both 0 errors,
+# accept 2.54, top_p 0.95 in router.log. vs 2tier-prod-host on the same node: +2.4% / +1.7%, one run each, within
+# rerun noise; ITL p50 c48 31.1 vs 28.1 ms. Read it as a tie.
 # Image: vcr .../sglang-runtime:1.6.1-2tier-lockstep = nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1 plus
 # ai-dynamo-runtime 1.6.1 built from https://github.com/DinhKhangHoang/dynamo/tree/vng/two-tier-host-tier-v1.6.1
 # (v1.6.1 + an API port of the 1.5.0 commit), the policies in /opt/rbench/router-policies/ and the
