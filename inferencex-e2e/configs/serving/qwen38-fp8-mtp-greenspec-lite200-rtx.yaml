@@ -1,0 +1,45 @@
+# Pattern: GreenSpec v1.1.2 lite, first 200 rows (balanced over the 12 buckets), base vs native MTP
+# (NEXTN) on node slurm-2 (runner cluster:hcm-rtx02, one GPU per arm). mode: prod-thinking sends
+# enable_thinking per row as production did; preflight: drop leaves out the rows over the served
+# context (row 351 of the release is one; the preflight checks all 768 lite rows).
+# Official SGLang image cached on slurm-2. Engine flags as the full RTX run 41807507203.
+# Dispatch run 41989559376: 200/200 per arm, 1 row dropped, MTP AL 2.69, output tok/s 1.20x.
+name: qwen38-fp8-mtp-greenspec-lite200-rtx
+runner: cluster:hcm-rtx02
+image: lmsysorg/sglang:v0.5.22-cu130
+model: Qwen/Qwen3.8-27B-FP8
+gpus: 1
+precision: fp8
+env:
+  FLASHINFER_CUDA_ARCH_LIST: "12.0f"
+serve: |
+  sglang serve --model-path Qwen/Qwen3.8-27B-FP8
+  --trust-remote-code
+  --mem-fraction-static 0.85
+  --attention-backend flashinfer
+  --chunked-prefill-size 8192
+  --max-prefill-tokens 16384
+  --context-length 262144
+  --max-running-requests 64
+  --mamba-ssm-dtype bfloat16
+  --max-mamba-cache-size 64
+  --schedule-policy dfs-weight
+  --enable-hierarchical-cache --hicache-size 24
+  --reasoning-parser qwen3 --tool-call-parser qwen3_coder
+  --enable-metrics --enable-cache-report
+arms:
+  base: {}
+  mtp:
+    append: |
+      --speculative-algorithm NEXTN
+      --speculative-num-steps 3
+      --speculative-eagle-topk 1
+      --speculative-num-draft-tokens 4
+scenario: greenspec
+overrides:
+  subset: diverse
+  lite: true
+  requests: 200
+  mode: prod-thinking
+  preflight: drop
+conc: [16]
