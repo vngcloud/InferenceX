@@ -1,0 +1,55 @@
+# sglang ai-all: gemma4-livekit-tp4-dyn-sglang-v3 (one TP4 dynamo.sglang engine, Dynamo KV router, fastokens
+# frontend tokenizer, LiveKit v1.1-warm trace, 1200 s) on an image with every Gemma 4 MR from ai-system/sglang
+# and our Dynamo, so it compares with the v3 run (CI 41034775398, c100/c128) and the prod vLLM config.
+# Image sglang-runtime:0.5.22-ai-all-dyn1.6.0-g4p2 (public pull):
+# - lmsysorg/sglang:v0.5.22-cu130 + ai-system/sglang MRs !5 (per-layer attention backend), !6 (FA4 SM90 FP8 KV
+#   for head_dim 512), !3 + !4 (fa4_fp8mma kernels and route), !8 (frozen-KV MTP target pool), !9 (prefill
+#   CUDA graph input_embeds), !10 (RSAG fused all-reduce, prebuilt). With fa3 + fp8_e4m3 KV and no spec
+#   decoding the 10 head_dim-512 global layers run on fa4_fp8mma (no env switch); server.log says
+#   "fa4_fp8mma: 10 head_dim-512 layers".
+# - ai-dynamo 1.6.0 + ai-dynamo/dynamo#17486 backported, the same runtime as vllm-runtime g4p2-prod
+#   (dynamo._core sha256 ef034cb82d158048). DYN_PARSER_VERSION=2 baked in and set in router.env.
+# Tool/API smoke (Slurm job 9478) matches the g4p2-prod Dynamo rows of smoke 8218 on every tools case.
+#   inferencex-e2e/utils/serving/dispatch.sh inferencex-e2e/configs/serving/gemma4-livekit-tp4-dyn-sglang-ai-all.yaml --ref bench/gemma4-sglang-ai-all-dyn
+name: gemma4-livekit-tp4-dyn-sglang-ai-all
+runner: cluster:hcm-hgx01
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:0.5.22-ai-all-dyn1.6.0-g4p2
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  SGLANG_GEMMA4_RSAG: "1"
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 160
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --dyn-tool-call-parser gemma4 --dyn-reasoning-parser gemma4
+router:
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:0.5.22-ai-all-dyn1.6.0-g4p2
+  env:
+    FASTOKENS_BPE_THREADS: "4"
+    DYN_PARSER_VERSION: "2"
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+    --tokenizer fastokens
+scenario: livekit
+conc: [100, 128]
