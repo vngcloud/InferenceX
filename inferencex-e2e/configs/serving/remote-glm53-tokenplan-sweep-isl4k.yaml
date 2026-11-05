@@ -1,0 +1,17 @@
+# Remote endpoint (no engine launched): GreenNode Coding Plan (tokenplan) GLM-5.3 chat TPM @ SLO
+# search. ISL 4k x OSL {512, 1k} x cache {0, 50, 90}; AIPerf adaptive search finds the max
+# concurrency under the default SLO (TTFT avg < 8s, ITL p90 < 50ms). Key: GitHub secret REMOTE_API_KEY.
+name: remote-glm53-tokenplan-sweep-isl4k
+runner: cluster:hcm-hgx02
+endpoint:
+  url: https://tokenplan.api.greennode.ai/v1
+  model: z-ai/glm-5.3
+  api-key-secret: REMOTE_API_KEY
+  tokenizer: zai-org/GLM-5.3
+scenario: synthetic
+workload:
+  isl: [4k]
+  osl: ['512', 1k]
+  cache: [0, 50, 90]
+  search: true
+conc: 1

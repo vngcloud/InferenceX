@@ -40,7 +40,7 @@ OVERRIDE_KEYS = (
 )
 SYNTHETIC_OVERRIDES = ("duration",)
 GENERATION_KEYS = ("top_p", "temperature")
-ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
+ISL = {"4k": 4096, "8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
 OSL = {"512": 512, "1k": 1024}
 CACHE = (0, 50, 90)
 POOLING = ("embed", "rerank")

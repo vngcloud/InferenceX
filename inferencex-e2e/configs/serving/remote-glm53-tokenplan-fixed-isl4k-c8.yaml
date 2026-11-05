@@ -1,0 +1,13 @@
+# Remote endpoint (no engine launched): GreenNode Coding Plan (tokenplan) GLM-5.3 chat TPM at fixed
+# concurrency 8. ISL 4k x OSL {512, 1k} x cache {0, 50, 90}, one job per point.
+# Key: GitHub secret REMOTE_API_KEY.
+name: remote-glm53-tokenplan-fixed-isl4k-c8
+runner: cluster:hcm-hgx02
+endpoint:
+  url: https://tokenplan.api.greennode.ai/v1
+  model: z-ai/glm-5.3
+  api-key-secret: REMOTE_API_KEY
+  tokenizer: zai-org/GLM-5.3
+scenario: synthetic
+workload: {isl: [4k], osl: ['512', 1k], cache: [0, 50, 90], search: false}
+conc: 8
