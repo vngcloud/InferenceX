@@ -40,8 +40,9 @@ Pass criteria:
 - `NodeHostName` matches the node name.
 
 If `stackops` is missing, create it as root on the node (step 1b). Fix anything else on the infra side before registering. Known state (2026-10-25):
-- HAN `test` partition, 1xH200 / 16 CPU / ~120 GB RAM per node, no `/data` disk on han-1/2 (caches on `/mnt`, which is on `/`):
-  - `han-1`, `han-2`: healthy (pyxis OK, ~300 GB free), no `stackops` yet. Clusters `han-h200-01`, `han-h200-02`.
+- HAN `test` partition, 1xH200 / 16 CPU / ~120 GB RAM per node:
+  - `han-1`: `/data` expanded to 2T (2026-11-04, 1.4T free). Caches on `/data` (`hf-hub-cache` `/data/hf_hub_cache`, squash `/data/containers`); the old `/mnt` paths are symlinks to them, so `/` dropped to 43%. Store perms are opened (`a+rwX` + default ACL `d:o:rwX`) so models downloaded by any user stay writable by the `stackops` CI — without that, the CI's `refs` write fails with `Permission denied`. Cluster `han-h200-01`.
+  - `han-2`: healthy, no `/data` disk (caches on `/mnt`, which is on `/`). Cluster `han-h200-02`.
   - `han-4`: `/data` cleaned to 73% (267G free, 2026-10-25), `stackops` exists. Cluster `han-h200-04`, runner in `/data/gharunners/han-h200-04`, squash `/data/containers`, HF cache the existing `/data/hf-cache`. `/` (enroot runtime) has only 48G free.
   - `han-3-1`: `/` at 99% with the enroot paths on it. Out.
   - `han-3`: slurmd name mismatch (`srun`: Invalid node name). Out.

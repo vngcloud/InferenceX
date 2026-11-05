@@ -28,6 +28,7 @@ from infx.results.agentic import (
 )
 from infx.results.agentic.common import round_floats
 from infx.results.agentic.server_metrics import compute_server_metrics
+from infx.serving.scenarios import RERANK_PASSAGE, RERANK_QUERY_TOKENS
 
 REQUIRED_PROBE_METRICS = (
     "request_throughput",
@@ -35,6 +36,8 @@ REQUIRED_PROBE_METRICS = (
     "time_to_first_token",
     "inter_token_latency",
 )
+# input_token_throughput is absent for rerank: aiperf does not tokenize ranking payloads.
+POOLING_PROBE_METRICS = ("request_throughput", "request_latency")
 
 
 def identity_fields(env: Mapping[str, str]) -> dict:
@@ -102,7 +105,26 @@ def _stat(metrics: dict, tag: str, stat: str) -> float | None:
     return float(value) if value is not None else None
 
 
-def probe_metrics(probe_export: dict, conc: int) -> dict:  # noqa: ARG001
+def items_per_request(label: str) -> int | None:
+    """Inputs (embed batch) or passages (rerank docs) per request, read off the scenario label."""
+    match = re.search(r"-embed-isl[^-]+-b(\d+)|-rerank-p[^-]+-n(\d+)", label)
+    return int(match.group(1) or match.group(2)) if match else None
+
+
+def rerank_request_tokens(label: str) -> int | None:
+    """Tokens the server counts for one rerank request: the query is scored with every passage."""
+    match = re.search(r"-rerank-p([^-]+)-n(\d+)", label)
+    if not match or match.group(1) not in RERANK_PASSAGE:
+        return None
+    return int(match.group(2)) * (RERANK_QUERY_TOKENS + RERANK_PASSAGE[match.group(1)])
+
+
+def probe_metrics(
+    probe_export: dict,
+    conc: int,  # noqa: ARG001
+    items: int | None = None,
+    request_tokens: int | None = None,
+) -> dict:
     """Metrics of the winning probe (the search's winning concurrency).
 
     ``conc`` is kept for interface stability (the brief's signature) but is
@@ -111,6 +133,8 @@ def probe_metrics(probe_export: dict, conc: int) -> dict:  # noqa: ARG001
     there is no combo/parameter list left to match a concurrency against.
     Raises KeyError only when a required metric tag is genuinely absent.
     """
+    if items is not None:
+        return _pooling_probe_metrics(probe_export, items, request_tokens)
     missing = [tag for tag in REQUIRED_PROBE_METRICS if tag not in probe_export]
     if missing:
         raise KeyError(f"probe export is missing required metric(s): {missing}")
@@ -123,6 +147,35 @@ def probe_metrics(probe_export: dict, conc: int) -> dict:  # noqa: ARG001
         "ttft_p90_ms": _stat(probe_export, "time_to_first_token", "p90"),
         "itl_avg_ms": _stat(probe_export, "inter_token_latency", "avg"),
         "itl_p90_ms": _stat(probe_export, "inter_token_latency", "p90"),
+    }
+
+
+def _pooling_probe_metrics(probe_export: dict, items: int, request_tokens: int | None) -> dict:
+    """Embed/rerank metrics: no output tokens; throughput in items (inputs or passages) per second.
+
+    AIPerf counts no input tokens for cohere_rankings (aiperf#1516), so rerank TPM comes from the
+    request size, which counts the query per passage as the server does.
+    """
+    missing = [tag for tag in POOLING_PROBE_METRICS if tag not in probe_export]
+    if missing:
+        raise KeyError(f"probe export is missing required metric(s): {missing}")
+    rps = _stat(probe_export, "request_throughput", "avg")
+    input_tps = _stat(probe_export, "input_token_throughput", "avg")
+    # rerank keeps the formula even once aiperf#1516 ships an upstream count: that count
+    # is query-once and lower than the server's per-passage count.
+    if request_tokens is not None:
+        tok_s = rps * request_tokens if rps is not None else None
+    else:
+        tok_s = input_tps
+    return {
+        "rps": rps,
+        "items_per_s": rps * items if rps is not None else None,
+        "input_tps": input_tps,
+        "tpm": round(tok_s * 60) if tok_s is not None else None,
+        **{
+            f"latency_{stat}_ms": _stat(probe_export, "request_latency", stat)
+            for stat in ("avg", "p50", "p90", "p99")
+        },
     }
 
 
@@ -151,7 +204,15 @@ def build_sweep_result(
     """Build the unrounded sweep result; the caller owns rounding and I/O."""
     result = summarize_search(history)
     if result["max_conc"] is not None:
-        result.update(probe_metrics(probe_export, result["max_conc"]))
+        label = env.get("SERVING_SCENARIO_LABEL", "")
+        result.update(
+            probe_metrics(
+                probe_export,
+                result["max_conc"],
+                items_per_request(label),
+                rerank_request_tokens(label),
+            )
+        )
     result.update(identity_fields(env))
     # Serving-sweep runs may not set KV_OFFLOADING (the serving-YAML path does
     # not require it); validate only when present so the schema stays stable.

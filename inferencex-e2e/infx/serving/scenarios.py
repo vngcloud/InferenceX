@@ -1,4 +1,4 @@
-"""Serving scenarios: six base AIPerf configs plus the variant a serving YAML asks for.
+"""Serving scenarios: base AIPerf configs plus the variant a serving YAML asks for.
 
 render() returns the final AIPerf config and the legacy label its results are filed under
 (agentx-cc-062126-smoke, sweep-isl8k-osl1k-cache50, ...), so old and new runs line up.
@@ -27,6 +27,8 @@ FAMILIES = (
     "synthetic",
     "greenspec",
     "speedbench",
+    "embed",
+    "rerank",
 )
 OVERRIDE_KEYS = (
     "duration",
@@ -37,10 +39,16 @@ OVERRIDE_KEYS = (
     "warmup_requests_per_lane",
 )
 SYNTHETIC_OVERRIDES = ("duration", "warmup")
+POOLING_OVERRIDES = ("duration",)
 GENERATION_KEYS = ("top_p", "temperature")
 ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
 OSL = {"512": 512, "1k": 1024}
 CACHE = (0, 50, 90)
+POOLING = ("embed", "rerank")
+EMBED_ISL = {"512": 512, "2k": 2048, "8k": 8192, "32k": 32768}
+RERANK_PASSAGE = {"512": 512, "2k": 2048}
+RERANK_QUERY_TOKENS = 32
+POOLING_SLO = {"embed": "request_latency:p90:lt:500", "rerank": "request_latency:p90:lt:1000"}
 DEFAULT_SLO = "time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"
 # Searches score sustainable capacity: an excluded warmup absorbs the start burst of N clients.
 # 120 s drains it for 8k-class prompts; long-ISL configs set more, 0 scores from t = 0.
@@ -70,6 +78,30 @@ class Point:
     @property
     def label(self) -> str:
         return f"isl{self.isl}-osl{self.osl}-cache{self.cache}"
+
+
+@dataclass(frozen=True)
+class EmbedPoint:
+    """One embed grid point: tokens per input and inputs per request."""
+
+    isl: str
+    batch: int
+
+    @property
+    def label(self) -> str:
+        return f"embed-isl{self.isl}-b{self.batch}"
+
+
+@dataclass(frozen=True)
+class RerankPoint:
+    """One rerank grid point: tokens per passage and passages per request."""
+
+    passage: str
+    docs: int
+
+    @property
+    def label(self) -> str:
+        return f"rerank-p{self.passage}-n{self.docs}"
 
 
 @dataclass(frozen=True)
@@ -197,26 +229,62 @@ def _synthetic(point: Point, search: bool, slo: str | None) -> dict[str, Any]:
     if prefix:
         dataset["prefix_prompts"] = {"shared_system_length": prefix}
     if search:
-        try:
-            filters = parse_slo(slo or DEFAULT_SLO)
-        except SLOError as error:
-            raise ScenarioError(str(error)) from None
-        doc["sweep"] = {
-            "type": "adaptive_search",
-            "planner": "smooth_isotonic",
-            "objectives": [
-                {"metric": "output_token_throughput", "stat": "avg", "direction": "maximize"}
-            ],
-            "search_space": [
-                {"path": "phases.profiling.concurrency", "lo": 1, "hi": 512, "kind": "int"}
-            ],
-            "sla_filters": [
-                {"metric_tag": s.metric, "stat": s.stat, "op": s.op, "threshold": s.threshold}
-                for s in filters
-            ],
-            "max_iterations": 16,
-            "sla_precision": "normal",  # 1000 requests/probe cap
+        doc["sweep"] = _search_block(slo, DEFAULT_SLO, "output_token_throughput")
+    return doc
+
+
+def _search_block(slo: str | None, default_slo: str, objective: str) -> dict[str, Any]:
+    try:
+        filters = parse_slo(slo or default_slo)
+    except SLOError as error:
+        raise ScenarioError(str(error)) from None
+    return {
+        "type": "adaptive_search",
+        "planner": "smooth_isotonic",
+        "objectives": [{"metric": objective, "stat": "avg", "direction": "maximize"}],
+        "search_space": [
+            {"path": "phases.profiling.concurrency", "lo": 1, "hi": 512, "kind": "int"}
+        ],
+        "sla_filters": [
+            {"metric_tag": s.metric, "stat": s.stat, "op": s.op, "threshold": s.threshold}
+            for s in filters
+        ],
+        "max_iterations": 16,
+        "sla_precision": "normal",  # 1000 requests/probe cap
+    }
+
+
+def _pooling(
+    family: str, point: Point | EmbedPoint | RerankPoint | None, search: bool, slo: str | None
+) -> dict[str, Any]:
+    if slo and not search:
+        raise ScenarioError("slo: only applies with workload.search: true")
+    doc = load_base(family)
+    dataset = doc["benchmark"]["datasets"][0]
+    if family == "embed":
+        if not isinstance(point, EmbedPoint):
+            raise ScenarioError("workload: embed takes isl, batch and search")
+        if point.isl not in EMBED_ISL:
+            raise ScenarioError(f"workload.isl: {point.isl!r} is not one of {', '.join(EMBED_ISL)}")
+        if point.batch < 1:
+            raise ScenarioError(f"workload.batch: {point.batch!r} is not a positive integer")
+        dataset["prompts"] = {"isl": EMBED_ISL[point.isl], "batchSize": point.batch}
+    else:
+        if not isinstance(point, RerankPoint):
+            raise ScenarioError("workload: rerank takes passage, docs and search")
+        if point.passage not in RERANK_PASSAGE:
+            raise ScenarioError(
+                f"workload.passage: {point.passage!r} is not one of {', '.join(RERANK_PASSAGE)}"
+            )
+        if point.docs < 1:
+            raise ScenarioError(f"workload.docs: {point.docs!r} is not a positive integer")
+        dataset["rankings"] = {
+            "queryTokens": RERANK_QUERY_TOKENS,
+            "passages": point.docs,
+            "passageTokens": RERANK_PASSAGE[point.passage],
         }
+    if search:
+        doc["sweep"] = _search_block(slo, POOLING_SLO[family], "request_throughput")
     return doc
 
 
@@ -295,7 +363,7 @@ def _speedbench(
 def render(
     family: str,
     overrides: dict[str, Any] | None = None,
-    point: Point | None = None,
+    point: Point | EmbedPoint | RerankPoint | None = None,
     search: bool = False,
     slo: str | None = None,
     lock: dict[str, LockEntry] | None = None,
@@ -307,27 +375,32 @@ def render(
         return _greenspec(overrides, point, search, slo, lock)
     if family == "speedbench":
         return _speedbench(overrides, point, search, slo, lock)
-    if family == "synthetic":
-        if point is None:
+    if family in ("synthetic", *POOLING):
+        if family == "synthetic" and point is None:
             raise ScenarioError("workload: synthetic needs isl, osl and cache")
-        if extra := sorted(set(overrides) - set(SYNTHETIC_OVERRIDES)):
+        allowed = SYNTHETIC_OVERRIDES if family == "synthetic" else POOLING_OVERRIDES
+        if extra := sorted(set(overrides) - set(allowed)):
             raise ScenarioError(
-                f"overrides: synthetic only takes {', '.join(SYNTHETIC_OVERRIDES)}, not {', '.join(extra)}"
+                f"overrides: {family} only takes {', '.join(allowed)}, not {', '.join(extra)}"
             )
-        doc = _synthetic(point, search, slo)
-        default = DEFAULT_SEARCH_WARMUP if search else 0.0
-        warmup = overrides.pop("warmup", default)
-        if isinstance(warmup, bool) or not isinstance(warmup, (int, float)) or warmup < 0:
-            raise ScenarioError(
-                f"overrides.warmup: seconds >= 0 (0 scores from t = 0), got {warmup!r}"
-            )
-        suffixes = _apply(doc, family, overrides, lock)
-        if warmup:
-            _warmup(doc, float(warmup))
-        elif search:
-            doc["sweep"]["sla_warmup_seconds"] = 0  # no aiperf warmup either
-        if warmup != default:
-            suffixes.append(f"-w{warmup:g}")
+        if family in POOLING:
+            doc = _pooling(family, point, search, slo)
+            suffixes = _apply(doc, family, overrides, lock)
+        else:
+            doc = _synthetic(point, search, slo)
+            default = DEFAULT_SEARCH_WARMUP if search else 0.0
+            warmup = overrides.pop("warmup", default)
+            if isinstance(warmup, bool) or not isinstance(warmup, (int, float)) or warmup < 0:
+                raise ScenarioError(
+                    f"overrides.warmup: seconds >= 0 (0 scores from t = 0), got {warmup!r}"
+                )
+            suffixes = _apply(doc, family, overrides, lock)
+            if warmup:
+                _warmup(doc, float(warmup))
+            elif search:
+                doc["sweep"]["sla_warmup_seconds"] = 0  # no aiperf warmup either
+            if warmup != default:
+                suffixes.append(f"-w{warmup:g}")
         label = f"{'sweep' if search else 'fixed'}-{point.label}{''.join(suffixes)}"
         return Rendered(doc, label, "synthetic", "synthetic", search, _profiling(doc)["duration"])
     if point is not None or search or slo:

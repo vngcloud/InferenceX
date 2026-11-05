@@ -1,0 +1,13 @@
+name: maas-qwen3-embedding-8b-embed-isl2k-b16
+runner: cluster:hcm-rtx01
+endpoint:
+  url: https://103.196.238.5.nip.io/v1/maas/qwen/qwen3-embedding-8b
+  model: qwen3-embedding-8b
+  api-key-secret: MAAS_QWEN3_EMBEDDING_8B_AUTH
+  tokenizer: Qwen/Qwen3-Embedding-8B
+  tls-verify: false
+scenario: embed
+workload: {isl: [2k], batch: [16], search: true}
+slo: "request_latency:p90:lt:2000"
+overrides: {duration: 60}
+conc: 1

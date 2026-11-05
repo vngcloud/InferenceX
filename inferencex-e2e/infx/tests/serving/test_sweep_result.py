@@ -4,7 +4,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from infx.serving.sweep_result import build_sweep_result, cache_check, probe_metrics, summarize_search
+import pytest
+
+from infx.serving.sweep_result import (
+    build_sweep_result,
+    cache_check,
+    items_per_request,
+    probe_metrics,
+    rerank_request_tokens,
+    summarize_search,
+)
 
 FIX = Path(__file__).parent / "fixtures" / "sweep"
 
@@ -126,3 +135,95 @@ def test_build_sweep_result_without_winner_needs_no_probe_export():
     assert "rps" not in out
     # No cacheNN suffix -> no cache axis in the result.
     assert "cache_mismatch" not in out
+
+
+POOLING_EXPORT = {
+    "request_throughput": {"avg": 10.0},
+    "input_token_throughput": {"avg": 655360.0},
+    "request_latency": {"avg": 80.0, "p50": 75.0, "p90": 120.0, "p99": 200.0},
+}
+
+
+def test_pooling_probe_metrics_count_items_not_output_tokens():
+    assert probe_metrics(POOLING_EXPORT, conc=64, items=32) == {
+        "rps": 10.0,
+        "items_per_s": 320.0,
+        "input_tps": 655360.0,
+        "tpm": 39321600,
+        "latency_avg_ms": 80.0,
+        "latency_p50_ms": 75.0,
+        "latency_p90_ms": 120.0,
+        "latency_p99_ms": 200.0,
+    }
+
+
+def test_pooling_probe_metrics_need_request_latency():
+    with pytest.raises(KeyError):
+        probe_metrics({"request_throughput": {"avg": 1.0}}, conc=1, items=1)
+
+
+@pytest.mark.parametrize(
+    "label, items",
+    [
+        ("sweep-embed-isl2k-b32", 32),
+        ("sweep-rerank-p512-n40-d60", 40),
+        ("sweep-isl8k-osl1k-cache50", None),
+    ],
+)
+def test_items_per_request_reads_the_label(label, items):
+    assert items_per_request(label) == items
+
+
+def test_build_sweep_result_for_embed_reports_items_per_second():
+    out = build_sweep_result(
+        _fixture_history(), POOLING_EXPORT, _env(SERVING_SCENARIO_LABEL="sweep-embed-isl2k-b32")
+    )
+    assert (out["max_conc"], out["items_per_s"]) == (256, 320.0)
+    assert "output_tps" not in out
+
+
+def test_rerank_probe_metrics_without_input_tokens_leave_input_tps_empty():
+    export = {key: POOLING_EXPORT[key] for key in ("request_throughput", "request_latency")}
+    got = probe_metrics(export, conc=4, items=40)
+    assert (got["items_per_s"], got["input_tps"], got["tpm"]) == (400.0, None, None)
+
+
+@pytest.mark.parametrize(
+    "label, tokens",
+    [
+        ("sweep-rerank-p512-n10", 5440),
+        ("sweep-rerank-p512-n100-d60", 54400),
+        ("sweep-embed-isl2k-b16", None),
+    ],
+)
+def test_rerank_request_tokens_count_the_query_per_passage(label, tokens):
+    assert rerank_request_tokens(label) == tokens
+
+
+def test_rerank_tpm_comes_from_the_request_size_when_aiperf_counts_no_tokens():
+    export = {"request_throughput": {"avg": 2.0}, "request_latency": POOLING_EXPORT["request_latency"]}
+    out = build_sweep_result(
+        _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
+    )
+    assert (out["input_tps"], out["tpm"]) == (None, 2 * 10 * 544 * 60)
+
+
+def test_rerank_tpm_keeps_the_formula_when_aiperf_counts_query_once_tokens():
+    export = {
+        "request_throughput": {"avg": 2.0},
+        "input_token_throughput": {"avg": 64.0},
+        "request_latency": POOLING_EXPORT["request_latency"],
+    }
+    out = build_sweep_result(
+        _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
+    )
+    assert out["input_tps"] == 64.0
+    assert out["tpm"] == 2 * 10 * 544 * 60
+
+
+def test_rerank_tpm_is_zero_not_missing_at_zero_rps():
+    export = {"request_throughput": {"avg": 0.0}, "request_latency": POOLING_EXPORT["request_latency"]}
+    out = build_sweep_result(
+        _fixture_history(), export, _env(SERVING_SCENARIO_LABEL="sweep-rerank-p512-n10")
+    )
+    assert out["tpm"] == 0

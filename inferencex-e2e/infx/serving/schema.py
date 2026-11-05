@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from infx.clusters import RunnerInventory, load_inventory
 from infx.serving import scenarios
-from infx.serving.scenarios import Point, Rendered, ScenarioError
+from infx.serving.scenarios import EmbedPoint, Point, Rendered, RerankPoint, ScenarioError
 
 NAME_PATTERN = r"^[a-z0-9][a-z0-9.-]*$"
 LOCAL_PATH_MARKERS = ("/models/", "/mnt/", "/data/")
@@ -205,6 +205,59 @@ class Workload(BaseModel):
         return [Point(i, o, c) for i, o, c in itertools.product(self.isl, self.osl, self.cache)]
 
 
+class EmbedWorkload(BaseModel):
+    """The embed grid: one job per (isl, batch) point."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    isl: list[str] = Field(min_length=1)
+    batch: list[int] = Field(min_length=1)
+    search: bool = False
+
+    @field_validator("isl", mode="before")
+    @classmethod
+    def _labels(cls, value: Any) -> Any:
+        return [str(item) for item in _listed(value)]
+
+    @field_validator("batch", mode="before")
+    @classmethod
+    def _batch(cls, value: Any) -> Any:
+        return _listed(value)
+
+    def points(self) -> list[EmbedPoint]:
+        return [EmbedPoint(i, b) for i, b in itertools.product(self.isl, self.batch)]
+
+
+class RerankWorkload(BaseModel):
+    """The rerank grid: one job per (passage, docs) point."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passage: list[str] = Field(min_length=1)
+    docs: list[int] = Field(min_length=1)
+    search: bool = False
+
+    @field_validator("passage", mode="before")
+    @classmethod
+    def _labels(cls, value: Any) -> Any:
+        return [str(item) for item in _listed(value)]
+
+    @field_validator("docs", mode="before")
+    @classmethod
+    def _docs(cls, value: Any) -> Any:
+        return _listed(value)
+
+    def points(self) -> list[RerankPoint]:
+        return [RerankPoint(p, d) for p, d in itertools.product(self.passage, self.docs)]
+
+
+WORKLOADS: dict[str, type[BaseModel]] = {
+    "synthetic": Workload,
+    "embed": EmbedWorkload,
+    "rerank": RerankWorkload,
+}
+
+
 class ServingSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -230,9 +283,11 @@ class ServingSpec(BaseModel):
         "synthetic",
         "greenspec",
         "speedbench",
+        "embed",
+        "rerank",
     ]
     overrides: dict[str, Any] = Field(default_factory=dict)
-    workload: Workload | None = None
+    workload: Workload | EmbedWorkload | RerankWorkload | None = None
     slo: str | None = None
     conc: list[Annotated[int, Field(gt=0)]] = Field(min_length=1)
 
@@ -255,23 +310,26 @@ class ServingSpec(BaseModel):
         return value
 
 
-def _format_validation_error(error: ValidationError) -> str:
+def _format_validation_error(error: ValidationError, scenario: Any = None) -> str:
     models = {
         "router": RouterSpec,
         "storage": StorageSpec,
-        "workload": Workload,
+        "workload": WORKLOADS.get(scenario, Workload),
         "endpoint": EndpointSpec,
     }
+    member = models["workload"].__name__
+    members = {model.__name__ for model in WORKLOADS.values()}
     lines = []
     for item in error.errors():
-        location = ".".join(str(part) for part in item["loc"]) or "serving"
+        loc = list(item["loc"])
+        if len(loc) > 1 and loc[0] == "workload" and loc[1] in members:
+            if loc[1] != member:
+                continue  # a union member of another scenario
+            del loc[1]
+        location = ".".join(str(part) for part in loc) or "serving"
         message = item["msg"].removeprefix("Value error, ")
         if item["type"] == "extra_forbidden":
-            model = (
-                models.get(str(item["loc"][0]), ServingSpec)
-                if len(item["loc"]) > 1
-                else ServingSpec
-            )
+            model = models.get(str(loc[0]), ServingSpec) if len(loc) > 1 else ServingSpec
             allowed = (field.alias or name for name, field in model.model_fields.items())
             message = "unknown key (allowed: " + ", ".join(allowed) + ")"
         elif item["loc"] == ("scenario",):
@@ -473,7 +531,7 @@ def load_serving(text: str, inventory: RunnerInventory | None = None) -> Serving
     try:
         spec = ServingSpec.model_validate(raw)
     except ValidationError as error:
-        raise ServingError(_format_validation_error(error)) from error
+        raise ServingError(_format_validation_error(error, raw.get("scenario"))) from error
 
     problems: list[str] = []
     if spec.endpoint is not None:

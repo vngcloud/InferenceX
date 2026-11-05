@@ -1,0 +1,10 @@
+name: gemma4-31b-han1-datacache-smoke
+runner: cluster:han-h200-01
+image: vcr.vngcloud.vn/108942-public69/vllm-stack/vllm-openai:v0.25.1
+model: google/gemma-4-31B-it
+gpus: 1
+serve: |
+  vllm serve google/gemma-4-31B-it --tensor-parallel-size 1
+scenario: shared-prefix-e2
+overrides: {duration: 180}
+conc: [4]
