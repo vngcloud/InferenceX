@@ -1,0 +1,15 @@
+# Remote MaaS endpoint (Basic auth, no engine launched): GLM-5.3-Flash chat TPM @ SLO
+# search on the kube HAN 4xH200 deployment (aiplatform z-ai/glm-5.3-flash backend).
+# Key: GitHub secret REMOTE_MAAS_GLM53FLASH_API_KEY, value "Basic <b64>".
+name: maas-glm53flash-chat-isl8k-osl1k-cache90
+runner: cluster:hcm-hgx01
+endpoint:
+  url: https://59.153.247.24.nip.io/v1/maas/zai-org/glm-5.3-flash
+  model: zai-org/GLM-5.3-Flash
+  api-key-secret: REMOTE_MAAS_GLM53FLASH_API_KEY
+  tokenizer: zai-org/GLM-5.3-Flash
+  tls-verify: false
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: true}
+slo: "time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"
+conc: 1
