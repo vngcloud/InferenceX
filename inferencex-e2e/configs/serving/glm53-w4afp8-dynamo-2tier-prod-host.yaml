@@ -13,7 +13,7 @@
 #   c48: 9310 (job 6710), 9218 (job 7723, rerun); smg cache_aware --dp-aware 9391; Dynamo kv ps16 (prod) ~7100
 #   c64: no DP4 number yet (job 7844's 10173 ran DP8 by mistake)
 name: glm53-w4afp8-dynamo-2tier-prod-host
-runner: cluster:hcm-hgx02
+runner: cluster:hcm-hgx01  # hgx-02 is drained with 4 of its 8 GPUs held by prod (2026-11-05)
 image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:1.5.0-2tier-lockstep  # engine image
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8

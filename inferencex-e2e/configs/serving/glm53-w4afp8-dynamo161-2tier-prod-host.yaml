@@ -2,9 +2,10 @@
 # Dynamo 1.6.1 / SGLang v0.5.21 version of glm53-w4afp8-dynamo-2tier-prod-host.yaml (same engine flags, same router
 # policy); see that file for the policy and the 1.5.0 results. The 1.5.0 numbers do not carry over automatically
 # (new SGLang and Dynamo).
-# First GPU run: gn-benchmark run 41311987718, c64 (Slurm 7913) 9060 input tok/s/GPU, accept 2.53, top_p 0.95 in
-# router.log; it sent ~265M prompt tokens vs ~295M in the Slurm harness, so not comparable to 1.5.0. c48 failed at
-# container start (enroot driver rpc timeout).
+# GPU runs (input tok/s/GPU, hgx-01): c32 7971, c48 8855 (gn-benchmark run 41934493299: 0 errors, accept 2.55/2.53,
+# top_p 0.95 in router.log, TTFT p50/p90 2.5/8.4 s and 5.1/41.9 s); c64 9060 (run 41311987718, hgx-02).
+# CI's AgentX prompts average ~76k tokens vs ~97k in the Slurm harness, so these don't compare with the 1.5.0 numbers;
+# compare arms within CI.
 # Image: vcr .../sglang-runtime:1.6.1-2tier-lockstep = nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.6.1 plus
 # ai-dynamo-runtime 1.6.1 built from https://github.com/DinhKhangHoang/dynamo/tree/vng/two-tier-host-tier-v1.6.1
 # (v1.6.1 + an API port of the 1.5.0 commit), the policies in /opt/rbench/router-policies/ and the
