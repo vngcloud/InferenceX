@@ -47,7 +47,7 @@ Working examples, one per pattern: `inferencex-e2e/configs/serving/*.yaml`. They
 | `agentx` | SemiAnalysis coding traces (weka 062126), needs 262144 context | 3600 s |
 | `tau2` | tau2 customer-service agent traces | 1200 s |
 | `livekit` | LiveKit voice-agent traces, V1.1 warm (dial warm-ups count in TTFT) | 1200 s |
-| `prod-ccu` | GLM-5.3 production coding-agent sessions, raw prompts, output forced to logged length (private; `dataset: glm53-prod-ccu-lite` = 1.3 GB subset) | 3600 s |
+| `prod-ccu` | GLM-5.3 production coding-agent sessions, raw prompts, output forced to logged length (private; `dataset: glm53-prod-ccu-lite` = 1.5 GB subset) | 3600 s |
 | `shared-prefix-e2` / `hidden-prefix-e3` | prefix-cache A/B traces (HiCache L2 vs Mooncake L3) | 1800 s |
 | `synthetic` | synthetic ISL/OSL with a shared-prefix cache hit, needs `workload:` | 300 s per point |
 | `greenspec` | speculative-decoding bench from production chat traffic (private; result has `spec_decode.acceptance_length`) | the whole selection, no duration |

@@ -1,5 +1,5 @@
 name: remote-glm53-tokenplan-prod-ccu-smoke
-runner: cluster:hcm-hgx02
+runner: cluster:hcm-hgx01
 endpoint:
   url: https://tokenplan.api.greennode.ai/v1
   model: z-ai/glm-5.3

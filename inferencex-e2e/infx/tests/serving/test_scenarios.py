@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from infx.serving.datasets import load_lock
 from infx.serving.scenarios import FAMILIES, EmbedPoint, Point, RerankPoint, ScenarioError, render
 
 LEGACY = Path(__file__).parent / "legacy_scenarios"
@@ -65,7 +66,7 @@ def test_prod_ccu_is_labelled_by_its_dataset():
     assert (full.kind, full.dataset, full.label) == ("file", "glm53-prod-ccu", "glm53-prod-ccu")
     lite = render("prod-ccu", {"dataset": "glm53-prod-ccu-lite", "duration": 180})
     assert lite.label == "glm53-prod-ccu-lite-smoke"
-    assert lite.doc["benchmark"]["datasets"][0]["entries"] == 102
+    assert lite.doc["benchmark"]["datasets"][0]["entries"] == load_lock()["glm53-prod-ccu-lite"].entries
 
 
 def test_slo_replaces_the_sweep_filters():

@@ -214,7 +214,7 @@ that several nodes need belong in a registry, where every node caches its own sq
 
 ## 6. Scenarios
 
-Eight base files in `benchmarks/single_node/serving/scenarios/`:
+Base files in `benchmarks/single_node/serving/scenarios/`:
 
 | Family | Workload | Dataset |
 |---|---|---|
