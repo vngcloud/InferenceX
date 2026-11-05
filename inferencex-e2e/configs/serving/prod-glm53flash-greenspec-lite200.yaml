@@ -1,0 +1,59 @@
+# Pattern: a production config replayed on GreenSpec v1.1.2 lite, first 200 rows (16-17 per bucket, all 12 buckets), base vs the production MTP.
+# Source: general-docs production/glm-5.3-flash/deployment.yaml (snapshot 2026-11-03, cluster HAN 4xH200):
+# SGLang engine TP4/EP4/DP4 + sglang_router sidecar (cache_aware, dp-aware). Engine and router flags as in
+# production, except the wiring (host/port, worker URL, --dist-init-addr, prometheus port) and
+# HF_HUB_OFFLINE (the job downloads the model). The base arm is production without the EAGLE flags.
+name: prod-glm53flash-greenspec-lite200
+runner: h200-hcm
+image: lmsysorg/sglang:v0.5.22
+model: zai-org/GLM-5.3-Flash
+gpus: 4
+precision: bf16
+env:
+  SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK: "1"
+  SGLANG_DP_USE_GATHERV: "1"
+  SGLANG_ENABLE_METRICS_DP_ATTENTION: "1"
+  NCCL_P2P_LEVEL: NVL
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+serve: |
+  python3 -m sglang.launch_server
+  --model-path=zai-org/GLM-5.3-Flash
+  --served-model-name=zai-org/GLM-5.3-Flash
+  --tp-size=4 --ep-size=4 --dp-size=4
+  --enable-dp-attention --enable-dp-attention-local-control-broadcast --enable-dp-lm-head
+  --mm-enable-dp-encoder
+  --moe-runner-backend=deep_gemm
+  --chunked-prefill-size=32768
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --mem-fraction-static=0.88 --max-running-requests=64 --context-length=1048576
+  --kv-cache-dtype=fp8_e4m3
+  --dsa-prefill-backend=tilelang --dsa-decode-backend=tilelang
+  --enable-metrics --enable-metrics-for-all-schedulers --enable-cache-report
+  --enable-hierarchical-cache --hicache-size=32
+  --mamba-radix-cache-strategy=extra_buffer_lazy --mamba-ssm-dtype=bfloat16 --max-mamba-cache-size=384
+  --schedule-policy=hrrn
+  --cuda-graph-backend-prefill=disabled
+router:
+  image: lmsysorg/sglang:v0.5.22
+  serve: |
+    python3 -m sglang_router.launch_router
+    --host=0.0.0.0 --port={{router_port}} --prometheus-port={{router_metrics_port}}
+    --worker-urls={{engine_url}}
+    --policy=cache_aware --dp-aware --balance-abs-threshold=8
+    --request-id-headers=x-correlation-id
+    --connect-timeout-secs=900 --request-timeout-secs=14400
+    --disable-health-check --disable-retries
+arms:
+  base: {}
+  mtp:
+    append: |
+      --speculative-algorithm=EAGLE --speculative-num-steps=5
+      --speculative-eagle-topk=1 --speculative-num-draft-tokens=6
+scenario: greenspec
+overrides:
+  subset: diverse
+  lite: true
+  requests: 200
+  mode: prod-thinking
+  preflight: drop
+conc: [1, 16, 64]
