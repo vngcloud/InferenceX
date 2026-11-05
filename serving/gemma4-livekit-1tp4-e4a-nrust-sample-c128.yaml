@@ -1,0 +1,42 @@
+# e4A frontend A/B arm (nrust-sample): the mentor's engine/env/scenario of
+# gemma4-livekit-2tp4-dyn-sgl-fp8kv-pfbreak-fa4fp8mma-v11 (run 40085686661) at 1 replica on
+# 4 GPUs of hgx-h200-02; only the frontend differs within a pair: npy vs nrust (no
+# router, 1 worker; -sgr = behind sglang-router), dpy vs a future drust (dynamo router).
+name: gemma4-livekit-1tp4-e4a-nrust-sample-c128
+runner: hardware-hcm-8x_02
+image: /mnt/loipp/enroot/images/sglang-v0.5.22-ai1rc-cdce95199f-e4a-rusttext-908ad09983-amd64.sqsh
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 4
+replicas: 1
+host_cpus: 64
+host_mem_gb: 192
+precision: fp8
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  PYTHONPATH: /workspace/runners/sglang_gemma4_bcg
+  SGLANG_RUST_SERVER: "1"
+  SGLANG_RUST_TEXT_ONLY: "1"
+  INFX_SERVER_METRICS: "off"
+serve: |
+  bash /workspace/runners/e4_prof/wrap.sh sample python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --served-model-name RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 4
+  --context-length 262144
+  --max-running-requests 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+  --chat-template=/workspace/runners/chat_templates/gemma4_31b_it_fp8_block.jinja
+  --enable-request-time-stats-logging
+scenario: custom-agentic-livekit111868-v1.1-warm
+conc: [128]
