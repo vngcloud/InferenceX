@@ -15,7 +15,7 @@ runner: cluster:hcm-hgx02           # see "Runner" below
 image: vllm/vllm-openai:v0.29.0     # required; or /abs/path.sqsh on the runner's node
 model: Qwen/Qwen3.8-27B             # HF repo id, never a local path
 gpus: 1                             # GPUs the command needs
-replicas: 1                         # optional: N engine copies, gpus/N each; N > 1 needs router: with {{engine_urls}}
+replicas: 1                         # optional: N engine copies, gpus/N each; N > 1 needs router: with {{engine_urls}}, or dynamo.frontend + dynamo.vllm
 precision: bf16                     # optional (bf16 default), naming only
 env:                                # optional, the engine's env vars; quote booleans
   PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
@@ -101,8 +101,9 @@ via an OpenAI-compatible API), write `endpoint:` instead of `image`/`model`/`gpu
 - **Model path → HF id.** `--model-path /models/<org>/<model>` becomes `--model-path <org>/<model>` and `model: <org>/<model>`. If you cannot tell the HF id from the path, ask.
 - **Host/port:** leave them or drop them; the benchmark picks its own free ports.
 - **Router:** the router part goes under `router:` with its own `image`; the engine stays in `serve`. Engine env → `env:`, router env → `router.env:`.
-  - **Replicas** (e.g. 2× TP1): `replicas: N`, `gpus` = N × per-engine GPUs, the router lists `{{engine_urls}}`. Not with the Dynamo frontend.
-  - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang`): leave out `DYN_*`, `ETCD_ENDPOINTS`, NATS and `--http-host/--http-port`; the benchmark wires them.
+  - **Replicas** (e.g. 2× TP1): `replicas: N`, `gpus` = N × per-engine GPUs, the router lists `{{engine_urls}}`. With the Dynamo frontend: `dynamo.vllm` engines only (below).
+  - **Dynamo** (`python3 -m dynamo.frontend` + `python3 -m dynamo.sglang` or `python3 -m dynamo.vllm`): leave out `DYN_*`, `ETCD_ENDPOINTS`, NATS and `--http-host/--http-port`; the benchmark wires them.
+    `replicas: N` works with `dynamo.vllm` only: each replica gets its own system port and KV event port, so leave out `--kv-events-config`.
   - **Any other router:** keep the user's flags except the wiring. Listen flags → `--host=0.0.0.0 --port={{router_port}}`. A worker URL → `{{engine_url}}` (or `{{engine_port}}`). A metrics port flag (`--prometheus-port=18888`) → `--prometheus-port={{router_metrics_port}}`, picked free at run time like every other port. Never a literal port: two jobs on one node would collide. (`router.metrics_port: <port>` still exists for a port the user cannot change.)
   - **Router command missing** (only flags + image): infer it from the flag family and say so. `--worker-urls`, `--policy=cache_aware`, `--prometheus-port` → `python3 -m sglang_router.launch_router`. Unknown family → ask. Slim images without python3 run a binary path.
   - Placeholders exist only in `router.*`, `storage.*` and (storage ports only) `env:`. No `$VAR` anywhere.

@@ -255,3 +255,42 @@ def test_arms_do_not_combine_with_a_remote_endpoint():
     text = ("name: r\nrunner: cluster:hcm-hgx01\nendpoint: {url: 'http://h:8000/v1', model: m}\n"
             "arms: {a: {}}\nscenario: agentx\nconc: 4\n")
     assert "arms: not used with endpoint:" in errors(text)
+
+
+DYNAMO_REPLICAS = """\
+name: dyn-2rep
+runner: cluster:hcm-hgx02
+image: vcr.example/dynamo/vllm-runtime:1.6.0
+model: Qwen/Qwen3.8-27B
+gpus: 8
+replicas: 2
+serve: python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4
+router:
+  image: vcr.example/dynamo/vllm-runtime:1.6.0
+  serve: python3 -m dynamo.frontend --router-mode=kv
+scenario: agentx
+conc: 8
+"""
+
+
+def test_dynamo_vllm_replicas_behind_the_frontend():
+    assert load_serving(DYNAMO_REPLICAS).replicas == 2
+
+
+@pytest.mark.parametrize(
+    "old, new, message",
+    [
+        (
+            "python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4",
+            "python3 -m dynamo.sglang --model-path Qwen/Qwen3.8-27B --tp 4 --enable-metrics",
+            "replicas: more than 1 replica behind the Dynamo frontend needs python3 -m dynamo.vllm",
+        ),
+        (
+            "--tensor-parallel-size 4",
+            "--tensor-parallel-size 4 --kv-events-config '{\"publisher\":\"zmq\"}'",
+            "replicas: drop --kv-events-config from serve",
+        ),
+    ],
+)
+def test_dynamo_replicas_rejects(old, new, message):
+    assert message in errors(DYNAMO_REPLICAS.replace(old, new))
