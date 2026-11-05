@@ -212,6 +212,17 @@ def with_token_source(scenario_yaml: str, source: str) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
+def failed_request_threshold(scenario_yaml: str) -> str:
+    """The profiling phase's failedRequestThreshold, so the result gate matches aiperf's own abort."""
+    import yaml  # in the AgentX venv (agentx-harness depends on PyYAML)
+
+    phases = yaml.safe_load(scenario_yaml)["benchmark"].get("phases") or []
+    for phase in phases:
+        if phase.get("kind") == "profiling" and "failedRequestThreshold" in phase:
+            return str(phase["failedRequestThreshold"])
+    return FAILED_REQUEST_THRESHOLD
+
+
 def selection_family(env: Mapping[str, str]) -> tuple[Any, Any] | None:
     """The (module, Settings) of the selection family the job's serving YAML runs, else None.
 
@@ -351,7 +362,7 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
             "infx.results.agentic.validate_agentic_result",
             str(artifacts),
             "--failed-request-threshold",
-            FAILED_REQUEST_THRESHOLD,
+            failed_request_threshold(scenario_yaml),
         ],
         child,
     )

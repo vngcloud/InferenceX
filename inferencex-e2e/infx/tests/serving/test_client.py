@@ -11,6 +11,7 @@ from infx.serving.client import (
     ProbeError,
     agentx_argv,
     datasets_cache,
+    failed_request_threshold,
     label_result,
     online,
     probe,
@@ -167,6 +168,15 @@ def test_client_token_source_turns_server_counting_off():
         "type": "chat",
         "useServerTokenCount": False,
     }
+
+
+def test_result_gate_uses_the_scenario_failed_request_threshold():
+    def doc(phase):
+        return yaml.safe_dump({"benchmark": {"phases": [{"kind": "warmup"}, {"kind": "profiling", **phase}]}})
+
+    assert failed_request_threshold(doc({"failedRequestThreshold": 0.2})) == "0.2"
+    assert failed_request_threshold(doc({})) == "0.10"
+    assert failed_request_threshold(yaml.safe_dump({"benchmark": {}})) == "0.10"
 
 
 def test_label_result_records_the_token_count_source(tmp_path):
