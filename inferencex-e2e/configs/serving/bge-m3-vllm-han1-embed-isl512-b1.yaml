@@ -1,0 +1,19 @@
+name: bge-m3-vllm-han1-embed-isl512-b1
+runner: cluster:han-h200-01
+image: vllm/vllm-openai:v0.29.0
+model: BAAI/bge-m3
+gpus: 1
+serve: |
+  vllm serve BAAI/bge-m3
+  --served-model-name bge-m3
+  --hf-overrides '{"architectures":["BgeM3EmbeddingModel"]}'
+  --pooler-config '{"task":"embed"}'
+  --trust-remote-code
+  --gpu-memory-utilization 0.05
+  --kv-cache-metrics
+  --enable-prompt-tokens-details
+scenario: embed
+workload: {isl: [512], batch: [1], search: true}
+slo: "request_latency:p90:lt:200"
+overrides: {duration: 60}
+conc: 1
