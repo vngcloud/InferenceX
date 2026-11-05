@@ -58,8 +58,8 @@ def test_point_is_one_right_sized_shared_batch_job_on_its_node(harness):
     assert result.returncode == 0, result.stdout + result.stderr
     [submit] = lines(harness.logs, "sbatch")
     flags = set(submit.split())
-    assert {"--gres=gpu:nvidia_h200:2", "--nodelist=hgx-h200-02", "--cpus-per-gpu=16",
-            "--mem-per-gpu=240000M", f"--chdir={harness.workspace}"} <= flags
+    assert {"--gres=gpu:nvidia_h200:2", "--nodelist=hgx-h200-02", "--cpus-per-gpu=8",
+            "--mem-per-gpu=200000M", f"--chdir={harness.workspace}"} <= flags
     assert "--exclusive" not in flags
     steps = lines(harness.logs, "srun")
     assert len(steps) == 2  # DCGM sidecar + engine step

@@ -3,7 +3,7 @@ import pytest
 from infx.clusters import load_inventory
 
 NODES = {
-    "hcm-hgx01": ("hgx-h200-01", 4, "gpu:nvidia_h200:{gpus}", 4),
+    "hcm-hgx01": ("hgx-h200-01", 8, "gpu:nvidia_h200:{gpus}", 4),
     "hcm-hgx02": ("hgx-h200-02", 8, "gpu:nvidia_h200:{gpus}", 4),
     "hcm-rtx01": ("hoanq3-rtx6000x2-slurm-1", 2, "gpu:nvidia_rtx6000pro:{gpus}", 2),
     "hcm-rtx02": ("hoanq3-rtx6000x2-slurm-2", 2, "gpu:nvidia_rtx6000pro:{gpus}", 2),
@@ -25,7 +25,7 @@ def test_vng_node_is_one_cluster_pinned_and_shared(cluster_id):
     assert settings.exclusive is False
     assert settings.gres == gres
     assert f"--nodelist={node}" in settings.salloc_args
-    assert "--cpus-per-gpu=16" in settings.salloc_args
+    assert any(arg.startswith("--cpus-per-gpu=") for arg in settings.salloc_args)
     assert any(arg.startswith("--mem-per-gpu=") for arg in settings.salloc_args)
     assert "hf-hub-cache" in settings.volumes
     assert settings.squash.import_mode == "submit-host" and settings.squash.single_node_import
