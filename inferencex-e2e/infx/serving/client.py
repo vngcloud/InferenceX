@@ -42,6 +42,15 @@ PROBE_BODY = {  # the shape agentx sends: streaming, usage requested, ignore_eos
     "max_completion_tokens": 16,
     "ignore_eos": True,
 }
+POOLING_PROBES = {
+    "embed": ("/v1/embeddings", {"input": ["OK"]}),
+    "rerank": ("/v1/rerank", {"query": "OK", "documents": ["OK"]}),
+}
+
+
+def scenario_family(label: str) -> str:
+    """The pooling family ("embed" or "rerank") a scenario label names, else ""."""
+    return next((family for family in POOLING_PROBES if f"-{family}-" in label), "")
 
 
 def online(env: Mapping[str, str]) -> dict[str, str]:
@@ -153,18 +162,27 @@ def _tls_context(verify: bool) -> ssl.SSLContext | None:
 
 
 def probe(
-    url: str, model: str, api_key: str, secret: str = "", timeout: float = 60.0, verify: bool = True
+    url: str,
+    model: str,
+    api_key: str,
+    secret: str = "",
+    timeout: float = 60.0,
+    verify: bool = True,
+    family: str = "",
 ) -> str:
-    """One streaming request shaped like agentx's: "server" if a chunk carries usage, else "client"."""
+    """One request shaped like the scenario's: "server" if a chat chunk carries usage, else "client"."""
     headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
     if api_key:
         headers["Authorization"] = authorization(api_key)
-    body = json.dumps({"model": model, **PROBE_BODY}).encode()
-    request = urllib.request.Request(f"{url}/v1/chat/completions", data=body, headers=headers)  # noqa: S310 -- http(s) only, checked by the schema
+    path, extra = POOLING_PROBES.get(family, ("/v1/chat/completions", PROBE_BODY))
+    body = json.dumps({"model": model, **extra}).encode()
+    request = urllib.request.Request(f"{url}{path}", data=body, headers=headers)  # noqa: S310 -- http(s) only, checked by the schema
     try:
         with urllib.request.urlopen(  # noqa: S310 -- http(s) only, checked by the schema
             request, timeout=timeout, context=_tls_context(verify)
         ) as response:
+            if family in POOLING_PROBES:
+                return "client"  # no usage to count from; aiperf tokenizes the inputs itself
             for raw in response:
                 line = raw.decode(errors="replace").strip()
                 if not line.startswith("data:") or line == "data: [DONE]":
@@ -306,6 +324,7 @@ def prepare(env: Mapping[str, str], runtime: Runtime) -> int:
                 env.get("SERVING_API_KEY", ""),
                 env.get("SERVING_API_KEY_SECRET", ""),
                 verify=env.get("SERVING_TLS_VERIFY", "1") != "0",
+                family=scenario_family(env.get("SERVING_SCENARIO_LABEL", "")),
             )
         except ProbeError as error:
             print(f"ERROR remote endpoint: {error}", file=sys.stderr)

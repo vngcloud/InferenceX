@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from infx.serving.scenarios import FAMILIES, Point, ScenarioError, render
+from infx.serving.scenarios import FAMILIES, EmbedPoint, Point, RerankPoint, ScenarioError, render
 
 LEGACY = Path(__file__).parent / "legacy_scenarios"
 GEN = {"top_p": 0.95, "temperature": 1.0}
@@ -149,3 +149,67 @@ def test_warmup_requests_per_lane_override():
 def test_families_have_base_files():
     from infx.serving.scenarios import SCENARIOS_DIR
     assert {path.stem for path in SCENARIOS_DIR.glob("*.yaml")} == set(FAMILIES)
+
+
+def test_embed_search_point_fills_prompts_and_searches_request_throughput():
+    rendered = render("embed", {}, EmbedPoint("2k", 32), search=True)
+    dataset = rendered.doc["benchmark"]["datasets"][0]
+    assert dataset["prompts"] == {"isl": 2048, "batchSize": 32}
+    assert rendered.doc["benchmark"]["endpoint"] == {"type": "embeddings", "path": "/v1/embeddings"}
+    sweep = rendered.doc["sweep"]
+    assert sweep["objectives"] == [
+        {"metric": "request_throughput", "stat": "avg", "direction": "maximize"}
+    ]
+    assert sweep["sla_filters"] == [
+        {"metric_tag": "request_latency", "stat": "p90", "op": "lt", "threshold": 500.0}
+    ]
+    assert (rendered.label, rendered.kind, rendered.search) == ("sweep-embed-isl2k-b32", "synthetic", True)
+
+
+def test_rerank_fixed_point_fills_rankings_without_a_sweep():
+    rendered = render("rerank", {"duration": 60}, RerankPoint("512", 40))
+    dataset = rendered.doc["benchmark"]["datasets"][0]
+    assert dataset["rankings"] == {"queryTokens": 32, "passages": 40, "passageTokens": 512}
+    assert rendered.doc["benchmark"]["endpoint"] == {"type": "cohere_rankings", "path": "/v1/rerank"}
+    assert "sweep" not in rendered.doc
+    assert (rendered.label, rendered.duration) == ("fixed-rerank-p512-n40-d60", 60.0)
+
+
+def test_rerank_search_uses_its_own_default_slo_and_accepts_an_override():
+    default = render("rerank", {}, RerankPoint("2k", 10), search=True)
+    assert default.doc["sweep"]["sla_filters"][0]["threshold"] == 1000.0
+    custom = render("rerank", {}, RerankPoint("2k", 10), search=True, slo="request_latency:p99:lt:200")
+    assert custom.doc["sweep"]["sla_filters"] == [
+        {"metric_tag": "request_latency", "stat": "p99", "op": "lt", "threshold": 200.0}
+    ]
+
+
+def test_pooling_sizes_beyond_the_nim_grid_render():
+    embed = render("embed", {}, EmbedPoint("2k", 16), search=True)
+    assert embed.doc["benchmark"]["datasets"][0]["prompts"] == {"isl": 2048, "batchSize": 16}
+    assert embed.label == "sweep-embed-isl2k-b16"
+    rerank = render("rerank", {}, RerankPoint("512", 100), search=True)
+    assert rerank.doc["benchmark"]["datasets"][0]["rankings"]["passages"] == 100
+    assert rerank.label == "sweep-rerank-p512-n100"
+
+
+@pytest.mark.parametrize(
+    "family, point, slo, message",
+    [
+        ("embed", EmbedPoint("4k", 1), None, "workload.isl: '4k'"),
+        ("embed", EmbedPoint("2k", 0), None, "workload.batch: 0"),
+        ("rerank", RerankPoint("1k", 10), None, "workload.passage: '1k'"),
+        ("rerank", RerankPoint("512", 0), None, "workload.docs: 0"),
+        ("embed", EmbedPoint("2k", 1), "request_latency:p90:lt:5", "slo: only applies"),
+        ("rerank", EmbedPoint("2k", 1), None, "workload: rerank takes passage, docs"),
+        ("embed", None, None, "workload: embed takes isl, batch"),
+    ],
+)
+def test_pooling_rejects_points_outside_the_grid(family, point, slo, message):
+    with pytest.raises(ScenarioError, match=message):
+        render(family, {}, point, False, slo)
+
+
+def test_pooling_takes_only_the_duration_override():
+    with pytest.raises(ScenarioError, match="overrides: embed only takes duration"):
+        render("embed", {"dataset": "x"}, EmbedPoint("512", 1))

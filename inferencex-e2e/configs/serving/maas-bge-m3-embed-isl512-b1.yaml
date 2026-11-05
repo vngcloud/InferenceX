@@ -1,0 +1,13 @@
+name: maas-bge-m3-embed-isl512-b1
+runner: cluster:hcm-rtx01
+endpoint:
+  url: https://103.196.238.5.nip.io/v3/maas/baai/bge-m3
+  model: bge-m3
+  api-key-secret: MAAS_BGE_M3_AUTH
+  tokenizer: BAAI/bge-m3
+  tls-verify: false
+scenario: embed
+workload: {isl: [512], batch: [1], search: true}
+slo: "request_latency:p90:lt:200"
+overrides: {duration: 60}
+conc: 1
