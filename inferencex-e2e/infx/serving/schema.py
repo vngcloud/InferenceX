@@ -278,6 +278,7 @@ class ServingSpec(BaseModel):
         "agentx",
         "tau2",
         "livekit",
+        "prod-ccu",
         "shared-prefix-e2",
         "hidden-prefix-e3",
         "synthetic",

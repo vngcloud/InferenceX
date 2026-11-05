@@ -1,0 +1,10 @@
+name: remote-glm53-tokenplan-prod-ccu-smoke
+runner: cluster:hcm-hgx02
+endpoint:
+  url: https://tokenplan.api.greennode.ai/v1
+  model: z-ai/glm-5.3
+  api-key-secret: REMOTE_API_KEY
+  tokenizer: zai-org/GLM-5.3
+scenario: prod-ccu
+overrides: {dataset: glm53-prod-ccu-lite, duration: 180}
+conc: [2]

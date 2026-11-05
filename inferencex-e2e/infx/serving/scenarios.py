@@ -22,6 +22,7 @@ FAMILIES = (
     "agentx",
     "tau2",
     "livekit",
+    "prod-ccu",
     "shared-prefix-e2",
     "hidden-prefix-e3",
     "synthetic",
@@ -372,5 +373,8 @@ def render(
         kind, name = "file", dataset["name"]
         if name not in lock:
             raise ScenarioError(f"scenario: dataset {name} of {family} is not in the dataset lock")
-    base = LABELS.get(family) or LIVEKIT_LABEL + name.removeprefix("livekit-111868-")
+    if family == "prod-ccu":
+        base = name
+    else:
+        base = LABELS.get(family) or LIVEKIT_LABEL + name.removeprefix("livekit-111868-")
     return Rendered(doc, base + "".join(suffixes), kind, name, False, _profiling(doc)["duration"])

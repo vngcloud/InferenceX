@@ -60,6 +60,14 @@ def test_kinds_and_datasets():
     assert (sweep.kind, sweep.search) == ("synthetic", True)
 
 
+def test_prod_ccu_is_labelled_by_its_dataset():
+    full = render("prod-ccu")
+    assert (full.kind, full.dataset, full.label) == ("file", "glm53-prod-ccu", "glm53-prod-ccu")
+    lite = render("prod-ccu", {"dataset": "glm53-prod-ccu-lite", "duration": 180})
+    assert lite.label == "glm53-prod-ccu-lite-smoke"
+    assert lite.doc["benchmark"]["datasets"][0]["entries"] == 102
+
+
 def test_slo_replaces_the_sweep_filters():
     doc = render("synthetic", point=Point("8k", "1k", 0), search=True,
                  slo="time_to_first_token:p95:lt:500;inter_token_latency:p50:lt:50").doc
