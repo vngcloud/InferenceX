@@ -17,6 +17,7 @@ from infx.serving.greenspec import (
     label,
     normalize,
     payload,
+    prod_thinking,
     select,
     settings,
     write_selection,
@@ -64,6 +65,7 @@ def test_select(dataset, chosen, expected):
     ({"max_tokens": 0}, "overrides.max_tokens"),
     ({"requests": True}, "overrides.requests"),
     ({"duration": 180}, "greenspec takes"),
+    ({"preflight": "strict"}, "overrides.preflight"),
 ])
 def test_bad_overrides(overrides, message):
     with pytest.raises(GreenSpecError, match=message):
@@ -277,3 +279,41 @@ def test_tee_filtered_writes_the_filtered_console_to_stdout_and_the_log(tmp_path
     out = capsys.readouterr().out
     assert "secret" not in out and "secret" not in log.read_text()
     assert log.read_text().splitlines() == ["14:27:46.500 ERROR    <withheld: may echo server error text>"]
+
+
+@pytest.mark.parametrize("source, recorded, expected", [
+    ("observed", {}, True),
+    ("observed", {"chat_template_kwargs": {"enable_thinking": False}}, True),  # behaviour wins
+    ("none", {}, False),
+    ("none", {"chat_template_kwargs": {"enable_thinking": True}}, False),
+    ("unlogged", {"chat_template_kwargs": {"enable_thinking": True}}, True),
+    ("unlogged", {"chat_template_kwargs": {"enable_thinking": False}}, False),
+    ("unlogged", {"chat_template_kwargs": {"thinking": False}}, False),
+    ("unlogged", {}, True),  # no switch on a route that drops reasoning: assume the model reasoned
+    ("unlogged", None, True),
+])
+def test_prod_thinking_follows_what_production_did(source, recorded, expected):
+    assert prod_thinking({"thinking_src": source, "recorded": recorded}) is expected
+
+
+def test_payload_prod_thinking_sets_only_the_switch():
+    on = payload({**ROWS[0], "thinking_src": "observed"}, "m", Settings(mode="prod-thinking"))
+    assert on["chat_template_kwargs"] == {"enable_thinking": True}
+    assert on["max_tokens"] == 8192 and "temperature" not in on  # sampling stays target-default
+    off = payload({**ROWS[0], "chat_template_kwargs": {"x": 1}}, "m", Settings(mode="prod-thinking"))
+    assert off["chat_template_kwargs"] == {"x": 1, "enable_thinking": False}
+    assert "chat_template_kwargs" not in payload(ROWS[0], "m", Settings())
+
+
+def test_label_and_settings_of_the_new_keys():
+    chosen = normalize({"mode": "prod-thinking", "preflight": "drop", "lite": True})
+    assert chosen.preflight == "drop" and chosen.prod_thinking
+    assert label(chosen) == "greenspec-diverse-lite-prodthink-pfdrop"
+    assert normalize({}).preflight == "warn"
+    assert label(normalize({"preflight": "off"})) == "greenspec-diverse"
+
+
+def test_write_selection_keeps_the_ids_beside_the_bodies(dataset, tmp_path):
+    out = tmp_path / "sel" / "selection.jsonl"
+    assert write_selection(dataset, Settings(lite=True), "m", out) == 2
+    assert out.with_suffix(".ids").read_text() == "m/aaaa\nm/cccc\n"

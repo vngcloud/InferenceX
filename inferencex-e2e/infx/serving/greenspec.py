@@ -35,8 +35,12 @@ TAG = "GreenSpec"  # how the family names itself in the job log
 META_KEYS = ("question_id", "category", "bucket", "lite", "isl", "osl", "thinking_src", "recorded")
 MAX_TOKEN_KEYS = ("max_tokens", "max_completion_tokens")
 SUBSETS = ("diverse", "agentic_coding", "agentic_tools", "llm_task")
-MODES = ("target-default", "recorded")
-OVERRIDES = ("subset", "lite", "bucket", "mode", "max_tokens", "requests")
+MODES = ("target-default", "recorded", "prod-thinking")
+# What the client does with the rows the runtime preflight says the server will reject (over the
+# served context, or the chat template raises): list them (warn), leave them out (drop), or skip
+# the check (off).
+PREFLIGHTS = ("warn", "drop", "off")
+OVERRIDES = ("subset", "lite", "bucket", "mode", "max_tokens", "requests", "preflight")
 DEFAULT_MAX_TOKENS = 8192
 BUCKET = re.compile(r"[a-z_]+__[0-9a-z+-]+")
 # Relative to the result dir; everything else is removed before the upload.
@@ -81,10 +85,15 @@ class Settings:
     mode: str = "target-default"
     max_tokens: int = DEFAULT_MAX_TOKENS
     requests: int | None = None  # None: the whole selection
+    preflight: str = "warn"
 
     @property
     def recorded(self) -> bool:
         return self.mode == "recorded"
+
+    @property
+    def prod_thinking(self) -> bool:
+        return self.mode == "prod-thinking"
 
 
 def normalize(overrides: Mapping[str, Any]) -> Settings:
@@ -114,7 +123,12 @@ def normalize(overrides: Mapping[str, Any]) -> Settings:
             isinstance(value, bool) or not isinstance(value, int) or value < 1
         ):
             raise GreenSpecError(f"overrides.{field}: a positive integer, got {value!r}")
-    return Settings(subset, lite, bucket, mode, max_tokens, requests)
+    preflight = overrides.get("preflight", "warn")
+    if preflight not in PREFLIGHTS:
+        raise GreenSpecError(
+            f"overrides.preflight: {preflight!r} is not one of {', '.join(PREFLIGHTS)}"
+        )
+    return Settings(subset, lite, bucket, mode, max_tokens, requests, preflight)
 
 
 def settings(env: Mapping[str, str]) -> Settings | None:
@@ -139,6 +153,10 @@ def label(chosen: Settings) -> str:
         parts.append("lite")
     if chosen.recorded:
         parts.append("recorded")
+    if chosen.prod_thinking:
+        parts.append("prodthink")
+    if chosen.preflight == "drop":
+        parts.append("pfdrop")
     if chosen.max_tokens != DEFAULT_MAX_TOKENS:
         parts.append(f"mt{chosen.max_tokens}")
     if chosen.requests:
@@ -223,18 +241,42 @@ def fix_tools(tools: Any) -> Any:
     return fixed
 
 
+def prod_thinking(row: Mapping[str, Any]) -> bool:
+    """Whether production reasoned on this row, as the ``enable_thinking`` switch to send.
+
+    What the production model did wins over what the request asked: ``observed`` (the logged
+    response has reasoning) is on and ``none`` (no reasoning, on a route that logs it) is off, even
+    when the recorded request set the switch the other way. ``unlogged`` (the Anthropic-style route
+    drops reasoning from the log) follows the recorded switch, and is on when the request set none.
+    """
+    source = row.get("thinking_src")
+    if source == "observed":
+        return True
+    if source == "none":
+        return False
+    kwargs = (row.get("recorded") or {}).get("chat_template_kwargs") or {}
+    switch = kwargs.get("enable_thinking", kwargs.get("thinking"))
+    return switch if isinstance(switch, bool) else True
+
+
 def payload(row: dict[str, Any], model: str, chosen: Settings) -> dict[str, Any]:
     """One row -> the request body the client sends for it.
 
     Target-default keeps messages, tools and the like and lets the served model choose its own
-    sampling; recorded also replays the production sampling. The output cap only ever lowers the
-    row's own cap.
+    sampling; recorded also replays the production sampling; prod-thinking is target-default plus
+    ``chat_template_kwargs.enable_thinking`` set to what production did (:func:`prod_thinking`).
+    The output cap only ever lowers the row's own cap.
     """
     body = {k: v for k, v in row.items() if k not in META_KEYS}
     if "tools" in body:
         body["tools"] = fix_tools(body["tools"])
     if chosen.recorded:
         body.update(row.get("recorded") or {})
+    if chosen.prod_thinking:
+        body["chat_template_kwargs"] = {
+            **(body.get("chat_template_kwargs") or {}),
+            "enable_thinking": prod_thinking(row),
+        }
     capped = [k for k in MAX_TOKEN_KEYS if k in body]
     if capped:
         for k in capped:
@@ -254,7 +296,13 @@ def write_selection(dataset: Path, chosen: Settings, model: str, out: Path) -> i
         f.writelines(
             json.dumps(payload(row, model, chosen), ensure_ascii=False) + "\n" for row in rows
         )
+    # The question_id of each line, for the preflight's node-local report only (never uploaded).
+    selection_ids(out).write_text("".join(row["question_id"] + "\n" for row in rows))
     return len(rows)
+
+
+def selection_ids(selection: Path) -> Path:
+    return selection.with_suffix(".ids")
 
 
 class ConsoleFilter:

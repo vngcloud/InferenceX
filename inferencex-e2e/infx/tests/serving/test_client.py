@@ -294,5 +294,8 @@ def test_guard_scans_the_release_and_prunes_the_result_dir(tmp_path, monkeypatch
     assert client.guard({"SERVING_DATASET": "greenspec-v1.1.2"}, result_dir, aggregate, output) == 0
     assert not (tmp_path / "selection").exists() and not (result_dir / "server.log").exists()
     assert (output / client.PRIVATE_LOGS / "server.log").read_text() == "engine output"
+    assert (output / client.GUARDED_MARKER).exists()  # the workflow's upload gate opens
+    (output / client.GUARDED_MARKER).unlink()
     aggregate.write_text('{"note": "m/secret"}')
     assert client.guard({"SERVING_DATASET": "greenspec-v1.1.2"}, result_dir, aggregate, output) == 1
+    assert not (output / client.GUARDED_MARKER).exists()  # a problem keeps the uploads blocked
