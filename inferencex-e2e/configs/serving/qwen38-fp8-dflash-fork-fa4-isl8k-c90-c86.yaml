@@ -16,7 +16,6 @@ env:
   # fork python tree expects a newer rust tree-core .so than v0.5.23 ships; pure-python core until the rust side is rebuilt
   SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND: "python"
   FLASHINFER_CUDA_ARCH_LIST: "12.0f"
-  SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN: "1"
 serve: |
   python3 -m sglang.launch_server
   --model-path Qwen/Qwen3.8-27B-FP8
@@ -27,8 +26,10 @@ serve: |
   --attention-backend fa4
   --chunked-prefill-size 8192
   --max-prefill-tokens 16384
-  --json-model-override-args '{"text_config": {"rope_parameters": {"mrope_interleaved": true, "mrope_section": [11, 11, 10], "rope_type": "yarn", "rope_theta": 10000000, "partial_rotary_factor": 0.25, "factor": 4.0, "original_max_position_embeddings": 262144}}}'
-  --context-length 1000000
+  # fork's get_hf_text_config rebuilds PretrainedConfig from the yarn override and the image's
+  # transformers then fails rope validation on this hybrid config (no max_position_embeddings):
+  # native 262144 ctx like the running fork config; workload needs only 128k+1k.
+  --context-length 262144
   --max-running-requests 256
   --speculative-algorithm DFLASH
   --speculative-draft-model-path incoai/Qwen3.8-27B-DFlash2
