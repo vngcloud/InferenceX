@@ -275,6 +275,10 @@ def prepare(env: Mapping[str, str], runtime: Runtime) -> int:
     if env.get("SERVING_DATASET_KIND") == "file":
         from infx.serving.datasets import DatasetError, fetch
 
+        # huggingface_hub reads HF_HUB_OFFLINE when fetch first imports it: a serving YAML's
+        # offline switch is for the engine and would block an uncached dataset download.
+        for key in OFFLINE:
+            os.environ.pop(key, None)
         try:
             path = fetch(env["SERVING_DATASET"])
             if found := selection_family(env):

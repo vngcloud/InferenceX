@@ -356,3 +356,21 @@ def test_exact_replay_sends_no_concurrency_cap():
     ccu = (Path(__file__).parents[3] / "benchmarks/single_node/serving/scenarios/prod-ccu.yaml").read_text()
     assert not fixed_schedule(ccu)
     assert "--concurrency" in agentx_argv("agentx", Path("s.yaml"), ENV, open_loop=fixed_schedule(ccu))
+
+
+def test_dataset_download_ignores_the_engine_offline_switch(tmp_path, monkeypatch):
+    from infx.serving import client
+    from infx.serving.datasets import DatasetError
+
+    seen = {}
+
+    def fetch(name):
+        seen.update({key: client.os.environ.get(key) for key in client.OFFLINE})
+        raise DatasetError("stop after the download")
+
+    monkeypatch.setattr("infx.serving.datasets.fetch", fetch)
+    for key in client.OFFLINE:
+        monkeypatch.setenv(key, "1")
+    env = {"RESULT_DIR": str(tmp_path), "SERVING_DATASET_KIND": "file", "SERVING_DATASET": "glm53-prod-peak60"}
+    assert client.prepare(env, runtime=None) == 1
+    assert seen == dict.fromkeys(client.OFFLINE)
