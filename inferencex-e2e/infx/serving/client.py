@@ -30,7 +30,8 @@ OFFLINE = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE")
 DATASET_PATH = ".dataset_path"
 FAILED_REQUEST_THRESHOLD = "0.10"
 COUNT_SOURCE_MARKER = ".token_count"
-THRESHOLD_MARKER = ".failed_request_threshold"  # read by the workflow's "Validate agentic result" step
+# Read by the workflow's "Validate agentic result" step.
+THRESHOLD_MARKER = ".failed_request_threshold"
 SELECTION_DIR = "/tmp/greenspec-selection"  # noqa: S108 -- inside the job container; outside the result dir: request bodies are never uploaded
 PRIVATE_LOGS = (
     ".greenspec-private-logs"  # beside the aggregate, on the node; not in any upload path
