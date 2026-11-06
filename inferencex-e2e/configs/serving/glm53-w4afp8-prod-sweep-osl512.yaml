@@ -5,7 +5,9 @@
 # except prod runs --dp 4 (bench AI Coding used --dp 8). ISL {8k,32k,64k,128k} x OSL 512 x cache {0,50,90};
 # AIPerf adaptive search finds the max concurrency under the default SLO (TTFT avg < 8s, ITL p90 < 50ms).
 name: glm53-w4afp8-prod-sweep-osl512
-runner: cluster:hcm-hgx02
+# hgx02 has only 4 schedulable GPUs since the Nov-4 CX7 swap (ProdGPUDontSchedule:4),
+# so 8-GPU jobs pinning it are rejected at sbatch; target hgx01 and let slurm queue.
+runner: cluster:hcm-hgx01
 image: lmsysorg/sglang:v0.5.18
 model: PhalaCloud/GLM-5.3-W4AFP8
 gpus: 8
