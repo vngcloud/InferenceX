@@ -20,6 +20,7 @@ from infx.serving.client import (
     scenario_family,
     with_requests,
     with_token_source,
+    write_text_only,
 )
 
 ENV = {
@@ -374,3 +375,18 @@ def test_dataset_download_ignores_the_engine_offline_switch(tmp_path, monkeypatc
     env = {"RESULT_DIR": str(tmp_path), "SERVING_DATASET_KIND": "file", "SERVING_DATASET": "glm53-prod-peak60"}
     assert client.prepare(env, runtime=None) == 1
     assert seen == dict.fromkeys(client.OFFLINE)
+
+
+def test_exact_replay_drops_whole_sessions_that_send_images(tmp_path):
+    image = [{"type": "text", "text": "see"}, {"type": "image_url", "image_url": {"url": "data:,"}}]
+    rows = [
+        {"session_id": "a", "timestamp": 0, "messages": [{"role": "user", "content": "hi"}]},
+        {"session_id": "b", "timestamp": 1, "messages": [{"role": "user", "content": "q"}]},
+        # a later turn's image makes the whole session unservable on a text-only model
+        {"session_id": "b", "delay": 5, "messages": [{"role": "user", "content": image}]},
+        {"session_id": "c", "timestamp": 2, "messages": [{"role": "user", "content": [{"type": "text", "text": "x"}]}]},
+    ]
+    source, target = tmp_path / "in.jsonl", tmp_path / "sel" / "out.jsonl"
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    assert write_text_only(source, target) == (2, 2)
+    assert [json.loads(line)["session_id"] for line in target.read_text().splitlines()] == ["a", "c"]

@@ -236,6 +236,37 @@ def fixed_schedule(scenario_yaml: str) -> bool:
     return any(p.get("kind") == "profiling" and p.get("type") == "fixed_schedule" for p in phases)
 
 
+def _non_text(row: dict[str, Any]) -> bool:
+    return any(
+        isinstance(part, dict) and part.get("type") not in (None, "text")
+        for message in row.get("messages") or []
+        if isinstance(message.get("content"), list)
+        for part in message["content"]
+    )
+
+
+def write_text_only(source: Path, target: Path) -> tuple[int, int]:
+    """Copy ``source`` to ``target`` without the sessions that send non-text content parts.
+
+    Exact replays send recorded production requests as they are; a text-only model rejects
+    image parts with HTTP 400, and those clustered at the start of a window trip aiperf's
+    running error abort. Returns (kept, dropped) rows."""
+    with source.open(encoding="utf-8") as rows:
+        dropped_sessions = {
+            row.get("session_id") for row in map(json.loads, rows) if _non_text(row)
+        }
+    kept = dropped = 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with source.open(encoding="utf-8") as rows, target.open("w", encoding="utf-8") as out:
+        for line in rows:
+            if json.loads(line).get("session_id") in dropped_sessions:
+                dropped += 1
+            else:
+                out.write(line)
+                kept += 1
+    return kept, dropped
+
+
 def selection_family(env: Mapping[str, str]) -> tuple[Any, Any] | None:
     """The (module, Settings) of the selection family the job's serving YAML runs, else None.
 
@@ -281,6 +312,15 @@ def prepare(env: Mapping[str, str], runtime: Runtime) -> int:
             os.environ.pop(key, None)
         try:
             path = fetch(env["SERVING_DATASET"])
+            if fixed_schedule(env.get("SERVING_SCENARIO_YAML") or "benchmark: {}"):
+                text_only = Path(SELECTION_DIR) / "text-only.jsonl"
+                kept, dropped = write_text_only(path, text_only)
+                print(
+                    f"exact replay: {dropped} of {kept + dropped} requests send non-text "
+                    "content and are dropped (the served model takes text only)",
+                    flush=True,
+                )
+                path = text_only
             if found := selection_family(env):
                 module, chosen = found
                 selection = Path(SELECTION_DIR) / "selection.jsonl"
