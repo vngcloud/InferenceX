@@ -62,7 +62,9 @@ Variants (`overrides:`, only these keys):
 | sampling instead of greedy | `overrides: {generation: {top_p: 0.95, temperature: 1.0}}` |
 | LiveKit V1 / V2 trace | `overrides: {dataset: livekit-111868-v1}` (or `-v2`) |
 | a different trace idle-gap cap | `overrides: {trace_idle_gap_cap: 1}` |
-| GreenSpec subset, lite, bucket, cap | `scenario: greenspec` + `overrides: {subset: agentic_tools, lite: true, max_tokens: 4096, requests: 200}` (only these keys; no `duration`) |
+| GreenSpec subset, lite, bucket, cap | `scenario: greenspec` + `overrides: {subset: agentic_tools, lite: true, max_tokens: 4096, requests: 200}` (also `bucket`, `mode`, `preflight`; no `duration`). The first `requests` rows of any filter are balanced across buckets |
+| GreenSpec thinking as in production | `overrides: {mode: prod-thinking}`: thinking on where the production reply reasoned, off where it did not (default `target-default` leaves it to the model; `recorded` replays the logged switch) |
+| GreenSpec rows over the model's context | the client's preflight counts every body with the served tokenizer and lists them in the job log (`preflight: warn`, the default); `overrides: {preflight: drop}` leaves them out, `off` skips the check. Use `drop` when a model's context is below 280k (Qwen3.8 262144: 1 lite row, 2 full rows) |
 | SPEED-Bench config, category, cap | `scenario: speedbench` + `overrides: {config: qualitative, category: coding, requests: 40}` (config: `qualitative` or `throughput_{1k,2k,8k,16k,32k}`; no `duration`) |
 
 Synthetic grid, one job per point, all in one run:

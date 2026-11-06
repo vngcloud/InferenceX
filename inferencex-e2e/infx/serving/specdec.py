@@ -7,8 +7,16 @@ delta under ``spec_decode`` in the aggregate result:
     acceptance_rate   = accepted tokens / drafted tokens
     draft_depth       = drafted tokens / draft events           (num_speculative_tokens)
 
-SGLang only exports a running-average gauge (``sglang:spec_accept_length``), recorded as read after
-the run; it is 0.0 on an engine without speculative decoding, which counts as no series. A point without speculative decoding has no such series: ``summarize`` returns None and the
+SGLang counts verify steps per request (``sglang:spec_verify_calls``) and generated tokens
+(``sglang:generation_tokens``); each verify step emits the accepted drafts plus the bonus token, so
+
+    acceptance_length = generated tokens / verify calls         (SGLang counters, over the run)
+
+Older SGLang without those counters falls back to the running-average gauge
+``sglang:spec_accept_length``, read after the run. Being an average, the gauge is not summed like
+the counters: with several series (data-parallel ranks, replicas) it is the mean of the nonzero
+ones. Summing it reported 4x the true length on a DP4 server. A point without speculative decoding
+(no vLLM spec counters, no SGLang verify calls, gauge 0.0) gets None from ``summarize`` and the
 aggregate stays untouched.
 """
 
@@ -29,13 +37,33 @@ VLLM_COUNTERS = {
     "drafted_tokens": "vllm:spec_decode_num_draft_tokens_total",
 }
 SGLANG_ACCEPT_LENGTH = "sglang:spec_accept_length"
-WANTED = {*VLLM_COUNTERS.values(), SGLANG_ACCEPT_LENGTH}
+SGLANG_VERIFY_CALLS = "sglang:spec_verify_calls"
+SGLANG_GENERATION_TOKENS = "sglang:generation_tokens"
+GAUGES = {SGLANG_ACCEPT_LENGTH}
+WANTED = {*VLLM_COUNTERS.values(), SGLANG_VERIFY_CALLS, SGLANG_GENERATION_TOKENS, *GAUGES}
 _SAMPLE = re.compile(r"^(?P<name>[A-Za-z_:][\w:]*)(?:\{[^}]*\})?\s+(?P<value>\S+)")
 
 
+def _mean_nonzero(values: list[float]) -> float:
+    nonzero = [v for v in values if v != 0]
+    return sum(nonzero) / len(nonzero) if nonzero else 0.0
+
+
+def _combine(samples: Iterable[tuple[str, float]]) -> dict[str, float]:
+    """Counters summed over their samples; a gauge in ``GAUGES`` is the mean of its nonzero samples."""
+    sums: dict[str, float] = {}
+    gauges: dict[str, list[float]] = {}
+    for name, value in samples:
+        if name in GAUGES:
+            gauges.setdefault(name, []).append(value)
+        else:
+            sums[name] = sums.get(name, 0.0) + value
+    return {**sums, **{name: _mean_nonzero(values) for name, values in gauges.items()}}
+
+
 def parse_prometheus(text: str) -> dict[str, float]:
-    """Sum every sample of each metric across label sets (e.g. per-engine series)."""
-    totals: dict[str, float] = {}
+    """Each metric combined across label sets (e.g. per-engine series), as ``_combine`` does."""
+    samples: list[tuple[str, float]] = []
     for line in text.splitlines():
         match = _SAMPLE.match(line)
         if match is None:
@@ -45,13 +73,13 @@ def parse_prometheus(text: str) -> dict[str, float]:
         except ValueError:
             continue
         if math.isfinite(value):
-            totals[match["name"]] = totals.get(match["name"], 0.0) + value
-    return totals
+            samples.append((match["name"], value))
+    return _combine(samples)
 
 
 def snapshot(urls: Iterable[str], timeout: float = 10.0) -> dict[str, float]:
-    """The speculative-decoding series summed over ``urls``; an unreachable URL or a missing series is skipped."""
-    out: dict[str, float] = {}
+    """The speculative-decoding series combined over ``urls``; an unreachable URL or a missing series is skipped."""
+    samples: list[tuple[str, float]] = []
     for url in urls:
         try:
             with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 -- the job's own engine ports
@@ -59,17 +87,23 @@ def snapshot(urls: Iterable[str], timeout: float = 10.0) -> dict[str, float]:
         except (OSError, ValueError) as error:
             print(f"WARNING spec-decode metrics: {url} unreadable ({error})", file=sys.stderr)
             continue
-        for name, value in totals.items():
-            if name in WANTED:
-                out[name] = out.get(name, 0.0) + value
-    return out
+        samples += [(name, value) for name, value in totals.items() if name in WANTED]
+    return _combine(samples)
 
 
 def acceptance(before: dict[str, float], after: dict[str, float]) -> dict[str, Any] | None:
     """Acceptance over the run from two snapshots, or None when the engine reports no speculative decoding."""
     # SGLang exports the gauge on every engine, 0.0 when the engine does not speculate.
     sglang_length = after.get(SGLANG_ACCEPT_LENGTH, 0.0)
-    if not {*before, *after} & set(VLLM_COUNTERS.values()) and sglang_length <= 0:
+    verify_calls = round(after.get(SGLANG_VERIFY_CALLS, 0.0) - before.get(SGLANG_VERIFY_CALLS, 0.0))
+    generated = round(
+        after.get(SGLANG_GENERATION_TOKENS, 0.0) - before.get(SGLANG_GENERATION_TOKENS, 0.0)
+    )
+    if (
+        not {*before, *after} & set(VLLM_COUNTERS.values())
+        and verify_calls <= 0
+        and sglang_length <= 0
+    ):
         return None
     delta = {
         key: round(after.get(name, 0.0) - before.get(name, 0.0))
@@ -87,7 +121,12 @@ def acceptance(before: dict[str, float], after: dict[str, float]) -> dict[str, A
     result["acceptance_rate"] = (
         delta["accepted_tokens"] / delta["drafted_tokens"] if delta["drafted_tokens"] > 0 else None
     )
-    if result["acceptance_length"] is None and sglang_length > 0:
+    if verify_calls > 0:
+        result["spec_verify_calls"] = verify_calls
+        result["spec_generated_tokens"] = generated
+    if result["acceptance_length"] is None and verify_calls > 0 and generated > 0:
+        result["acceptance_length"] = generated / verify_calls
+    elif result["acceptance_length"] is None and sglang_length > 0:
         result["acceptance_length"] = sglang_length
     return result
 

@@ -34,6 +34,7 @@ SELECTION_DIR = "/tmp/greenspec-selection"  # noqa: S108 -- inside the job conta
 PRIVATE_LOGS = (
     ".greenspec-private-logs"  # beside the aggregate, on the node; not in any upload path
 )
+GUARDED_MARKER = ".greenspec-guarded"  # beside the aggregate: the guard ran clean, uploads may go
 PROBE_BODY = {  # the shape agentx sends: streaming, usage requested, ignore_eos injected by the scenario
     "messages": [{"role": "user", "content": "Say OK."}],
     "stream": True,
@@ -234,7 +235,12 @@ def with_requests(scenario_yaml: str, requests: int) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
-def label_result(path: Path, label: str, token_count_source: str | None = None) -> None:
+def label_result(
+    path: Path,
+    label: str,
+    token_count_source: str | None = None,
+    greenspec_preflight: Mapping[str, Any] | None = None,
+) -> None:
     """File the aggregate under the legacy scenario label result-report reads first."""
     if not path.exists():
         return
@@ -242,12 +248,57 @@ def label_result(path: Path, label: str, token_count_source: str | None = None) 
     result["scenario"] = label
     if token_count_source:
         result["token_count_source"] = token_count_source
+    if greenspec_preflight:
+        result["greenspec_preflight"] = dict(greenspec_preflight)  # counts only, no row data
     path.write_text(json.dumps(result, indent=2))
+
+
+def run_preflight(
+    env: Mapping[str, str], selection: Path, mode: str, output_dir: Path
+) -> dict[str, Any] | None:
+    """The GreenSpec runtime preflight (``infx.serving.greenspec_preflight``) on the selection file.
+
+    Never fails the job: when the context or the tokenizer is not available it warns and the run
+    goes on unchecked. In ``drop`` mode it rewrites the selection without the rejected lines.
+    """
+    from infx.serving import greenspec_preflight as pf
+
+    url = env.get("SERVING_REMOTE_URL") or f"http://localhost:{env.get('PORT', '')}"
+    headers = {"Authorization": authorization(key)} if (key := env.get("SERVING_API_KEY")) else {}
+    context, context_source = pf.served_context(url, headers, env.get("SERVE_CMD", ""))
+    if context is None:
+        print(
+            "WARNING GreenSpec preflight skipped: no context length from the server or the serve command",
+            file=sys.stderr,
+        )
+        return None
+    tokenizer = env.get("SERVING_TOKENIZER") or env["MODEL"]
+    framework = (env.get("FRAMEWORK") or "").lower()
+    try:
+        count = pf.tokenizer_counter(tokenizer, framework)
+    except Exception as error:  # noqa: BLE001 - a missing tokenizer must not stop the bench
+        print(
+            f"WARNING GreenSpec preflight skipped: tokenizer {tokenizer}: {type(error).__name__}",
+            file=sys.stderr,
+        )
+        return None
+    report = pf.check(pf.iter_bodies(selection), count, context, context_source, framework)
+    ids = greenspec.selection_ids(selection)
+    pf.private_report(report, ids, output_dir / PRIVATE_LOGS / "greenspec_preflight.json")
+    dropped = 0
+    if mode == "drop" and (lines := report.flagged(*pf.DROPPED)):
+        before = report.rows
+        dropped = before - pf.drop_lines(selection, lines, ids)
+    for line in pf.log_lines(report, mode, dropped):
+        print(line, file=sys.stderr if line.startswith("WARNING") else sys.stdout, flush=True)
+    return report.summary(dropped)
 
 
 def prepare(env: Mapping[str, str], runtime: Runtime) -> int:
     result_dir = Path(env["RESULT_DIR"])
     result_dir.mkdir(parents=True, exist_ok=True)
+    # A marker left by an earlier job must not open this job's uploads (see guard).
+    (Path(env.get("AGENTIC_OUTPUT_DIR") or "/workspace") / GUARDED_MARKER).unlink(missing_ok=True)
     if env.get("SERVING_DATASET_KIND") == "file":
         from infx.serving.datasets import DatasetError, fetch
 
@@ -315,6 +366,11 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
         child["AIPERF_HTTP_SSL_VERIFY"] = "false"  # aiperf's own switch for self-signed gateways
     if (marker := result_dir / DATASET_PATH).exists():
         child["IX_CUSTOM_DATASET_FILE"] = marker.read_text().strip()
+    preflight_summary = None
+    if internal and chosen.preflight != "off":
+        preflight_summary = run_preflight(
+            env, Path(child["IX_CUSTOM_DATASET_FILE"]), chosen.preflight, output_dir
+        )
     if chosen:
         with open(child["IX_CUSTOM_DATASET_FILE"], encoding="utf-8") as selection:
             size = sum(1 for _ in selection)
@@ -356,7 +412,12 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
         child,
     )
     aggregate = output_dir / f"{env['RESULT_FILENAME']}.json"
-    label_result(aggregate, env["SERVING_SCENARIO_LABEL"], token_count_source=source)
+    label_result(
+        aggregate,
+        env["SERVING_SCENARIO_LABEL"],
+        token_count_source=source,
+        greenspec_preflight=preflight_summary,
+    )
     guard_rc = 0
     if chosen:
         spec = specdec.summarize(
@@ -388,7 +449,11 @@ def guard(env: Mapping[str, str], result_dir: Path, aggregate: Path, output_dir:
     )
     for problem in problems:
         print(f"GreenSpec guard: {problem}", file=sys.stderr)
-    return 1 if problems else 0
+    if problems:
+        return 1
+    # The workflow's "GreenSpec upload gate" uploads run data only when this marker exists.
+    (output_dir / GUARDED_MARKER).write_text("ok\n")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

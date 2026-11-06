@@ -236,8 +236,19 @@ A serving YAML picks a family and may set `overrides`. The keys allowed are `dur
 cannot change without a code review.
 
 `greenspec` takes its own keys instead: `subset` (`diverse`, `agentic_coding`, `agentic_tools`, `llm_task`),
-`lite`, `bucket`, `mode` (`target-default` or `recorded` sampling), `max_tokens` (output cap, default 8192)
-and `requests` (default: the whole selection). It has no duration; the run ends when the selection is sent.
+`lite`, `bucket`, `mode` (`target-default` or `recorded` sampling, or `prod-thinking`: target-default plus
+`chat_template_kwargs.enable_thinking` set per row to what production did), `max_tokens` (output cap, default
+8192), `requests` (default: the whole selection) and `preflight` (`warn`, `drop` or `off`, default `warn`).
+It has no duration; the run ends when the selection is sent.
+
+The preflight (`infx/serving/greenspec_preflight.py`) runs once the engine serves, before the replay: it takes
+the served context from `/v1/models` (else `--context-length` / `--max-model-len` in the serve command),
+renders each request body with the model's chat template and tokenizer, and flags the bodies the engine
+will refuse (over the context: SGLang needs room for one output token, vLLM for the whole output cap), the
+ones within 1% of it, and the ones the template raises on. `warn` lists them by selection line in the job
+log; `drop` also leaves the refused ones out (the label gets `-pfdrop`). The result JSON gets the counts
+under `greenspec_preflight`; question_ids and token counts stay on the node in `.greenspec-private-logs/`.
+
 Three things differ from the other families:
 
 - The dataset is private and the benchmark repo is public, so the client (`infx/serving/greenspec.py`)

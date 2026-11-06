@@ -343,9 +343,25 @@ jobs:
           fi
           "$INFERENCEX_RESULTS_PYTHON" -P -m infx.results.fixed_sequence
 
+      - name: GreenSpec upload gate
+        # A greenspec job uploads only what the client's guard pruned and scanned (the dataset is
+        # private, this repo is public). A job that ended before the guard ran (Slurm TIMEOUT, a
+        # cancel, a crash) leaves raw aiperf exports and server logs behind: delete them and block
+        # every upload that can carry run data. The job event (workflow metadata) still uploads.
+        if: ${{ always() && inputs.serving != '' && startsWith(fromJSON(inputs.serving).dataset, 'greenspec') }}
+        run: |
+          if [[ -f inferencex-e2e/configs/runners.yaml ]]; then cd inferencex-e2e; fi
+          if [[ -f .greenspec-guarded ]]; then
+            echo "GreenSpec guard ran; uploads allowed"
+          else
+            echo "GREENSPEC_UPLOAD_BLOCKED=1" >> "$GITHUB_ENV"
+            echo "::warning::GreenSpec guard did not run (the job ended early): result, raw, server-log and power uploads are blocked"
+            rm -rf results server*.log "${RESULT_FILENAME}.json" "agg_${RESULT_FILENAME}.json" || true
+          fi
+
       - name: Upload result
         id: upload-result
-        if: ${{ success() && env.RESULT_FILENAME != '' && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
+        if: ${{ success() && env.RESULT_FILENAME != '' && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -358,7 +374,7 @@ jobs:
 
       - name: Retry upload result (attempt 2)
         id: retry-upload-result
-        if: ${{ always() && steps.upload-result.outcome == 'failure' }}
+        if: ${{ always() && steps.upload-result.outcome == 'failure' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -371,7 +387,7 @@ jobs:
         run: sleep 30
 
       - name: Retry upload result (attempt 3)
-        if: ${{ always() && steps.retry-upload-result.outcome == 'failure' }}
+        if: ${{ always() && steps.retry-upload-result.outcome == 'failure' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           overwrite: true
@@ -380,7 +396,7 @@ jobs:
 
       - name: Upload agentic aggregated result
         id: upload-agentic-aggregated
-        if: ${{ always() && inputs.scenario-type == 'agentic-coding' }}
+        if: ${{ always() && inputs.scenario-type == 'agentic-coding' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -393,7 +409,7 @@ jobs:
 
       - name: Retry upload agentic aggregated result (attempt 2)
         id: retry-upload-agentic-aggregated
-        if: ${{ always() && steps.upload-agentic-aggregated.outcome == 'failure' }}
+        if: ${{ always() && steps.upload-agentic-aggregated.outcome == 'failure' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -406,7 +422,7 @@ jobs:
         run: sleep 30
 
       - name: Retry upload agentic aggregated result (attempt 3)
-        if: ${{ always() && steps.retry-upload-agentic-aggregated.outcome == 'failure' }}
+        if: ${{ always() && steps.retry-upload-agentic-aggregated.outcome == 'failure' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           overwrite: true
@@ -415,7 +431,7 @@ jobs:
 
       - name: Upload agentic raw results
         id: upload-agentic-raw
-        if: ${{ always() && inputs.scenario-type == 'agentic-coding' }}
+        if: ${{ always() && inputs.scenario-type == 'agentic-coding' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -432,7 +448,7 @@ jobs:
 
       - name: Retry upload agentic raw results (attempt 2)
         id: retry-upload-agentic-raw
-        if: ${{ always() && steps.upload-agentic-raw.outcome == 'failure' }}
+        if: ${{ always() && steps.upload-agentic-raw.outcome == 'failure' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -449,7 +465,7 @@ jobs:
         run: sleep 30
 
       - name: Retry upload agentic raw results (attempt 3)
-        if: ${{ always() && steps.retry-upload-agentic-raw.outcome == 'failure' }}
+        if: ${{ always() && steps.retry-upload-agentic-raw.outcome == 'failure' && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           overwrite: true
@@ -461,7 +477,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload server logs
-        if: always()
+        if: ${{ always() && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ inputs.eval-only && 'eval_server_logs_' || 'server_logs_' }}${{ env.RESULT_FILENAME }}${{ inputs.eval-only && format('_{0}_{1}', env.EVAL_FRAMEWORK, env.EVAL_SUITE) || '' }}
@@ -477,7 +493,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload power audit bundle
-        if: ${{ always() && !inputs.eval-only }}
+        if: ${{ always() && !inputs.eval-only && env.GREENSPEC_UPLOAD_BLOCKED != '1' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: power_audit_${{ env.RESULT_FILENAME }}
