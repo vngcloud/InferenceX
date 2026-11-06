@@ -3,7 +3,7 @@ import pytest
 from infx.clusters import load_inventory
 
 NODES = {
-    "hcm-hgx01": ("hgx-h200-01", 4, "gpu:nvidia_h200:{gpus}", 4),
+    "hcm-hgx01": ("hgx-h200-01", 8, "gpu:nvidia_h200:{gpus}", 4),
     "hcm-hgx02": ("hgx-h200-02", 8, "gpu:nvidia_h200:{gpus}", 4),
     "hcm-rtx01": ("hoanq3-rtx6000x2-slurm-1", 2, "gpu:nvidia_rtx6000pro:{gpus}", 2),
     "hcm-rtx02": ("hoanq3-rtx6000x2-slurm-2", 2, "gpu:nvidia_rtx6000pro:{gpus}", 2),

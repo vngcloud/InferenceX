@@ -886,7 +886,7 @@ clusters:
   # team, never --exclusive. salloc-args right-size every job (sbatch gets them too) and pin
   # it to the runner's own node, whose local disk holds the HF cache and squash files.
   hcm-hgx01:
-    gpus-per-node: 4  # Slurm gres declares 4 of the 8 H200 (2026-10-25); raise when infra fixes it
+    gpus-per-node: 8  # Slurm gres declares all 8 H200 again (2026-11-06; was 4 from 2026-10-25)
     available-cpu-dram-mib: 2_050_000
     arch: x86_64
     scheduler: slurm

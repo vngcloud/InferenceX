@@ -453,15 +453,15 @@ def _engine_problems(spec: ServingSpec) -> list[str]:
                 "replicas: more than 1 replica needs a router: block whose serve lists {{engine_urls}}"
             )
         elif "dynamo.frontend" in spec.router.serve:
-            if "dynamo.vllm" not in spec.serve:
+            if "dynamo.vllm" not in spec.serve and "dynamo.sglang" not in spec.serve:
                 problems.append(
                     "replicas: more than 1 replica behind the Dynamo frontend needs "
-                    "python3 -m dynamo.vllm engines; use replicas: 1 for dynamo.sglang"
+                    "python3 -m dynamo.vllm or python3 -m dynamo.sglang engines"
                 )
             elif "--kv-events-config" in spec.serve:
                 problems.append(
                     "replicas: drop --kv-events-config from serve; "
-                    "each dynamo.vllm replica gets its own KV event port"
+                    "each Dynamo engine replica gets its own KV event port"
                 )
     return problems
 

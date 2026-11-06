@@ -8,10 +8,12 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 BENCH = Path(__file__).resolve().parents[3] / "benchmarks/single_node/serving/bench.sh"
 REAL_BENCH_PKG = Path(__file__).resolve().parents[2] / "bench"
-# Stands in for python3 -m dynamo.vllm: records what it was started with, then serves /health
-# on its Dynamo system port until bench.sh kills it.
+# Stands in for python3 -m dynamo.vllm and dynamo.sglang: records what it was started with, then
+# serves /health on its Dynamo system port until bench.sh kills it.
 FAKE_ENGINE = """\
 import http.server, json, os, sys
 port = int(os.environ["DYN_SYSTEM_PORT"])
@@ -76,7 +78,7 @@ def frontend(port: int, model: str) -> ThreadingHTTPServer:
 
 
 def workspace(tmp_path: Path) -> tuple[Path, Path]:
-    """bench.sh's cwd with a fake client and dynamo.vllm, and a bin dir with a fake nvidia-smi."""
+    """bench.sh's cwd with a fake client and Dynamo engines, and a bin with a fake nvidia-smi."""
     workspace = tmp_path / "ws"
     (workspace / "infx/serving").mkdir(parents=True)
     (workspace / "dynamo").mkdir()
@@ -86,6 +88,7 @@ def workspace(tmp_path: Path) -> tuple[Path, Path]:
     (workspace / "infx/bench").symlink_to(REAL_BENCH_PKG)
     (workspace / "dynamo/__init__.py").write_text("")
     (workspace / "dynamo/vllm.py").write_text(FAKE_ENGINE)
+    (workspace / "dynamo/sglang.py").write_text(FAKE_ENGINE)
     fakes = tmp_path / "bin"
     fakes.mkdir()
     (fakes / "nvidia-smi").write_text(textwrap.dedent("""\
@@ -97,7 +100,14 @@ def workspace(tmp_path: Path) -> tuple[Path, Path]:
     return workspace, fakes
 
 
-def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
+@pytest.mark.parametrize(
+    ("module", "model_flag", "extra"),
+    [
+        ("dynamo.vllm", "--model", {"enable_kv_cache_events": True}),
+        ("dynamo.sglang", "--model-path", {}),
+    ],
+)
+def test_dynamo_replicas_get_their_own_gpus_and_ports(tmp_path, module, model_flag, extra):
     workspace_dir, fakes = workspace(tmp_path)
     results = tmp_path / "results"
     port, *system_and_kv = free_ports(5)
@@ -105,7 +115,7 @@ def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
     server = frontend(port, "org/model")
     env = {
         "PATH": f"{fakes}:{os.environ['PATH']}", "RESULT_DIR": str(results), "MODEL": "org/model",
-        "PORT": str(port), "SERVE_CMD": shlex.join(["python3", "-m", "dynamo.vllm", "--model", "org/model"]),
+        "PORT": str(port), "SERVE_CMD": shlex.join(["python3", "-m", module, model_flag, "org/model"]),
         "ROUTER_CMD": "python3 -m dynamo.frontend", "ROUTER_PROFILE": "dynamo",
         "DYN_SYSTEM_PORTS": " ".join(map(str, system_ports)),
         "DYN_KV_EVENT_PORTS": " ".join(map(str, kv_ports)),
@@ -120,7 +130,8 @@ def test_dynamo_vllm_replicas_get_their_own_gpus_and_ports(tmp_path):
     assert [engine["gpus"] for engine in engines] == ["0,1,2,3", "4,5,6,7"]
     for engine, kv_port in zip(engines, kv_ports, strict=True):
         flag = engine["argv"].index("--kv-events-config")
-        assert json.loads(engine["argv"][flag + 1])["endpoint"] == f"tcp://*:{kv_port}"
+        config = {"publisher": "zmq", "endpoint": f"tcp://*:{kv_port}", **extra}
+        assert json.loads(engine["argv"][flag + 1]) == config
     metrics = json.loads((results / "client-run.json").read_text())["metrics"].split(",")
     assert metrics == [f"http://localhost:{p}/metrics" for p in (port, *system_ports)]
 
