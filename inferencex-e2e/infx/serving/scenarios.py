@@ -23,6 +23,7 @@ FAMILIES = (
     "tau2",
     "livekit",
     "prod-ccu",
+    "prod-exact",
     "shared-prefix-e2",
     "hidden-prefix-e3",
     "synthetic",
@@ -40,6 +41,7 @@ OVERRIDE_KEYS = (
     "warmup_requests_per_lane",
 )
 SYNTHETIC_OVERRIDES = ("duration",)
+EXACT_OVERRIDES = ("dataset", "duration")  # fixed_schedule: no lanes, warmup or think time
 GENERATION_KEYS = ("top_p", "temperature")
 ISL = {"8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
 OSL = {"512": 512, "1k": 1024}
@@ -127,6 +129,11 @@ def _profiling(doc: dict[str, Any]) -> dict[str, Any]:
     return phase
 
 
+def is_fixed_schedule(doc: dict[str, Any]) -> bool:
+    """True when the profiling phase replays recorded timestamps (open loop, no --concurrency)."""
+    return _profiling(doc).get("type") == "fixed_schedule"
+
+
 def _positive(field: str, value: Any) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         raise ScenarioError(f"{field}: must be a positive number, got {value!r}")
@@ -140,6 +147,11 @@ def _apply(
     if unknown := sorted(set(overrides) - set(OVERRIDE_KEYS)):
         raise ScenarioError(
             f"overrides: unknown key(s) {', '.join(unknown)}; allowed: {', '.join(OVERRIDE_KEYS)}"
+        )
+    exact = is_fixed_schedule(doc)
+    if exact and (extra := sorted(set(overrides) - set(EXACT_OVERRIDES))):
+        raise ScenarioError(
+            f"overrides: {family} only takes {', '.join(EXACT_OVERRIDES)}, not {', '.join(extra)}"
         )
     dataset = doc["benchmark"]["datasets"][0]
     suffixes: list[str] = []
@@ -159,9 +171,13 @@ def _apply(
                 raise ScenarioError(
                     f"overrides.dataset: {value!r} is not in the dataset lock; available: {', '.join(lock)}"
                 )
-            if entry.entries is None:
+            if exact:
+                # The schedule is the whole file: an entries cap would drop recorded requests.
+                dataset["name"] = value
+            elif entry.entries is None:
                 raise ScenarioError(f"overrides.dataset: lock entry {value} has no entries count")
-            dataset["name"], dataset["entries"] = value, entry.entries
+            else:
+                dataset["name"], dataset["entries"] = value, entry.entries
     if "max_context_length" in overrides:
         value = overrides["max_context_length"]
         if value is None:
@@ -373,7 +389,7 @@ def render(
         kind, name = "file", dataset["name"]
         if name not in lock:
             raise ScenarioError(f"scenario: dataset {name} of {family} is not in the dataset lock")
-    if family == "prod-ccu":
+    if family in ("prod-ccu", "prod-exact"):
         base = name
     else:
         base = LABELS.get(family) or LIVEKIT_LABEL + name.removeprefix("livekit-111868-")

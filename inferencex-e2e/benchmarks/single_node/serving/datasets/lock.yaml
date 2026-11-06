@@ -105,3 +105,27 @@ glm53-prod-ccu-lite:
   sha256: 6501abe402a1cada1bd7edfadc3776a9c37eb085df411fb82478aec5b09c914a
   entries: 105
   private: true
+glm53-prod-peak60:
+  repo: Green-Lab/glm53-prod-traces
+  revision: 92406ef53b080bfc27ac81e0e17d99e37edc42a7
+  file: snapshots/2026-11-05/exact-peak60.jsonl
+  sha256: 0c6301f2524ef27d8f9db87eade1eae39364d2802eb41b37c65da7662f2c703e
+  private: true
+glm53-prod-peak60-stack2:
+  repo: Green-Lab/glm53-prod-traces
+  revision: 92406ef53b080bfc27ac81e0e17d99e37edc42a7
+  file: snapshots/2026-11-05/exact-peak60-stack2.jsonl
+  sha256: 6329fea33ca4375d9cde8e2557d38303b602136239cbf9997538545ba07f8582
+  private: true
+glm53-prod-peak60-stack3:
+  repo: Green-Lab/glm53-prod-traces
+  revision: 92406ef53b080bfc27ac81e0e17d99e37edc42a7
+  file: snapshots/2026-11-05/exact-peak60-stack3.jsonl
+  sha256: 5051b18c76f2e7fb1cd22c934b807cf0cccc476287987390f6ec4563411c3b6f
+  private: true
+glm53-prod-peak60-x2:
+  repo: Green-Lab/glm53-prod-traces
+  revision: 92406ef53b080bfc27ac81e0e17d99e37edc42a7
+  file: snapshots/2026-11-05/exact-peak60-x2.jsonl
+  sha256: aa50d6afca299dab6885ac607dfe1501a922e7d556677d0916786d3a8234e040
+  private: true

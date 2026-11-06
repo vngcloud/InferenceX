@@ -12,6 +12,7 @@ from infx.serving.client import (
     agentx_argv,
     datasets_cache,
     failed_request_threshold,
+    fixed_schedule,
     label_result,
     online,
     probe,
@@ -346,3 +347,12 @@ def test_pooling_probe_failure_names_the_fix():
 )
 def test_scenario_family_reads_the_label(label, family):
     assert scenario_family(label) == family
+
+
+def test_exact_replay_sends_no_concurrency_cap():
+    scenario = (Path(__file__).parents[3] / "benchmarks/single_node/serving/scenarios/prod-exact.yaml").read_text()
+    assert fixed_schedule(scenario)
+    assert "--concurrency" not in agentx_argv("agentx", Path("s.yaml"), ENV, open_loop=fixed_schedule(scenario))
+    ccu = (Path(__file__).parents[3] / "benchmarks/single_node/serving/scenarios/prod-ccu.yaml").read_text()
+    assert not fixed_schedule(ccu)
+    assert "--concurrency" in agentx_argv("agentx", Path("s.yaml"), ENV, open_loop=fixed_schedule(ccu))

@@ -69,6 +69,21 @@ def test_prod_ccu_is_labelled_by_its_dataset():
     assert lite.doc["benchmark"]["datasets"][0]["entries"] == load_lock()["glm53-prod-ccu-lite"].entries
 
 
+def test_prod_exact_replays_the_whole_schedule():
+    full = render("prod-exact")
+    assert (full.kind, full.dataset, full.label, full.duration) == ("file", "glm53-prod-peak60", "glm53-prod-peak60", 3600)
+    stack = render("prod-exact", {"dataset": "glm53-prod-peak60-stack3", "duration": 600})
+    assert stack.label == "glm53-prod-peak60-stack3-d600"
+    # An entries cap would drop recorded requests from the schedule.
+    assert "entries" not in stack.doc["benchmark"]["datasets"][0]
+
+
+@pytest.mark.parametrize("key", ["warmup_requests_per_lane", "trace_idle_gap_cap", "max_context_length"])
+def test_prod_exact_rejects_lane_overrides(key):
+    with pytest.raises(ScenarioError, match="prod-exact only takes dataset, duration"):
+        render("prod-exact", {key: 1})
+
+
 def test_slo_replaces_the_sweep_filters():
     doc = render("synthetic", point=Point("8k", "1k", 0), search=True,
                  slo="time_to_first_token:p95:lt:500;inter_token_latency:p50:lt:50").doc

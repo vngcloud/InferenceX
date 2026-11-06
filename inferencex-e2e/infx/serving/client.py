@@ -81,12 +81,15 @@ def authorization(api_key: str) -> str:
     return api_key if " " in api_key else f"Bearer {api_key}"
 
 
-def agentx_argv(agentx: str, scenario: Path, env: Mapping[str, str]) -> list[str]:
+def agentx_argv(
+    agentx: str, scenario: Path, env: Mapping[str, str], *, open_loop: bool = False
+) -> list[str]:
     """The ``aiperf profile`` argv; ``agentx`` is the venv's ``aiperf`` executable.
 
     Kept the historical name: the argv (and ``benchmark_command.txt``) is the
     AgentX-shaped scenario replay; only the binary changed in the aiperf
-    migration."""
+    migration. ``open_loop`` (a fixed_schedule scenario) drops --concurrency, which would
+    cap the in-flight requests the recorded timestamps produce."""
     argv = [agentx, "profile", "--config", str(scenario)]
     argv += ["--url", env.get("SERVING_REMOTE_URL") or f"http://localhost:{env['PORT']}"]
     argv += ["--model", served_model(env)]
@@ -96,7 +99,7 @@ def agentx_argv(agentx: str, scenario: Path, env: Mapping[str, str]) -> list[str
             argv += ["--header", f"Authorization:{key}"]
         else:
             argv += ["--api-key", key]
-    if env.get("SERVING_SEARCH") != "1":
+    if env.get("SERVING_SEARCH") != "1" and not open_loop:
         argv += ["--concurrency", env["CONC"]]
     if telemetry := env.get("AIPERF_GPU_TELEMETRY_URL"):
         argv += ["--gpu-telemetry", telemetry]
@@ -225,6 +228,14 @@ def failed_request_threshold(scenario_yaml: str) -> str:
     return FAILED_REQUEST_THRESHOLD
 
 
+def fixed_schedule(scenario_yaml: str) -> bool:
+    """True when the profiling phase replays recorded timestamps instead of running lanes."""
+    import yaml  # in the AgentX venv
+
+    phases = yaml.safe_load(scenario_yaml)["benchmark"].get("phases") or []
+    return any(p.get("kind") == "profiling" and p.get("type") == "fixed_schedule" for p in phases)
+
+
 def selection_family(env: Mapping[str, str]) -> tuple[Any, Any] | None:
     """The (module, Settings) of the selection family the job's serving YAML runs, else None.
 
@@ -333,7 +344,7 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
             size = sum(1 for _ in selection)
         scenario_yaml = with_requests(scenario_yaml, min(chosen.requests or size, size))
     scenario.write_text(scenario_yaml)
-    argv = agentx_argv(str(runtime.aiperf), scenario, env)
+    argv = agentx_argv(str(runtime.aiperf), scenario, env, open_loop=fixed_schedule(scenario_yaml))
     (result_dir / "benchmark_command.txt").write_text(shlex.join(redacted(argv)) + "\n")
     metrics_urls = [url for url in env.get("AIPERF_SERVER_METRICS_URLS", "").split(",") if url]
     if chosen:

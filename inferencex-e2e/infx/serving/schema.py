@@ -279,6 +279,7 @@ class ServingSpec(BaseModel):
         "tau2",
         "livekit",
         "prod-ccu",
+        "prod-exact",
         "shared-prefix-e2",
         "hidden-prefix-e3",
         "synthetic",

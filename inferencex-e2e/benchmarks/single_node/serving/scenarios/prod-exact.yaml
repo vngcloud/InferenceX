@@ -1,0 +1,31 @@
+schemaVersion: "2.0"
+# Exact replay of a GLM-5.3 production peak hour: every request is sent at its recorded
+# offset (open loop), so concurrency is an outcome, not an input. No AgentX scenario: no
+# cache bust, no lanes, no warmup; ignore_eos and max_tokens come from each row's extra.
+benchmark:
+  endpoint:
+    type: chat
+    path: /v1/chat/completions
+    streaming: true
+    useServerTokenCount: true
+  datasets:
+  - name: glm53-prod-peak60
+    type: file
+    format: mooncake_trace
+    path: ${IX_CUSTOM_DATASET_FILE}
+  phases:
+  - name: profiling
+    kind: profiling
+    type: fixed_schedule
+    autoOffset: true
+    # The files span one hour of offsets; duration stops sending there (a shorter
+    # override replays only the first part of the hour), gracePeriod drains the tail.
+    duration: 3600.0
+    gracePeriod: 300.0
+    failedRequestThreshold: 0.2  # forced-length cuts inside a tool call stream no content
+  artifacts:
+    sliceDuration: 1.0
+  tokenizer:
+    trustRemoteCode: true
+  runtime:
+    statsInterval: 30.0
