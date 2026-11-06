@@ -1,0 +1,46 @@
+# Pattern: synthetic workload at fixed concurrency, fork arm. Qwen3.8-27B-FP8 (hybrid GDN), 1xH200.
+# SLO search from conc 1 at the baseline sweep's headline scenario; the fixed-c86 arm (c86 config) passed both
+# SLAs (TTFT avg 0.78 s, ITL p90 26.5 ms), so this search finds the fork recipe's real capacity ceiling.
+# Image: fork python tree @ fee467d1 layered onto lmsysorg/sglang:v0.5.23 (same recipe as viethq5-fork-18b5ddb97c).
+# fa4 SM90: FP8 prefill routed to FA3 behind SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3=1 (fork 6b16d4c5).
+name: qwen38-fp8-dflash-fork-fa4-isl8k-c90-search
+runner: h200-hcm
+image: vcr.vngcloud.vn/108942-public69/sglang:viethq5-fork-fee467d1
+model: Qwen/Qwen3.8-27B-FP8
+gpus: 1
+precision: fp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+  SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK: "1"
+  SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3: "1"
+  # fork python tree expects a newer rust tree-core .so than v0.5.23 ships; pure-python core until the rust side is rebuilt
+  SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND: "python"
+  FLASHINFER_CUDA_ARCH_LIST: "12.0f"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path Qwen/Qwen3.8-27B-FP8
+  --served-model-name Qwen/Qwen3.8-27B-FP8
+  --trust-remote-code
+  --kv-cache-dtype fp8_e4m3
+  --mem-fraction-static 0.85
+  --attention-backend fa4
+  --chunked-prefill-size 8192
+  --max-prefill-tokens 16384
+  # fork's get_hf_text_config rebuilds PretrainedConfig from the yarn override and the image's
+  # transformers then fails rope validation on this hybrid config (no max_position_embeddings):
+  # native 262144 ctx like the running fork config; workload needs only 128k+1k.
+  --context-length 262144
+  --max-running-requests 256
+  --speculative-algorithm DFLASH
+  --speculative-draft-model-path incoai/Qwen3.8-27B-DFlash2
+  --speculative-num-draft-tokens 4
+  --enable-linear-replayssm-spec --linear-replayssm-cache-len 32
+  --mamba-ssm-dtype float32 --mamba-radix-cache-strategy extra_buffer_lazy
+  --mamba-full-memory-ratio 1.5
+  --schedule-policy dfs-weight --schedule-conservativeness 0.3
+  --enable-hierarchical-cache --hicache-size 64
+  --reasoning-parser qwen3 --tool-call-parser qwen3_coder
+  --enable-metrics --enable-cache-report
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: true}
+conc: 1
