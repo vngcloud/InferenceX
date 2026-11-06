@@ -234,19 +234,6 @@ def with_requests(scenario_yaml: str, requests: int) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
-def with_warmup_concurrency(scenario_yaml: str, concurrency: str) -> str:
-    """The scenario with its warmup at the run's concurrency (``--concurrency`` sets profiling)."""
-    import yaml  # in the AgentX venv
-
-    doc = yaml.safe_load(scenario_yaml)
-    warmups = [p for p in doc["benchmark"]["phases"] if p.get("kind") == "warmup"]
-    if not warmups:
-        return scenario_yaml
-    for phase in warmups:
-        phase["concurrency"] = int(concurrency)
-    return yaml.safe_dump(doc, sort_keys=False)
-
-
 def label_result(path: Path, label: str, token_count_source: str | None = None) -> None:
     """File the aggregate under the legacy scenario label result-report reads first."""
     if not path.exists():
@@ -315,8 +302,6 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
     chosen = found[1] if found else None
     internal = found is not None and found[0] is greenspec
     scenario_yaml = with_token_source(env["SERVING_SCENARIO_YAML"], source or "server")
-    if env.get("SERVING_SEARCH") != "1":
-        scenario_yaml = with_warmup_concurrency(scenario_yaml, env["CONC"])
     child = online(env) | {
         "AIPERF_DATASET_CONFIGURATION_TIMEOUT": "1800",
         "AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT": "1800",

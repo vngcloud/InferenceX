@@ -1,0 +1,45 @@
+# Pattern: synthetic workload at fixed concurrency, fork arm. Qwen3.8-27B-FP8 (hybrid GDN), 1xH200.
+# Same point as the v0523-EAGLE baseline sweep's searched winner at isl8k/osl1k/cache90 (conc 86,
+# run 41170766014): isolates the fork recipe gain (DFLASH + DFlash2 draft, fa4 SM90 FP8-KV) at that CCU.
+# Image: fork python tree @ fee467d1 layered onto lmsysorg/sglang:v0.5.23 (same recipe as viethq5-fork-18b5ddb97c).
+# fa4 SM90: FP8 prefill routed to FA3 behind SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3=1 (fork 6b16d4c5).
+name: qwen38-fp8-dflash-fork-fa4-isl8k-c90-c86
+runner: h200-hcm
+image: vcr.vngcloud.vn/108942-public69/sglang:viethq5-fork-fee467d1
+model: Qwen/Qwen3.8-27B-FP8
+gpus: 1
+precision: fp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+  SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK: "1"
+  SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3: "1"
+  # fork python tree expects a newer rust tree-core .so than v0.5.23 ships; pure-python core until the rust side is rebuilt
+  SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND: "python"
+  FLASHINFER_CUDA_ARCH_LIST: "12.0f"
+  SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN: "1"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path Qwen/Qwen3.8-27B-FP8
+  --served-model-name Qwen/Qwen3.8-27B-FP8
+  --trust-remote-code
+  --kv-cache-dtype fp8_e4m3
+  --mem-fraction-static 0.85
+  --attention-backend fa4
+  --chunked-prefill-size 8192
+  --max-prefill-tokens 16384
+  --json-model-override-args '{"text_config": {"rope_parameters": {"mrope_interleaved": true, "mrope_section": [11, 11, 10], "rope_type": "yarn", "rope_theta": 10000000, "partial_rotary_factor": 0.25, "factor": 4.0, "original_max_position_embeddings": 262144}}}'
+  --context-length 1000000
+  --max-running-requests 256
+  --speculative-algorithm DFLASH
+  --speculative-draft-model-path incoai/Qwen3.8-27B-DFlash2
+  --speculative-num-draft-tokens 4
+  --enable-linear-replayssm-spec --linear-replayssm-cache-len 32
+  --mamba-ssm-dtype float32 --mamba-radix-cache-strategy extra_buffer_lazy
+  --mamba-full-memory-ratio 1.5
+  --schedule-policy dfs-weight --schedule-conservativeness 0.3
+  --enable-hierarchical-cache --hicache-size 64
+  --reasoning-parser qwen3 --tool-call-parser qwen3_coder
+  --enable-metrics --enable-cache-report
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [86]

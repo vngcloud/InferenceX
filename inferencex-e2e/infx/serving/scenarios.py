@@ -38,8 +38,7 @@ OVERRIDE_KEYS = (
     "trace_idle_gap_cap",
     "warmup_requests_per_lane",
 )
-SYNTHETIC_OVERRIDES = ("duration", "warmup")
-POOLING_OVERRIDES = ("duration",)
+SYNTHETIC_OVERRIDES = ("duration",)
 GENERATION_KEYS = ("top_p", "temperature")
 ISL = {"4k": 4096, "8k": 8192, "32k": 32768, "64k": 65536, "128k": 131072}
 OSL = {"512": 512, "1k": 1024}
@@ -50,9 +49,6 @@ RERANK_PASSAGE = {"512": 512, "2k": 2048}
 RERANK_QUERY_TOKENS = 32
 POOLING_SLO = {"embed": "request_latency:p90:lt:500", "rerank": "request_latency:p90:lt:1000"}
 DEFAULT_SLO = "time_to_first_token:avg:lt:8000;inter_token_latency:p90:lt:50"
-# Searches score sustainable capacity: an excluded warmup absorbs the start burst of N clients.
-# 120 s drains it for 8k-class prompts; long-ISL configs set more, 0 scores from t = 0.
-DEFAULT_SEARCH_WARMUP = 120.0
 PUBLIC_DATASET = "semianalysis_cc_traces_weka_062126"
 LABELS = {
     "agentx": "agentx-cc-062126",
@@ -288,30 +284,6 @@ def _pooling(
     return doc
 
 
-def _warmup(doc: dict[str, Any], seconds: float) -> None:
-    """Run ``seconds`` of excluded warmup at the probed concurrency, then profile without a drain.
-
-    The profiling phase is seamless, so the first scored requests join a loaded server instead of
-    landing as one burst of N simultaneous prefills. Under search, aiperf replaces this warmup
-    each probe with one at the probed concurrency (sla_warmup_seconds long); a fixed run sets the
-    warmup's concurrency to CONC in the client.
-    """
-    phases = doc["benchmark"]["phases"]
-    phases.insert(
-        0,
-        {
-            "name": "warmup",
-            "kind": "warmup",
-            "type": "concurrency",
-            "concurrency": 1,
-            "duration": seconds,
-        },
-    )
-    _profiling(doc)["seamless"] = True
-    if "sweep" in doc:
-        doc["sweep"]["sla_warmup_seconds"] = seconds
-
-
 def _greenspec(
     overrides: dict[str, Any],
     point: Point | None,
@@ -378,29 +350,15 @@ def render(
     if family in ("synthetic", *POOLING):
         if family == "synthetic" and point is None:
             raise ScenarioError("workload: synthetic needs isl, osl and cache")
-        allowed = SYNTHETIC_OVERRIDES if family == "synthetic" else POOLING_OVERRIDES
-        if extra := sorted(set(overrides) - set(allowed)):
+        if extra := sorted(set(overrides) - set(SYNTHETIC_OVERRIDES)):
             raise ScenarioError(
-                f"overrides: {family} only takes {', '.join(allowed)}, not {', '.join(extra)}"
+                f"overrides: {family} only takes {', '.join(SYNTHETIC_OVERRIDES)}, not {', '.join(extra)}"
             )
         if family in POOLING:
             doc = _pooling(family, point, search, slo)
-            suffixes = _apply(doc, family, overrides, lock)
         else:
             doc = _synthetic(point, search, slo)
-            default = DEFAULT_SEARCH_WARMUP if search else 0.0
-            warmup = overrides.pop("warmup", default)
-            if isinstance(warmup, bool) or not isinstance(warmup, (int, float)) or warmup < 0:
-                raise ScenarioError(
-                    f"overrides.warmup: seconds >= 0 (0 scores from t = 0), got {warmup!r}"
-                )
-            suffixes = _apply(doc, family, overrides, lock)
-            if warmup:
-                _warmup(doc, float(warmup))
-            elif search:
-                doc["sweep"]["sla_warmup_seconds"] = 0  # no aiperf warmup either
-            if warmup != default:
-                suffixes.append(f"-w{warmup:g}")
+        suffixes = _apply(doc, family, overrides, lock)
         label = f"{'sweep' if search else 'fixed'}-{point.label}{''.join(suffixes)}"
         return Rendered(doc, label, "synthetic", "synthetic", search, _profiling(doc)["duration"])
     if point is not None or search or slo:

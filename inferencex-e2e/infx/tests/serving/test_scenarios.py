@@ -1,4 +1,3 @@
-import copy
 from pathlib import Path
 
 import pytest
@@ -40,22 +39,10 @@ CASES = [
 ]
 
 
-def without_default_warmup(doc):
-    """The doc minus the excluded warmup a search gets by default; the legacy files predate it."""
-    doc = copy.deepcopy(doc)
-    if "sweep" in doc:
-        warmup, profiling = doc["benchmark"]["phases"]
-        assert warmup["kind"] == "warmup" and profiling.pop("seamless") is True
-        doc["benchmark"]["phases"] = [profiling]
-        del doc["sweep"]["sla_warmup_seconds"]
-    return doc
-
-
 @pytest.mark.parametrize("legacy, family, overrides, point, search, label", CASES, ids=[c[0] for c in CASES])
 def test_base_plus_variant_equals_the_legacy_file(legacy, family, overrides, point, search, label):
     rendered = render(family, overrides, point, search)
-    legacy_doc = yaml.safe_load((LEGACY / f"{legacy}.yaml").read_text())
-    assert without_default_warmup(rendered.doc) == legacy_doc
+    assert rendered.doc == yaml.safe_load((LEGACY / f"{legacy}.yaml").read_text())
     assert rendered.label == label
     assert yaml.safe_load(rendered.yaml()) == rendered.doc
 
@@ -89,8 +76,7 @@ def test_slo_replaces_the_sweep_filters():
     (("agentx", {"duration": 0}), "overrides.duration"),
     (("agentx", {"generation": {"top_k": 5}}), "overrides.generation"),
     (("synthetic", {}), "workload: synthetic needs"),
-    (("synthetic", {"dataset": "x"}, Point("8k", "1k", 0)), "overrides: synthetic only takes duration, warmup"),
-    (("synthetic", {"warmup": -1}, Point("8k", "1k", 0)), "overrides.warmup"),
+    (("synthetic", {"dataset": "x"}, Point("8k", "1k", 0)), "overrides: synthetic only takes duration"),
     (("synthetic", {}, Point("16k", "1k", 0)), "workload.isl"),
     (("synthetic", {}, Point("8k", "1k", 0), False, "time_to_first_token:avg:lt:1"), "slo: only applies"),
     (("agentx", {}, Point("8k", "1k", 0)), "workload/slo: only for scenario synthetic"),
@@ -163,24 +149,6 @@ def test_warmup_requests_per_lane_override():
 def test_families_have_base_files():
     from infx.serving.scenarios import SCENARIOS_DIR
     assert {path.stem for path in SCENARIOS_DIR.glob("*.yaml")} == set(FAMILIES)
-
-
-def test_synthetic_search_warms_up_by_default_and_hands_off_seamlessly():
-    slo = "time_to_first_token:p95:lt:8000"
-    rendered = render("synthetic", {}, Point("8k", "1k", 50), True, slo)
-    warmup, profiling = rendered.doc["benchmark"]["phases"]
-    assert (warmup["kind"], warmup["duration"]) == ("warmup", 120.0)
-    assert profiling["kind"] == "profiling" and profiling["seamless"] is True
-    assert rendered.doc["sweep"]["sla_warmup_seconds"] == 120.0
-    assert rendered.label == "sweep-isl8k-osl1k-cache50"
-    cold = render("synthetic", {"warmup": 0}, Point("8k", "1k", 50), True, slo)
-    assert [p["kind"] for p in cold.doc["benchmark"]["phases"]] == ["profiling"]
-    assert cold.doc["sweep"]["sla_warmup_seconds"] == 0 and cold.label.endswith("-w0")
-    fixed = render("synthetic", {"duration": 180}, Point("8k", "1k", 0))
-    assert [p["kind"] for p in fixed.doc["benchmark"]["phases"]] == ["profiling"]
-    warm = render("synthetic", {"duration": 180, "warmup": 120}, Point("8k", "1k", 0))
-    assert warm.doc["benchmark"]["phases"][0]["kind"] == "warmup"
-    assert warm.label == "fixed-isl8k-osl1k-cache0-smoke-w120"
 
 
 def test_embed_search_point_fills_prompts_and_searches_request_throughput():
