@@ -1,4 +1,4 @@
-name: glm53-v0521-fcfs-prodccu
+name: glm53-v0521-hrrn-prodccu
 runner: cluster:hcm-hgx01
 image: docker.io/phphlio1/sglang-uniboost:v0.5.21-dyn1.6.1-8655ac6c21
 model: PhalaCloud/GLM-5.3-W4AFP8
@@ -33,7 +33,7 @@ serve: |
   --enable-hierarchical-cache --hicache-size=128 --hicache-io-backend=direct --hicache-write-policy=write_back
   --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
   --enable-prefill-delayer --page-size=64
-  --schedule-policy=fcfs
+  --schedule-policy=hrrn
   --in-batch-prefix-caching-max-pin-s=60
   --log-schedule-eval-path=/workspace/results/schedule_eval.jsonl
   --kv-events-config='{"publisher":"zmq","topic":"kv-events","endpoint":"tcp://*:8900"}'
