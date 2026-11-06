@@ -155,6 +155,34 @@ def test_agentic_step_preserves_failure_gate(
     assert json.loads(aggregate.read_text()) == data
 
 
+@pytest.mark.parametrize("errors,returncode", [(20, 0), (21, 1)])
+def test_agentic_step_uses_the_scenario_threshold_the_client_recorded(
+    tmp_path, validation_python, errors, returncode
+):
+    artifacts = tmp_path / "results" / "aiperf_artifacts"
+    artifacts.mkdir(parents=True)
+    (artifacts / "profile_export_aiperf.json").write_text(
+        json.dumps(
+            {
+                "request_count": {"avg": 100 - errors},
+                "error_request_count": {"avg": errors},
+                "completed_request_count": {"avg": 100},
+            }
+        )
+    )
+    (tmp_path / "results" / ".failed_request_threshold").write_text("0.2\n")
+    completed = run_step(
+        tmp_path,
+        validation_python,
+        "benchmark-tmpl.yml",
+        "Validate agentic result",
+        AIPERF_FAILED_REQUEST_THRESHOLD="0.10",
+    )
+    assert completed.returncode == returncode, completed.stdout + completed.stderr
+    assert f"{errors}/100 = {errors:.3f}% " in completed.stdout + completed.stderr
+    assert "20.000%" in completed.stdout + completed.stderr
+
+
 @pytest.mark.parametrize(
     "variable", ["INFERENCEX_RESULTS_PYTHON", "AIPERF_FAILED_REQUEST_THRESHOLD"]
 )
