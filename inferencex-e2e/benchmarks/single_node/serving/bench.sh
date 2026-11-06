@@ -66,9 +66,14 @@ for ((replica = 0; replica < replicas; replica++)); do
     if [[ -n "$dynamo" ]]; then
         launch_env+=(DYN_SYSTEM_PORT="${ports[replica]}")
         command=("$@")
-        # vLLM's KV event publisher binds a fixed port unless told otherwise: one per replica.
-        if [[ "$3" == dynamo.vllm && " $* " != *" --kv-events-config"[\ =]* ]]; then
-            command+=(--kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+        # The engine's KV event publisher binds a fixed port unless told otherwise: one per replica.
+        # dynamo.sglang publishes no KV events at all without --kv-events-config.
+        if [[ " $* " != *" --kv-events-config"[\ =]* ]]; then
+            if [[ "$3" == dynamo.vllm ]]; then
+                command+=(--kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+            elif [[ "$3" == dynamo.sglang ]]; then
+                command+=(--kv-events-config "{\"publisher\":\"zmq\",\"endpoint\":\"tcp://*:${kv_ports[replica]}\"}")
+            fi
         fi
     else
         command=("$@" --host 0.0.0.0 --port "${ports[replica]}")

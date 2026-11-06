@@ -87,17 +87,17 @@ def test_runner_must_be_a_vng_cluster_slot_or_pool():
     inventory = load_inventory()
     assert runner_gpus("cluster:hcm-hgx02", inventory) == 8
     assert runner_gpus("hcm-hgx02_01", inventory) == 8
-    assert runner_gpus("h200-hcm", inventory) == 4  # the smallest node of the pool
+    assert runner_gpus("h200-hcm", inventory) == 8  # the smallest node of the pool
     assert runner_gpus("h200-han", inventory) == 1
     with pytest.raises(ServingError, match="runner: h100-cw_00 is not a VNG serving runner"):
         runner_gpus("h100-cw_00", inventory)
 
 
 def test_gpus_above_the_node_fail():
-    text = BASE.replace("runner: cluster:hcm-hgx02", "runner: cluster:hcm-hgx01").replace(
+    text = BASE.replace("runner: cluster:hcm-hgx02", "runner: cluster:hcm-rtx01").replace(
         "gpus: 1", "gpus: 8"
     )
-    assert "gpus: 8 > 4 GPUs per node" in errors(text + "scenario: agentx\nconc: 8\n")
+    assert "gpus: 8 > 2 GPUs per node" in errors(text + "scenario: agentx\nconc: 8\n")
 
 
 ROUTER = """\
@@ -273,8 +273,16 @@ conc: 8
 """
 
 
+SGLANG_SERVE = "python3 -m dynamo.sglang --model-path Qwen/Qwen3.8-27B --tp 4 --enable-metrics"
+
+
 def test_dynamo_vllm_replicas_behind_the_frontend():
     assert load_serving(DYNAMO_REPLICAS).replicas == 2
+
+
+def test_dynamo_sglang_replicas_behind_the_frontend():
+    vllm_serve = "python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4"
+    assert load_serving(DYNAMO_REPLICAS.replace(vllm_serve, SGLANG_SERVE)).replicas == 2
 
 
 @pytest.mark.parametrize(
@@ -282,12 +290,17 @@ def test_dynamo_vllm_replicas_behind_the_frontend():
     [
         (
             "python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4",
-            "python3 -m dynamo.sglang --model-path Qwen/Qwen3.8-27B --tp 4 --enable-metrics",
-            "replicas: more than 1 replica behind the Dynamo frontend needs python3 -m dynamo.vllm",
+            "python3 -m trtllm_serve Qwen/Qwen3.8-27B --tp_size 4",
+            "replicas: more than 1 replica behind the Dynamo frontend needs python3 -m dynamo.vllm or",
         ),
         (
             "--tensor-parallel-size 4",
             "--tensor-parallel-size 4 --kv-events-config '{\"publisher\":\"zmq\"}'",
+            "replicas: drop --kv-events-config from serve",
+        ),
+        (
+            "python3 -m dynamo.vllm --model Qwen/Qwen3.8-27B --tensor-parallel-size 4",
+            SGLANG_SERVE + " --kv-events-config '{\"publisher\":\"zmq\"}'",
             "replicas: drop --kv-events-config from serve",
         ),
     ],
