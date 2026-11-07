@@ -1,0 +1,40 @@
+name: gemma4-31b-it-fp8block-sgl-rsag-mtp-1gpu-h200han-isl8k-osl1k-cache90-c80
+runner: h200-han
+image: vcr.vngcloud.vn/108942-public69/sglang:v0.5.22-ai1rsag-mtpfp8mma-50a5e2df
+model: RedHatAI/gemma-4-31B-it-FP8-block
+gpus: 1
+precision: fp8
+env:
+  SGLANG_FA4_FP8MMA_MTP: "1"
+  SGLANG_GEMMA4_RSAG: "1"
+  SGLANG_GEMMA4_RSAG_MIN_TOKENS: "1024"
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+  FASTOKENS_BPE_THREADS: "4"
+  SGLANG_PARALLEL_PROMPT_ENCODE: "0"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path RedHatAI/gemma-4-31B-it-FP8-block
+  --tp 1
+  --max-running-requests 256
+  --cuda-graph-max-bs-decode 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 16384
+  --speculative-algorithm NEXTN
+  --speculative-draft-model-path google/gemma-4-31B-it-assistant
+  --speculative-eagle-topk 1
+  --speculative-num-steps 3
+  --speculative-num-draft-tokens 4
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.4
+  --mem-fraction-static 0.92
+  --cuda-graph-backend-prefill breakable
+  --tokenizer-backend fastokens
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: false}
+conc: [80]
