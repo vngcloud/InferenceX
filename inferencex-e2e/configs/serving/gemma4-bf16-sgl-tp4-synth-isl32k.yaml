@@ -16,7 +16,7 @@ serve: |
   --tp 4
   --context-length 262144
   --max-running-requests 160
-  --attention-backend fa3
+  --attention-backend fa4
   --page-size 64
   --chunked-prefill-size 4096
   --schedule-policy shortest-prefill-first
