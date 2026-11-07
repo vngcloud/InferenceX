@@ -30,6 +30,8 @@ OFFLINE = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE")
 DATASET_PATH = ".dataset_path"
 FAILED_REQUEST_THRESHOLD = "0.10"
 COUNT_SOURCE_MARKER = ".token_count"
+# Read by the workflow's "Validate agentic result" step.
+THRESHOLD_MARKER = ".failed_request_threshold"
 SELECTION_DIR = "/tmp/greenspec-selection"  # noqa: S108 -- inside the job container; outside the result dir: request bodies are never uploaded
 PRIVATE_LOGS = (
     ".greenspec-private-logs"  # beside the aggregate, on the node; not in any upload path
@@ -212,6 +214,17 @@ def with_token_source(scenario_yaml: str, source: str) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
+def failed_request_threshold(scenario_yaml: str) -> str:
+    """The profiling phase's failedRequestThreshold, so the result gate matches aiperf's own abort."""
+    import yaml  # in the AgentX venv (agentx-harness depends on PyYAML)
+
+    phases = yaml.safe_load(scenario_yaml)["benchmark"].get("phases") or []
+    for phase in phases:
+        if phase.get("kind") == "profiling" and "failedRequestThreshold" in phase:
+            return str(phase["failedRequestThreshold"])
+    return FAILED_REQUEST_THRESHOLD
+
+
 def selection_family(env: Mapping[str, str]) -> tuple[Any, Any] | None:
     """The (module, Settings) of the selection family the job's serving YAML runs, else None.
 
@@ -344,6 +357,8 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
         ],
         child,
     )
+    threshold = failed_request_threshold(scenario_yaml)
+    (result_dir / THRESHOLD_MARKER).write_text(threshold + "\n")
     validate_rc = proc.call(
         [
             python,
@@ -351,7 +366,7 @@ def run(env: Mapping[str, str], runtime: Runtime) -> int:
             "infx.results.agentic.validate_agentic_result",
             str(artifacts),
             "--failed-request-threshold",
-            FAILED_REQUEST_THRESHOLD,
+            threshold,
         ],
         child,
     )

@@ -91,3 +91,17 @@ speedbench-throughput-32k:
   file: throughput_32k.jsonl
   sha256: 04148f06e19c490856dcb9efc1b1fd4593354d4abd4bf07c6f5dc4ce91348c0b
   private: true
+glm53-prod-ccu:
+  repo: Green-Lab/glm53-prod-traces
+  revision: 92406ef53b080bfc27ac81e0e17d99e37edc42a7
+  file: snapshots/2026-11-05/ccu-coding-agent.jsonl
+  sha256: ac0ef8bd61d038268d7c97b75161a61922cd4cec8936b4acc5da3fcd784d3cbc
+  entries: 300
+  private: true
+glm53-prod-ccu-lite:
+  repo: Green-Lab/glm53-prod-traces
+  revision: 92406ef53b080bfc27ac81e0e17d99e37edc42a7
+  file: snapshots/2026-11-05/ccu-coding-agent-lite.jsonl
+  sha256: 6501abe402a1cada1bd7edfadc3776a9c37eb085df411fb82478aec5b09c914a
+  entries: 105
+  private: true

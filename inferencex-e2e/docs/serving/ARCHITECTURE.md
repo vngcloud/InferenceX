@@ -214,13 +214,14 @@ that several nodes need belong in a registry, where every node caches its own sq
 
 ## 6. Scenarios
 
-Eight base files in `benchmarks/single_node/serving/scenarios/`:
+Base files in `benchmarks/single_node/serving/scenarios/`:
 
 | Family | Workload | Dataset |
 |---|---|---|
 | `agentx` | multi-turn coding agent | public AgentX trace |
 | `tau2` | customer-service agent with tool calls | pinned file |
 | `livekit` | voice-agent sessions | pinned file, Mooncake trace format |
+| `prod-ccu` | production coding-agent sessions (GLM-5.3 gateway logs) | pinned private file (`Green-Lab/glm53-prod-traces`), Mooncake trace format |
 | `shared-prefix-e2` | requests sharing long prefixes | pinned file, Mooncake trace format |
 | `hidden-prefix-e3` | prefixes reused without being visible to the router | pinned file, Mooncake trace format |
 | `synthetic` | generated ISL/OSL with a shared-prefix share | synthetic |

@@ -321,9 +321,12 @@ jobs:
           if [[ -f inferencex-e2e/configs/runners.yaml ]]; then cd inferencex-e2e; fi
           source "$PYTHONPATH/benchmarks/check_env.sh"
           check_env_vars INFERENCEX_RESULTS_PYTHON AIPERF_FAILED_REQUEST_THRESHOLD
+          # The client gate writes the scenario's failedRequestThreshold here (infx.serving.client).
+          threshold="$AIPERF_FAILED_REQUEST_THRESHOLD"
+          if [[ -s results/.failed_request_threshold ]]; then threshold="$(< results/.failed_request_threshold)"; fi
           "$INFERENCEX_RESULTS_PYTHON" -P -m infx.results.agentic.validate_agentic_result \
             results/aiperf_artifacts \
-            --failed-request-threshold "$AIPERF_FAILED_REQUEST_THRESHOLD"
+            --failed-request-threshold "$threshold"
 
       - name: Process result
         if: ${{ always() && env.RESULT_FILENAME != '' && !inputs.eval-only && inputs.scenario-type != 'agentic-coding' }}
