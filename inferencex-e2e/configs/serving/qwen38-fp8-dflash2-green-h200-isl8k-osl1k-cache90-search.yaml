@@ -1,0 +1,36 @@
+# Pattern: SLO-search arm of viethq5's green recipe (GreenAttention plugin + DFLASH2 + bf16 mamba),
+# verbatim serve flags/env from run 42156072653 (fixed c86/c128 both passed SLA; c128 TTFT avg 1.51 s).
+# Search from conc 1 finds the green recipe's capacity ceiling at the baseline sweep's headline scenario.
+name: qwen38-fp8-dflash2-green-h200-isl8k-osl1k-cache90-search
+runner: cluster:han-h200-01
+image: /data/viethq5/viethq18-sglang-green-24a44bc.sqsh
+model: Qwen/Qwen3.8-27B-FP8
+gpus: 1
+precision: fp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK: "1"
+  SGLANG_PLUGINS: green_attention
+  SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3: "1"
+  SGLANG_DENSE_SWIGLU_FP8_FUSION_EXT: "1"
+  SGLANG_ENABLE_GDN_PREFILL_GRAPH_EXTEND: "1"
+  SGLANG_LINEAR_PREFILL_GRAPH_EXTEND_MAX_TOKENS: "2048"
+serve: |
+  python -m sglang.launch_server
+  --model-path Qwen/Qwen3.8-27B-FP8 --served-model-name Qwen/Qwen3.8-27B-FP8
+  --trust-remote-code --tp-size 1 --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 8192 --max-prefill-tokens 16384 --context-length 256000
+  --mem-fraction-static 0.85 --max-running-requests 128 --schedule-conservativeness 0.3
+  --mamba-radix-cache-strategy extra_buffer_lazy
+  --enable-linear-replayssm-spec --linear-replayssm-cache-len 32
+  --schedule-policy dfs-weight --enable-hierarchical-cache
+  --speculative-algorithm DFLASH --speculative-draft-model-path incoai/Qwen3.8-27B-DFlash2
+  --speculative-num-draft-tokens 4
+  --reasoning-parser qwen3 --tool-call-parser qwen3_coder
+  --enable-metrics --enable-cache-report
+  --attention-backend green --speculative-draft-attention-backend fa4
+  --mamba-ssm-dtype bfloat16 --mamba-full-memory-ratio 1 --hicache-size 40
+  --linear-attn-prefill-backend flashinfer --linear-attn-verify-backend triton
+scenario: synthetic
+workload: {isl: [8k], osl: [1k], cache: [90], search: true}
+conc: 1
