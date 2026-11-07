@@ -18,6 +18,9 @@ from infx.serving.schema import ServingError, ServingSpec
 _ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _OWNED_FLAGS = ("--host", "--port")
 _ROUTER_OWNED_FLAGS = ("--http-host", "--http-port")
+# serve: may wrap a python3 -m dynamo.sglang command in this launcher (path relative to /workspace), which starts
+# it as a prefill and a decode worker on the two halves of the node's GPUs.
+PD_SINGLE_NODE_LAUNCHER = "benchmarks/single_node/serving/pd_single_node.sh"
 CLIENT_IMAGE = "ghcr.io/astral-sh/uv:python3.12-bookworm-slim"  # python + uv: the AgentX venv bootstrap needs no curl
 
 
@@ -51,6 +54,8 @@ def _pop_env_prefix(argv: list[str]) -> tuple[dict[str, str], list[str]]:
 
 
 def _python_module(argv: list[str]) -> str | None:
+    if argv[:2] == ["bash", PD_SINGLE_NODE_LAUNCHER]:
+        argv = argv[2:]  # the launcher runs the engine command that follows it as two PD workers
     if len(argv) >= 3 and argv[0] in ("python", "python3") and argv[1] == "-m":
         return argv[2]
     return None

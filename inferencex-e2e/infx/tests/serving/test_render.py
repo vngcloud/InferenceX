@@ -186,6 +186,26 @@ def test_infer_framework(argv, framework):
     assert infer_framework(argv) == framework
 
 
+PD_LAUNCH = "bash benchmarks/single_node/serving/pd_single_node.sh"
+
+
+def test_pd_single_node_launcher_wraps_a_dynamo_engine():
+    engine = f"{PD_LAUNCH} python3 -m dynamo.sglang --model-path=m --enable-metrics --prefill --tp=4 --decode --dp=4"
+    out = render(dyn(engine=engine))
+    assert out["framework"] == "sglang"
+    assert shlex.split(out["serve-cmd"])[:5] == ["bash", PD_LAUNCH.split()[1], "python3", "-m", "dynamo.sglang"]
+    assert out["router-profile"] == "dynamo"
+
+
+def test_pd_single_node_launcher_keeps_the_dynamo_checks():
+    with pytest.raises(ServingError, match="needs --enable-metrics"):
+        render(dyn(engine=f"{PD_LAUNCH} python3 -m dynamo.sglang --model-path=m"))
+    with pytest.raises(ServingError, match="unknown engine"):
+        render(spec(f"{PD_LAUNCH} trtllm-serve m"))
+    with pytest.raises(ServingError, match="unknown engine"):
+        render(spec("bash other.sh python3 -m dynamo.sglang --model-path=m"))
+
+
 def test_unknown_engine_rejected():
     with pytest.raises(ServingError, match="serve: unknown engine"):
         render(spec("trtllm-serve Qwen/Qwen3.8-27B"))
