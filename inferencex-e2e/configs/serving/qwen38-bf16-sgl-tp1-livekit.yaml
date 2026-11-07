@@ -1,5 +1,5 @@
 # MAX-parity arm: plain SGLang BF16 on the LiveKit v1.1-warm trace (1200 s) at MAX's CCU 8,
-# mirroring stock MAX jobs 9508/9643 (EAGLE MTP3, prefix caching forced off there).
+# mirroring stock MAX jobs 9508/9643 (EAGLE MTP3).
 name: qwen38-bf16-sgl-tp1-livekit
 runner: cluster:han-h200-01
 image: lmsysorg/sglang:v0.5.23
@@ -21,7 +21,6 @@ serve: |
   --schedule-policy shortest-prefill-first
   --mem-fraction-static 0.85
   --mamba-full-memory-ratio 1.5
-  --disable-radix-cache
   --speculative-algorithm EAGLE --speculative-num-steps 3
   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
   --enable-linear-replayssm-spec

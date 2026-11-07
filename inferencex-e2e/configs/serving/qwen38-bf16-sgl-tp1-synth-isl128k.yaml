@@ -1,5 +1,5 @@
 # MAX-parity arm: plain SGLang BF16 (MAX-pinned revision 1d4bf0f2), no router, mirroring stock
-# MAX's modeling (EAGLE MTP3, prefix caching forced off). ISL 128k arm: MAX planned these points
+# MAX's modeling (EAGLE MTP3). ISL 128k arm: MAX planned these points
 # but never ran them on the hgx node (two CCU-8 points passed on HAN).
 name: qwen38-bf16-sgl-tp1-synth-isl128k
 runner: cluster:han-h200-01
@@ -22,7 +22,6 @@ serve: |
   --schedule-policy shortest-prefill-first
   --mem-fraction-static 0.85
   --mamba-full-memory-ratio 1.5
-  --disable-radix-cache
   --speculative-algorithm EAGLE --speculative-num-steps 3
   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
   --enable-linear-replayssm-spec

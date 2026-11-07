@@ -1,5 +1,4 @@
-# MAX-parity arm: plain SGLang BF16 TP4, no router, mirroring stock MAX's modeling (EAGLE MTP3,
-# prefix caching forced off). Qwen3.8 never ran TP4 under MAX (upstream crashes). ISL 32k arm of
+# MAX-parity arm: plain SGLang BF16 TP4, no router, mirroring stock MAX's modeling (EAGLE MTP3). Qwen3.8 never ran TP4 under MAX (upstream crashes). ISL 32k arm of
 # the MAX matrix-9 grid.
 name: qwen38-bf16-sgl-tp4-synth-isl32k
 runner: cluster:hcm-hgx02
@@ -23,7 +22,6 @@ serve: |
   --schedule-policy shortest-prefill-first
   --mem-fraction-static 0.85
   --mamba-full-memory-ratio 1.5
-  --disable-radix-cache
   --speculative-algorithm EAGLE --speculative-num-steps 3
   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
   --enable-linear-replayssm-spec
