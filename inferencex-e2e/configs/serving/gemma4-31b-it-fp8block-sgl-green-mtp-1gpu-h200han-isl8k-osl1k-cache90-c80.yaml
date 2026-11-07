@@ -1,13 +1,16 @@
 # Pattern: A/B arms on one image, fixed concurrency. Gemma-4-31B FP8-block (hybrid sliding/global), 1xH200.
 # Same point as the ai1rsag-mtpfp8mma run 42330557784 (isl8k/osl1k/cache90, c80) for a cross-image read;
 # within this run the arms differ only by attention backend (fa3 control vs green kernels) and hicache.
-# Image: fork fee467d1 (v0.5.23 wheels) + green-attention@dbb9075e + green-optimizer@8b36c7b7.
+# Image: fork fee467d1 (v0.5.23 wheels) + green-attention@dbb9075e + green-optimizer@8b36c7b7
+# + CUTLASS v4.8.1 headers for the JIT kernels (GREEN_CUTLASS_DIR; the first build died on missing headers).
+# No fa3 control arm: the v0.5.23 engine rejects fa3 for Gemma-4 (the ai1rsag image patches it in);
+# the cross-engine reference is run 42330557784 (same point, ai1rsag image).
 # Green Gemma-4: sliding decode + HD512 global layers on the SM90 fp8-KV kernels (docs/gemma4.md),
 # E4M3 prefill head_dim<=256 routed to FA3 behind SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3=1.
 # NEXTN + assistant draft: topk 1, the draft runs on the target's backend (FROZEN_KV_MTP on green).
 name: gemma4-31b-it-fp8block-sgl-green-mtp-1gpu-h200han-isl8k-osl1k-cache90-c80
 runner: cluster:hcm-hgx02
-image: vcr.vngcloud.vn/108942-public69/sglang:viethq5-fork-fee467d1-green-ga-dbb9075e-go-8b36c7b7
+image: vcr.vngcloud.vn/108942-public69/sglang:viethq5-fork-fee467d1-green-ga-dbb9075e-go-8b36c7b7-v2
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 1
 precision: fp8
@@ -19,7 +22,6 @@ serve: |
   --tp 1
   --max-running-requests 256
   --cuda-graph-max-bs-decode 256
-  --attention-backend fa3
   --page-size 64
   --kv-cache-dtype fp8_e4m3
   --chunked-prefill-size 16384
@@ -36,7 +38,6 @@ serve: |
   --trust-remote-code
   --tool-call-parser gemma4 --reasoning-parser gemma4
 arms:
-  fa3ctrl: {}
   green:
     append: |
       --attention-backend green
