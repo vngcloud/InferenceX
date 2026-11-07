@@ -1,0 +1,54 @@
+# Qwen3.8-27B-FP8 port of gemma4-livekit-tp4-dyn-sgl-fp8kv-pfbreak-fa4fp8mma-fastok-car128: one TP4
+# dynamo.sglang engine behind the Dynamo KV router, prefill CUDA graph (breakable) + fastokens
+# frontend tokenizer + custom all-reduce up to 128 MB, on the LiveKit v1.1-warm trace (1200 s).
+# Image: the public g4p2 dynamo registry build (lmsysorg/sglang v0.5.22-cu130 + dynamo 1.6.0) that ran
+# the gemma4 ai-all LiveKit arm green on this image pair (run 42098764945); the node-local gemma4
+# .sqsh of the source config has no Qwen build. DYN_PARSER_VERSION=2 per that run.
+# Dropped vs the Gemma4 source (model-specific): SGLANG_SWA_EVICTION_INTERVAL + --swa-full-tokens-ratio
+# (Gemma4 SWA) -> --mamba-full-memory-ratio 1.5 (Qwen3.8 hybrid GDN state pool, same as every qwen38
+# run); the sglang_gemma4_bcg PYTHONPATH patch (Gemma4 prefill-graph capture fix); fa4fp8mma route
+# (Gemma4 head_dim-512 kernels, also dropped from the name). mem-fraction-static 0.92 -> 0.85: every
+# qwen38 run uses 0.85; the GDN state pool wants the headroom. conc c75/c100/c125 unchanged.
+# Prefill CUDA graph (breakable) is unproven for Qwen3.8's hybrid linear layers on v0.5.22; if capture
+# fails, drop --cuda-graph-backend-prefill (and the pfbreak name token).
+name: qwen38-livekit-tp4-dyn-sgl-fp8kv-pfbreak-fastok-car128
+runner: cluster:hcm-hgx02
+image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:0.5.22-ai-all-dyn1.6.0-g4p2
+model: Qwen/Qwen3.8-27B-FP8
+gpus: 4
+precision: fp8
+env:
+  NCCL_P2P_LEVEL: NVL
+  SGLANG_CUSTOM_ALL_REDUCE_V2_MAX_SIZE_KB: "131072"
+  AIPERF_HTTP_X_DYNAMO_SESSION_ID_FROM_CORRELATION_ID: "true"
+serve: |
+  python3 -m dynamo.sglang
+  --model-path Qwen/Qwen3.8-27B-FP8
+  --served-model-name Qwen/Qwen3.8-27B-FP8
+  --tp 4
+  --context-length 262144
+  --max-running-requests 256
+  --attention-backend fa3
+  --page-size 64
+  --kv-cache-dtype fp8_e4m3
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --mem-fraction-static 0.85
+  --mamba-full-memory-ratio 1.5
+  --enable-cache-report --enable-metrics
+  --trust-remote-code
+  --cuda-graph-backend-prefill breakable
+  --dyn-tool-call-parser qwen3_coder --dyn-reasoning-parser qwen3
+router:
+  image: vcr.vngcloud.vn/108942-public69/dynamo-stack/sglang-runtime:0.5.22-ai-all-dyn1.6.0-g4p2
+  env:
+    DYN_LOG: info,dynamo_kv_router::scheduling::selector=debug
+    DYN_PARSER_VERSION: "2"
+    FASTOKENS_BPE_THREADS: "4"
+  serve: |
+    python3 -m dynamo.frontend
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --router-session-affinity-ttl-secs=1800 --router-session-affinity-mode=hard
+    --tokenizer fastokens
+scenario: livekit
+conc: [75, 100, 125]
