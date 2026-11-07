@@ -9,7 +9,7 @@
 # E4M3 prefill head_dim<=256 routed to FA3 behind SGLANG_FA4_SM90_FP8_PREFILL_VIA_FA3=1.
 # NEXTN + assistant draft: topk 1, the draft runs on the target's backend (FROZEN_KV_MTP on green).
 name: gemma4-31b-it-fp8block-sgl-green-mtp-1gpu-h200han-isl8k-osl1k-cache90-c80
-runner: cluster:hcm-hgx02
+runner: h200-han
 image: vcr.vngcloud.vn/108942-public69/sglang:viethq5-fork-fee467d1-green-ga-dbb9075e-go-8b36c7b7-v2
 model: RedHatAI/gemma-4-31B-it-FP8-block
 gpus: 1
