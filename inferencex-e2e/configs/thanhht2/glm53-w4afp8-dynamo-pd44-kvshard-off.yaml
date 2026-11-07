@@ -3,6 +3,8 @@
 # off: --enable-kv-cache-sharding dropped, and the prefill worker on the H200 default DSA backends instead of trtllm
 # (trtllm is only there because KV Shard requires it, and its kernel needs SM100). Every CP rank then holds the full
 # KV of every cached page.
+# - Memory: at TP4 the weights take 104.3 GB/GPU (+2.3-3.6 GB MTP) of ~140 GB, so --mem-fraction-static=0.92
+#   (0.80 left no KV pool: smoke run 42328364476) and prefill chunks of 16384 to leave room for activations.
 name: glm53-w4afp8-dynamo-pd44-kvshard-off
 runner: cluster:hcm-hgx01
 image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.7.0-dev-fa98520149
@@ -34,10 +36,10 @@ serve: |
   --enable-metrics --enable-cache-report
   --prefill
   --attn-cp-size=4 --enable-prefill-cp --cp-strategy=interleave
-  --chunked-prefill-size=32768 --mem-fraction-static=0.80 --max-running-requests=32
+  --chunked-prefill-size=16384 --mem-fraction-static=0.92 --max-running-requests=32
   --decode
   --dp=4 --enable-dp-attention
-  --mem-fraction-static=0.80 --max-running-requests=64
+  --mem-fraction-static=0.92 --max-running-requests=64
 router:
   image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.7.0-dev-fa98520149
   serve: |

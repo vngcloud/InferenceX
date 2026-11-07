@@ -10,6 +10,8 @@
 # - KV transfer: mooncake, TCP transport (MC_FORCE_TCP=1): the containers do not get the IB devices with IPC_LOCK.
 # - No HiCache: KV Shard rejects --hicache-storage-backend, and the point is the GPU KV pool.
 # - Engine image: Dynamo main fa98520149 (1.7.0-dev) built on lmsysorg/sglang:v0.5.23-cu130-runtime.
+# - Memory: at TP4 the weights take 104.3 GB/GPU (+2.3-3.6 GB MTP) of ~140 GB, so --mem-fraction-static=0.92
+#   (0.80 left no KV pool: smoke run 42328364476) and prefill chunks of 16384 to leave room for activations.
 name: glm53-w4afp8-dynamo-pd44-kvshard-on
 runner: cluster:hcm-hgx01
 image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.7.0-dev-fa98520149
@@ -43,10 +45,10 @@ serve: |
   --attn-cp-size=4 --enable-prefill-cp --cp-strategy=interleave
   --enable-kv-cache-sharding
   --dsa-prefill-backend=trtllm --dsa-decode-backend=trtllm
-  --chunked-prefill-size=32768 --mem-fraction-static=0.80 --max-running-requests=32
+  --chunked-prefill-size=16384 --mem-fraction-static=0.92 --max-running-requests=32
   --decode
   --dp=4 --enable-dp-attention
-  --mem-fraction-static=0.80 --max-running-requests=64
+  --mem-fraction-static=0.92 --max-running-requests=64
 router:
   image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.7.0-dev-fa98520149
   serve: |
