@@ -1,0 +1,58 @@
+# KV Shard (--enable-kv-cache-sharding, sglang v0.5.23) on GLM-5.3 W4AFP8 with prefill/decode disaggregation on
+# ONE 8xH200 node: benchmarks/single_node/serving/pd_single_node.sh runs a dynamo.sglang prefill worker on GPUs 0-3
+# and a decode worker on GPUs 4-7, and the Dynamo frontend routes prefill -> decode. Pair: ...-pd44-kvshard-off.
+# - Prefill: TP4 with prefill CP 4 (interleave), so a logical 64-token page is striped over the 4 CP ranks and
+#   each rank keeps 1/4 of every cached page. KV Shard for a DSA model requires the trtllm DSA prefill and decode
+#   backends, fp8_e4m3 KV, page 64, mooncake and no --enable-dsa-cache-layer-split (kv_shard_hook.py).
+#   CAVEAT: sglang's trtllm DSA path calls flashinfer's trtllm-gen sparse MLA kernel, which flashinfer only ships for
+#   SM100/SM103/SM107; on H200 (SM90) this config is expected to fail. It is run as a c4 smoke first to confirm.
+# - Decode: TP4 / DP-attention 4 / EP4, H200 default DSA backends, no KV Shard (it is prefill-only).
+# - KV transfer: mooncake, TCP transport (MC_FORCE_TCP=1): the containers do not get the IB devices with IPC_LOCK.
+# - No HiCache: KV Shard rejects --hicache-storage-backend, and the point is the GPU KV pool.
+# - Engine image: Dynamo main fa98520149 (1.7.0-dev) built on lmsysorg/sglang:v0.5.23-cu130-runtime.
+name: glm53-w4afp8-dynamo-pd44-kvshard-on
+runner: cluster:hcm-hgx01
+image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.7.0-dev-fa98520149
+model: PhalaCloud/GLM-5.3-W4AFP8
+gpus: 8
+precision: w4afp8
+env:
+  PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  NCCL_P2P_LEVEL: NVL
+  HF_HUB_OFFLINE: "1"
+  NVSHMEM_REMOTE_TRANSPORT: none
+  NVSHMEM_IB_ENABLE_IBGDA: "0"
+  SGLANG_ENABLE_METRICS_DEVICE_TIMER: "1"
+  SGLANG_DISAGGREGATION_WAITING_TIMEOUT: "900"
+  MC_FORCE_TCP: "1"
+  # pd_single_node.sh: the prefill worker publishes KV events for the frontend's KV router on a free port
+  KV_EVENTS_PREFILL: "1"
+serve: |
+  bash benchmarks/single_node/serving/pd_single_node.sh
+  python3 -m dynamo.sglang
+  --model-path=PhalaCloud/GLM-5.3-W4AFP8
+  --served-model-name=zai-org/GLM-5.3
+  --quantization=w4afp8 --tp=4 --ep=4
+  --disaggregation-transfer-backend=mooncake
+  --kv-cache-dtype=fp8_e4m3 --page-size=64
+  --context-length=300000 --allow-auto-truncate
+  --tool-call-parser=glm47 --reasoning-parser=glm45
+  --speculative-algorithm=EAGLE --speculative-num-steps=3 --speculative-eagle-topk=1 --speculative-num-draft-tokens=4
+  --enable-metrics --enable-cache-report
+  --prefill
+  --attn-cp-size=4 --enable-prefill-cp --cp-strategy=interleave
+  --enable-kv-cache-sharding
+  --dsa-prefill-backend=trtllm --dsa-decode-backend=trtllm
+  --chunked-prefill-size=32768 --mem-fraction-static=0.80 --max-running-requests=32
+  --decode
+  --dp=4 --enable-dp-attention
+  --mem-fraction-static=0.80 --max-running-requests=64
+router:
+  image: vcr.vngcloud.vn/60108-backend-worker/dynamo-stack/sglang-runtime:1.7.0-dev-fa98520149
+  serve: |
+    python3 -m dynamo.frontend
+    --http-host=0.0.0.0 --http-port=8888
+    --router-mode=kv --router-prefill-load-scale=16 --router-min-initial-workers=1
+    --dyn-chat-processor=sglang --dyn-preprocess-workers=8
+scenario: hidden-prefix-e3
+conc: [40]
