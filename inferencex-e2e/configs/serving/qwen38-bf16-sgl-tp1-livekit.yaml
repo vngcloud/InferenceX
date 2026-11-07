@@ -21,7 +21,7 @@ serve: |
   --schedule-policy shortest-prefill-first
   --mem-fraction-static 0.85
   --mamba-full-memory-ratio 1.5
-  --disable-prefix-caching
+  --disable-radix-cache
   --speculative-algorithm EAGLE --speculative-num-steps 3
   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
   --enable-linear-replayssm-spec
