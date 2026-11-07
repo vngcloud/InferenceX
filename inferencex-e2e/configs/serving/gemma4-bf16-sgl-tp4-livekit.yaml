@@ -1,0 +1,28 @@
+# MAX-parity arm: plain SGLang BF16, single TP4 engine, no router, on the LiveKit v1.1-warm trace
+# (1200 s) at MAX's CCU 8 — mirrors stock MAX job 9772 (prefix caching on).
+name: gemma4-bf16-sgl-tp4-livekit
+runner: cluster:hcm-hgx02
+image: lmsysorg/sglang:v0.5.23
+model: google/gemma-4-31B-it
+gpus: 4
+precision: bf16
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  python3 -m sglang.launch_server
+  --model-path google/gemma-4-31B-it
+  --trust-remote-code
+  --tp 4
+  --context-length 262144
+  --max-running-requests 160
+  --attention-backend fa3
+  --page-size 64
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.92
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+scenario: livekit
+conc: [8]

@@ -1,0 +1,28 @@
+# MAX-parity arm: plain SGLang BF16 (MAX-pinned revision 842da379), no router, prefix caching on
+# like MAX's Gemma cells. ISL 32k extends MAX's only validated point (8k/1k/c8).
+name: gemma4-bf16-sgl-tp1-synth-isl32k
+runner: cluster:han-h200-01
+image: lmsysorg/sglang:v0.5.23
+model: google/gemma-4-31B-it
+gpus: 1
+precision: bf16
+env:
+  SGLANG_SWA_EVICTION_INTERVAL: "32"
+serve: |
+  python3 -m sglang.launch_server
+  --model-path google/gemma-4-31B-it
+  --trust-remote-code
+  --tp 1
+  --context-length 262144
+  --max-running-requests 64
+  --attention-backend fa3
+  --page-size 64
+  --chunked-prefill-size 4096
+  --schedule-policy shortest-prefill-first
+  --swa-full-tokens-ratio 0.2
+  --mem-fraction-static 0.90
+  --enable-cache-report --enable-metrics
+  --tool-call-parser gemma4 --reasoning-parser gemma4
+scenario: synthetic
+workload: {isl: [32k], osl: [1k], cache: [0], search: false}
+conc: [8, 32]

@@ -1,0 +1,33 @@
+# MAX-parity arm: plain SGLang BF16 TP4, no router, mirroring stock MAX's modeling (EAGLE MTP3,
+# prefix caching forced off). Qwen3.8 never ran TP4 under MAX (upstream crashes). ISL 128k arm.
+name: qwen38-bf16-sgl-tp4-synth-isl128k
+runner: cluster:hcm-hgx02
+image: lmsysorg/sglang:v0.5.23
+model: Qwen/Qwen3.8-27B
+gpus: 4
+precision: bf16
+env:
+  FLASHINFER_CUDA_ARCH_LIST: "12.0f"
+  NCCL_P2P_LEVEL: NVL
+serve: |
+  python3 -m sglang.launch_server
+  --model-path Qwen/Qwen3.8-27B
+  --trust-remote-code
+  --tp 4
+  --context-length 262144
+  --max-running-requests 64
+  --attention-backend flashinfer
+  --chunked-prefill-size 8192
+  --max-prefill-tokens 16384
+  --schedule-policy shortest-prefill-first
+  --mem-fraction-static 0.85
+  --mamba-full-memory-ratio 1.5
+  --disable-prefix-caching
+  --speculative-algorithm EAGLE --speculative-num-steps 3
+  --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
+  --enable-linear-replayssm-spec
+  --reasoning-parser qwen3 --tool-call-parser qwen3_coder
+  --enable-metrics --enable-cache-report
+scenario: synthetic
+workload: {isl: [128k], osl: [1k], cache: [0], search: false}
+conc: [8, 16, 32, 64]
